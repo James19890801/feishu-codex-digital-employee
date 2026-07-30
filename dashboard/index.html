@@ -90,6 +90,97 @@
       </article>
     </section>
 
+    <section class="config-console" id="configConsole">
+      <div class="console-heading">
+        <div>
+          <span>CONFIGURATION COPILOT / SAFE MODE</span>
+          <h3>用对话调整你的数字人</h3>
+          <p>说出你想改变的效果。Codex 只生成受限配置方案，确认后才会备份、修改、重启并验收。</p>
+        </div>
+        <div class="console-state">
+          <i></i>
+          <span>LOCAL CONTROL</span>
+          <b id="configConnection">正在连接</b>
+        </div>
+      </div>
+
+      <div class="config-overview">
+        <div><span>消息范围</span><strong id="configScope">读取中</strong></div>
+        <div><span>主轮询</span><strong id="configPoll">—</strong></div>
+        <div><span>身份与规则</span><strong id="configProfile">—</strong></div>
+        <div><span>知识文档</span><strong id="configKnowledge">—</strong></div>
+      </div>
+
+      <div class="assistant-workbench">
+        <article class="assistant-chat">
+          <div class="assistant-log" id="configMessages" aria-live="polite">
+            <div class="assistant-message assistant">
+              <span>CONFIG COPILOT</span>
+              <p>告诉我你想怎么调整。例如：“回复更简洁”“轮询改成 3 秒”“所有发布动作都要本人确认”。</p>
+            </div>
+          </div>
+
+          <div class="prompt-chips" aria-label="常用配置指令">
+            <button type="button" data-config-prompt="以后日常回复控制在三句话以内，保持自然，不要客服腔。">回复更简洁</button>
+            <button type="button" data-config-prompt="把消息轮询间隔调整为 3 秒。">轮询改为 3 秒</button>
+            <button type="button" data-config-prompt="所有公开发布和跨会话发送都必须先由本人确认。">加强确认规则</button>
+          </div>
+
+          <form class="assistant-composer" id="configForm">
+            <label for="configInput">配置指令</label>
+            <textarea id="configInput" rows="3" maxlength="4000" placeholder="直接描述你想改变的效果，不需要懂 JSON…"></textarea>
+            <div>
+              <small>不会接受密钥、验证码、任意命令或系统文件路径</small>
+              <button class="button config-send" id="configSendButton" type="submit">生成修改方案</button>
+            </div>
+          </form>
+        </article>
+
+        <aside class="change-inspector">
+          <div class="inspector-title">
+            <div>
+              <span>CHANGE INSPECTOR</span>
+              <h4>修改预览</h4>
+            </div>
+            <b id="planRisk">等待指令</b>
+          </div>
+
+          <div class="plan-empty" id="planEmpty">
+            <strong>不会直接修改</strong>
+            <p>每一项变化都会先显示“修改前 / 修改后”。你确认后才会写入。</p>
+          </div>
+
+          <div class="plan-card hidden" id="planCard">
+            <div class="plan-summary">
+              <span>本次方案</span>
+              <strong id="planSummary">—</strong>
+            </div>
+            <div class="plan-changes" id="planChanges"></div>
+            <div class="confirmation-box hidden" id="confirmationBox">
+              <span>敏感变更 · 需要二次确认</span>
+              <p>输入确认码 <b id="confirmationHint">------</b></p>
+              <input id="confirmationInput" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="6 位确认码">
+            </div>
+            <div class="plan-actions">
+              <button class="button primary" id="applyPlanButton" type="button">确认并应用</button>
+              <button class="button" id="cancelPlanButton" type="button">放弃方案</button>
+            </div>
+            <p class="apply-contract">应用流程：创建备份 → 校验 → 重启 → 健康检查 → 失败自动回滚</p>
+          </div>
+
+          <div class="history-panel">
+            <div class="history-title">
+              <span>ROLLBACK POINTS</span>
+              <b>最近备份</b>
+            </div>
+            <div id="configHistory">
+              <p class="empty">正在读取修改记录…</p>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
     <section class="lower-grid">
       <article class="panel timeline-panel">
         <div class="panel-title">
@@ -129,6 +220,6 @@
   </main>
 
   <div class="toast" id="toast" role="status"></div>
-  <script src="/app.js"></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

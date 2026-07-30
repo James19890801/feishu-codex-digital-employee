@@ -543,11 +543,66 @@ The dashboard displays:
     Current scope configuration
     Current event transport
     Current model
+    A conversational configuration assistant
+    Before-and-after change previews
+    Confirmation level and confirmation code
+    Recent configuration rollback points
 
 The dashboard refreshes every five seconds.
 
 It can restart the main LaunchAgent. The restart endpoint verifies the request
 host, origin, and a required custom action header.
+
+CONVERSATIONAL CONFIGURATION ASSISTANT
+
+The dashboard includes a local conversation window for operators who do not
+want to edit JSON or policy documents by hand. An operator can describe the
+desired behavior in natural language, such as changing the polling interval,
+making replies shorter, or strengthening an approval rule.
+
+This is a constrained configuration planner, not an unrestricted shell. Codex
+runs in an ephemeral, read-only planning session and can propose changes only
+to an explicit set of configuration fields and operating documents. It cannot
+change application credentials, the owner identity, Keychain settings, binary
+paths, the dashboard port, proxy settings, or arbitrary files. The assistant
+rejects credential-like input.
+
+The assistant follows this transaction:
+
+    Read the current safe configuration and behavior documents
+    Produce a typed change plan
+    Validate every proposed field against a local allowlist
+    Display the exact before and after values
+    Require operator confirmation
+    Require a six-digit second confirmation for high-impact changes
+    Create a complete local snapshot
+    Write files atomically
+    Validate the resulting configuration
+    Restart the main service
+    Check the process, polling, WebSocket, and SQLite health
+    Automatically restore the snapshot if validation or health checks fail
+    Append a metadata-only audit record
+
+High-impact changes include conversation scope, event transport, Codex model,
+the Operating Bible, and the knowledge catalog. Plans expire after fifteen
+minutes and can be applied only once. A stale plan is rejected when its
+original configuration has changed before confirmation.
+
+The local browser session receives a random in-memory session token. Mutating
+requests require the correct loopback Host, HTTP Origin, action name, and
+session token. The dashboard does not listen on the LAN or public internet.
+
+Recent snapshots are available in the same panel. Manual rollback also creates
+a safety snapshot, restarts the service, and verifies health. If a rollback
+attempt fails, AIPRO tries to restore the immediately preceding state.
+
+Local configuration snapshots:
+
+    data/config-backups/
+
+Configuration audit log:
+
+    data/configuration-audit.jsonl
 
 The dashboard sets restrictive browser security headers, disables caching,
 denies framing, and uses a Content Security Policy.

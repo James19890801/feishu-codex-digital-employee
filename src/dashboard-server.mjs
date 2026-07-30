@@ -1,15 +1,39 @@
 import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { config } from './config.mjs';
+import {
+  applyChangePlan,
+  assertPlanMatchesDocuments,
+  buildPlannerPrompt,
+  createChangePlan,
+  effectivePublicConfiguration,
+  parsePlannerOutput,
+  publicConfiguration,
+} from './config-assistant.mjs';
+import {
+  appendConfigurationAudit,
+  createConfigurationSnapshot,
+  listConfigurationSnapshots,
+  readConfigurationDocuments,
+  restoreConfigurationSnapshot,
+  writeConfigurationDocuments,
+} from './config-store.mjs';
+import { PendingConfigurationPlans } from './pending-config-plans.mjs';
+import {
+  isAllowedDashboardAction,
+  parseDashboardJson,
+} from './dashboard-api-security.mjs';
 import {
   buildOperatorView,
   isCredentialAccessBlocked,
 } from './dashboard-model.mjs';
 import { notificationEvent } from './notification-policy.mjs';
 import { runBufferedProcess } from './process-runner.mjs';
+import { SerialKeyQueue } from './serial-key-queue.mjs';
 
 const HOST = '127.0.0.1';
 const PORT = config.dashboardPort;
@@ -18,16 +42,23 @@ const DB_PATH = join(DATA_DIR, 'agent-state.sqlite');
 const LOCK_PATH = join(DATA_DIR, 'service.lock');
 const NOTIFICATION_STATE_PATH = join(DATA_DIR, 'dashboard-notification-state.json');
 const DASHBOARD_DIR = join(config.workdir, 'dashboard');
+const CONFIG_ASSISTANT_RUNTIME_DIR = join(DATA_DIR, 'config-assistant-runtime');
+const CONFIG_ASSISTANT_CODEX_HOME = join(DATA_DIR, 'codex-home');
+const CONFIG_ASSISTANT_SESSION_TOKEN = randomBytes(32).toString('hex');
+const INITIAL_PUBLIC_CONFIGURATION = publicConfiguration(config);
 const SERVICE_LABEL = 'com.local.feishu-codex-digital-employee';
 const ALLOWED_HOSTS = new Set([`${HOST}:${PORT}`, `localhost:${PORT}`]);
 const staticFiles = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+  ['/config-ui.js', ['config-ui.js', 'text/javascript; charset=utf-8']],
 ]);
 
 let eventCache = { checkedAt: 0, processPid: null, active: false, activeConsumers: 0 };
 let eventCheckInFlight = null;
+const pendingConfigurationPlans = new PendingConfigurationPlans();
+const configurationMutationQueue = new SerialKeyQueue();
 let lastNotificationState = await readFile(NOTIFICATION_STATE_PATH, 'utf8')
   .then(value => JSON.parse(value)?.state || '')
   .catch(() => '');
@@ -272,6 +303,238 @@ async function restartMainService() {
   });
 }
 
+async function readDashboardJson(request) {
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of request) {
+    bytes += chunk.length;
+    if (bytes > 64 * 1024) throw new Error('Dashboard request body is too large');
+    chunks.push(chunk);
+  }
+  return parseDashboardJson(Buffer.concat(chunks).toString('utf8'));
+}
+
+function allowedConfigAction(request, expectedAction) {
+  return isAllowedDashboardAction({
+    host: request.headers.host || '',
+    origin: request.headers.origin || '',
+    action: request.headers['x-dashboard-action'] || '',
+    expectedAction,
+    token: request.headers['x-dashboard-session'] || '',
+    expectedToken: CONFIG_ASSISTANT_SESSION_TOKEN,
+    allowedHosts: ALLOWED_HOSTS,
+  });
+}
+
+function plannerEnvironment() {
+  const env = {
+    ...process.env,
+    CODEX_HOME: CONFIG_ASSISTANT_CODEX_HOME,
+  };
+  if (config.codexProxyUrl) {
+    env.HTTP_PROXY = config.codexProxyUrl;
+    env.HTTPS_PROXY = config.codexProxyUrl;
+    env.ALL_PROXY = config.codexProxyUrl;
+  }
+  return env;
+}
+
+async function readEffectiveConfigurationDocuments() {
+  const documents = await readConfigurationDocuments(config.workdir);
+  return {
+    ...documents,
+    config: {
+      ...INITIAL_PUBLIC_CONFIGURATION,
+      ...documents.config,
+    },
+  };
+}
+
+async function createConfigurationAssistantPlan(requestText) {
+  const documents = await readEffectiveConfigurationDocuments();
+  const prompt = buildPlannerPrompt({ request: requestText, documents });
+  await Promise.all([
+    mkdir(CONFIG_ASSISTANT_RUNTIME_DIR, { recursive: true, mode: 0o700 }),
+    mkdir(CONFIG_ASSISTANT_CODEX_HOME, { recursive: true, mode: 0o700 }),
+  ]);
+  const model = documents.config.codexModel || config.codexModel;
+  const { stdout } = await runBufferedProcess(config.codexBin, [
+    'exec',
+    '--ephemeral',
+    '--ignore-user-config',
+    '--skip-git-repo-check',
+    '--sandbox', 'read-only',
+    '--color', 'never',
+    '-m', model,
+    '-C', CONFIG_ASSISTANT_RUNTIME_DIR,
+    '-',
+  ], {
+    cwd: CONFIG_ASSISTANT_RUNTIME_DIR,
+    env: plannerEnvironment(),
+    input: prompt,
+    timeoutMs: Math.min(config.codexTimeoutMs, 120_000),
+    killGraceMs: 5_000,
+    maxStdoutBytes: 512 * 1024,
+    maxStderrBytes: 1024 * 1024,
+  });
+  const proposal = parsePlannerOutput(stdout);
+  const plan = createChangePlan(proposal, documents, {
+    id: `plan-${Date.now()}-${randomUUID().slice(0, 8)}`,
+  });
+  const confirmationCode = plan.confirmationLevel === 'double'
+    ? String(randomInt(100000, 1000000))
+    : '';
+  const pending = pendingConfigurationPlans.add(plan, { confirmationCode });
+  await appendConfigurationAudit(config.workdir, {
+    event: 'configuration_plan_created',
+    planId: plan.id,
+    summary: plan.summary,
+    confirmationLevel: plan.confirmationLevel,
+    changes: plan.changes.map(change => ({
+      target: change.target,
+      key: change.key || '',
+      label: change.label,
+    })),
+  });
+  return pending;
+}
+
+async function validateConfigurationOnDisk({ verifyModel = false } = {}) {
+  const node = join(config.nodeBin, 'node');
+  await runBufferedProcess(node, [join(config.workdir, 'scripts', 'check-config.mjs')], {
+    cwd: config.workdir,
+    timeoutMs: 30_000,
+    maxStdoutBytes: 256 * 1024,
+    maxStderrBytes: 512 * 1024,
+  });
+  if (verifyModel) {
+    await runBufferedProcess(node, [join(config.workdir, 'scripts', 'codex-smoke.mjs')], {
+      cwd: config.workdir,
+      env: plannerEnvironment(),
+      timeoutMs: 100_000,
+      maxStdoutBytes: 256 * 1024,
+      maxStderrBytes: 512 * 1024,
+    });
+  }
+}
+
+function synchronizeDashboardConfiguration(rawConfig) {
+  Object.assign(
+    config,
+    effectivePublicConfiguration(INITIAL_PUBLIC_CONFIGURATION, rawConfig),
+  );
+}
+
+async function waitForMainConfigurationHealth({ requireWebsocket = true } = {}) {
+  const deadline = Date.now() + 35_000;
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await collectStatus();
+    const coreHealthy = latest.process.alive
+      && latest.polling.healthy
+      && latest.database.integrity === 'ok';
+    if (coreHealthy && (!requireWebsocket || latest.websocket.active)) return latest;
+    await new Promise(resolve => setTimeout(resolve, 1_000));
+  }
+  const issues = latest?.issueLabels?.join('; ') || 'main process did not become healthy';
+  throw new Error(`Post-change health check failed: ${issues}`);
+}
+
+async function applyConfigurationAssistantPlan(plan) {
+  const current = await readEffectiveConfigurationDocuments();
+  assertPlanMatchesDocuments(current, plan);
+  const snapshot = await createConfigurationSnapshot(config.workdir, {
+    summary: `Before: ${plan.summary}`,
+    planId: plan.id,
+  });
+  const updated = applyChangePlan(current, plan);
+  const verifyModel = plan.changes.some(change => change.target === 'config' && change.key === 'codexModel');
+  try {
+    await writeConfigurationDocuments(config.workdir, updated);
+    await validateConfigurationOnDisk({ verifyModel });
+    synchronizeDashboardConfiguration(updated.config);
+    await restartMainService();
+    const status = await waitForMainConfigurationHealth();
+    await appendConfigurationAudit(config.workdir, {
+      event: 'configuration_applied',
+      planId: plan.id,
+      snapshotId: snapshot.id,
+      summary: plan.summary,
+      changes: plan.changes.map(change => ({
+        target: change.target,
+        key: change.key || '',
+        label: change.label,
+      })),
+    });
+    return { snapshot, status };
+  } catch (error) {
+    let rollbackError = null;
+    try {
+      const restored = await restoreConfigurationSnapshot(config.workdir, snapshot.id);
+      await validateConfigurationOnDisk();
+      synchronizeDashboardConfiguration(restored.config);
+      await restartMainService();
+      await waitForMainConfigurationHealth();
+    } catch (failure) {
+      rollbackError = failure;
+    }
+    await appendConfigurationAudit(config.workdir, {
+      event: rollbackError ? 'configuration_rollback_failed' : 'configuration_auto_rolled_back',
+      planId: plan.id,
+      snapshotId: snapshot.id,
+      summary: plan.summary,
+      error: String(error?.message || error).slice(0, 1000),
+      rollbackError: rollbackError ? String(rollbackError?.message || rollbackError).slice(0, 1000) : '',
+    });
+    const failure = new Error(rollbackError
+      ? `Configuration failed and automatic rollback also failed: ${rollbackError.message}`
+      : `Configuration failed and was automatically rolled back: ${error.message}`);
+    failure.rolledBack = !rollbackError;
+    throw failure;
+  }
+}
+
+async function rollbackConfiguration(snapshotId) {
+  const safetySnapshot = await createConfigurationSnapshot(config.workdir, {
+    summary: `Before rollback to ${snapshotId}`,
+    planId: `rollback-${snapshotId}`,
+  });
+  try {
+    const restored = await restoreConfigurationSnapshot(config.workdir, snapshotId);
+    await validateConfigurationOnDisk();
+    synchronizeDashboardConfiguration(restored.config);
+    await restartMainService();
+    const status = await waitForMainConfigurationHealth();
+    await appendConfigurationAudit(config.workdir, {
+      event: 'configuration_manual_rollback',
+      snapshotId,
+      safetySnapshotId: safetySnapshot.id,
+    });
+    return { safetySnapshot, status };
+  } catch (error) {
+    let recoveryError = null;
+    try {
+      const recovered = await restoreConfigurationSnapshot(config.workdir, safetySnapshot.id);
+      await validateConfigurationOnDisk();
+      synchronizeDashboardConfiguration(recovered.config);
+      await restartMainService();
+      await waitForMainConfigurationHealth();
+    } catch (failure) {
+      recoveryError = failure;
+    }
+    await appendConfigurationAudit(config.workdir, {
+      event: recoveryError ? 'configuration_rollback_recovery_failed' : 'configuration_rollback_recovered',
+      snapshotId,
+      safetySnapshotId: safetySnapshot.id,
+      error: String(error?.message || error).slice(0, 1000),
+      recoveryError: recoveryError ? String(recoveryError?.message || recoveryError).slice(0, 1000) : '',
+    });
+    throw new Error(recoveryError
+      ? `Rollback failed and safety recovery also failed: ${recoveryError.message}`
+      : `Rollback failed; the previous configuration was restored: ${error.message}`);
+  }
+}
+
 const server = createServer(async (request, response) => {
   const host = request.headers.host || '';
   if (!ALLOWED_HOSTS.has(host)) {
@@ -289,6 +552,101 @@ const server = createServer(async (request, response) => {
     }
     if (request.method === 'GET' && url.pathname === '/api/status') {
       sendJson(response, 200, await collectStatus());
+      return;
+    }
+    if (request.method === 'GET' && url.pathname === '/api/config') {
+      const documents = await readEffectiveConfigurationDocuments();
+      sendJson(response, 200, {
+        ok: true,
+        sessionToken: CONFIG_ASSISTANT_SESSION_TOKEN,
+        configuration: publicConfiguration(documents.config),
+        profile: {
+          personaCharacters: documents.persona.length,
+          bibleCharacters: documents.bible.length,
+          knowledgeDocuments: documents.knowledgeCatalog.length,
+        },
+        snapshots: await listConfigurationSnapshots(config.workdir, 12),
+      });
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/config/plan') {
+      if (!allowedConfigAction(request, 'config-plan')) {
+        sendJson(response, 403, { ok: false, error: 'configuration action rejected' });
+        return;
+      }
+      try {
+        const body = await readDashboardJson(request);
+        const plan = await createConfigurationAssistantPlan(body.message);
+        sendJson(response, 200, { ok: true, plan });
+      } catch (error) {
+        await appendConfigurationAudit(config.workdir, {
+          event: 'configuration_plan_rejected',
+          error: String(error?.message || error).slice(0, 1000),
+        }).catch(() => {});
+        sendJson(response, 400, {
+          ok: false,
+          error: String(error?.message || error).slice(0, 500),
+        });
+      }
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/config/apply') {
+      if (!allowedConfigAction(request, 'config-apply')) {
+        sendJson(response, 403, { ok: false, error: 'configuration action rejected' });
+        return;
+      }
+      try {
+        const body = await readDashboardJson(request);
+        const plan = pendingConfigurationPlans.consume(body.planId, {
+          confirmationCode: body.confirmationCode,
+        });
+        if (!plan.changes.length) throw new Error('This plan does not contain any changes');
+        const result = await configurationMutationQueue.run(
+          'configuration',
+          () => applyConfigurationAssistantPlan(plan),
+        );
+        sendJson(response, 200, {
+          ok: true,
+          message: 'Configuration applied and verified',
+          snapshot: result.snapshot,
+          state: result.status.state,
+        });
+      } catch (error) {
+        sendJson(response, error?.rolledBack ? 409 : 400, {
+          ok: false,
+          rolledBack: Boolean(error?.rolledBack),
+          error: String(error?.message || error).slice(0, 700),
+        });
+      }
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/config/rollback') {
+      if (!allowedConfigAction(request, 'config-rollback')) {
+        sendJson(response, 403, { ok: false, error: 'configuration action rejected' });
+        return;
+      }
+      try {
+        const body = await readDashboardJson(request);
+        const snapshotId = String(body.snapshotId || '');
+        if (body.confirmation !== `ROLLBACK ${snapshotId}`) {
+          throw new Error('Rollback confirmation is invalid');
+        }
+        const result = await configurationMutationQueue.run(
+          'configuration',
+          () => rollbackConfiguration(snapshotId),
+        );
+        sendJson(response, 200, {
+          ok: true,
+          message: 'Snapshot restored and verified',
+          safetySnapshot: result.safetySnapshot,
+          state: result.status.state,
+        });
+      } catch (error) {
+        sendJson(response, 400, {
+          ok: false,
+          error: String(error?.message || error).slice(0, 700),
+        });
+      }
       return;
     }
     if (request.method === 'POST' && url.pathname === '/api/restart') {

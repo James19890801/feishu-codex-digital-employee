@@ -1,3 +1,10 @@
+import {
+  assistantRequestHeaders,
+  formatAssistantValue,
+  planCanApply,
+  rollbackConfirmation,
+} from './config-ui.js';
+
 const $ = id => document.getElementById(id);
 const stateLabels = {
   online: { title: '运行正常', kicker: '主通道正在真实工作', code: 'LIVE' },
@@ -21,6 +28,9 @@ const eventLabels = {
 
 let refreshTimer;
 let lastFetchedAt = 0;
+let configSessionToken = '';
+let pendingConfigPlan = null;
+let configBusy = false;
 
 function formatAge(ms) {
   if (ms === null || !Number.isFinite(ms)) return '未知';
@@ -165,6 +175,285 @@ function showToast(message) {
   setTimeout(() => $('toast').classList.remove('show'), 3600);
 }
 
+async function responseJson(response) {
+  const payload = await response.json().catch(() => ({
+    ok: false,
+    error: `HTTP ${response.status}`,
+  }));
+  if (!response.ok || payload.ok === false) {
+    const error = new Error(payload.error || `HTTP ${response.status}`);
+    error.rolledBack = Boolean(payload.rolledBack);
+    throw error;
+  }
+  return payload;
+}
+
+function appendConfigMessage(role, text, { loading = false } = {}) {
+  const message = document.createElement('div');
+  message.className = `assistant-message ${role}${loading ? ' loading' : ''}`;
+  const label = document.createElement('span');
+  label.textContent = role === 'user'
+    ? 'YOU'
+    : role === 'system' ? 'SYSTEM' : 'CONFIG COPILOT';
+  const content = document.createElement('p');
+  content.textContent = String(text || '');
+  message.append(label, content);
+  $('configMessages').append(message);
+  $('configMessages').scrollTop = $('configMessages').scrollHeight;
+  return message;
+}
+
+function setConfigBusy(busy) {
+  configBusy = busy;
+  $('configSendButton').disabled = busy;
+  $('configInput').disabled = busy;
+  $('applyPlanButton').disabled = busy || !planCanApply(pendingConfigPlan);
+  $('cancelPlanButton').disabled = busy;
+}
+
+function renderConfigurationOverview(payload) {
+  const configuration = payload.configuration || {};
+  $('configScope').textContent = configuration.allowAllChats
+    ? '全部群聊与单聊'
+    : `指定会话 ${configuration.authorizedChatIds?.length || 0} 个`;
+  $('configPoll').textContent = Number.isFinite(configuration.pollIntervalMs)
+    ? `${(configuration.pollIntervalMs / 1000).toFixed(
+      configuration.pollIntervalMs % 1000 ? 1 : 0,
+    )} 秒`
+    : '—';
+  $('configProfile').textContent =
+    `${payload.profile?.personaCharacters || 0} + ${payload.profile?.bibleCharacters || 0} 字符`;
+  $('configKnowledge').textContent = `${payload.profile?.knowledgeDocuments || 0} 份`;
+  $('configConnection').textContent = '安全模式已连接';
+}
+
+function renderSnapshots(snapshots) {
+  const history = $('configHistory');
+  history.replaceChildren();
+  if (!snapshots?.length) {
+    const empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent = '还没有配置备份。首次应用修改时会自动创建。';
+    history.append(empty);
+    return;
+  }
+  for (const snapshot of snapshots) {
+    const row = document.createElement('div');
+    row.className = 'snapshot';
+
+    const detail = document.createElement('div');
+    const summary = document.createElement('strong');
+    summary.textContent = snapshot.summary || '配置备份';
+    const meta = document.createElement('small');
+    const time = document.createElement('time');
+    time.textContent = `${formatDate(snapshot.createdAt)} · ${snapshot.id}`;
+    meta.append(time);
+    detail.append(summary, meta);
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'button';
+    button.textContent = '回滚';
+    button.addEventListener('click', () => rollbackSnapshot(snapshot.id));
+    row.append(detail, button);
+    history.append(row);
+  }
+}
+
+async function loadConfigurationAssistant() {
+  try {
+    const payload = await responseJson(await fetch('/api/config', { cache: 'no-store' }));
+    configSessionToken = payload.sessionToken;
+    renderConfigurationOverview(payload);
+    renderSnapshots(payload.snapshots);
+  } catch (error) {
+    $('configConnection').textContent = '配置通道异常';
+    appendConfigMessage('system', `无法读取当前配置：${error.message}`);
+  }
+}
+
+function riskLabel(plan) {
+  if (!planCanApply(plan)) return ['无需修改', ''];
+  if (plan.confirmationLevel === 'double') return ['敏感变更 · 二次确认', 'double'];
+  return ['常规变更 · 一次确认', 'single'];
+}
+
+function renderConfigPlan(plan) {
+  pendingConfigPlan = plan;
+  const canApply = planCanApply(plan);
+  $('planEmpty').classList.toggle('hidden', canApply);
+  $('planCard').classList.toggle('hidden', !canApply);
+  const [label, className] = riskLabel(plan);
+  $('planRisk').textContent = label;
+  $('planRisk').className = className;
+  $('planSummary').textContent = plan.summary || '配置建议';
+  $('confirmationInput').value = '';
+
+  const changes = $('planChanges');
+  changes.replaceChildren();
+  for (const change of plan.changes || []) {
+    const card = document.createElement('section');
+    card.className = 'plan-change';
+
+    const header = document.createElement('header');
+    const title = document.createElement('strong');
+    title.textContent = change.label || change.key || change.target;
+    const target = document.createElement('span');
+    target.textContent = change.target === 'config' ? 'CONFIG' : 'IDENTITY';
+    header.append(title, target);
+
+    const comparison = document.createElement('div');
+    comparison.className = 'change-values';
+    for (const [caption, value, direction] of [
+      ['修改前', change.before, 'before'],
+      ['修改后', change.after, 'after'],
+    ]) {
+      const column = document.createElement('div');
+      column.className = direction;
+      const heading = document.createElement('span');
+      heading.textContent = caption;
+      const pre = document.createElement('pre');
+      pre.textContent = formatAssistantValue(value);
+      column.append(heading, pre);
+      comparison.append(column);
+    }
+    card.append(header, comparison);
+    if (change.reason) {
+      const reason = document.createElement('p');
+      reason.className = 'change-reason';
+      reason.textContent = change.reason;
+      card.append(reason);
+    }
+    changes.append(card);
+  }
+
+  const requiresCode = plan.confirmationLevel === 'double';
+  $('confirmationBox').classList.toggle('hidden', !requiresCode);
+  $('confirmationHint').textContent = requiresCode ? plan.confirmationCode : '------';
+  $('applyPlanButton').disabled = configBusy || !canApply;
+}
+
+function clearConfigPlan() {
+  pendingConfigPlan = null;
+  $('planEmpty').classList.remove('hidden');
+  $('planCard').classList.add('hidden');
+  $('planRisk').textContent = '等待指令';
+  $('planRisk').className = '';
+  $('planChanges').replaceChildren();
+  $('confirmationInput').value = '';
+}
+
+async function submitConfigRequest(event) {
+  event.preventDefault();
+  if (configBusy) return;
+  const message = $('configInput').value.trim();
+  if (!message) {
+    showToast('请先描述你希望调整的效果。');
+    return;
+  }
+  await loadConfigurationAssistant();
+  if (!configSessionToken) return;
+  clearConfigPlan();
+  appendConfigMessage('user', message);
+  $('configInput').value = '';
+  const loading = appendConfigMessage('assistant', '正在读取当前配置并生成受限修改方案', {
+    loading: true,
+  });
+  setConfigBusy(true);
+  try {
+    const payload = await responseJson(await fetch('/api/config/plan', {
+      method: 'POST',
+      headers: assistantRequestHeaders('config-plan', configSessionToken),
+      body: JSON.stringify({ message }),
+    }));
+    loading.remove();
+    const plan = payload.plan;
+    appendConfigMessage(
+      'assistant',
+      plan.answer || (planCanApply(plan)
+        ? '方案已生成。请检查右侧的修改前后对比，确认后再应用。'
+        : '我检查了当前配置，这个请求不需要修改。'),
+    );
+    renderConfigPlan(plan);
+  } catch (error) {
+    loading.remove();
+    appendConfigMessage('system', `方案生成失败：${error.message}`);
+  } finally {
+    setConfigBusy(false);
+  }
+}
+
+async function applyConfigPlan() {
+  if (configBusy || !planCanApply(pendingConfigPlan)) return;
+  const confirmationCode = $('confirmationInput').value.trim();
+  if (pendingConfigPlan.confirmationLevel === 'double'
+    && confirmationCode !== pendingConfigPlan.confirmationCode) {
+    showToast('请输入右侧显示的 6 位确认码。');
+    $('confirmationInput').focus();
+    return;
+  }
+  setConfigBusy(true);
+  appendConfigMessage('system', '正在备份、写入、重启并执行健康检查，请不要关闭页面。');
+  try {
+    const payload = await responseJson(await fetch('/api/config/apply', {
+      method: 'POST',
+      headers: assistantRequestHeaders('config-apply', configSessionToken),
+      body: JSON.stringify({
+        planId: pendingConfigPlan.id,
+        confirmationCode,
+      }),
+    }));
+    appendConfigMessage(
+      'assistant',
+      `配置已应用并通过健康检查。当前状态：${payload.state || '正常'}。已保留回滚点 ${payload.snapshot?.id || ''}。`,
+    );
+    clearConfigPlan();
+    await Promise.all([loadConfigurationAssistant(), refresh()]);
+  } catch (error) {
+    appendConfigMessage(
+      'system',
+      error.rolledBack
+        ? `应用失败，但系统已经自动恢复到修改前：${error.message}`
+        : `应用失败：${error.message}`,
+    );
+    if (error.rolledBack) clearConfigPlan();
+    await Promise.all([loadConfigurationAssistant(), refresh()]);
+  } finally {
+    setConfigBusy(false);
+  }
+}
+
+function cancelConfigPlan() {
+  if (configBusy) return;
+  clearConfigPlan();
+  appendConfigMessage('system', '已放弃这份方案，没有修改任何配置。');
+}
+
+async function rollbackSnapshot(snapshotId) {
+  if (configBusy) return;
+  if (!window.confirm(`确认恢复到备份 ${snapshotId}？恢复后会重启并执行健康检查。`)) return;
+  setConfigBusy(true);
+  appendConfigMessage('system', `正在恢复备份 ${snapshotId} 并验证服务状态。`);
+  try {
+    const payload = await responseJson(await fetch('/api/config/rollback', {
+      method: 'POST',
+      headers: assistantRequestHeaders('config-rollback', configSessionToken),
+      body: JSON.stringify({
+        snapshotId,
+        confirmation: rollbackConfirmation(snapshotId),
+      }),
+    }));
+    appendConfigMessage('assistant', `备份已恢复并通过健康检查。当前状态：${payload.state || '正常'}。`);
+    clearConfigPlan();
+    await Promise.all([loadConfigurationAssistant(), refresh()]);
+  } catch (error) {
+    appendConfigMessage('system', `回滚失败：${error.message}`);
+    await Promise.all([loadConfigurationAssistant(), refresh()]);
+  } finally {
+    setConfigBusy(false);
+  }
+}
+
 function tick() {
   $('clock').textContent = new Intl.DateTimeFormat('zh-CN', {
     timeZone: 'Asia/Shanghai',
@@ -175,8 +464,24 @@ function tick() {
 
 $('refreshButton').addEventListener('click', refresh);
 $('restartButton').addEventListener('click', restart);
+$('configForm').addEventListener('submit', submitConfigRequest);
+$('applyPlanButton').addEventListener('click', applyConfigPlan);
+$('cancelPlanButton').addEventListener('click', cancelConfigPlan);
+$('configInput').addEventListener('keydown', event => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    $('configForm').requestSubmit();
+  }
+});
+for (const chip of document.querySelectorAll('[data-config-prompt]')) {
+  chip.addEventListener('click', () => {
+    $('configInput').value = chip.dataset.configPrompt || '';
+    $('configInput').focus();
+  });
+}
 setInterval(tick, 1000);
 refreshTimer = setInterval(refresh, 5000);
 window.addEventListener('beforeunload', () => clearInterval(refreshTimer));
 tick();
 refresh();
+loadConfigurationAssistant();
