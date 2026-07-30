@@ -69,7 +69,10 @@ export function pollFailureDelayMs(error, failures, {
   baseIntervalMs = 5_000,
   random = Math.random,
 } = {}) {
-  const detail = String(error?.message || error || '').toLowerCase();
+  const detail = [
+    String(error?.message || error || ''),
+    String(error?.stderr || '').slice(-4_000),
+  ].join(' ').toLowerCase();
   const rateLimited = /too many request|rate.?limit|http\s*429|\b429\b/.test(detail);
   const baseDelay = rateLimited
     ? 60_000

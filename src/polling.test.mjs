@@ -113,6 +113,17 @@ const directMessage = {
     }),
     5_000,
   );
+  const wrappedRateLimit = new Error('process exited with code 1');
+  wrappedRateLimit.stderr = JSON.stringify({
+    error: { code: 9499, message: 'too many request' },
+  });
+  assert.equal(
+    pollFailureDelayMs(wrappedRateLimit, 1, {
+      baseIntervalMs: 5_000,
+      random: () => 0,
+    }),
+    60_000,
+  );
 }
 
 console.log('POLLING_TEST_OK');
