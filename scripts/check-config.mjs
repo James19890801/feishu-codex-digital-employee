@@ -25,6 +25,7 @@ for (const [name, path] of [
   ['larkCli', config.larkCli],
   ['pythonBin', config.pythonBin],
   ['node', join(config.nodeBin, 'node')],
+  ...(config.dingtalkEnabled ? [['dingtalkBin', config.dingtalkBin]] : []),
   ...(config.multicaEnabled ? [['multicaBin', config.multicaBin]] : []),
 ]) {
   if (!existsSync(path)) throw new Error(`${name} 不存在：${path}`);

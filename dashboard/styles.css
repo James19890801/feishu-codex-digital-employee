@@ -225,6 +225,66 @@ h1 {
 }
 #issueList { color: #e8d4b6; font-size: 13px; display: flex; gap: 14px; flex-wrap: wrap; }
 
+.channel-console {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  background: #141612;
+}
+.channel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.channel-heading span {
+  color: #6f7769;
+  font: 800 9px/1 "DIN Alternate", sans-serif;
+  letter-spacing: .14em;
+}
+.channel-heading h3 { margin: 7px 0 0; font-size: 21px; }
+.channel-heading p { margin: 7px 0 0; color: var(--muted); font-size: 11px; }
+.channel-heading > b {
+  flex: 0 0 auto;
+  color: var(--signal);
+  font: 800 10px/1 "DIN Alternate", sans-serif;
+  letter-spacing: .1em;
+}
+.channel-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+}
+.channel-card { padding: 20px 22px; background: #181b16; }
+.channel-card header { display: flex; align-items: center; gap: 9px; }
+.channel-card header i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #596055;
+}
+.channel-card header i.good { background: var(--signal); box-shadow: 0 0 10px rgba(199,255,69,.45); }
+.channel-card header i.warn { background: var(--amber); box-shadow: 0 0 10px rgba(255,181,71,.4); }
+.channel-card header i.bad { background: var(--red); box-shadow: 0 0 10px rgba(255,92,73,.45); }
+.channel-card header strong { font-size: 12px; }
+.channel-card header span {
+  margin-left: auto;
+  color: #687061;
+  font: 800 9px/1 "DIN Alternate", sans-serif;
+  letter-spacing: .1em;
+}
+.channel-card > b { display: block; margin-top: 20px; font-size: 20px; }
+.channel-card > p { margin: 8px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
+.channel-identity-note {
+  margin: 0;
+  padding: 11px 24px;
+  border-top: 1px solid var(--line);
+  color: #747c6f;
+  font-size: 9px;
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -781,6 +841,7 @@ h1 {
   .signal-core::before { width: 18px; left: 12px; top: 20px; }
   .signal-core::after { height: 18px; left: 20px; top: 12px; }
   .hero h2 { font-size: clamp(42px, 10vw, 68px); }
+  .channel-grid { grid-template-columns: 1fr; }
   .metrics-grid { grid-template-columns: repeat(2, 1fr); }
   .metric-card.wide { grid-column: span 2; }
   .assistant-workbench { grid-template-columns: 1fr; }

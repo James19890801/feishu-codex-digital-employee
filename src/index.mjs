@@ -1,6 +1,7 @@
 import * as lark from '@larksuiteoapi/node-sdk';
 import { spawn } from 'node:child_process';
 import { randomInt } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import {
   lstat,
   mkdir,
@@ -86,6 +87,13 @@ import {
   discoverAiRuntimes,
   selectAiRuntime,
 } from './ai-runtime.mjs';
+import {
+  parseChannelChatId,
+} from './im-channels.mjs';
+import {
+  DingTalkChannel,
+  WeComChannel,
+} from './im-channel-runtime.mjs';
 
 const APP_ID = config.feishuAppId;
 const OWNER_OPEN_ID = config.ownerOpenId;
@@ -161,11 +169,15 @@ const MULTICA_SYNCHRONIZER = MULTICA_CLIENT
   : null;
 let stopping = false;
 let activeEventChild = null;
+let activeDingTalkChild = null;
 let activeSdkWsClient = null;
 let drainPromise = null;
 let multicaSyncPromise = null;
+let dingTalkSupervisorPromise = null;
 let businessClient = null;
 let sdkAppSecret = '';
+let dingTalkChannel = null;
+let weComChannel = null;
 const shutdownDelay = new InterruptibleDelay();
 
 function remember(chatId, senderOpenId, role, content) {
@@ -276,6 +288,17 @@ async function getSecret() {
   const { stdout } = await runBufferedProcess('/usr/bin/security', [
     'find-generic-password', '-a', APP_ID, '-s', KEYCHAIN_SERVICE, '-w',
   ], { timeoutMs: 10_000, maxStdoutBytes: 64 * 1024, maxStderrBytes: 64 * 1024 });
+  return stdout.trim();
+}
+
+async function getKeychainSecret(service, account) {
+  const { stdout } = await runBufferedProcess('/usr/bin/security', [
+    'find-generic-password', '-a', account, '-s', service, '-w',
+  ], {
+    timeoutMs: 10_000,
+    maxStdoutBytes: 64 * 1024,
+    maxStderrBytes: 64 * 1024,
+  });
   return stdout.trim();
 }
 
@@ -432,6 +455,15 @@ function formatTaskTime(date) {
 }
 
 async function sendText(client, chatId, text, uuid) {
+  const target = parseChannelChatId(chatId);
+  if (target?.channel === 'dingtalk') {
+    if (!dingTalkChannel) throw new Error('DingTalk channel is not available');
+    return dingTalkChannel.send(target, text, uuid);
+  }
+  if (target?.channel === 'wecom') {
+    if (!weComChannel) throw new Error('WeCom channel is not available');
+    return weComChannel.send(target, text, uuid);
+  }
   const args = [
     'im', '+messages-send', '--as', 'user', '--chat-id', chatId,
     '--text', labelDigitalTwin(text), '--format', 'json',
@@ -1590,6 +1622,185 @@ async function createBusinessClient() {
   }
 }
 
+function updateImChannelStatus(channel, patch) {
+  const previous = state.get('channel', channel, {});
+  const next = {
+    ...previous,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  };
+  state.set('channel', channel, next);
+  if (typeof previous.connected === 'boolean'
+    && previous.connected !== next.connected
+    && next.enabled) {
+    state.audit(next.connected ? 'im_channel_connected' : 'im_channel_disconnected', {
+      detail: {
+        channel,
+        error: next.lastError?.error || '',
+      },
+    });
+  }
+}
+
+function dingtalkProcessEnv() {
+  return {
+    ...process.env,
+    PATH: `${dirname(config.dingtalkBin)}:${BUNDLED_NODE_BIN}:${process.env.PATH || ''}`,
+  };
+}
+
+function createDingTalkChannel() {
+  return new DingTalkChannel({
+    bin: config.dingtalkBin,
+    profile: config.dingtalkProfile,
+    run: (bin, args) => runBufferedProcess(bin, args, {
+      cwd: WORKDIR,
+      env: dingtalkProcessEnv(),
+      timeoutMs: config.larkCliTimeoutMs,
+      maxStdoutBytes: 8 * 1024 * 1024,
+      maxStderrBytes: 1024 * 1024,
+    }),
+    onStatus: patch => updateImChannelStatus('dingtalk', patch),
+  });
+}
+
+async function runDingTalkEventConsumerOnce() {
+  console.log('[dingtalk] starting official DWS personal event consumer');
+  const child = spawn(config.dingtalkBin, dingTalkChannel.consumerArgs(), {
+    cwd: WORKDIR,
+    env: dingtalkProcessEnv(),
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  activeDingTalkChild = child;
+  let stderrTail = '';
+  child.stderr.on('data', chunk => {
+    const text = chunk.toString();
+    stderrTail = `${stderrTail}${text}`.slice(-4_000);
+    dingTalkChannel.handleStderr(text);
+    process.stderr.write(chunk);
+  });
+  try {
+    const exitCode = await consumeLinesUntilExit(child, line => {
+      try {
+        const accepted = dingTalkChannel.handleLine(line, payload => {
+          if (enqueueInbound(payload, 'websocket-dingtalk-dws')) triggerDrain();
+        });
+        if (!accepted) console.error('[dingtalk-event-parse-error]', line.slice(0, 500));
+      } catch (error) {
+        const summary = processFailureSummary(error);
+        state.audit('dingtalk_event_rejected', { detail: { error: summary } });
+        console.error('[dingtalk-event-error]', error);
+      }
+    });
+    if (stopping) return;
+    throw new Error(
+      `DWS event consumer stopped with exit code ${exitCode}: ${stderrTail.trim().slice(-1000)}`,
+    );
+  } finally {
+    if (activeDingTalkChild === child) activeDingTalkChild = null;
+    updateImChannelStatus('dingtalk', { connected: false });
+  }
+}
+
+async function superviseDingTalkEvents() {
+  let failures = 0;
+  while (!stopping) {
+    try {
+      await runDingTalkEventConsumerOnce();
+      failures = 0;
+    } catch (error) {
+      if (!shouldRetrySupervisor(stopping)) break;
+      failures += 1;
+      const summary = processFailureSummary(error);
+      const authenticationFailure = /auth|login|token|ciphertext|keychain/i.test(summary);
+      const delayMs = Math.min(5 * 60_000, 2_000 * (2 ** Math.min(failures, 8)));
+      dingTalkChannel.reportError(error);
+      updateImChannelStatus('dingtalk', {
+        ...(authenticationFailure ? { authenticated: false } : {}),
+        failures,
+        lastError: { at: new Date().toISOString(), error: summary },
+      });
+      state.audit('dingtalk_channel_error', {
+        detail: { failures, delayMs, error: summary },
+      });
+      console.error(`[dingtalk-error] retry in ${delayMs}ms:`, error);
+      await wait(delayMs);
+    }
+  }
+}
+
+async function initializeAdditionalImChannels() {
+  updateImChannelStatus('dingtalk', {
+    enabled: config.dingtalkEnabled,
+    installed: existsSync(config.dingtalkBin),
+    configured: existsSync(config.dingtalkBin),
+    authenticated: false,
+    connected: false,
+    identityMode: 'user',
+    transport: 'dws personal websocket',
+  });
+  updateImChannelStatus('wecom', {
+    enabled: config.wecomEnabled,
+    installed: true,
+    configured: Boolean(config.wecomBotId),
+    authenticated: false,
+    connected: false,
+    identityMode: 'bot',
+    transport: 'official websocket sdk',
+  });
+
+  if (config.dingtalkEnabled) {
+    if (!existsSync(config.dingtalkBin)) {
+      updateImChannelStatus('dingtalk', {
+        lastError: {
+          at: new Date().toISOString(),
+          error: `DWS executable not found: ${config.dingtalkBin}`,
+        },
+      });
+    } else {
+      dingTalkChannel = createDingTalkChannel();
+      dingTalkSupervisorPromise = superviseDingTalkEvents()
+        .catch(error => console.error('[dingtalk-supervisor-fatal]', error));
+    }
+  }
+
+  if (config.wecomEnabled) {
+    try {
+      const secret = await getKeychainSecret(
+        config.wecomKeychainService,
+        config.wecomBotId,
+      );
+      if (!secret) throw new Error('WeCom bot secret is empty');
+      weComChannel = new WeComChannel({
+        botId: config.wecomBotId,
+        secret,
+        websocketUrl: config.wecomWebsocketUrl,
+        logger: {
+          debug: () => {},
+          info: message => console.log(`[wecom] ${message}`),
+          warn: message => console.warn(`[wecom] ${message}`),
+          error: message => console.error(`[wecom] ${message}`),
+        },
+        onStatus: patch => updateImChannelStatus('wecom', patch),
+      });
+      weComChannel.start(payload => {
+        if (enqueueInbound(payload, 'websocket-wecom-sdk')) triggerDrain();
+      });
+      console.log('[wecom] official WebSocket client started');
+    } catch (error) {
+      const summary = processFailureSummary(error);
+      updateImChannelStatus('wecom', {
+        configured: Boolean(config.wecomBotId),
+        authenticated: false,
+        connected: false,
+        lastError: { at: new Date().toISOString(), error: summary },
+      });
+      state.audit('wecom_channel_error', { detail: { error: summary } });
+      console.error('[wecom-start-error]', error);
+    }
+  }
+}
+
 async function mainWithSdk(client) {
   if (!client || !sdkAppSecret) throw new Error('SDK event transport requires an app secret in Keychain');
   const dispatcher = new lark.EventDispatcher({}).register({
@@ -1778,6 +1989,11 @@ function stopGracefully(signal) {
   shutdownDelay.stop();
   console.log(`[bridge] stopping on ${signal}`);
   if (activeEventChild && !activeEventChild.killed) activeEventChild.kill('SIGTERM');
+  if (activeDingTalkChild && !activeDingTalkChild.killed) activeDingTalkChild.kill('SIGTERM');
+  if (weComChannel) {
+    weComChannel.stop();
+    weComChannel = null;
+  }
   if (activeSdkWsClient) {
     const sdkWsClient = activeSdkWsClient;
     activeSdkWsClient = null;
@@ -1807,6 +2023,7 @@ async function main() {
     businessClient = await createBusinessClient();
     await initializeUserPolling();
     triggerDrain();
+    await initializeAdditionalImChannels();
     if (MULTICA_SYNCHRONIZER) {
       multicaSyncPromise = runMulticaSyncLoop()
         .catch(error => console.error('[multica-sync-fatal]', error));
@@ -1823,6 +2040,7 @@ async function main() {
     await runUserPollingLoop();
     if (drainPromise) await drainPromise.catch(() => {});
     if (multicaSyncPromise) await multicaSyncPromise.catch(() => {});
+    if (dingTalkSupervisorPromise) await dingTalkSupervisorPromise.catch(() => {});
   } finally {
     try {
       state.close();

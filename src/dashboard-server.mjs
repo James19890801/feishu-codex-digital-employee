@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -93,7 +94,7 @@ function safeDetail(value) {
       'fastPath', 'answerChars', 'capability', 'rateLimited',
       'action', 'identifier', 'issueId', 'workspaceId', 'changedFields',
       'recipients', 'changes', 'notified', 'scanned',
-      'dead', 'replayed', 'uncertain',
+      'dead', 'replayed', 'uncertain', 'channel',
     ]) {
       if (detail[key] !== undefined) allowed[key] = detail[key];
     }
@@ -206,6 +207,22 @@ async function collectStatus() {
     lastBackupError: null,
     lastAiRuntimeSuccessAt: '',
     lastAiRuntimeError: null,
+    dingtalkChannel: {
+      enabled: config.dingtalkEnabled,
+      installed: existsSync(config.dingtalkBin),
+      configured: existsSync(config.dingtalkBin),
+      authenticated: false,
+      connected: false,
+      identityMode: 'user',
+    },
+    wecomChannel: {
+      enabled: config.wecomEnabled,
+      installed: true,
+      configured: Boolean(config.wecomBotId),
+      authenticated: false,
+      connected: false,
+      identityMode: 'bot',
+    },
     inboxCounts: {},
     recentEvents: [],
   };
@@ -238,6 +255,17 @@ async function collectStatus() {
         lastBackupError: parseSetting(db, 'health', 'last_database_backup_error', null),
         lastAiRuntimeSuccessAt: parseSetting(db, 'health', 'last_ai_runtime_success_at', ''),
         lastAiRuntimeError: parseSetting(db, 'health', 'last_ai_runtime_error', null),
+        dingtalkChannel: {
+          ...defaults.dingtalkChannel,
+          ...parseSetting(db, 'channel', 'dingtalk', {}),
+          installed: existsSync(config.dingtalkBin),
+        },
+        wecomChannel: {
+          ...defaults.wecomChannel,
+          ...parseSetting(db, 'channel', 'wecom', {}),
+          installed: true,
+          configured: Boolean(config.wecomBotId),
+        },
         inboxCounts: Object.fromEntries(counts.map(row => [row.status, Number(row.count)])),
         recentEvents: db.prepare(`SELECT event, detail, created_at
           FROM audit ORDER BY id DESC LIMIT 12`).all().map(row => ({
@@ -278,6 +306,10 @@ async function collectStatus() {
       pollIntervalMs: config.pollIntervalMs,
       eventTransport: config.eventTransport,
       aiRuntime: config.aiRuntime,
+      dingtalkEnabled: config.dingtalkEnabled,
+      dingtalkProfile: config.dingtalkProfile,
+      wecomEnabled: config.wecomEnabled,
+      wecomBotId: config.wecomBotId,
       multicaEnabled: config.multicaEnabled,
       multicaProfile: config.multicaProfile,
       multicaDefaultWorkspaceId: config.multicaDefaultWorkspaceId,

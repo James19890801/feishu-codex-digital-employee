@@ -11,20 +11,33 @@ https://github.com/James19890801/feishu-codex-digital-employee
 
 PRODUCT SUMMARY
 
-AIPRO is a local-first AI digital human platform for Feishu/Lark. It is designed
-for an account owner who wants an AI system to receive work-related messages,
-understand requests, use approved knowledge and tools, and reply through the
-owner's authorized Feishu user identity.
+AIPRO is a local-first, multi-channel AI digital human platform for Feishu/Lark,
+DingTalk, and WeCom. It is designed for an account owner who wants an AI system
+to receive work-related messages, understand requests, use approved knowledge
+and tools, and reply through an explicitly authorized enterprise IM channel.
 
-AIPRO is not a separate chatbot account. The core text channel uses official
-user OAuth and the official lark-cli tool. Incoming messages are discovered
-primarily through user-visible message polling. A WebSocket event consumer is
-kept as a secondary low-latency signal. Replies are sent with the authorized
-user identity through lark-cli --as user.
+Feishu remains the protected primary channel. Its core text path uses official
+user OAuth and the official lark-cli tool. Incoming Feishu messages are
+discovered primarily through user-visible message polling, with a WebSocket
+event consumer as a secondary low-latency signal. DingTalk uses the official
+DingTalk Workspace CLI personal-event WebSocket and current-user sending APIs.
+WeCom uses the official Tencent WeCom AI Bot WebSocket SDK.
+
+Identity modes are intentionally explicit:
+
+    Feishu: authorized real-person user identity
+    DingTalk: authorized real-person user identity
+    WeCom: official AI Bot identity
+
+AIPRO never presents the WeCom bot channel as a real-person identity. Each
+optional channel has an isolated connection lifecycle and health state. A
+missing credential, expired login, network failure, or reconnect loop in
+DingTalk or WeCom cannot stop the Feishu polling loop or Codex response engine.
 
 The platform combines:
 
     Real-person identity messaging
+    Multi-channel message routing
     Group mention and direct-message triggers
     Pluggable AI coding runtime for understanding and response generation
     Persistent message queues
@@ -38,6 +51,104 @@ The platform combines:
     Feishu document, task, calendar, image, and file integrations
     A local operations dashboard
     macOS process supervision and recovery
+
+
+SUPPORTED IM CHANNELS
+
+Feishu / Lark
+
+    Role: protected primary channel
+    Identity: authorized user
+    Inbound: user-visible message polling plus auxiliary WebSocket
+    Group trigger: explicit mention of the account owner
+    Direct trigger: every qualifying inbound direct message
+    Outbound: official lark-cli user-identity commands
+    AI label: disabled when digitalTwinLabel is empty
+
+DingTalk
+
+    Role: optional channel
+    Identity: currently authorized DingTalk user
+    Required runtime: dingtalk-workspace-cli 1.0.55 or later
+    Inbound group trigger: user_im_message_receive_at
+    Inbound direct trigger: user_im_message_receive_o2o_all
+    Outbound: dws chat message send
+    AI label: explicitly disabled with --ai-tag=false
+    Delivery idempotency: dws --uuid
+    Transport: managed personal-event WebSocket with automatic supervision
+
+WeCom
+
+    Role: optional channel
+    Identity: official WeCom AI Bot
+    SDK: @wecom/aibot-node-sdk 1.0.7 or later
+    Inbound: official WebSocket message callbacks
+    Group and direct messages: supported by the configured AI Bot
+    Outbound: official WebSocket sendMessage API
+    Transport: heartbeat, authentication, and reconnect support from the
+    official Tencent WeCom SDK
+
+All three channels normalize messages into the same persistent SQLite inbox.
+They therefore share the same deduplication, rate limits, per-conversation
+ordering, retry policy, dead-letter handling, Codex runtime, Persona, operating
+Bible, conversation memory, Multica bridge, and audit trail.
+
+
+ADDITIONAL CHANNEL SETUP
+
+DingTalk
+
+1. Install the official stable CLI:
+
+       npm install -g dingtalk-workspace-cli@1.0.55
+
+2. Authenticate the intended real-person account:
+
+       dws auth login
+       dws auth status --format json
+
+3. If several DingTalk identities are stored, copy the stable profile selector
+   returned by dws profile list into dingtalkProfile.
+
+4. Set dingtalkEnabled to true in config.local.json, or request the same change
+   through the dashboard Configuration Copilot and confirm the protected plan.
+
+The minimum supported DWS version is 1.0.55 because AIPRO relies on the official
+all-direct-message event user_im_message_receive_o2o_all. Group replies still
+require a real @ mention and do not react to every ordinary group message.
+
+WeCom
+
+1. Create or select an enterprise WeCom AI Bot and obtain its Bot ID and Secret.
+
+2. Set wecomBotId in config.local.json.
+
+3. Open macOS Keychain Access and create a Generic Password:
+
+       Account: the exact WeCom Bot ID
+       Service: aipro-wecom-bot
+       Password: the WeCom Bot Secret
+
+   The service name can be changed through wecomKeychainService. The Secret is
+   never stored in config.local.json, the browser, logs, snapshots, or Git.
+
+4. Set wecomEnabled to true and restart AIPRO. The default endpoint is:
+
+       wss://openws.work.weixin.qq.com
+
+The local dashboard shows installed, configured, authenticated, connected, and
+last-error states independently for Feishu, DingTalk, and WeCom.
+
+Official channel sources:
+
+    DingTalk Workspace CLI
+    https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli
+
+    Tencent WeCom AI Bot Node.js SDK
+    https://github.com/WecomTeam/aibot-node-sdk
+
+    Tencent WeCom reference channel implementation
+    https://github.com/WecomTeam/wecom-openclaw-plugin
 
 This repository contains the complete single-Mac implementation. It is intended
 for an account owner or an organization that has explicitly authorized the

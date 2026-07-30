@@ -58,6 +58,13 @@ export const config = {
     name: 'rateLimitMaxMessages', fallback: 10, min: 1, max: 100,
   }),
   aiRuntime: raw.aiRuntime || 'auto',
+  dingtalkEnabled: raw.dingtalkEnabled === true,
+  dingtalkProfile: raw.dingtalkProfile || '',
+  dingtalkBin: raw.dingtalkBin || join(home, '.npm-global', 'bin', 'dws'),
+  wecomEnabled: raw.wecomEnabled === true,
+  wecomBotId: raw.wecomBotId || '',
+  wecomKeychainService: raw.wecomKeychainService || 'aipro-wecom-bot',
+  wecomWebsocketUrl: raw.wecomWebsocketUrl || 'wss://openws.work.weixin.qq.com',
   multicaEnabled: raw.multicaEnabled === true,
   multicaProfile: raw.multicaProfile || 'desktop-api.multica.ai',
   multicaDefaultWorkspaceId: raw.multicaDefaultWorkspaceId || '',
@@ -102,6 +109,12 @@ if (!['lark-cli', 'sdk'].includes(config.eventTransport)) {
 }
 if (!['auto', 'codex', 'qoder', 'codebuddy', 'trae'].includes(config.aiRuntime)) {
   throw new Error('aiRuntime 只能是 auto、codex、qoder、codebuddy 或 trae');
+}
+if (config.wecomEnabled && !config.wecomBotId) {
+  throw new Error('启用 wecomEnabled 时必须填写 wecomBotId');
+}
+if (!/^wss:\/\/[^/\s]+(?:\/.*)?$/i.test(config.wecomWebsocketUrl)) {
+  throw new Error('wecomWebsocketUrl 必须是 wss 地址');
 }
 if (config.multicaDefaultWorkspaceId
   && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i

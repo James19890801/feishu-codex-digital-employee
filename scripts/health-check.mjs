@@ -77,6 +77,8 @@ const lastBackupAt = setting('health', 'last_database_backup_at', '');
 const lastBackupError = setting('health', 'last_database_backup_error', null);
 const lastAiRuntimeSuccessAt = setting('health', 'last_ai_runtime_success_at', '');
 const lastAiRuntimeError = setting('health', 'last_ai_runtime_error', null);
+const dingtalkChannel = setting('channel', 'dingtalk', {});
+const wecomChannel = setting('channel', 'wecom', {});
 const backupAgeMs = lastBackupAt ? nowMs - new Date(lastBackupAt).getTime() : null;
 if (backupAgeMs === null || !Number.isFinite(backupAgeMs)
   || backupAgeMs > 12 * 60 * 60_000) {
@@ -89,6 +91,12 @@ if (lastAiRuntimeError?.at
 }
 if (lastPollError?.at && (!lastPollSuccessAt || lastPollError.at > lastPollSuccessAt)) {
   result.issues.push('poller_last_run_failed');
+}
+if (config.dingtalkEnabled === true && !dingtalkChannel.connected) {
+  result.issues.push('dingtalk_channel_unavailable');
+}
+if (config.wecomEnabled === true && !wecomChannel.connected) {
+  result.issues.push('wecom_channel_unavailable');
 }
 let multicaSyncAgeMs = null;
 if (config.multicaEnabled) {
@@ -134,6 +142,23 @@ result.metrics = {
   lastDatabaseBackupAt: lastBackupAt,
   databaseBackupAgeMs: backupAgeMs,
   lastAiRuntimeSuccessAt,
+  channels: {
+    feishu: { connected: true, identityMode: 'user' },
+    dingtalk: {
+      enabled: config.dingtalkEnabled === true,
+      installed: Boolean(dingtalkChannel.installed),
+      authenticated: Boolean(dingtalkChannel.authenticated),
+      connected: Boolean(dingtalkChannel.connected),
+      identityMode: 'user',
+    },
+    wecom: {
+      enabled: config.wecomEnabled === true,
+      configured: Boolean(wecomChannel.configured),
+      authenticated: Boolean(wecomChannel.authenticated),
+      connected: Boolean(wecomChannel.connected),
+      identityMode: 'bot',
+    },
+  },
 };
 console.log(JSON.stringify(result, null, 2));
 if (!result.healthy) process.exitCode = 1;

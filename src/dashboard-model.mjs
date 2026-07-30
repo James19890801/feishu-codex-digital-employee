@@ -15,6 +15,8 @@ const ISSUE_LABELS = {
   multica_sync_error: 'Multica 最近一次同步失败',
   multica_delivery_pending: 'Multica 变化通知正在等待重试',
   multica_delivery_dead: 'Multica 变化通知已进入死信，需要人工处理',
+  dingtalk_channel_unavailable: '钉钉通道已启用但未连接',
+  wecom_channel_unavailable: '企业微信通道已启用但未连接',
 };
 
 export function isCredentialAccessBlocked(lastPollError) {
@@ -64,6 +66,14 @@ export function buildOperatorView(input) {
   if (input.multicaEnabled && Number(input.multicaDeadCount || 0) > 0) {
     issues.push('multica_delivery_dead');
   }
+  const dingtalkChannel = input.dingtalkChannel || {};
+  const wecomChannel = input.wecomChannel || {};
+  if (dingtalkChannel.enabled && !dingtalkChannel.connected) {
+    issues.push('dingtalk_channel_unavailable');
+  }
+  if (wecomChannel.enabled && !wecomChannel.connected) {
+    issues.push('wecom_channel_unavailable');
+  }
 
   const state = !input.processAlive ? 'offline' : issues.length ? 'degraded' : 'online';
   return {
@@ -91,6 +101,47 @@ export function buildOperatorView(input) {
       active: Boolean(input.websocketActive),
       activeConsumers: Number(input.activeConsumers || 0),
       lastReadyAt: input.lastWebsocketReadyAt || '',
+    },
+    channels: {
+      feishu: {
+        enabled: true,
+        installed: true,
+        configured: true,
+        authenticated: !input.credentialBlocked,
+        connected: Boolean(input.processAlive)
+          && !issues.includes('poll_cursor_stale'),
+        healthy: Boolean(input.processAlive)
+          && !issues.includes('poll_cursor_stale')
+          && !issues.includes('credential_access_blocked'),
+        identityMode: 'user',
+        transport: 'polling + websocket',
+        lastReadyAt: input.lastPollSuccessAt || '',
+        lastError: input.lastPollError || null,
+      },
+      dingtalk: {
+        enabled: Boolean(dingtalkChannel.enabled),
+        installed: Boolean(dingtalkChannel.installed),
+        configured: Boolean(dingtalkChannel.configured ?? dingtalkChannel.installed),
+        authenticated: Boolean(dingtalkChannel.authenticated),
+        connected: Boolean(dingtalkChannel.connected),
+        healthy: !dingtalkChannel.enabled || Boolean(dingtalkChannel.connected),
+        identityMode: dingtalkChannel.identityMode || 'user',
+        transport: dingtalkChannel.transport || 'websocket',
+        lastReadyAt: dingtalkChannel.lastReadyAt || '',
+        lastError: dingtalkChannel.lastError || null,
+      },
+      wecom: {
+        enabled: Boolean(wecomChannel.enabled),
+        installed: Boolean(wecomChannel.installed),
+        configured: Boolean(wecomChannel.configured),
+        authenticated: Boolean(wecomChannel.authenticated),
+        connected: Boolean(wecomChannel.connected),
+        healthy: !wecomChannel.enabled || Boolean(wecomChannel.connected),
+        identityMode: wecomChannel.identityMode || 'bot',
+        transport: wecomChannel.transport || 'websocket',
+        lastReadyAt: wecomChannel.lastReadyAt || '',
+        lastError: wecomChannel.lastError || null,
+      },
     },
     codex: {
       proxyReachable: Boolean(input.codexProxyReachable),

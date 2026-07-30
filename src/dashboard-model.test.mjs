@@ -36,6 +36,74 @@ const base = {
   assert.equal(view.state, 'online');
   assert.equal(view.healthy, true);
   assert.equal(view.process.pid, 123);
+  assert.equal(view.channels.feishu.healthy, true);
+  assert.equal(view.channels.dingtalk.enabled, false);
+  assert.equal(view.channels.wecom.enabled, false);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    dingtalkChannel: {
+      enabled: true,
+      installed: true,
+      authenticated: true,
+      connected: true,
+      identityMode: 'user',
+      lastReadyAt: '2026-07-30T00:59:55.000Z',
+    },
+    wecomChannel: {
+      enabled: true,
+      installed: true,
+      configured: true,
+      authenticated: true,
+      connected: true,
+      identityMode: 'bot',
+      lastReadyAt: '2026-07-30T00:59:55.000Z',
+    },
+  });
+  assert.equal(view.state, 'online');
+  assert.equal(view.channels.dingtalk.healthy, true);
+  assert.equal(view.channels.dingtalk.identityMode, 'user');
+  assert.equal(view.channels.wecom.healthy, true);
+  assert.equal(view.channels.wecom.identityMode, 'bot');
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    dingtalkChannel: {
+      enabled: true,
+      installed: true,
+      authenticated: false,
+      connected: false,
+      identityMode: 'user',
+      lastError: { error: 'login required' },
+    },
+  });
+  assert.equal(view.state, 'degraded');
+  assert.equal(view.issues.includes('dingtalk_channel_unavailable'), true);
+  assert.equal(view.channels.dingtalk.healthy, false);
+  assert.equal(view.channels.feishu.healthy, true);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    wecomChannel: {
+      enabled: true,
+      installed: true,
+      configured: false,
+      authenticated: false,
+      connected: false,
+      identityMode: 'bot',
+      lastError: { error: 'missing bot credentials' },
+    },
+  });
+  assert.equal(view.state, 'degraded');
+  assert.equal(view.issues.includes('wecom_channel_unavailable'), true);
+  assert.equal(view.channels.wecom.healthy, false);
+  assert.equal(view.channels.feishu.healthy, true);
 }
 
 {

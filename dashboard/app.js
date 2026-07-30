@@ -23,6 +23,10 @@ const eventLabels = {
   inbound_dead_lettered: '消息进入死信',
   poller_error: '主轮询异常',
   websocket_error: '辅助监听异常',
+  dingtalk_channel_error: '钉钉通道异常',
+  wecom_channel_error: '企业微信通道异常',
+  im_channel_connected: 'IM 通道已连接',
+  im_channel_disconnected: 'IM 通道已断开',
   multica_sync_error: 'Multica 同步异常',
   multica_delivery_pending: 'Multica 通知等待重试',
   multica_sync_change: 'Multica Issue 变化',
@@ -67,6 +71,31 @@ function setDot(id, good) {
   $(id).className = good ? 'good' : 'bad';
 }
 
+function renderChannel(prefix, channel, fallbackMeta) {
+  const status = $(`channel${prefix}Status`);
+  const meta = $(`channel${prefix}Meta`);
+  const dot = $(`channel${prefix}Dot`);
+  if (!channel?.enabled) {
+    status.textContent = !channel?.installed
+      ? '未安装'
+      : channel?.configured ? '已安装 · 待启用' : '已安装 · 待配置';
+    meta.textContent = fallbackMeta;
+    dot.className = '';
+    return;
+  }
+  if (channel.connected) {
+    status.textContent = '在线';
+    meta.textContent = `${fallbackMeta} · ${formatDate(channel.lastReadyAt, true)}`;
+    dot.className = 'good';
+    return;
+  }
+  status.textContent = channel.authenticated ? '正在重连' : '需要认证';
+  meta.textContent = channel.lastError?.error
+    ? String(channel.lastError.error).slice(0, 120)
+    : fallbackMeta;
+  dot.className = channel.authenticated ? 'warn' : 'bad';
+}
+
 function renderEvents(events) {
   if (!events?.length) {
     $('timeline').innerHTML = '<p class="empty">暂时没有审计事件。</p>';
@@ -107,6 +136,22 @@ function render(data) {
 
   $('issueStrip').classList.toggle('hidden', !data.issueLabels?.length);
   $('issueList').innerHTML = (data.issueLabels || []).map(label => `<span>${escapeHtml(label)}</span>`).join('');
+
+  renderChannel(
+    'Feishu',
+    data.channels?.feishu,
+    '真人用户身份 · 轮询 + WebSocket',
+  );
+  renderChannel(
+    'Dingtalk',
+    data.channels?.dingtalk,
+    '真人用户身份 · DWS 个人事件长连接',
+  );
+  renderChannel(
+    'Wecom',
+    data.channels?.wecom,
+    '智能机器人身份 · 官方 WebSocket SDK',
+  );
 
   $('processValue').textContent = data.process.alive ? '运行中' : '已停止';
   $('processMeta').textContent = data.process.alive

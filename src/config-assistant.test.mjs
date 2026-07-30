@@ -43,6 +43,10 @@ const documents = {
     nodeBin: '',
     pythonBin: '',
     aiRuntime: 'auto',
+    dingtalkEnabled: false,
+    dingtalkProfile: '',
+    wecomEnabled: false,
+    wecomBotId: '',
   },
   persona: '# Persona\n\n- Keep replies concise.\n',
   bible: '# Bible\n\n- Never make payments.\n',
@@ -101,6 +105,29 @@ assert.throws(
   }, documents),
   /aiRuntime must be one of/i,
 );
+
+const channelPlan = assistant.createChangePlan({
+  summary: 'Enable both additional IM channels',
+  changes: [{
+    target: 'config',
+    key: 'dingtalkEnabled',
+    value: true,
+  }, {
+    target: 'config',
+    key: 'wecomEnabled',
+    value: true,
+  }, {
+    target: 'config',
+    key: 'wecomBotId',
+    value: 'bot-aipro',
+  }],
+}, documents);
+assert.equal(channelPlan.confirmationLevel, 'double');
+assert.deepEqual(channelPlan.changes.map(change => change.key), [
+  'dingtalkEnabled',
+  'wecomEnabled',
+  'wecomBotId',
+]);
 
 const sensitivePlan = assistant.createChangePlan({
   summary: 'Restrict message scope',
@@ -197,6 +224,9 @@ assert.equal('feishuAppId' in publicConfig, false);
 assert.equal('ownerOpenId' in publicConfig, false);
 assert.equal('codexBin' in publicConfig, false);
 assert.equal(publicConfig.aiRuntime, 'auto');
+assert.equal(publicConfig.dingtalkEnabled, false);
+assert.equal(publicConfig.wecomEnabled, false);
+assert.equal(publicConfig.wecomBotId, '');
 
 assert.deepEqual(
   assistant.effectivePublicConfiguration(
