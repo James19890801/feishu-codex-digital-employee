@@ -45,6 +45,7 @@ export function buildStatusReply({
   lastMulticaSyncError = null,
   maxMulticaSyncAgeMs = 60_000,
   multicaPending = 0,
+  multicaDead = 0,
   inboxCounts = {},
   dashboardUrl,
   detailed = false,
@@ -59,6 +60,7 @@ export function buildStatusReply({
     && nowMs - multicaTimestamp <= maxMulticaSyncAgeMs
     && !lastMulticaSyncError
     && Number(multicaPending || 0) === 0
+    && Number(multicaDead || 0) === 0
   );
   const healthy = pollHealthy && websocketConnected && multicaHealthy
     && Number(inboxCounts.dead || 0) === 0;
@@ -71,7 +73,8 @@ export function buildStatusReply({
   if (multicaEnabled) {
     lines.push(
       `Multica 同步：${formatAge(nowMs, lastMulticaSyncAt)}`
-      + (multicaPending ? `，待补发 ${multicaPending}` : ''),
+      + (multicaPending ? `，待补发 ${multicaPending}` : '')
+      + (multicaDead ? `，死信 ${multicaDead}` : ''),
     );
   }
   if (detailed) {

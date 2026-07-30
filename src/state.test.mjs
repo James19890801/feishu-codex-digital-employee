@@ -7,6 +7,7 @@ import { AgentState } from './state.mjs';
 const dir = mkdtempSync(join(tmpdir(), 'xiaozhao-state-'));
 try {
   const state = new AgentState(join(dir, 'state.sqlite'));
+  assert.equal(state.db.prepare('PRAGMA synchronous').get().synchronous, 2);
   state.remember('chat', 'user', 'user', '第一条');
   state.remember('chat', 'user', 'assistant', '第二条');
   assert.deepEqual(state.history('chat', 'user').map(x => x.content), ['第一条', '第二条']);
@@ -132,6 +133,38 @@ try {
   state.completeMulticaNotification('multica-sync-test');
   assert.equal(state.multicaNotificationCount(), 0);
 
+  state.enqueueMulticaNotification({
+    notificationKey: 'multica-sync-dead',
+    issueId: issue.id,
+    chatId: 'chat-dead',
+    content: 'Never delivered',
+    availableAt: now,
+  });
+  assert.deepEqual(
+    state.failMulticaNotification(
+      'multica-sync-dead',
+      'failure one',
+      '2026-07-29T14:00:01.000Z',
+      2,
+    ),
+    { updated: true, deadLettered: false, attempts: 1 },
+  );
+  assert.deepEqual(
+    state.failMulticaNotification(
+      'multica-sync-dead',
+      'failure two',
+      '2026-07-29T14:00:02.000Z',
+      2,
+    ),
+    { updated: true, deadLettered: true, attempts: 2 },
+  );
+  assert.equal(state.multicaNotificationCount(), 0);
+  assert.equal(state.multicaNotificationDeadCount(), 1);
+  assert.equal(
+    state.listDueMulticaNotifications('2026-07-29T15:00:00.000Z', 10).length,
+    0,
+  );
+
   state.db.prepare(`INSERT INTO inbound_message
     (message_id, source, payload, status, attempts, available_at, first_seen_at, updated_at)
     VALUES (?, 'test', ?, 'pending', 0, ?, ?, ?)`)
@@ -148,6 +181,16 @@ try {
     (chat_id, sender_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`)
     .run('old-chat', 'old-user', 'user', 'old', '2025-01-01T00:00:00.000Z');
   state.set('pending_action', 'expired', { expiresAt: 1, value: { ok: true } });
+  state.beginMutationExecution(
+    'old-mutation',
+    'test',
+    '2025-01-01T00:00:00.000Z',
+  );
+  state.completeMutationExecution(
+    'old-mutation',
+    { ok: true },
+    '2025-01-01T00:00:01.000Z',
+  );
   const pruned = state.prune({
     now: '2026-07-29T14:00:00.000Z',
     completedInboundRetentionMs: 30 * 86400_000,
@@ -158,6 +201,7 @@ try {
   assert.equal(pruned.audit >= 1, true);
   assert.equal(pruned.conversation >= 1, true);
   assert.equal(pruned.pendingAction >= 1, true);
+  assert.equal(pruned.mutation >= 1, true);
   console.log('STATE_TEST_OK');
 } finally {
   rmSync(dir, { recursive: true, force: true });

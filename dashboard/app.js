@@ -137,6 +137,7 @@ function render(data) {
   $('multicaMeta').textContent = data.multica.enabled
     ? `最近同步 ${formatAge(data.multica.ageMs)} · 扫描 ${data.multica.scanned || 0} 条`
       + (data.multica.pending ? ` · 待补发 ${data.multica.pending}` : '')
+      + (data.multica.dead ? ` · 死信 ${data.multica.dead}` : '')
     : '可在对话配置面板启用';
   setDot('multicaDot', data.multica.enabled && data.multica.healthy);
 
@@ -144,7 +145,9 @@ function render(data) {
   $('completedCount').textContent = counts.completed || 0;
   $('processingCount').textContent = counts.processing || 0;
   $('failedCount').textContent = (counts.failed || 0) + (counts.dead || 0);
-  $('dbIntegrity').textContent = data.database.integrity === 'ok' ? 'OK' : '异常';
+  $('dbIntegrity').textContent = data.database.integrity === 'ok'
+    ? `OK · 备份 ${formatAge(data.database.backupAgeMs)}`
+    : '异常';
   setDot('databaseDot', data.database.healthy);
 
   $('credentialGuide').classList.toggle('hidden', !data.maintenance?.credentialBlocked);

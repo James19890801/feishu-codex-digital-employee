@@ -107,6 +107,32 @@ try {
   assert.match(notices[0].text, /新 Issue/);
   assert.equal(audits.some(item => item.event === 'multica_sync_change'), true);
 
+  state.enqueueMulticaNotification({
+    notificationKey: 'dead-notification',
+    issueId: 'issue-1',
+    chatId: 'chat-dead',
+    content: 'Will fail permanently',
+    availableAt: new Date().toISOString(),
+  });
+  failChat = 'chat-dead';
+  const deadSynchronizer = new MulticaSynchronizer({
+    client: { listAllIssues: async () => structuredClone(issues) },
+    state,
+    notify: async () => {
+      throw new Error('permanent Feishu failure');
+    },
+    audit: (event, detail) => audits.push({ event, detail }),
+    maxNotificationAttempts: 1,
+  });
+  const deadDelivery = await deadSynchronizer.deliverNotifications(new Date());
+  assert.equal(deadDelivery.dead, 1);
+  assert.equal(deadDelivery.pending, 0);
+  assert.equal(state.multicaNotificationDeadCount(), 1);
+  assert.equal(
+    audits.some(item => item.event === 'multica_sync_notification_dead_lettered'),
+    true,
+  );
+
   assert.equal(
     formatMulticaChange({
       isNew: false,

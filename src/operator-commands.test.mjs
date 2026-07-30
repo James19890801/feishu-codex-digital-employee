@@ -32,11 +32,13 @@ assert.equal(matchOperatorCommand(''), null);
     lastMulticaSyncAt: '2026-07-30T00:59:55.000Z',
     lastMulticaSyncError: null,
     multicaPending: 2,
+    multicaDead: 1,
     inboxCounts: {},
     dashboardUrl: 'http://127.0.0.1:17655',
   });
   assert.match(text, /运行状态：需要维护/);
   assert.match(text, /待补发 2/);
+  assert.match(text, /死信 1/);
 }
 
 {

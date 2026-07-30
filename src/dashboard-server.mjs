@@ -93,6 +93,7 @@ function safeDetail(value) {
       'fastPath', 'answerChars', 'capability', 'rateLimited',
       'action', 'identifier', 'issueId', 'workspaceId', 'changedFields',
       'recipients', 'changes', 'notified', 'scanned',
+      'dead', 'replayed', 'uncertain',
     ]) {
       if (detail[key] !== undefined) allowed[key] = detail[key];
     }
@@ -200,6 +201,11 @@ async function collectStatus() {
     lastMulticaSyncAt: '',
     lastMulticaSyncError: null,
     lastMulticaSyncResult: null,
+    multicaDeadCount: 0,
+    lastBackupAt: '',
+    lastBackupError: null,
+    lastAiRuntimeSuccessAt: '',
+    lastAiRuntimeError: null,
     inboxCounts: {},
     recentEvents: [],
   };
@@ -226,6 +232,12 @@ async function collectStatus() {
         lastMulticaSyncAt: parseSetting(db, 'health', 'last_multica_sync_at', ''),
         lastMulticaSyncError: parseSetting(db, 'health', 'last_multica_sync_error', null),
         lastMulticaSyncResult: parseSetting(db, 'health', 'last_multica_sync_result', null),
+        multicaDeadCount: Number(db.prepare(`SELECT COUNT(*) count
+          FROM multica_notification_outbox WHERE status = 'dead'`).get()?.count || 0),
+        lastBackupAt: parseSetting(db, 'health', 'last_database_backup_at', ''),
+        lastBackupError: parseSetting(db, 'health', 'last_database_backup_error', null),
+        lastAiRuntimeSuccessAt: parseSetting(db, 'health', 'last_ai_runtime_success_at', ''),
+        lastAiRuntimeError: parseSetting(db, 'health', 'last_ai_runtime_error', null),
         inboxCounts: Object.fromEntries(counts.map(row => [row.status, Number(row.count)])),
         recentEvents: db.prepare(`SELECT event, detail, created_at
           FROM audit ORDER BY id DESC LIMIT 12`).all().map(row => ({
@@ -258,6 +270,8 @@ async function collectStatus() {
     aiRuntime,
     multicaEnabled: config.multicaEnabled,
     maxMulticaSyncAgeMs: Math.max(60_000, config.multicaSyncIntervalMs * 6),
+    backupRequired: true,
+    maxBackupAgeMs: 12 * 60 * 60_000,
     configuration: {
       allChats: config.allowAllChats,
       digitalTwinLabel: config.digitalTwinLabel,

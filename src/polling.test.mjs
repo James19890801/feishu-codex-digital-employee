@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   buildPollingSearchArgs,
   normalizeSearchMessage,
+  pollFailureDelayMs,
   retryDelayMs,
   selectInboundMessages,
   shouldRetryMessage,
@@ -88,6 +89,30 @@ const directMessage = {
   assert.equal(shouldRetryMessage(1), true);
   assert.equal(shouldRetryMessage(2), true);
   assert.equal(shouldRetryMessage(3), false);
+}
+
+{
+  assert.equal(
+    pollFailureDelayMs(new Error('too many request'), 1, {
+      baseIntervalMs: 5_000,
+      random: () => 0,
+    }),
+    60_000,
+  );
+  assert.equal(
+    pollFailureDelayMs(new Error('HTTP 429 rate limit exceeded'), 3, {
+      baseIntervalMs: 5_000,
+      random: () => 0.5,
+    }),
+    65_000,
+  );
+  assert.equal(
+    pollFailureDelayMs(new Error('temporary DNS failure'), 1, {
+      baseIntervalMs: 5_000,
+      random: () => 0,
+    }),
+    5_000,
+  );
 }
 
 console.log('POLLING_TEST_OK');

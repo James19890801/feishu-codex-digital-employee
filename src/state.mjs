@@ -16,7 +16,7 @@ export class AgentState {
     this.db = new DatabaseSync(path);
     this.db.exec(`
       PRAGMA journal_mode = WAL;
-      PRAGMA synchronous = NORMAL;
+      PRAGMA synchronous = FULL;
       PRAGMA busy_timeout = 5000;
       CREATE TABLE IF NOT EXISTS conversation (
         id INTEGER PRIMARY KEY, chat_id TEXT NOT NULL, sender_id TEXT NOT NULL,
@@ -83,14 +83,40 @@ export class AgentState {
         sender_id TEXT NOT NULL,
         content TEXT NOT NULL,
         attempts INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
         available_at TEXT NOT NULL,
+        last_error TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        dead_at TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS multica_notification_due
+        ON multica_notification_outbox(available_at, created_at);
+      CREATE TABLE IF NOT EXISTS mutation_execution (
+        execution_key TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL,
+        result TEXT NOT NULL DEFAULT '',
         last_error TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS multica_notification_due
-        ON multica_notification_outbox(available_at, created_at);
+      CREATE INDEX IF NOT EXISTS mutation_execution_status
+        ON mutation_execution(status, updated_at);
     `);
+    const notificationColumns = new Set(
+      this.db.prepare('PRAGMA table_info(multica_notification_outbox)')
+        .all()
+        .map(row => row.name),
+    );
+    if (!notificationColumns.has('status')) {
+      this.db.exec(`ALTER TABLE multica_notification_outbox
+        ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'`);
+    }
+    if (!notificationColumns.has('dead_at')) {
+      this.db.exec(`ALTER TABLE multica_notification_outbox
+        ADD COLUMN dead_at TEXT NOT NULL DEFAULT ''`);
+    }
   }
 
   remember(chatId, senderId, role, content) {
@@ -254,6 +280,61 @@ export class AgentState {
     return result.changes === 1;
   }
 
+  beginMutationExecution(executionKey, kind, now = new Date().toISOString()) {
+    const inserted = this.db.prepare(`INSERT OR IGNORE INTO mutation_execution
+      (execution_key, kind, status, result, last_error, created_at, updated_at)
+      VALUES (?, ?, 'started', '', '', ?, ?)`)
+      .run(executionKey, kind, now, now);
+    return {
+      execute: inserted.changes === 1,
+      ...this.getMutationExecution(executionKey),
+    };
+  }
+
+  completeMutationExecution(executionKey, result, now = new Date().toISOString()) {
+    const serialized = JSON.stringify(result ?? null);
+    return this.db.prepare(`UPDATE mutation_execution
+      SET status = 'succeeded', result = ?, last_error = '', updated_at = ?
+      WHERE execution_key = ? AND status = 'started'`)
+      .run(serialized, now, executionKey).changes === 1;
+  }
+
+  markMutationAmbiguous(executionKey, error, now = new Date().toISOString()) {
+    return this.db.prepare(`UPDATE mutation_execution
+      SET status = 'ambiguous', last_error = ?, updated_at = ?
+      WHERE execution_key = ? AND status != 'succeeded'`)
+      .run(String(error || '').slice(0, 2000), now, executionKey).changes === 1;
+  }
+
+  failMutationExecutionSafely(executionKey, error, now = new Date().toISOString()) {
+    return this.db.prepare(`UPDATE mutation_execution
+      SET status = 'failed_safe', last_error = ?, updated_at = ?
+      WHERE execution_key = ? AND status = 'started'`)
+      .run(String(error || '').slice(0, 2000), now, executionKey).changes === 1;
+  }
+
+  getMutationExecution(executionKey) {
+    const row = this.db.prepare(`SELECT execution_key, kind, status, result,
+      last_error, created_at, updated_at
+      FROM mutation_execution WHERE execution_key = ?`).get(executionKey);
+    if (!row) return null;
+    let result = null;
+    try {
+      result = row.result ? JSON.parse(row.result) : null;
+    } catch {
+      result = null;
+    }
+    return {
+      executionKey: row.execution_key,
+      kind: row.kind,
+      status: row.status,
+      result,
+      lastError: row.last_error,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
   upsertMulticaIssue(issue, seenAt = new Date().toISOString()) {
     if (!issue?.id || !issue?.workspace_id || !issue?.identifier) {
       throw new Error('Multica issue cache requires id, workspace_id, and identifier');
@@ -365,8 +446,8 @@ export class AgentState {
     const now = new Date().toISOString();
     const result = this.db.prepare(`INSERT OR IGNORE INTO multica_notification_outbox
       (notification_key, issue_id, chat_id, sender_id, content, attempts,
-       available_at, last_error, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 0, ?, '', ?, ?)`)
+       status, available_at, last_error, created_at, updated_at, dead_at)
+      VALUES (?, ?, ?, ?, ?, 0, 'pending', ?, '', ?, ?, '')`)
       .run(notificationKey, issueId, chatId, senderId, content, availableAt, now, now);
     return result.changes === 1;
   }
@@ -375,7 +456,7 @@ export class AgentState {
     return this.db.prepare(`SELECT notification_key, issue_id, chat_id, sender_id,
       content, attempts, available_at, last_error
       FROM multica_notification_outbox
-      WHERE available_at <= ?
+      WHERE status = 'pending' AND available_at <= ?
       ORDER BY available_at, created_at
       LIMIT ?`)
       .all(now, Math.max(1, Math.min(1000, Number(limit) || 200)))
@@ -397,21 +478,42 @@ export class AgentState {
     ).run(notificationKey).changes === 1;
   }
 
-  failMulticaNotification(notificationKey, error, availableAt) {
-    return this.db.prepare(`UPDATE multica_notification_outbox
-      SET attempts = attempts + 1, available_at = ?, last_error = ?, updated_at = ?
-      WHERE notification_key = ?`)
+  failMulticaNotification(notificationKey, error, availableAt, maxAttempts = 10) {
+    const row = this.db.prepare(`SELECT attempts, status
+      FROM multica_notification_outbox WHERE notification_key = ?`).get(notificationKey);
+    if (!row || row.status !== 'pending') {
+      return { updated: false, deadLettered: row?.status === 'dead', attempts: Number(row?.attempts || 0) };
+    }
+    const attempts = Number(row.attempts || 0) + 1;
+    const deadLettered = attempts >= Math.max(1, Number(maxAttempts) || 10);
+    const now = new Date().toISOString();
+    const updated = this.db.prepare(`UPDATE multica_notification_outbox
+      SET attempts = ?, status = ?, available_at = ?, last_error = ?,
+          updated_at = ?, dead_at = ?
+      WHERE notification_key = ? AND status = 'pending'`)
       .run(
+        attempts,
+        deadLettered ? 'dead' : 'pending',
         availableAt,
         String(error || '').slice(0, 1000),
-        new Date().toISOString(),
+        now,
+        deadLettered ? now : '',
         notificationKey,
       ).changes === 1;
+    return { updated, deadLettered: updated && deadLettered, attempts };
   }
 
   multicaNotificationCount() {
     return Number(this.db.prepare(
-      'SELECT COUNT(*) AS count FROM multica_notification_outbox',
+      `SELECT COUNT(*) AS count FROM multica_notification_outbox
+       WHERE status = 'pending'`,
+    ).get()?.count || 0);
+  }
+
+  multicaNotificationDeadCount() {
+    return Number(this.db.prepare(
+      `SELECT COUNT(*) AS count FROM multica_notification_outbox
+       WHERE status = 'dead'`,
     ).get()?.count || 0);
   }
 
@@ -434,6 +536,11 @@ export class AgentState {
       WHERE scope = 'pending_action'
         AND CAST(json_extract(value, '$.expiresAt') AS INTEGER) <= ?`).run(nowMs).changes;
     const rateLimit = this.db.prepare('DELETE FROM rate_limit WHERE updated_at < ?').run(auditBefore).changes;
+    const multicaNotification = this.db.prepare(`DELETE FROM multica_notification_outbox
+      WHERE status = 'dead' AND dead_at < ?`).run(auditBefore).changes;
+    const mutation = this.db.prepare(`DELETE FROM mutation_execution
+      WHERE status IN ('succeeded', 'failed_safe') AND updated_at < ?`)
+      .run(auditBefore).changes;
     this.db.exec('PRAGMA wal_checkpoint(PASSIVE)');
     return {
       inbound: Number(inbound),
@@ -441,6 +548,8 @@ export class AgentState {
       conversation: Number(conversation),
       pendingAction: Number(pendingAction),
       rateLimit: Number(rateLimit),
+      multicaNotification: Number(multicaNotification),
+      mutation: Number(mutation),
     };
   }
 

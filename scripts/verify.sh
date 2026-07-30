@@ -9,6 +9,7 @@ npm test
 npm run runtime-smoke
 npm run multica-smoke
 npm run health
+npm run backup-smoke
 lark-cli auth check --scope 'search:message im:message im:message:readonly im:message.group_msg:get_as_user im:message.p2p_msg:get_as_user im:message.send_as_user' --json
 npm run event-health
 launchctl print "gui/$(id -u)/com.local.feishu-codex-digital-employee" | grep 'state = running'

@@ -632,6 +632,63 @@ When the service restarts, messages left in processing are returned to pending.
 A singleton lock prevents two local main processes from running concurrently.
 
 
+COMMERCIAL RELIABILITY CONTROLS
+
+Polling backoff:
+
+    AIPRO recognizes Feishu throttling responses separately from ordinary
+    transient failures.
+    A rate-limit response enters a minimum 60-second cooldown with jitter.
+    Other polling failures never retry faster than the configured normal
+    polling interval.
+    The overlapping polling window and SQLite deduplication prevent the
+    cooldown from silently losing qualifying messages.
+
+External mutation journal:
+
+    Confirmed Feishu task creation, calendar creation, and Multica writes use a
+    persistent execution key derived from the confirmation message.
+    The execution intent is committed to SQLite before the external write.
+    A successful external result is stored before the user receipt is sent.
+    Replayed confirmation processing returns the stored result without
+    repeating the external write.
+    If the process stops while the external outcome is unknown, AIPRO marks the
+    operation ambiguous and blocks automatic replay. The operator is instructed
+    to verify the target system before issuing a new request.
+    This is an at-most-once safety policy. It favors a visible manual check over
+    duplicate tasks, events, Issues, or comments.
+
+Multica notification dead letters:
+
+    Change notifications use a persistent outbox and deterministic delivery
+    key.
+    Delivery uses bounded exponential backoff.
+    After ten failed attempts, a notification enters the dead state and is no
+    longer retried automatically.
+    Pending and dead notification counts are separate health signals.
+    The dashboard and the owner status response show dead notifications as a
+    maintenance condition.
+
+Database durability and backup:
+
+    SQLite runs in WAL mode with synchronous FULL.
+    Maintenance creates a transactionally consistent online backup at startup
+    and every six hours.
+    Every backup is opened read-only and checked with PRAGMA quick_check before
+    it is accepted.
+    Fourteen rolling backup files are retained with owner-only permissions.
+    A stale or failed backup changes dashboard health to degraded.
+    npm run backup-smoke opens the newest backup and validates its integrity and
+    required commercial-reliability tables.
+
+Truthful dependency health:
+
+    Executable discovery alone does not prove an AI provider is healthy.
+    AIPRO records the latest real AI runtime success and failure.
+    When the latest real call failed, the dashboard reports a degraded runtime
+    even if the process and executable are still present.
+
+
 RATE LIMITING
 
 The default non-owner rate limit is:
@@ -1127,6 +1184,10 @@ Run a real sample with the configured AI runtime:
 
     npm run runtime-smoke
 
+Validate the latest restorable state database backup:
+
+    npm run backup-smoke
+
 Run an explicit Codex-only sample:
 
     npm run codex-smoke
@@ -1150,6 +1211,7 @@ The complete verification script checks:
     Python helper imports
     Automated test suites
     A real response from the selected AI runtime
+    Latest database backup integrity and freshness
     SQLite integrity
     Polling cursor freshness
     Stale processing messages
@@ -1287,6 +1349,10 @@ scripts/runtime-smoke.mjs
 
     Runtime discovery and real sample request through the selected adapter.
 
+scripts/backup-smoke.mjs
+
+    Read-only integrity and schema check of the latest rolling SQLite backup.
+
 scripts/check-python.mjs
 
     Python helper dependency check.
@@ -1300,6 +1366,16 @@ src/ai-runtime.mjs
 
     Local runtime discovery, provider selection, safe command construction, and
     unified bounded execution for Codex, Qoder, and CodeBuddy.
+
+src/mutation-execution.mjs
+
+    Persistent at-most-once journal for confirmed external mutations and crash
+    recovery.
+
+src/database-backup.mjs
+
+    Online SQLite backup, independent integrity verification, restrictive file
+    permissions, and rolling retention.
 
 src/polling.mjs
 
@@ -1566,6 +1642,10 @@ Audit production dependencies:
 Run a real sample through the selected AI runtime:
 
     npm run runtime-smoke
+
+Validate the latest database backup:
+
+    npm run backup-smoke
 
 Run an explicit Codex-only sample:
 

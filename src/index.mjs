@@ -26,6 +26,7 @@ import { AgentState } from './state.mjs';
 import { decideWorkflow, workflowInstruction } from './bible.mjs';
 import { PendingActionStore } from './pending-actions.mjs';
 import { rotateLogIfNeeded } from './log-maintenance.mjs';
+import { createVerifiedDatabaseBackup } from './database-backup.mjs';
 import { SerialKeyQueue } from './serial-key-queue.mjs';
 import { InterruptibleDelay } from './interruptible-delay.mjs';
 import { acquireSingletonLock } from './singleton-lock.mjs';
@@ -36,6 +37,7 @@ import {
 import {
   buildPollingSearchArgs,
   normalizeSearchMessage,
+  pollFailureDelayMs,
   retryDelayMs,
   selectInboundMessages,
   shouldRetryMessage,
@@ -76,6 +78,10 @@ import {
 import { MulticaCapability } from './multica-capability.mjs';
 import { MulticaSynchronizer } from './multica-sync.mjs';
 import {
+  MutationOutcomeAmbiguousError,
+  executeMutationOnce,
+} from './mutation-execution.mjs';
+import {
   AiRuntimeClient,
   discoverAiRuntimes,
   selectAiRuntime,
@@ -88,6 +94,7 @@ const WORKDIR = config.workdir;
 const BUNDLED_PYTHON = config.pythonBin;
 const FILE_EXTRACTOR = join(WORKDIR, 'src', 'extract_file_text.py');
 const ARTIFACT_WRITER = join(WORKDIR, 'src', 'artifact_writer.py');
+const DATABASE_BACKUP_DIR = join(WORKDIR, 'data', 'database-backups');
 const LARK_CLI = config.larkCli;
 const BUNDLED_NODE_BIN = config.nodeBin;
 const BIBLE_TEXT = await readFile(join(WORKDIR, 'BIBLE.md'), 'utf8');
@@ -574,6 +581,24 @@ async function createConfirmedCalendarEvent(client, draft) {
   return response.data.event;
 }
 
+async function runAiRuntime(prompt, options) {
+  try {
+    const result = await AI_RUNTIME_CLIENT.run(prompt, options);
+    state.set('health', 'last_ai_runtime_success_at', new Date().toISOString());
+    state.unset('health', 'last_ai_runtime_error');
+    return result;
+  } catch (error) {
+    const detail = {
+      at: new Date().toISOString(),
+      runtime: SELECTED_AI_RUNTIME.id,
+      error: processFailureSummary(error),
+    };
+    state.set('health', 'last_ai_runtime_error', detail);
+    state.audit('ai_runtime_error', { detail });
+    throw error;
+  }
+}
+
 async function runCodex(task, history, imagePaths = [], decision = null) {
   const prompt = `
 ${PERSONA_TEXT}
@@ -604,7 +629,7 @@ ${history}
 ${task}
 `.trim();
 
-  const { text } = await AI_RUNTIME_CLIENT.run(prompt, {
+  const { text } = await runAiRuntime(prompt, {
     cwd: CODEX_RUNTIME_DIR,
     model: SELECTED_AI_RUNTIME.id === 'codex' ? config.codexModel : '',
     images: imagePaths,
@@ -632,7 +657,7 @@ async function runCodexActionItems(documentText) {
 会议纪要：
 ${documentText.slice(0, 40_000)}
 `.trim();
-  const { text: output } = await AI_RUNTIME_CLIENT.run(prompt, {
+  const { text: output } = await runAiRuntime(prompt, {
     cwd: CODEX_RUNTIME_DIR,
     model: SELECTED_AI_RUNTIME.id === 'codex' ? config.codexModel : '',
     timeoutMs: config.codexTimeoutMs,
@@ -668,7 +693,7 @@ async function runCodexMulticaPlan(request, history) {
     workspaces,
     defaultWorkspaceId: config.multicaDefaultWorkspaceId,
   });
-  const { text: output } = await AI_RUNTIME_CLIENT.run(prompt, {
+  const { text: output } = await runAiRuntime(prompt, {
     cwd: CODEX_RUNTIME_DIR,
     model: SELECTED_AI_RUNTIME.id === 'codex' ? config.codexModel : '',
     timeoutMs: config.codexTimeoutMs,
@@ -714,23 +739,25 @@ async function applyPendingMultica(message, senderOpenId, cleanText) {
     await sendText(null, message.chat_id, answer, `multica-confirm-invalid-${message.message_id}`);
     return true;
   }
+  let execution;
   try {
-    const result = await MULTICA_CAPABILITY.applyMutation(pending.pending, {
-      chatId: message.chat_id,
-      senderId: senderOpenId,
-    });
-    pendingActions.delete('multica', message.chat_id, senderOpenId);
-    await sendText(null, message.chat_id, result.text, `multica-applied-${message.message_id}`);
-    remember(message.chat_id, senderOpenId, 'user', cleanText);
-    remember(message.chat_id, senderOpenId, 'assistant', result.text);
-    audit('multica_mutation_applied', message, senderOpenId, {
-      action: pending.pending.plan.action,
-      issueId: result.issue?.id || '',
-      identifier: result.issue?.identifier || '',
+    execution = await executeMutationOnce({
+      state,
+      executionKey: `multica:${message.message_id}`,
+      kind: `multica_${pending.pending.plan.action}`,
+      operation: () => MULTICA_CAPABILITY.applyMutation(pending.pending, {
+        chatId: message.chat_id,
+        senderId: senderOpenId,
+      }),
+      definitelyNotApplied: error => /changed after the preview/i.test(
+        String(error?.message || ''),
+      ),
     });
   } catch (error) {
     pendingActions.delete('multica', message.chat_id, senderOpenId);
-    const answer = /changed after the preview/i.test(String(error?.message || ''))
+    const answer = error instanceof MutationOutcomeAmbiguousError
+      ? '这次 Multica 写入的最终结果不确定。为了防止重复创建或重复评论，我已经停止自动重试。请先在 Multica 中核对；确认没有写入后，再重新发起一次操作。'
+      : /changed after the preview/i.test(String(error?.message || ''))
       ? '这个 Issue 在确认前已经发生变化，所以我没有覆盖它。请重新发一次修改指令，我会基于最新状态生成方案。'
       : `Multica 写入没有完成：${processFailureSummary(error)}`;
     await sendText(null, message.chat_id, answer, `multica-apply-error-${message.message_id}`);
@@ -738,7 +765,19 @@ async function applyPendingMultica(message, senderOpenId, cleanText) {
       action: pending.pending.plan.action,
       error: String(error?.message || error).slice(0, 1000),
     });
+    return true;
   }
+  const result = execution.result;
+  await sendText(null, message.chat_id, result.text, `multica-applied-${message.message_id}`);
+  pendingActions.delete('multica', message.chat_id, senderOpenId);
+  remember(message.chat_id, senderOpenId, 'user', cleanText);
+  remember(message.chat_id, senderOpenId, 'assistant', result.text);
+  audit('multica_mutation_applied', message, senderOpenId, {
+    action: pending.pending.plan.action,
+    issueId: result.issue?.id || '',
+    identifier: result.issue?.identifier || '',
+    replayed: execution.replayed,
+  });
   return true;
 }
 
@@ -876,6 +915,7 @@ async function processIncoming(client, message, sender) {
       lastMulticaSyncError: state.get('health', 'last_multica_sync_error', null),
       maxMulticaSyncAgeMs: Math.max(60_000, config.multicaSyncIntervalMs * 6),
       multicaPending: Number(lastMulticaSyncResult?.pending || 0),
+      multicaDead: state.multicaNotificationDeadCount(),
       inboxCounts: state.inboxStatusCounts(),
       dashboardUrl: DASHBOARD_URL,
       detailed: senderOpenId === OWNER_OPEN_ID,
@@ -962,21 +1002,34 @@ async function processIncoming(client, message, sender) {
       return;
     }
     const created = [];
-    const failed = [];
-    for (const item of pendingTaskBatch.items) {
+    const uncertain = [];
+    for (const [index, item] of pendingTaskBatch.items.entries()) {
       try {
-      const task = await createConfirmedTask(client, { ...item, senderOpenId: pendingTaskBatch.senderOpenId });
+        const execution = await executeMutationOnce({
+          state,
+          executionKey: `task-batch:${message.message_id}:${index}`,
+          kind: 'feishu_task_create',
+          operation: () => createConfirmedTask(client, {
+            ...item,
+            senderOpenId: pendingTaskBatch.senderOpenId,
+          }),
+        });
+        const task = execution.result;
         created.push(task.summary || item.summary);
       } catch (error) {
         console.error(`[task-batch-error] ${message.message_id}:`, error);
-        failed.push(item.summary);
+        uncertain.push(item.summary);
       }
     }
-    pendingActions.delete('task_batch', message.chat_id, senderOpenId);
-    audit('task_batch_created', message, senderOpenId, { created, failed });
     const lines = [`建好了 ${created.length} 条待办：`, ...created.map((item, index) => `${index + 1}. ${item}`)];
-    if (failed.length) lines.push(`\n有 ${failed.length} 条没建成功：${failed.join('、')}`);
+    if (uncertain.length) {
+      lines.push(
+        `\n有 ${uncertain.length} 条结果不确定，已停止自动重试以避免重复创建，请在飞书待办中核对：${uncertain.join('、')}`,
+      );
+    }
     await sendText(client, message.chat_id, lines.join('\n'), `xiaozhao-batch-${message.message_id}`);
+    pendingActions.delete('task_batch', message.chat_id, senderOpenId);
+    audit('task_batch_created', message, senderOpenId, { created, uncertain });
     return;
   }
   if (pendingTaskBatch && /^(取消|不用了|不建了)[。！! ]*$/.test(cleanText)) {
@@ -1025,15 +1078,31 @@ async function processIncoming(client, message, sender) {
       await sendText(client, message.chat_id, '当前真人身份入口还没有配置待办创建凭证，暂时不能创建。', `digital-employee-task-unavailable-${message.message_id}`);
       return;
     }
+    let execution;
     try {
-      const created = await createConfirmedTask(client, pendingTask);
-      pendingActions.delete('task', message.chat_id, senderOpenId);
-      audit('task_created', message, senderOpenId, { taskId: created.id, summary: created.summary || pendingTask.summary });
-      await sendText(client, message.chat_id, `建好啦：${created.summary || pendingTask.summary}\n截止时间：${formatTaskTime(pendingTask.due)}`, `xiaozhao-task-${message.message_id}`);
+      execution = await executeMutationOnce({
+        state,
+        executionKey: `task:${message.message_id}`,
+        kind: 'feishu_task_create',
+        operation: () => createConfirmedTask(client, pendingTask),
+      });
     } catch (error) {
       console.error(`[task-error] ${message.message_id}:`, error);
-      await sendText(client, message.chat_id, '待办内容没问题，但创建权限现在还在审核中。审核通过后你再回复一次“确认”就可以啦。', `xiaozhao-task-error-${message.message_id}`);
+      pendingActions.delete('task', message.chat_id, senderOpenId);
+      const answer = error instanceof MutationOutcomeAmbiguousError
+        ? '这条待办的创建结果不确定。为了避免重复创建，我已经停止自动重试。请先在飞书待办中核对；确认没有创建后，再重新发起。'
+        : '待办没有创建成功，请重新发起一次。';
+      await sendText(client, message.chat_id, answer, `xiaozhao-task-error-${message.message_id}`);
+      return;
     }
+    const created = execution.result;
+    await sendText(client, message.chat_id, `建好啦：${created.summary || pendingTask.summary}\n截止时间：${formatTaskTime(pendingTask.due)}`, `xiaozhao-task-${message.message_id}`);
+    pendingActions.delete('task', message.chat_id, senderOpenId);
+    audit('task_created', message, senderOpenId, {
+      taskId: created.id,
+      summary: created.summary || pendingTask.summary,
+      replayed: execution.replayed,
+    });
     return;
   }
   if (pendingTask && /^(取消|不用了|不建了)[。！! ]*$/.test(cleanText)) {
@@ -1047,15 +1116,31 @@ async function processIncoming(client, message, sender) {
       await sendText(client, message.chat_id, '当前真人身份入口还没有配置日程创建凭证，暂时不能创建。', `digital-employee-calendar-unavailable-${message.message_id}`);
       return;
     }
+    let execution;
     try {
-      const created = await createConfirmedCalendarEvent(client, pendingCalendarEvent);
-      pendingActions.delete('calendar', message.chat_id, senderOpenId);
-      audit('calendar_created', message, senderOpenId, { eventId: created.event_id, summary: created.summary || pendingCalendarEvent.summary });
-      await sendText(client, message.chat_id, `日程建好啦：${created.summary || pendingCalendarEvent.summary}\n${formatCalendarDraftTime(pendingCalendarEvent.start)}–${formatCalendarDraftTime(pendingCalendarEvent.end)}`, `xiaozhao-event-${message.message_id}`);
+      execution = await executeMutationOnce({
+        state,
+        executionKey: `calendar:${message.message_id}`,
+        kind: 'feishu_calendar_create',
+        operation: () => createConfirmedCalendarEvent(client, pendingCalendarEvent),
+      });
     } catch (error) {
       console.error(`[calendar-create-error] ${message.message_id}:`, error);
-      await sendText(client, message.chat_id, '日程刚刚没建成功，你稍后再回复一次“确认”哦。', `xiaozhao-event-error-${message.message_id}`);
+      pendingActions.delete('calendar', message.chat_id, senderOpenId);
+      const answer = error instanceof MutationOutcomeAmbiguousError
+        ? '这个日程的创建结果不确定。为了避免重复创建，我已经停止自动重试。请先在飞书日历中核对；确认没有创建后，再重新发起。'
+        : '日程没有创建成功，请重新发起一次。';
+      await sendText(client, message.chat_id, answer, `xiaozhao-event-error-${message.message_id}`);
+      return;
     }
+    const created = execution.result;
+    await sendText(client, message.chat_id, `日程建好啦：${created.summary || pendingCalendarEvent.summary}\n${formatCalendarDraftTime(pendingCalendarEvent.start)}–${formatCalendarDraftTime(pendingCalendarEvent.end)}`, `xiaozhao-event-${message.message_id}`);
+    pendingActions.delete('calendar', message.chat_id, senderOpenId);
+    audit('calendar_created', message, senderOpenId, {
+      eventId: created.event_id,
+      summary: created.summary || pendingCalendarEvent.summary,
+      replayed: execution.replayed,
+    });
     return;
   }
   if (pendingCalendarEvent && /^(取消|不用了|不建了)[。！! ]*$/.test(cleanText)) {
@@ -1436,7 +1521,9 @@ async function runUserPollingLoop() {
     } catch (error) {
       if (stopping) break;
       failures += 1;
-      const delayMs = Math.min(5 * 60_000, 1_000 * (2 ** Math.min(failures, 9)));
+      const delayMs = pollFailureDelayMs(error, failures, {
+        baseIntervalMs: POLL_INTERVAL_MS,
+      });
       const failureSummary = processFailureSummary(error);
       state.set('health', 'last_poll_error', {
         at: new Date().toISOString(),
@@ -1653,9 +1740,31 @@ async function runMaintenance() {
       rotateLogIfNeeded(join(WORKDIR, 'bridge.log')),
       rotateLogIfNeeded(join(WORKDIR, 'bridge-error.log')),
     ]);
+    let backupResult = null;
+    try {
+      backupResult = await createVerifiedDatabaseBackup({
+        db: state.db,
+        backupDir: DATABASE_BACKUP_DIR,
+        retain: 14,
+      });
+      state.set('health', 'last_database_backup_at', new Date().toISOString());
+      state.set('health', 'last_database_backup_result', {
+        integrity: backupResult.integrity,
+        bytes: backupResult.bytes,
+        retained: backupResult.retained,
+      });
+      state.unset('health', 'last_database_backup_error');
+    } catch (backupError) {
+      const summary = processFailureSummary(backupError);
+      state.set('health', 'last_database_backup_error', {
+        at: new Date().toISOString(),
+        error: summary,
+      });
+      state.audit('database_backup_error', { detail: { error: summary } });
+    }
     state.set('health', 'last_maintenance_at', new Date().toISOString());
-    if (Object.values(pruned).some(Boolean) || rotated.some(Boolean)) {
-      console.log(`[maintenance] pruned inbound=${pruned.inbound} audit=${pruned.audit} conversation=${pruned.conversation} pending_action=${pruned.pendingAction} rate_limit=${pruned.rateLimit} logs_rotated=${rotated.filter(Boolean).length}`);
+    if (Object.values(pruned).some(Boolean) || rotated.some(Boolean) || backupResult) {
+      console.log(`[maintenance] pruned inbound=${pruned.inbound} audit=${pruned.audit} conversation=${pruned.conversation} pending_action=${pruned.pendingAction} rate_limit=${pruned.rateLimit} mutation=${pruned.mutation} multica_dead=${pruned.multicaNotification} logs_rotated=${rotated.filter(Boolean).length} backup=${backupResult?.integrity || 'failed'}`);
     }
   } catch (error) {
     state.audit('maintenance_error', { detail: { error: String(error?.message || error).slice(0, 1000) } });

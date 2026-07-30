@@ -45,6 +45,8 @@ const processingCount = Number(db.prepare(`SELECT COUNT(*) AS count FROM inbound
 const failedCount = Number(db.prepare(`SELECT COUNT(*) AS count FROM inbound_message
   WHERE status = 'dead' OR (status = 'failed' AND available_at < ?)`)
   .get(new Date(nowMs - 60_000).toISOString())?.count || 0);
+const multicaDeadCount = Number(db.prepare(`SELECT COUNT(*) AS count
+  FROM multica_notification_outbox WHERE status = 'dead'`).get()?.count || 0);
 const proxyReachable = await tcpReachable(config.codexProxyUrl || '');
 const result = evaluateHealth({
   nowMs,
@@ -71,6 +73,20 @@ const lastWebsocketReadyAt = setting('health', 'last_websocket_ready_at', '');
 const lastMulticaSyncAt = setting('health', 'last_multica_sync_at', '');
 const lastMulticaSyncError = setting('health', 'last_multica_sync_error', null);
 const lastMulticaSyncResult = setting('health', 'last_multica_sync_result', null);
+const lastBackupAt = setting('health', 'last_database_backup_at', '');
+const lastBackupError = setting('health', 'last_database_backup_error', null);
+const lastAiRuntimeSuccessAt = setting('health', 'last_ai_runtime_success_at', '');
+const lastAiRuntimeError = setting('health', 'last_ai_runtime_error', null);
+const backupAgeMs = lastBackupAt ? nowMs - new Date(lastBackupAt).getTime() : null;
+if (backupAgeMs === null || !Number.isFinite(backupAgeMs)
+  || backupAgeMs > 12 * 60 * 60_000) {
+  result.issues.push('database_backup_stale');
+}
+if (lastBackupError) result.issues.push('database_backup_error');
+if (lastAiRuntimeError?.at
+  && (!lastAiRuntimeSuccessAt || lastAiRuntimeError.at > lastAiRuntimeSuccessAt)) {
+  result.issues.push('ai_runtime_last_call_failed');
+}
 if (lastPollError?.at && (!lastPollSuccessAt || lastPollError.at > lastPollSuccessAt)) {
   result.issues.push('poller_last_run_failed');
 }
@@ -91,6 +107,7 @@ if (config.multicaEnabled) {
   if (Number(lastMulticaSyncResult?.pending || 0) > 0) {
     result.issues.push('multica_delivery_pending');
   }
+  if (multicaDeadCount > 0) result.issues.push('multica_delivery_dead');
 }
 result.healthy = result.issues.length === 0;
 result.metrics = {
@@ -113,6 +130,10 @@ result.metrics = {
   multicaNotified: Number(lastMulticaSyncResult?.notified || 0),
   multicaPending: Number(lastMulticaSyncResult?.pending || 0),
   multicaFailed: Number(lastMulticaSyncResult?.failed || 0),
+  multicaDead: multicaDeadCount,
+  lastDatabaseBackupAt: lastBackupAt,
+  databaseBackupAgeMs: backupAgeMs,
+  lastAiRuntimeSuccessAt,
 };
 console.log(JSON.stringify(result, null, 2));
 if (!result.healthy) process.exitCode = 1;

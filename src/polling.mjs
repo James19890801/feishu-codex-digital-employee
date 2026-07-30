@@ -65,6 +65,27 @@ export function retryDelayMs(attempts) {
   return Math.min(60_000, 1_000 * (2 ** Math.max(1, Number(attempts) || 1)));
 }
 
+export function pollFailureDelayMs(error, failures, {
+  baseIntervalMs = 5_000,
+  random = Math.random,
+} = {}) {
+  const detail = String(error?.message || error || '').toLowerCase();
+  const rateLimited = /too many request|rate.?limit|http\s*429|\b429\b/.test(detail);
+  const baseDelay = rateLimited
+    ? 60_000
+    : Math.max(
+        Math.max(1_000, Number(baseIntervalMs) || 5_000),
+        1_000 * (2 ** Math.min(Math.max(1, Number(failures) || 1), 9)),
+      );
+  const jitterWindow = rateLimited
+    ? 10_000
+    : Math.min(30_000, Math.floor(baseDelay * 0.2));
+  const jitter = Math.floor(
+    Math.max(0, Math.min(1, Number(random()) || 0)) * jitterWindow,
+  );
+  return Math.min(5 * 60_000, baseDelay + jitter);
+}
+
 export function shouldRetryMessage(attemptNumber, maxAttempts = 3) {
   return Number(attemptNumber) < Number(maxAttempts);
 }

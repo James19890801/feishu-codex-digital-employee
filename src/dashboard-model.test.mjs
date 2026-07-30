@@ -62,6 +62,27 @@ const base = {
   const view = buildOperatorView({
     ...base,
     aiRuntime: {
+      configured: 'auto',
+      selected: 'codex',
+      label: 'Codex CLI',
+      available: true,
+      runtimes: [],
+    },
+    lastAiRuntimeSuccessAt: '2026-07-30T00:58:00.000Z',
+    lastAiRuntimeError: {
+      at: '2026-07-30T00:59:30.000Z',
+      error: 'upstream unavailable',
+    },
+  });
+  assert.equal(view.state, 'degraded');
+  assert.equal(view.issues.includes('ai_runtime_last_call_failed'), true);
+  assert.equal(view.aiRuntime.healthy, false);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    aiRuntime: {
       configured: 'qoder',
       selected: '',
       label: 'Qoder CLI',
@@ -124,6 +145,36 @@ const base = {
   assert.equal(view.state, 'degraded');
   assert.equal(view.issues.includes('multica_delivery_pending'), true);
   assert.equal(view.multica.pending, 1);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    multicaEnabled: true,
+    lastMulticaSyncAt: '2026-07-30T00:59:55.000Z',
+    maxMulticaSyncAgeMs: 60_000,
+    lastMulticaSyncError: null,
+    lastMulticaSyncResult: { scanned: 17, changes: 0, notified: 0 },
+    multicaDeadCount: 1,
+  });
+  assert.equal(view.state, 'degraded');
+  assert.equal(view.issues.includes('multica_delivery_dead'), true);
+  assert.equal(view.multica.dead, 1);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    backupRequired: true,
+    lastBackupAt: '2026-07-29T12:00:00.000Z',
+    maxBackupAgeMs: 12 * 60 * 60_000,
+    lastBackupError: { error: 'disk full' },
+  });
+  assert.equal(view.state, 'degraded');
+  assert.equal(view.issues.includes('database_backup_stale'), true);
+  assert.equal(view.issues.includes('database_backup_error'), true);
+  assert.equal(view.database.backupHealthy, false);
+  assert.equal(view.database.healthy, false);
 }
 
 {

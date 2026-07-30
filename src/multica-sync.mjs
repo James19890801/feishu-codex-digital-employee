@@ -79,16 +79,27 @@ export function formatMulticaChange(change) {
 }
 
 export class MulticaSynchronizer {
-  constructor({ client, state, notify, audit = () => {} }) {
+  constructor({
+    client,
+    state,
+    notify,
+    audit = () => {},
+    maxNotificationAttempts = 10,
+  }) {
     this.client = client;
     this.state = state;
     this.notify = notify;
     this.audit = audit;
+    this.maxNotificationAttempts = Math.max(
+      1,
+      Math.min(50, Number(maxNotificationAttempts) || 10),
+    );
   }
 
   async deliverNotifications(now = new Date()) {
     let notified = 0;
     let failed = 0;
+    let dead = 0;
     const due = this.state.listDueMulticaNotifications(now.toISOString(), 200);
     for (const item of due) {
       try {
@@ -98,15 +109,19 @@ export class MulticaSynchronizer {
       } catch (error) {
         failed += 1;
         const delayMs = Math.min(5 * 60_000, 1_000 * (2 ** Math.min(item.attempts, 8)));
-        this.state.failMulticaNotification(
+        const failure = this.state.failMulticaNotification(
           item.notificationKey,
           error?.message || error,
           new Date(now.getTime() + delayMs).toISOString(),
+          this.maxNotificationAttempts,
         );
-        this.audit('multica_sync_notification_failed', {
+        if (failure.deadLettered) dead += 1;
+        this.audit(failure.deadLettered
+          ? 'multica_sync_notification_dead_lettered'
+          : 'multica_sync_notification_failed', {
           issueId: item.issueId,
           chatId: item.chatId,
-          attempts: item.attempts + 1,
+          attempts: failure.attempts,
           delayMs,
           error: String(error?.message || error).slice(0, 500),
         });
@@ -115,6 +130,7 @@ export class MulticaSynchronizer {
     return {
       notified,
       failed,
+      dead,
       pending: this.state.multicaNotificationCount(),
     };
   }
