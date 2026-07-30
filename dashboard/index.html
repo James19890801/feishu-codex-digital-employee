@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>数字员工 · 运行控制台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="noise"></div>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">DE</span>
+        <div>
+          <p class="eyebrow">DIGITAL EMPLOYEE / OPERATIONS</p>
+          <h1>真人数字员工运行台</h1>
+        </div>
+      </div>
+      <div class="clock-block">
+        <span id="clock">--:--:--</span>
+        <small>Asia / Shanghai</small>
+      </div>
+    </header>
+
+    <section class="hero" id="hero" data-state="loading">
+      <div class="signal-wrap">
+        <div class="signal">
+          <i></i><i></i><i></i>
+          <span class="signal-core"></span>
+        </div>
+        <div class="signal-caption">
+          <span>LIVE SIGNAL</span>
+          <b id="refreshAge">连接中</b>
+        </div>
+      </div>
+      <div class="hero-copy">
+        <p class="status-kicker" id="statusKicker">正在读取真实运行状态</p>
+        <h2 id="statusTitle">连接中</h2>
+        <p class="status-summary" id="statusSummary">不是看“程序有没有打开”，而是检查消息是否真的在流动。</p>
+        <div class="hero-actions">
+          <button class="button primary" id="refreshButton">重新检测</button>
+          <button class="button danger" id="restartButton">重启主进程</button>
+          <span class="last-check">最近检测 <b id="lastCheck">—</b></span>
+        </div>
+      </div>
+      <div class="hero-index">
+        <span>STATUS</span>
+        <strong id="statusCode">---</strong>
+      </div>
+    </section>
+
+    <section class="issue-strip hidden" id="issueStrip">
+      <span class="issue-label">需要处理</span>
+      <div id="issueList"></div>
+    </section>
+
+    <section class="metrics-grid">
+      <article class="metric-card" data-card="process">
+        <div class="metric-head"><span>01</span><b>主进程</b><i id="processDot"></i></div>
+        <strong id="processValue">—</strong>
+        <p id="processMeta">正在检测 PID</p>
+      </article>
+      <article class="metric-card" data-card="polling">
+        <div class="metric-head"><span>02</span><b>消息轮询</b><i id="pollingDot"></i></div>
+        <strong id="pollingValue">—</strong>
+        <p id="pollingMeta">检查游标推进</p>
+      </article>
+      <article class="metric-card" data-card="websocket">
+        <div class="metric-head"><span>03</span><b>辅助监听</b><i id="websocketDot"></i></div>
+        <strong id="websocketValue">—</strong>
+        <p id="websocketMeta">WebSocket 消费者</p>
+      </article>
+      <article class="metric-card" data-card="codex">
+        <div class="metric-head"><span>04</span><b>Codex</b><i id="codexDot"></i></div>
+        <strong id="codexValue">—</strong>
+        <p id="codexMeta">网络与模型</p>
+      </article>
+      <article class="metric-card wide" data-card="database">
+        <div class="metric-head"><span>05</span><b>状态与队列</b><i id="databaseDot"></i></div>
+        <div class="queue-row">
+          <div><strong id="completedCount">0</strong><small>已完成</small></div>
+          <div><strong id="processingCount">0</strong><small>处理中</small></div>
+          <div><strong id="failedCount">0</strong><small>失败 / 死信</small></div>
+          <div><strong id="dbIntegrity">—</strong><small>SQLite</small></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="lower-grid">
+      <article class="panel timeline-panel">
+        <div class="panel-title">
+          <div><span>EVENT STREAM</span><h3>最近运行事件</h3></div>
+          <b>自动刷新 5s</b>
+        </div>
+        <div class="timeline" id="timeline">
+          <p class="empty">正在读取审计事件…</p>
+        </div>
+      </article>
+
+      <aside class="panel operator-panel">
+        <div class="panel-title">
+          <div><span>OPERATOR GUIDE</span><h3>你该怎么看</h3></div>
+        </div>
+        <ol class="guide">
+          <li><b>绿色「运行正常」</b><span>主轮询在推进，用户消息能被发现。</span></li>
+          <li><b>橙色「需要维护」</b><span>进程可能还在，但至少一条关键链路失效。</span></li>
+          <li><b>红色「主进程离线」</b><span>点击重启；面板会继续在线观察恢复。</span></li>
+          <li><b>断线与恢复通知</b><span>状态变化会触发 macOS 本地横幅，不依赖飞书通道存活。</span></li>
+        </ol>
+        <div class="maintenance-callout hidden" id="credentialGuide">
+          <span>当前维护动作</span>
+          <strong>飞书用户凭据被钥匙串拦截</strong>
+          <p>需在终端人工确认执行：</p>
+          <code>lark-cli config keychain-downgrade</code>
+          <small>安全影响：同一 macOS 用户下的进程将能读取本地密钥文件。</small>
+        </div>
+        <div class="channel-contract">
+          <span>用户入口</span>
+          <strong>群聊 @ 你 · 单聊直接发</strong>
+          <p>全部会话开放，不添加 AI 标签。</p>
+        </div>
+        <p class="local-only">仅本机可见 · 127.0.0.1 · 不对公网开放</p>
+      </aside>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

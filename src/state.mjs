@@ -1,0 +1,259 @@
+import { DatabaseSync } from 'node:sqlite';
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+
+function parseStoredPayload(value) {
+  try {
+    return { payload: JSON.parse(value), payloadParseError: false };
+  } catch {
+    return { payload: null, payloadParseError: true };
+  }
+}
+
+export class AgentState {
+  constructor(path) {
+    mkdirSync(dirname(path), { recursive: true });
+    this.db = new DatabaseSync(path);
+    this.db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA synchronous = NORMAL;
+      PRAGMA busy_timeout = 5000;
+      CREATE TABLE IF NOT EXISTS conversation (
+        id INTEGER PRIMARY KEY, chat_id TEXT NOT NULL, sender_id TEXT NOT NULL,
+        role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS conversation_lookup
+        ON conversation(chat_id, sender_id, id DESC);
+      CREATE TABLE IF NOT EXISTS settings (
+        scope TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+        updated_at TEXT NOT NULL, PRIMARY KEY(scope, key)
+      );
+      CREATE TABLE IF NOT EXISTS audit (
+        id INTEGER PRIMARY KEY, event TEXT NOT NULL, chat_id TEXT,
+        sender_id TEXT, message_id TEXT, detail TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS audit_created ON audit(created_at DESC);
+      CREATE TABLE IF NOT EXISTS inbound_message (
+        message_id TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        status TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        available_at TEXT NOT NULL,
+        first_seen_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_error TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS inbound_ready
+        ON inbound_message(status, available_at, first_seen_at);
+      CREATE TABLE IF NOT EXISTS rate_limit (
+        subject TEXT PRIMARY KEY,
+        window_start_ms INTEGER NOT NULL,
+        count INTEGER NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+  }
+
+  remember(chatId, senderId, role, content) {
+    this.db.prepare(`INSERT INTO conversation
+      (chat_id, sender_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`)
+      .run(chatId, senderId || '', role, String(content).slice(0, 4000), new Date().toISOString());
+    this.db.prepare(`DELETE FROM conversation WHERE chat_id = ? AND sender_id = ? AND id NOT IN
+      (SELECT id FROM conversation WHERE chat_id = ? AND sender_id = ? ORDER BY id DESC LIMIT 24)`)
+      .run(chatId, senderId || '', chatId, senderId || '');
+  }
+
+  history(chatId, senderId, limit = 12) {
+    return this.db.prepare(`SELECT role, content FROM conversation
+      WHERE chat_id = ? AND sender_id = ? ORDER BY id DESC LIMIT ?`)
+      .all(chatId, senderId || '', limit).reverse();
+  }
+
+  set(scope, key, value) {
+    this.db.prepare(`INSERT INTO settings(scope, key, value, updated_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(scope, key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`)
+      .run(scope, key, JSON.stringify(value), new Date().toISOString());
+  }
+
+  get(scope, key, fallback = null) {
+    const row = this.db.prepare('SELECT value FROM settings WHERE scope = ? AND key = ?').get(scope, key);
+    if (!row) return fallback;
+    try { return JSON.parse(row.value); } catch { return fallback; }
+  }
+
+  unset(scope, key) {
+    this.db.prepare('DELETE FROM settings WHERE scope = ? AND key = ?').run(scope, key);
+  }
+
+  audit(event, {
+    chatId = '', senderId = '', messageId = '', detail = {},
+    createdAt = new Date().toISOString(),
+  } = {}) {
+    this.db.prepare(`INSERT INTO audit
+      (event, chat_id, sender_id, message_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(event, chatId, senderId, messageId, JSON.stringify(detail), createdAt);
+  }
+
+  enqueueInbound(messageId, source, payload, now = new Date().toISOString()) {
+    const result = this.db.prepare(`INSERT OR IGNORE INTO inbound_message
+      (message_id, source, payload, status, attempts, available_at, first_seen_at, updated_at)
+      VALUES (?, ?, ?, 'pending', 0, ?, ?, ?)`)
+      .run(messageId, source, JSON.stringify(payload), now, now, now);
+    return result.changes === 1;
+  }
+
+  hasInbound(messageId) {
+    return Boolean(this.db.prepare('SELECT 1 FROM inbound_message WHERE message_id = ?').get(messageId));
+  }
+
+  seedInbound(messageId, source, payload, now = new Date().toISOString()) {
+    const result = this.db.prepare(`INSERT OR IGNORE INTO inbound_message
+      (message_id, source, payload, status, attempts, available_at, first_seen_at, updated_at)
+      VALUES (?, ?, ?, 'completed', 0, ?, ?, ?)`)
+      .run(messageId, source, JSON.stringify(payload), now, now, now);
+    return result.changes === 1;
+  }
+
+  claimInbound(messageId, now = new Date().toISOString()) {
+    const result = this.db.prepare(`UPDATE inbound_message
+      SET status = 'processing', attempts = attempts + 1, updated_at = ?, last_error = ''
+      WHERE message_id = ? AND status IN ('pending', 'failed') AND available_at <= ?`)
+      .run(now, messageId, now);
+    return result.changes === 1;
+  }
+
+  completeInbound(messageId, now = new Date().toISOString()) {
+    this.db.prepare(`UPDATE inbound_message
+      SET status = 'completed', updated_at = ?, last_error = '' WHERE message_id = ?`)
+      .run(now, messageId);
+  }
+
+  failInbound(messageId, error, retryAt, now = new Date().toISOString()) {
+    this.db.prepare(`UPDATE inbound_message
+      SET status = 'failed', available_at = ?, updated_at = ?, last_error = ?
+      WHERE message_id = ?`)
+      .run(retryAt, now, String(error || '').slice(0, 2000), messageId);
+  }
+
+  deadLetterInbound(messageId, error, now = new Date().toISOString()) {
+    this.db.prepare(`UPDATE inbound_message
+      SET status = 'dead', updated_at = ?, last_error = ?
+      WHERE message_id = ?`)
+      .run(now, String(error || '').slice(0, 2000), messageId);
+  }
+
+  recoverStaleInbound(now = new Date().toISOString(), staleAfterMs = 5 * 60_000) {
+    const staleBefore = new Date(new Date(now).getTime() - staleAfterMs).toISOString();
+    const result = this.db.prepare(`UPDATE inbound_message
+      SET status = 'pending', available_at = ?, updated_at = ?,
+          last_error = CASE WHEN last_error = '' THEN 'recovered stale processing lease' ELSE last_error END
+      WHERE status = 'processing' AND updated_at <= ?`)
+      .run(now, now, staleBefore);
+    return Number(result.changes);
+  }
+
+  recoverProcessingInbound(now = new Date().toISOString()) {
+    const result = this.db.prepare(`UPDATE inbound_message
+      SET status = 'pending', available_at = ?, updated_at = ?,
+          last_error = CASE WHEN last_error = '' THEN 'recovered after process restart' ELSE last_error END
+      WHERE status = 'processing'`)
+      .run(now, now);
+    return Number(result.changes);
+  }
+
+  listReadyInbound(now = new Date().toISOString(), limit = 20) {
+    return this.db.prepare(`SELECT message_id, source, payload, attempts
+      FROM inbound_message
+      WHERE status IN ('pending', 'failed') AND available_at <= ?
+      ORDER BY first_seen_at ASC LIMIT ?`)
+      .all(now, limit)
+      .map(row => {
+        const parsed = parseStoredPayload(row.payload);
+        return {
+          messageId: row.message_id,
+          source: row.source,
+          ...parsed,
+          attempts: row.attempts,
+        };
+      });
+  }
+
+  getInbound(messageId) {
+    const row = this.db.prepare(`SELECT message_id, source, payload, status, attempts,
+      available_at, first_seen_at, updated_at, last_error
+      FROM inbound_message WHERE message_id = ?`).get(messageId);
+    if (!row) return null;
+    const parsed = parseStoredPayload(row.payload);
+    return {
+      messageId: row.message_id,
+      source: row.source,
+      ...parsed,
+      status: row.status,
+      attempts: row.attempts,
+      availableAt: row.available_at,
+      firstSeenAt: row.first_seen_at,
+      updatedAt: row.updated_at,
+      lastError: row.last_error,
+    };
+  }
+
+  consumeRateLimit(subject, nowMs, windowMs, limit) {
+    const windowStartMs = Math.floor(nowMs / windowMs) * windowMs;
+    this.db.prepare(`INSERT INTO rate_limit(subject, window_start_ms, count, updated_at)
+      VALUES (?, ?, 0, ?)
+      ON CONFLICT(subject) DO UPDATE SET
+        window_start_ms = CASE WHEN rate_limit.window_start_ms = excluded.window_start_ms
+          THEN rate_limit.window_start_ms ELSE excluded.window_start_ms END,
+        count = CASE WHEN rate_limit.window_start_ms = excluded.window_start_ms
+          THEN rate_limit.count ELSE 0 END,
+        updated_at = excluded.updated_at`)
+      .run(subject, windowStartMs, new Date(nowMs).toISOString());
+    const result = this.db.prepare(`UPDATE rate_limit
+      SET count = count + 1, updated_at = ?
+      WHERE subject = ? AND window_start_ms = ? AND count < ?`)
+      .run(new Date(nowMs).toISOString(), subject, windowStartMs, limit);
+    return result.changes === 1;
+  }
+
+  prune({
+    now = new Date().toISOString(),
+    completedInboundRetentionMs = 30 * 86400_000,
+    auditRetentionMs = 90 * 86400_000,
+    conversationRetentionMs = 90 * 86400_000,
+  } = {}) {
+    const nowMs = new Date(now).getTime();
+    const inboundBefore = new Date(nowMs - completedInboundRetentionMs).toISOString();
+    const auditBefore = new Date(nowMs - auditRetentionMs).toISOString();
+    const conversationBefore = new Date(nowMs - conversationRetentionMs).toISOString();
+    const inbound = this.db.prepare(`DELETE FROM inbound_message
+      WHERE status IN ('completed', 'dead') AND updated_at < ?`).run(inboundBefore).changes;
+    const audit = this.db.prepare('DELETE FROM audit WHERE created_at < ?').run(auditBefore).changes;
+    const conversation = this.db.prepare('DELETE FROM conversation WHERE created_at < ?')
+      .run(conversationBefore).changes;
+    const pendingAction = this.db.prepare(`DELETE FROM settings
+      WHERE scope = 'pending_action'
+        AND CAST(json_extract(value, '$.expiresAt') AS INTEGER) <= ?`).run(nowMs).changes;
+    const rateLimit = this.db.prepare('DELETE FROM rate_limit WHERE updated_at < ?').run(auditBefore).changes;
+    this.db.exec('PRAGMA wal_checkpoint(PASSIVE)');
+    return {
+      inbound: Number(inbound),
+      audit: Number(audit),
+      conversation: Number(conversation),
+      pendingAction: Number(pendingAction),
+      rateLimit: Number(rateLimit),
+    };
+  }
+
+  inboxStatusCounts() {
+    const rows = this.db.prepare(`SELECT status, COUNT(*) AS count
+      FROM inbound_message GROUP BY status`).all();
+    return Object.fromEntries(rows.map(row => [row.status, Number(row.count)]));
+  }
+
+  close() {
+    this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    this.db.close();
+  }
+}

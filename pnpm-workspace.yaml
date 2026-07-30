@@ -1,0 +1,3 @@
+allowBuilds:
+  keytar: true
+  protobufjs: false
