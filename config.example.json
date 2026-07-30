@@ -18,6 +18,7 @@
   "helperTimeoutMs": 30000,
   "rateLimitWindowMs": 300000,
   "rateLimitMaxMessages": 10,
+  "aiRuntime": "auto",
   "multicaEnabled": false,
   "multicaProfile": "desktop-api.multica.ai",
   "multicaDefaultWorkspaceId": "",

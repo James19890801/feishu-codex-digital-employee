@@ -12,6 +12,11 @@ export function processFailureSummary(error) {
     } catch {
       const match = stderr.match(/"message"\s*:\s*"([^"]+)"/);
       if (match?.[1]) return match[1].slice(0, 1000);
+      const plain = stderr
+        .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+        .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+        .trim();
+      if (plain) return plain.slice(-1000);
     }
   }
   return String(error?.message || error || 'unknown process failure').slice(0, 1000);

@@ -26,7 +26,7 @@ The platform combines:
 
     Real-person identity messaging
     Group mention and direct-message triggers
-    Codex-based understanding and response generation
+    Pluggable AI coding runtime for understanding and response generation
     Persistent message queues
     Message deduplication
     Per-conversation ordering
@@ -68,7 +68,7 @@ Typical use cases include:
 
 AIPRO does not authorize itself. It only operates within the permissions granted
 by the account owner, the Feishu application, the operating system, lark-cli,
-and Codex.
+and the selected AI runtime.
 
 
 CORE PRODUCT PRINCIPLES
@@ -171,8 +171,9 @@ Step 5: Decide
 
 Step 6: Execute
 
-    Codex handles language understanding and response generation. Optional
-    Feishu SDK functions handle documents, images, files, tasks, and calendars.
+    The selected AI runtime handles language understanding and response
+    generation. Optional Feishu SDK functions handle documents, images, files,
+    tasks, and calendars.
 
 Step 7: Reply
 
@@ -236,21 +237,92 @@ WebSocket is temporarily unavailable but polling remains healthy, AIPRO can
 continue to receive qualifying user messages.
 
 
-AI EXECUTION
+AI RUNTIME ABSTRACTION
 
-AIPRO invokes Codex in an ephemeral session.
+AIPRO is not coupled to one AI coding CLI. It discovers supported local
+runtimes during startup, selects one through a common execution adapter, and
+uses that adapter for Feishu replies, configuration planning, action-item
+extraction, and Multica request planning.
 
-The Codex process uses:
+The default aiRuntime value is auto. Auto mode uses the first usable headless
+runtime in this order:
 
-    An isolated runtime directory
-    An isolated Codex home
-    A link to the existing authorized Codex login
-    Read-only sandbox mode
-    No unrelated user configuration
-    No unrelated local skill loading
+    Codex CLI
+    Qoder CLI
+    CodeBuddy CLI
+
+Current provider status:
+
+    Codex CLI
+        Production adapter available. Text and local image inputs are
+        supported. AIPRO uses an ephemeral, isolated, read-only Codex session.
+
+    Qoder CLI
+        Production adapter available. The print-mode CLI is invoked with
+        dont_ask permissions, an empty tool set, prompt input through stdin,
+        and optional image attachments. Both current QoderWork application
+        bundles and common user-level CLI locations are detected.
+
+    CodeBuddy CLI
+        Production text adapter available. The headless CLI is invoked with
+        dontAsk permissions, text output, prompt input through stdin, bounded
+        time, and bounded output. The provider becomes selectable only after a
+        compatible local executable is detected and a real smoke test passes.
+
+    TRAE
+        The installed TRAE desktop application is detected and shown in the
+        dashboard. It is not selectable in this release because its graphical
+        launcher does not provide a stable headless response stream that AIPRO
+        can safely supervise. Detection is not presented as execution support.
+
+Installation requires no AIPRO-specific executable path when a supported CLI is
+installed in a common location or available through PATH. Operators can keep
+Auto mode or choose an available runtime in the dashboard. A runtime change is
+a protected configuration transaction:
+
+    Display the requested provider and exact configuration change
+    Require a six-digit second confirmation
+    Save a complete rollback snapshot
+    Validate the resulting configuration
+    Execute a real response smoke test with the selected runtime
+    Restart the main service
+    Verify service and channel health
+    Restore the previous snapshot automatically if any step fails
+
+The dashboard distinguishes three states: usable headless runtime, application
+detected without a usable headless interface, and not installed. Executable
+paths and authentication data are never returned to the browser.
+
+Every AI subprocess uses:
+
+    An isolated working directory
+    A provider-specific noninteractive mode
+    Prompts through stdin instead of command-line arguments
+    Restricted or read-only execution policy where the provider supports it
     A bounded timeout
     Bounded standard output and standard error
     Controlled termination on timeout or service shutdown
+
+Codex additionally uses an isolated Codex home, a link to the existing
+authorized login, read-only sandbox mode, and no unrelated user configuration
+or local skill loading.
+
+Provider documentation used by this integration:
+
+    CodeBuddy headless mode
+    https://www.codebuddy.ai/docs/cli/headless
+
+    CodeBuddy CLI reference
+    https://www.codebuddy.ai/docs/cli/cli-reference
+
+    Qoder CLI quick start
+    https://docs.qoder.com/cli/quick-start
+
+    Qoder permission modes
+    https://docs.qoder.com/cli/permissions
+
+    TRAE Agent open-source project
+    https://github.com/bytedance/trae-agent
 
 The prompt combines:
 
@@ -362,7 +434,8 @@ Images:
     Current-message images when the event contains a resource key
     Recent image lookup in the same conversation
     Up to four recent images by default
-    Screenshot and visual-content understanding through Codex image input
+    Screenshot and visual-content understanding when the selected runtime
+    supports image input
 
 Files:
 
@@ -615,7 +688,9 @@ The dashboard displays:
     Last polling error
     WebSocket state
     Active WebSocket consumer count
-    Codex proxy reachability
+    Selected AI runtime and auto-discovery state
+    Availability of Codex, Qoder, CodeBuddy, and the detected TRAE application
+    AI runtime proxy reachability when configured
     SQLite integrity
     Pending, processing, failed, completed, and dead counts
     Recent sanitized audit events
@@ -641,12 +716,12 @@ want to edit JSON or policy documents by hand. An operator can describe the
 desired behavior in natural language, such as changing the polling interval,
 making replies shorter, or strengthening an approval rule.
 
-This is a constrained configuration planner, not an unrestricted shell. Codex
-runs in an ephemeral, read-only planning session and can propose changes only
-to an explicit set of configuration fields and operating documents. It cannot
-change application credentials, the owner identity, Keychain settings, binary
-paths, the dashboard port, proxy settings, or arbitrary files. The assistant
-rejects credential-like input.
+This is a constrained configuration planner, not an unrestricted shell. The
+selected AI runtime runs in a bounded planning session and can propose changes
+only to an explicit set of configuration fields and operating documents. It
+cannot change application credentials, the owner identity, Keychain settings,
+binary paths, the dashboard port, proxy settings, or arbitrary files. The
+assistant rejects credential-like input.
 
 The assistant follows this transaction:
 
@@ -664,9 +739,9 @@ The assistant follows this transaction:
     Automatically restore the snapshot if validation or health checks fail
     Append a metadata-only audit record
 
-High-impact changes include conversation scope, event transport, Codex model,
-the Operating Bible, and the knowledge catalog. Plans expire after fifteen
-minutes and can be applied only once. A stale plan is rejected when its
+High-impact changes include conversation scope, event transport, AI runtime,
+Codex model, the Operating Bible, and the knowledge catalog. Plans expire after
+fifteen minutes and can be applied only once. A stale plan is rejected when its
 original configuration has changed before confirmation.
 
 The local browser session receives a random in-memory session token. Mutating
@@ -719,8 +794,12 @@ Package manager:
 
 AI runtime:
 
-    Codex CLI must be installed and authenticated
+    At least one supported headless CLI must be installed and authenticated
+    Supported selectable runtimes are Codex, Qoder, and CodeBuddy
+    Auto mode prefers Codex, then Qoder, then CodeBuddy
     The ChatGPT macOS application can provide the Codex executable
+    QoderWork application bundles can provide the Qoder executable
+    A detected TRAE desktop app is visible but is not selectable
 
 Feishu runtime:
 
@@ -760,7 +839,8 @@ The setup script:
 
     Checks Node.js
     Checks Python
-    Checks Codex
+    Detects Codex, Qoder, CodeBuddy, and TRAE
+    Requires at least one supported headless AI runtime
     Checks lark-cli
     Installs locked Node dependencies
     Installs pinned Python dependencies
@@ -858,6 +938,7 @@ Minimal example:
       "allowAllChats": true,
       "digitalTwinLabel": "",
       "eventTransport": "lark-cli",
+      "aiRuntime": "auto",
       "pollIntervalMs": 5000,
       "maxConcurrentReplies": 2,
       "multicaEnabled": true,
@@ -941,6 +1022,12 @@ Multica fields:
 
 Timeout and runtime fields:
 
+    aiRuntime
+        auto, codex, qoder, codebuddy, or trae. Auto is the default. An
+        explicitly selected provider must expose a supported headless CLI.
+        TRAE is reserved for a future supervised headless adapter and is
+        rejected on systems that only have the desktop application.
+
     larkCliTimeoutMs
         Default 45000.
 
@@ -957,10 +1044,11 @@ Timeout and runtime fields:
         Optional output directory for generated files.
 
     codexBin
-        Codex executable path.
+        Optional Codex executable override. Normal installations are discovered
+        automatically.
 
     codexModel
-        Codex model name.
+        Codex model name. It is ignored when another runtime is selected.
 
     codexProxyUrl
         Optional trusted HTTP or HTTPS proxy.
@@ -1035,7 +1123,11 @@ Check the event consumer:
 
     npm run event-health
 
-Run a real Codex sample:
+Run a real sample with the configured AI runtime:
+
+    npm run runtime-smoke
+
+Run an explicit Codex-only sample:
 
     npm run codex-smoke
 
@@ -1057,7 +1149,7 @@ The complete verification script checks:
     Configuration values and paths
     Python helper imports
     Automated test suites
-    A real Codex response
+    A real response from the selected AI runtime
     SQLite integrity
     Polling cursor freshness
     Stale processing messages
@@ -1191,14 +1283,23 @@ scripts/codex-smoke.mjs
 
     Real Codex sample request.
 
+scripts/runtime-smoke.mjs
+
+    Runtime discovery and real sample request through the selected adapter.
+
 scripts/check-python.mjs
 
     Python helper dependency check.
 
 src/index.mjs
 
-    Main message bridge, workflow execution, Codex calls, Feishu actions, and
-    response delivery.
+    Main message bridge, workflow execution, AI runtime calls, Feishu actions,
+    and response delivery.
+
+src/ai-runtime.mjs
+
+    Local runtime discovery, provider selection, safe command construction, and
+    unified bounded execution for Codex, Qoder, and CodeBuddy.
 
 src/polling.mjs
 
@@ -1276,8 +1377,8 @@ The data directory may contain:
     SQLite WAL files
     Process locks
     Dashboard notification state
-    Isolated Codex runtime files
-    Local Codex authentication link
+    Isolated AI runtime files
+    Local Codex authentication link when Codex is used
 
 Do not upload the data directory.
 
@@ -1293,10 +1394,13 @@ Credential controls:
 
 AI runtime controls:
 
-    Ephemeral Codex sessions
-    Read-only sandbox
+    Runtime availability checked before selection
+    Real smoke test before a runtime configuration is committed
+    Automatic rollback after failed selection or health verification
+    Provider-specific noninteractive and restricted execution
+    Prompts delivered through stdin
     Isolated working directory
-    Isolated Codex home
+    Isolated Codex home when Codex is used
     Bounded time and output
     Controlled process termination
 
@@ -1342,13 +1446,13 @@ KNOWN LIMITATIONS
 
 2. No fixed end-to-end latency guarantee
 
-   Response time depends on polling, Feishu indexing, network conditions, Codex
-   inference, optional resource downloads, and message delivery.
+   Response time depends on polling, Feishu indexing, network conditions, AI
+   runtime inference, optional resource downloads, and message delivery.
 
 3. Upstream service dependency
 
-   Feishu, lark-cli, Codex, OpenAI connectivity, the local network, and optional
-   proxy services can fail independently.
+   Feishu, lark-cli, the selected AI runtime, its upstream model service, the
+   local network, and optional proxy services can fail independently.
 
 4. Maximum catch-up period
 
@@ -1395,10 +1499,12 @@ Problem: A direct message receives no reply.
     Confirm that the conversation is not paused.
     Check polling freshness.
 
-Problem: A message is received but Codex does not answer.
+Problem: A message is received but the selected AI runtime does not answer.
 
-    Run npm run codex-smoke.
-    Confirm that Codex is authenticated.
+    Run npm run runtime-smoke.
+    Confirm that the selected runtime is authenticated.
+    Open the dashboard and inspect the AI runtime cards.
+    Switch to Auto or another usable runtime through the protected workflow.
     Check codexProxyUrl when a proxy is required.
     Inspect timeout and process errors.
 
@@ -1457,7 +1563,11 @@ Audit production dependencies:
 
     pnpm audit --prod
 
-Run a real Codex sample:
+Run a real sample through the selected AI runtime:
+
+    npm run runtime-smoke
+
+Run an explicit Codex-only sample:
 
     npm run codex-smoke
 

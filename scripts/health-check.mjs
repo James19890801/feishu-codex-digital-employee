@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { createConnection } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { evaluateHealth } from '../src/reliability.mjs';
+import { discoverAiRuntimes, selectAiRuntime } from '../src/ai-runtime.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const config = JSON.parse(readFileSync(join(root, 'config.local.json'), 'utf8'));
@@ -53,6 +54,15 @@ const result = evaluateHealth({
   failedCount,
   proxyReachable,
 });
+let selectedAiRuntime = null;
+try {
+  selectedAiRuntime = selectAiRuntime(
+    discoverAiRuntimes({ configuredCodexBin: config.codexBin }),
+    config.aiRuntime || 'auto',
+  );
+} catch {
+  result.issues.push('ai_runtime_unavailable');
+}
 if (integrity !== 'ok') result.issues.push('sqlite_integrity_failed');
 const lastPollError = setting('health', 'last_poll_error', null);
 const lastPollSuccessAt = setting('health', 'last_poll_success_at', '');
@@ -92,6 +102,9 @@ result.metrics = {
   lastPollDurationMs,
   lastWebsocketReadyAt,
   codexProxyReachable: proxyReachable,
+  aiRuntimeConfigured: config.aiRuntime || 'auto',
+  aiRuntimeSelected: selectedAiRuntime?.id || '',
+  aiRuntimeLabel: selectedAiRuntime?.label || '',
   multicaEnabled: config.multicaEnabled === true,
   lastMulticaSyncAt,
   multicaSyncAgeMs,

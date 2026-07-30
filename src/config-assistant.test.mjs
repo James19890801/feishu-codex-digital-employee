@@ -42,6 +42,7 @@ const documents = {
     larkCli: '',
     nodeBin: '',
     pythonBin: '',
+    aiRuntime: 'auto',
   },
   persona: '# Persona\n\n- Keep replies concise.\n',
   bible: '# Bible\n\n- Never make payments.\n',
@@ -77,6 +78,29 @@ const multicaPlan = assistant.createChangePlan({
 }, documents);
 assert.equal(multicaPlan.confirmationLevel, 'double');
 assert.equal(multicaPlan.changes[0].after, true);
+
+const runtimePlan = assistant.createChangePlan({
+  summary: 'Switch AI runtime',
+  changes: [{
+    target: 'config',
+    key: 'aiRuntime',
+    value: 'qoder',
+    reason: 'Use the locally available Qoder CLI',
+  }],
+}, documents);
+assert.equal(runtimePlan.confirmationLevel, 'double');
+assert.equal(runtimePlan.changes[0].after, 'qoder');
+assert.throws(
+  () => assistant.createChangePlan({
+    summary: 'Unsupported runtime',
+    changes: [{
+      target: 'config',
+      key: 'aiRuntime',
+      value: 'unknown-agent',
+    }],
+  }, documents),
+  /aiRuntime must be one of/i,
+);
 
 const sensitivePlan = assistant.createChangePlan({
   summary: 'Restrict message scope',
@@ -172,6 +196,7 @@ assert.equal(publicConfig.allowAllChats, true);
 assert.equal('feishuAppId' in publicConfig, false);
 assert.equal('ownerOpenId' in publicConfig, false);
 assert.equal('codexBin' in publicConfig, false);
+assert.equal(publicConfig.aiRuntime, 'auto');
 
 assert.deepEqual(
   assistant.effectivePublicConfiguration(

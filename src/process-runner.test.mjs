@@ -16,6 +16,13 @@ assert.equal(
   processFailureSummary({ message: 'plain failure', stderr: '' }),
   'plain failure',
 );
+assert.equal(
+  processFailureSummary({
+    message: 'process exited with code 1',
+    stderr: 'Authentication required. Run qodercli login.',
+  }),
+  'Authentication required. Run qodercli login.',
+);
 
 {
   const result = await runBufferedProcess(process.execPath, [

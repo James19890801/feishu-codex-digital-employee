@@ -75,9 +75,9 @@
         <p id="websocketMeta">WebSocket 消费者</p>
       </article>
       <article class="metric-card" data-card="codex">
-        <div class="metric-head"><span>04</span><b>Codex</b><i id="codexDot"></i></div>
+        <div class="metric-head"><span>04</span><b>AI 运行时</b><i id="codexDot"></i></div>
         <strong id="codexValue">—</strong>
-        <p id="codexMeta">网络与模型</p>
+        <p id="codexMeta">自动探测本机 CLI</p>
       </article>
       <article class="metric-card" data-card="multica">
         <div class="metric-head"><span>05</span><b>Multica 业务系统</b><i id="multicaDot"></i></div>
@@ -95,12 +95,31 @@
       </article>
     </section>
 
+    <section class="runtime-console" id="runtimeConsole">
+      <div class="runtime-heading">
+        <div>
+          <span>AI CODING RUNTIME / AUTO DISCOVERY</span>
+          <h3>选择数字人的推理引擎</h3>
+          <p>安装后自动感知本机运行时。默认自动选择 Codex；只允许选择具备稳定无界面输出能力的 CLI。</p>
+        </div>
+        <div class="runtime-current">
+          <span>CURRENT ENGINE</span>
+          <strong id="runtimeCurrent">正在探测</strong>
+          <small id="runtimePolicy">AUTO / CODEX FIRST</small>
+        </div>
+      </div>
+      <div class="runtime-grid" id="runtimeGrid" aria-live="polite">
+        <p class="empty">正在扫描 Codex、Qoder、CodeBuddy 与 TRAE…</p>
+      </div>
+      <p class="runtime-contract">选择运行时后不会立即切换：系统会生成变更预览，要求确认，再执行备份、真实调用、重启和健康检查。</p>
+    </section>
+
     <section class="config-console" id="configConsole">
       <div class="console-heading">
         <div>
           <span>CONFIGURATION COPILOT / SAFE MODE</span>
           <h3>用对话调整你的数字人</h3>
-          <p>说出你想改变的效果。Codex 只生成受限配置方案，确认后才会备份、修改、重启并验收。</p>
+          <p>说出你想改变的效果。当前 AI 运行时只生成受限配置方案，确认后才会备份、修改、重启并验收。</p>
         </div>
         <div class="console-state">
           <i></i>

@@ -264,6 +264,67 @@ h1 {
 
 .hidden { display: none !important; }
 
+.runtime-console {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, #151812, #10120f);
+}
+.runtime-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 24px 28px;
+  border-bottom: 1px solid var(--line);
+}
+.runtime-heading span,
+.runtime-current span {
+  color: #6f7769;
+  font: 800 9px/1 "DIN Alternate", sans-serif;
+  letter-spacing: .14em;
+}
+.runtime-heading h3 { margin: 7px 0 0; font-size: 22px; }
+.runtime-heading p { max-width: 760px; margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.runtime-current { min-width: 190px; text-align: right; }
+.runtime-current strong { display: block; margin-top: 8px; color: var(--signal); font-size: 18px; }
+.runtime-current small { display: block; margin-top: 5px; color: #6f7769; font-size: 9px; }
+.runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+}
+.runtime-card {
+  min-width: 0;
+  padding: 18px;
+  background: #171a15;
+}
+.runtime-card.selected { background: rgba(199,255,69,.075); box-shadow: inset 0 2px var(--signal); }
+.runtime-card.unavailable { opacity: .63; }
+.runtime-card header { display: flex; align-items: center; gap: 8px; }
+.runtime-card header i { width: 7px; height: 7px; border-radius: 50%; background: #596055; }
+.runtime-card.available header i { background: var(--signal); box-shadow: 0 0 9px rgba(199,255,69,.45); }
+.runtime-card h4 { margin: 0; font-size: 13px; }
+.runtime-card b {
+  display: block;
+  margin-top: 12px;
+  color: #9ca594;
+  font: 800 9px/1 "DIN Alternate", sans-serif;
+  letter-spacing: .08em;
+}
+.runtime-card p { min-height: 50px; margin: 8px 0 13px; color: #737b6e; font-size: 10px; line-height: 1.55; }
+.runtime-card button {
+  width: 100%;
+  padding: 8px 10px;
+  color: #b5bdae;
+  background: transparent;
+  border: 1px solid #3c4238;
+  font-size: 10px;
+  cursor: pointer;
+}
+.runtime-card button:hover:not(:disabled) { color: var(--signal); border-color: var(--signal); }
+.runtime-card button:disabled { opacity: .48; cursor: default; }
+.runtime-contract { margin: 0; padding: 12px 28px; color: #666e62; border-top: 1px solid var(--line); font-size: 9px; }
+
 .config-console {
   margin-top: 12px;
   border: 1px solid var(--line);
@@ -723,6 +784,7 @@ h1 {
   .metrics-grid { grid-template-columns: repeat(2, 1fr); }
   .metric-card.wide { grid-column: span 2; }
   .assistant-workbench { grid-template-columns: 1fr; }
+  .runtime-grid { grid-template-columns: repeat(2, 1fr); }
   .assistant-chat { border-right: 0; border-bottom: 1px solid var(--line); }
   .config-overview { grid-template-columns: repeat(2, 1fr); }
   .config-overview div:nth-child(2) { border-right: 0; }
@@ -740,6 +802,9 @@ h1 {
   .metric-card.wide { grid-column: span 1; }
   .queue-row { grid-template-columns: repeat(2, 1fr); }
   .console-heading { padding: 22px 18px; }
+  .runtime-heading { padding: 20px 18px; }
+  .runtime-current { display: none; }
+  .runtime-grid { grid-template-columns: 1fr; }
   .console-state { display: none; }
   .config-overview { grid-template-columns: 1fr; }
   .config-overview div { border-right: 0; border-bottom: 1px solid var(--line); }

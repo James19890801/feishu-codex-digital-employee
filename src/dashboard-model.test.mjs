@@ -41,6 +41,42 @@ const base = {
 {
   const view = buildOperatorView({
     ...base,
+    aiRuntime: {
+      configured: 'auto',
+      selected: 'codex',
+      label: 'Codex CLI',
+      available: true,
+      runtimes: [
+        { id: 'codex', label: 'Codex CLI', installed: true, available: true },
+        { id: 'qoder', label: 'Qoder CLI', installed: true, available: true },
+        { id: 'trae', label: 'TRAE', installed: true, available: false, reason: 'No headless CLI' },
+      ],
+    },
+  });
+  assert.equal(view.aiRuntime.selected, 'codex');
+  assert.equal(view.aiRuntime.runtimes.length, 3);
+  assert.equal(view.aiRuntime.healthy, true);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    aiRuntime: {
+      configured: 'qoder',
+      selected: '',
+      label: 'Qoder CLI',
+      available: false,
+      error: 'Qoder is not available',
+      runtimes: [],
+    },
+  });
+  assert.equal(view.state, 'degraded');
+  assert.equal(view.issues.includes('ai_runtime_unavailable'), true);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
     pollCursorMs: Date.parse('2026-07-30T00:50:00.000Z'),
     websocketActive: false,
   });

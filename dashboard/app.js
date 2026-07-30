@@ -3,6 +3,8 @@ import {
   formatAssistantValue,
   planCanApply,
   rollbackConfirmation,
+  runtimeCanSelect,
+  runtimeStatusLabel,
 } from './config-ui.js';
 
 const $ = id => document.getElementById(id);
@@ -39,6 +41,7 @@ let lastFetchedAt = 0;
 let configSessionToken = '';
 let pendingConfigPlan = null;
 let configBusy = false;
+let latestRuntimeState = null;
 
 function formatAge(ms) {
   if (ms === null || !Number.isFinite(ms)) return '未知';
@@ -121,9 +124,12 @@ function render(data) {
   $('websocketMeta').textContent = `最近就绪 ${formatDate(data.websocket.lastReadyAt)}`;
   setDot('websocketDot', data.websocket.active);
 
-  $('codexValue').textContent = data.codex.proxyReachable ? '可连接' : '网络不可达';
-  $('codexMeta').textContent = data.codex.model || '模型未配置';
-  setDot('codexDot', data.codex.proxyReachable);
+  $('codexValue').textContent = data.aiRuntime?.label || '未选择';
+  $('codexMeta').textContent = data.aiRuntime?.configured === 'auto'
+    ? `自动选择 · ${data.aiRuntime?.selected || '无可用引擎'}`
+    : `固定选择 · ${data.aiRuntime?.selected || '不可用'}`;
+  setDot('codexDot', data.aiRuntime?.healthy);
+  renderRuntimeState(data.aiRuntime);
 
   $('multicaValue').textContent = !data.multica.enabled
     ? '未启用'
@@ -144,6 +150,57 @@ function render(data) {
   $('credentialGuide').classList.toggle('hidden', !data.maintenance?.credentialBlocked);
   renderEvents(data.recentEvents);
   lastFetchedAt = Date.now();
+}
+
+function runtimeCard(runtime, configured) {
+  const card = document.createElement('article');
+  const selected = runtime.id === configured
+    || (runtime.id === 'auto' && configured === 'auto');
+  card.className = `runtime-card ${runtime.available ? 'available' : 'unavailable'}${selected ? ' selected' : ''}`;
+
+  const header = document.createElement('header');
+  const dot = document.createElement('i');
+  const title = document.createElement('h4');
+  title.textContent = runtime.label;
+  header.append(dot, title);
+
+  const status = document.createElement('b');
+  status.textContent = runtime.id === 'auto'
+    ? 'CODEX FIRST'
+    : runtimeStatusLabel(runtime).toUpperCase();
+  const description = document.createElement('p');
+  description.textContent = runtime.reason || runtime.description || '';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.dataset.runtimeId = runtime.id;
+  button.textContent = selected
+    ? '当前配置'
+    : runtime.available ? '选择此运行时' : runtimeStatusLabel(runtime);
+  button.disabled = !runtimeCanSelect(runtime, configured);
+  card.append(header, status, description, button);
+  return card;
+}
+
+function renderRuntimeState(state) {
+  if (!state) return;
+  latestRuntimeState = state;
+  $('runtimeCurrent').textContent = state.label || '无可用运行时';
+  $('runtimePolicy').textContent = state.configured === 'auto'
+    ? `AUTO / ${(state.selected || 'NONE').toUpperCase()}`
+    : `FIXED / ${String(state.configured || '').toUpperCase()}`;
+  const grid = $('runtimeGrid');
+  grid.replaceChildren();
+  grid.append(runtimeCard({
+    id: 'auto',
+    label: '自动选择',
+    description: '按 Codex、Qoder、CodeBuddy 的顺序选择本机可用引擎。',
+    installed: true,
+    available: (state.runtimes || []).some(item => item.available),
+    reason: '',
+  }, state.configured));
+  for (const runtime of state.runtimes || []) {
+    grid.append(runtimeCard(runtime, state.configured));
+  }
 }
 
 function renderError() {
@@ -242,6 +299,7 @@ function renderConfigurationOverview(payload) {
     `${payload.profile?.personaCharacters || 0} + ${payload.profile?.bibleCharacters || 0} 字符`;
   $('configKnowledge').textContent = `${payload.profile?.knowledgeDocuments || 0} 份`;
   $('configConnection').textContent = '安全模式已连接';
+  if (payload.aiRuntime) renderRuntimeState(payload.aiRuntime);
 }
 
 function renderSnapshots(snapshots) {
@@ -400,6 +458,36 @@ async function submitConfigRequest(event) {
   }
 }
 
+async function requestRuntimePlan(runtimeId) {
+  if (configBusy) return;
+  await loadConfigurationAssistant();
+  if (!configSessionToken) return;
+  const runtime = runtimeId === 'auto'
+    ? { label: '自动选择' }
+    : latestRuntimeState?.runtimes?.find(item => item.id === runtimeId);
+  if (!runtime || (runtimeId !== 'auto' && !runtime.available)) {
+    showToast('这个运行时尚不具备可用的无界面 CLI。');
+    return;
+  }
+  clearConfigPlan();
+  appendConfigMessage('user', `切换 AI 运行时为 ${runtime.label}`);
+  setConfigBusy(true);
+  try {
+    const payload = await responseJson(await fetch('/api/config/runtime-plan', {
+      method: 'POST',
+      headers: assistantRequestHeaders('runtime-plan', configSessionToken),
+      body: JSON.stringify({ runtimeId }),
+    }));
+    appendConfigMessage('assistant', payload.plan.answer);
+    renderConfigPlan(payload.plan);
+    $('configConsole').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (error) {
+    appendConfigMessage('system', `无法生成运行时切换方案：${error.message}`);
+  } finally {
+    setConfigBusy(false);
+  }
+}
+
 async function applyConfigPlan() {
   if (configBusy || !planCanApply(pendingConfigPlan)) return;
   const confirmationCode = $('confirmationInput').value.trim();
@@ -484,6 +572,10 @@ $('restartButton').addEventListener('click', restart);
 $('configForm').addEventListener('submit', submitConfigRequest);
 $('applyPlanButton').addEventListener('click', applyConfigPlan);
 $('cancelPlanButton').addEventListener('click', cancelConfigPlan);
+$('runtimeGrid').addEventListener('click', event => {
+  const button = event.target.closest('[data-runtime-id]');
+  if (button && !button.disabled) requestRuntimePlan(button.dataset.runtimeId);
+});
 $('configInput').addEventListener('keydown', event => {
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault();

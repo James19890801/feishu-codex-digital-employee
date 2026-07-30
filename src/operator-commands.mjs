@@ -39,6 +39,7 @@ export function buildStatusReply({
   lastPollSuccessAt,
   lastPollError,
   websocketConnected,
+  aiRuntimeLabel = '',
   multicaEnabled = false,
   lastMulticaSyncAt = '',
   lastMulticaSyncError = null,
@@ -66,6 +67,7 @@ export function buildStatusReply({
     `主消息轮询：${formatAge(nowMs, lastPollSuccessAt)}`,
     `辅助监听：${websocketConnected ? '已连接' : '未连接'}`,
   ];
+  if (aiRuntimeLabel) lines.push(`AI 运行时：${aiRuntimeLabel}`);
   if (multicaEnabled) {
     lines.push(
       `Multica 同步：${formatAge(nowMs, lastMulticaSyncAt)}`

@@ -16,6 +16,11 @@ const CONFIG_RULES = {
   helperTimeoutMs: { type: 'integer', min: 5000, max: 120000, risk: 'single' },
   rateLimitWindowMs: { type: 'integer', min: 60000, max: 3600000, risk: 'single' },
   rateLimitMaxMessages: { type: 'integer', min: 1, max: 100, risk: 'single' },
+  aiRuntime: {
+    type: 'enum',
+    values: ['auto', 'codex', 'qoder', 'codebuddy', 'trae'],
+    risk: 'double',
+  },
   codexModel: { type: 'model', risk: 'double' },
   multicaEnabled: { type: 'boolean', risk: 'double' },
   multicaProfile: { type: 'string', maxLength: 200, risk: 'double' },
@@ -246,12 +251,12 @@ export function parsePlannerOutput(output) {
   const text = String(output || '').trim();
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
-  if (start < 0 || end < start) throw new Error('Codex did not return a JSON change plan');
+  if (start < 0 || end < start) throw new Error('AI runtime did not return a JSON change plan');
   let parsed;
   try {
     parsed = JSON.parse(text.slice(start, end + 1));
   } catch (error) {
-    throw new Error(`Codex returned invalid change-plan JSON: ${error.message}`);
+    throw new Error(`AI runtime returned invalid change-plan JSON: ${error.message}`);
   }
   return parsed;
 }

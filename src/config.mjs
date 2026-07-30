@@ -57,6 +57,7 @@ export const config = {
   rateLimitMaxMessages: boundedInteger(raw.rateLimitMaxMessages, {
     name: 'rateLimitMaxMessages', fallback: 10, min: 1, max: 100,
   }),
+  aiRuntime: raw.aiRuntime || 'auto',
   multicaEnabled: raw.multicaEnabled === true,
   multicaProfile: raw.multicaProfile || 'desktop-api.multica.ai',
   multicaDefaultWorkspaceId: raw.multicaDefaultWorkspaceId || '',
@@ -98,6 +99,9 @@ if (config.codexProxyUrl) {
 }
 if (!['lark-cli', 'sdk'].includes(config.eventTransport)) {
   throw new Error('eventTransport 只能是 lark-cli 或 sdk');
+}
+if (!['auto', 'codex', 'qoder', 'codebuddy', 'trae'].includes(config.aiRuntime)) {
+  throw new Error('aiRuntime 只能是 auto、codex、qoder、codebuddy 或 trae');
 }
 if (config.multicaDefaultWorkspaceId
   && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i

@@ -19,3 +19,13 @@ export function planCanApply(plan) {
 export function rollbackConfirmation(snapshotId) {
   return `ROLLBACK ${snapshotId}`;
 }
+
+export function runtimeCanSelect(runtime, selectedId) {
+  return Boolean(runtime?.available && runtime.id !== selectedId);
+}
+
+export function runtimeStatusLabel(runtime) {
+  if (runtime?.available) return '可用';
+  if (runtime?.installed) return '仅检测到应用';
+  return '未安装';
+}

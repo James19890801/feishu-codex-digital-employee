@@ -34,6 +34,11 @@ import {
 import { notificationEvent } from './notification-policy.mjs';
 import { runBufferedProcess } from './process-runner.mjs';
 import { SerialKeyQueue } from './serial-key-queue.mjs';
+import {
+  AiRuntimeClient,
+  discoverAiRuntimes,
+  selectAiRuntime,
+} from './ai-runtime.mjs';
 
 const HOST = '127.0.0.1';
 const PORT = config.dashboardPort;
@@ -181,6 +186,7 @@ async function collectStatus() {
   const [codexProxyReachable] = await Promise.all([
     checkProxy(),
   ]);
+  const aiRuntime = currentAiRuntimeState();
   const defaults = {
     pollCursorMs: NaN,
     staleProcessing: 0,
@@ -249,6 +255,7 @@ async function collectStatus() {
     codexProxyReachable,
     credentialBlocked: isCredentialAccessBlocked(database.lastPollError),
     codexModel: config.codexModel,
+    aiRuntime,
     multicaEnabled: config.multicaEnabled,
     maxMulticaSyncAgeMs: Math.max(60_000, config.multicaSyncIntervalMs * 6),
     configuration: {
@@ -256,6 +263,7 @@ async function collectStatus() {
       digitalTwinLabel: config.digitalTwinLabel,
       pollIntervalMs: config.pollIntervalMs,
       eventTransport: config.eventTransport,
+      aiRuntime: config.aiRuntime,
       multicaEnabled: config.multicaEnabled,
       multicaProfile: config.multicaProfile,
       multicaDefaultWorkspaceId: config.multicaDefaultWorkspaceId,
@@ -353,6 +361,55 @@ function plannerEnvironment() {
   return env;
 }
 
+function currentAiRuntimeState() {
+  const runtimes = discoverAiRuntimes({ configuredCodexBin: config.codexBin });
+  let selected = null;
+  let error = '';
+  try {
+    selected = selectAiRuntime(runtimes, config.aiRuntime);
+  } catch (failure) {
+    error = String(failure?.message || failure);
+  }
+  return {
+    configured: config.aiRuntime,
+    selected: selected?.id || '',
+    label: selected?.label || '',
+    available: Boolean(selected),
+    error,
+    runtimes: runtimes.map(item => ({
+      id: item.id,
+      label: item.label,
+      description: item.description,
+      installed: item.installed,
+      available: item.available,
+      selected: item.id === selected?.id,
+      supportsImages: item.supportsImages,
+      reason: item.reason,
+    })),
+  };
+}
+
+async function runConfigurationPlanner(prompt, documents) {
+  const runtimeState = currentAiRuntimeState();
+  const runtime = selectAiRuntime(
+    discoverAiRuntimes({ configuredCodexBin: config.codexBin }),
+    runtimeState.selected,
+  );
+  const client = new AiRuntimeClient({
+    runtime,
+    env: plannerEnvironment(),
+  });
+  return client.run(prompt, {
+    cwd: CONFIG_ASSISTANT_RUNTIME_DIR,
+    model: runtime.id === 'codex'
+      ? documents.config.codexModel || config.codexModel
+      : '',
+    timeoutMs: Math.min(config.codexTimeoutMs, 120_000),
+    maxStdoutBytes: 512 * 1024,
+    maxStderrBytes: 1024 * 1024,
+  });
+}
+
 async function readEffectiveConfigurationDocuments() {
   const documents = await readConfigurationDocuments(config.workdir);
   return {
@@ -371,27 +428,8 @@ async function createConfigurationAssistantPlan(requestText) {
     mkdir(CONFIG_ASSISTANT_RUNTIME_DIR, { recursive: true, mode: 0o700 }),
     mkdir(CONFIG_ASSISTANT_CODEX_HOME, { recursive: true, mode: 0o700 }),
   ]);
-  const model = documents.config.codexModel || config.codexModel;
-  const { stdout } = await runBufferedProcess(config.codexBin, [
-    'exec',
-    '--ephemeral',
-    '--ignore-user-config',
-    '--skip-git-repo-check',
-    '--sandbox', 'read-only',
-    '--color', 'never',
-    '-m', model,
-    '-C', CONFIG_ASSISTANT_RUNTIME_DIR,
-    '-',
-  ], {
-    cwd: CONFIG_ASSISTANT_RUNTIME_DIR,
-    env: plannerEnvironment(),
-    input: prompt,
-    timeoutMs: Math.min(config.codexTimeoutMs, 120_000),
-    killGraceMs: 5_000,
-    maxStdoutBytes: 512 * 1024,
-    maxStderrBytes: 1024 * 1024,
-  });
-  const proposal = parsePlannerOutput(stdout);
+  const { text } = await runConfigurationPlanner(prompt, documents);
+  const proposal = parsePlannerOutput(text);
   const plan = createChangePlan(proposal, documents, {
     id: `plan-${Date.now()}-${randomUUID().slice(0, 8)}`,
   });
@@ -413,7 +451,50 @@ async function createConfigurationAssistantPlan(requestText) {
   return pending;
 }
 
-async function validateConfigurationOnDisk({ verifyModel = false } = {}) {
+async function createRuntimeSelectionPlan(runtimeId) {
+  const requested = String(runtimeId || '');
+  if (!['auto', 'codex', 'qoder', 'codebuddy', 'trae'].includes(requested)) {
+    throw new Error('Unknown AI runtime selection');
+  }
+  const runtimeState = currentAiRuntimeState();
+  if (requested !== 'auto') {
+    const runtime = runtimeState.runtimes.find(item => item.id === requested);
+    if (!runtime?.available) {
+      throw new Error(runtime?.reason || `${requested} is not available`);
+    }
+  } else if (!runtimeState.runtimes.some(item => item.available)) {
+    throw new Error('No supported headless AI runtime is available');
+  }
+  const documents = await readEffectiveConfigurationDocuments();
+  const selectedLabel = requested === 'auto'
+    ? '自动选择（Codex 优先）'
+    : runtimeState.runtimes.find(item => item.id === requested)?.label || requested;
+  const plan = createChangePlan({
+    summary: `切换 AI 运行时为 ${selectedLabel}`,
+    answer: '已生成运行时切换方案。应用前会备份配置，切换后执行真实运行测试和健康检查。',
+    changes: [{
+      target: 'config',
+      key: 'aiRuntime',
+      value: requested,
+      reason: `使用本机已探测到的 ${selectedLabel}`,
+    }],
+  }, documents, {
+    id: `plan-${Date.now()}-${randomUUID().slice(0, 8)}`,
+  });
+  const confirmationCode = plan.confirmationLevel === 'double'
+    ? String(randomInt(100000, 1000000))
+    : '';
+  const pending = pendingConfigurationPlans.add(plan, { confirmationCode });
+  await appendConfigurationAudit(config.workdir, {
+    event: 'runtime_selection_plan_created',
+    planId: plan.id,
+    summary: plan.summary,
+    runtime: requested,
+  });
+  return pending;
+}
+
+async function validateConfigurationOnDisk({ verifyRuntime = false } = {}) {
   const node = join(config.nodeBin, 'node');
   await runBufferedProcess(node, [join(config.workdir, 'scripts', 'check-config.mjs')], {
     cwd: config.workdir,
@@ -421,8 +502,8 @@ async function validateConfigurationOnDisk({ verifyModel = false } = {}) {
     maxStdoutBytes: 256 * 1024,
     maxStderrBytes: 512 * 1024,
   });
-  if (verifyModel) {
-    await runBufferedProcess(node, [join(config.workdir, 'scripts', 'codex-smoke.mjs')], {
+  if (verifyRuntime) {
+    await runBufferedProcess(node, [join(config.workdir, 'scripts', 'runtime-smoke.mjs')], {
       cwd: config.workdir,
       env: plannerEnvironment(),
       timeoutMs: 100_000,
@@ -462,10 +543,11 @@ async function applyConfigurationAssistantPlan(plan) {
     planId: plan.id,
   });
   const updated = applyChangePlan(current, plan);
-  const verifyModel = plan.changes.some(change => change.target === 'config' && change.key === 'codexModel');
+  const verifyRuntime = plan.changes.some(change => change.target === 'config'
+    && ['codexModel', 'aiRuntime'].includes(change.key));
   try {
     await writeConfigurationDocuments(config.workdir, updated);
-    await validateConfigurationOnDisk({ verifyModel });
+    await validateConfigurationOnDisk({ verifyRuntime });
     synchronizeDashboardConfiguration(updated.config);
     await restartMainService();
     const status = await waitForMainConfigurationHealth();
@@ -579,8 +661,26 @@ const server = createServer(async (request, response) => {
           bibleCharacters: documents.bible.length,
           knowledgeDocuments: documents.knowledgeCatalog.length,
         },
+        aiRuntime: currentAiRuntimeState(),
         snapshots: await listConfigurationSnapshots(config.workdir, 12),
       });
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/config/runtime-plan') {
+      if (!allowedConfigAction(request, 'runtime-plan')) {
+        sendJson(response, 403, { ok: false, error: 'runtime selection rejected' });
+        return;
+      }
+      try {
+        const body = await readDashboardJson(request);
+        const plan = await createRuntimeSelectionPlan(body.runtimeId);
+        sendJson(response, 200, { ok: true, plan });
+      } catch (error) {
+        sendJson(response, 400, {
+          ok: false,
+          error: String(error?.message || error).slice(0, 500),
+        });
+      }
       return;
     }
     if (request.method === 'POST' && url.pathname === '/api/config/plan') {

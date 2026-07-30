@@ -5,7 +5,8 @@ const ISSUE_LABELS = {
   messages_failed: '存在待处理失败或死信',
   sqlite_integrity_failed: '状态数据库完整性异常',
   websocket_consumer_missing: 'WebSocket 辅助监听未连接',
-  codex_proxy_unreachable: 'Codex 网络代理不可达',
+  codex_proxy_unreachable: 'AI 运行时网络代理不可达',
+  ai_runtime_unavailable: '所选 AI 编码运行时不可用',
   credential_access_blocked: '后台进程无法读取飞书用户凭据',
   multica_sync_stale: 'Multica 全空间同步已停止推进',
   multica_sync_error: 'Multica 最近一次同步失败',
@@ -31,6 +32,7 @@ export function buildOperatorView(input) {
   if (input.sqliteIntegrity !== 'ok') issues.push('sqlite_integrity_failed');
   if (!input.websocketActive) issues.push('websocket_consumer_missing');
   if (!input.codexProxyReachable) issues.push('codex_proxy_unreachable');
+  if (input.aiRuntime && !input.aiRuntime.available) issues.push('ai_runtime_unavailable');
   if (input.credentialBlocked) issues.push('credential_access_blocked');
   if (input.multicaEnabled
     && (multicaSyncAgeMs === null || !Number.isFinite(multicaSyncAgeMs)
@@ -72,6 +74,18 @@ export function buildOperatorView(input) {
     codex: {
       proxyReachable: Boolean(input.codexProxyReachable),
       model: input.codexModel || '',
+    },
+    aiRuntime: {
+      configured: input.aiRuntime?.configured || 'auto',
+      selected: input.aiRuntime?.selected || '',
+      label: input.aiRuntime?.label || '',
+      available: input.aiRuntime?.available !== false,
+      healthy: input.aiRuntime?.available !== false
+        && !issues.includes('codex_proxy_unreachable'),
+      error: input.aiRuntime?.error || '',
+      runtimes: Array.isArray(input.aiRuntime?.runtimes)
+        ? structuredClone(input.aiRuntime.runtimes)
+        : [],
     },
     multica: {
       enabled: Boolean(input.multicaEnabled),

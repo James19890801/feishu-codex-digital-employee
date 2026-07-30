@@ -191,11 +191,11 @@ export function parseMulticaPlannerOutput(output) {
   const source = String(output || '').trim();
   const start = source.indexOf('{');
   const end = source.lastIndexOf('}');
-  if (start < 0 || end < start) throw new Error('Codex did not return a Multica JSON plan');
+  if (start < 0 || end < start) throw new Error('AI runtime did not return a Multica JSON plan');
   try {
     return JSON.parse(source.slice(start, end + 1));
   } catch (error) {
-    throw new Error(`Codex returned invalid Multica JSON: ${error.message}`);
+    throw new Error(`AI runtime returned invalid Multica JSON: ${error.message}`);
   }
 }
 

@@ -75,11 +75,15 @@ import {
 } from './multica-planner.mjs';
 import { MulticaCapability } from './multica-capability.mjs';
 import { MulticaSynchronizer } from './multica-sync.mjs';
+import {
+  AiRuntimeClient,
+  discoverAiRuntimes,
+  selectAiRuntime,
+} from './ai-runtime.mjs';
 
 const APP_ID = config.feishuAppId;
 const OWNER_OPEN_ID = config.ownerOpenId;
 const KEYCHAIN_SERVICE = config.keychainService;
-const CODEX_BIN = config.codexBin;
 const WORKDIR = config.workdir;
 const BUNDLED_PYTHON = config.pythonBin;
 const FILE_EXTRACTOR = join(WORKDIR, 'src', 'extract_file_text.py');
@@ -109,6 +113,12 @@ try {
     if (symlinkError?.code !== 'EEXIST') throw symlinkError;
   }
 }
+const AI_RUNTIMES = discoverAiRuntimes({ configuredCodexBin: config.codexBin });
+const SELECTED_AI_RUNTIME = selectAiRuntime(AI_RUNTIMES, config.aiRuntime);
+const AI_RUNTIME_CLIENT = new AiRuntimeClient({
+  runtime: SELECTED_AI_RUNTIME,
+  env: aiRuntimeEnv(),
+});
 const singletonLock = await acquireSingletonLock(join(WORKDIR, 'data', 'service.lock'));
 const state = new AgentState(STATE_PATH);
 const pendingActions = new PendingActionStore(state);
@@ -204,11 +214,11 @@ function larkCliEnv() {
   };
 }
 
-function codexEnv() {
+function aiRuntimeEnv() {
   const env = {
     ...process.env,
-    CODEX_HOME: CODEX_HOME_DIR,
   };
+  if (SELECTED_AI_RUNTIME?.id === 'codex') env.CODEX_HOME = CODEX_HOME_DIR;
   if (config.codexProxyUrl) {
     env.HTTP_PROXY = config.codexProxyUrl;
     env.HTTPS_PROXY = config.codexProxyUrl;
@@ -594,25 +604,15 @@ ${history}
 ${task}
 `.trim();
 
-  const args = [
-    'exec', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check',
-    '--sandbox', 'read-only', '--color', 'never', '-m', config.codexModel,
-    '-C', CODEX_RUNTIME_DIR,
-  ];
-  for (const imagePath of imagePaths) args.push('--image', imagePath);
-  args.push('-');
-  const { stdout, stderr } = await runBufferedProcess(CODEX_BIN, args, {
+  const { text } = await AI_RUNTIME_CLIENT.run(prompt, {
     cwd: CODEX_RUNTIME_DIR,
-    env: codexEnv(),
-    input: prompt,
+    model: SELECTED_AI_RUNTIME.id === 'codex' ? config.codexModel : '',
+    images: imagePaths,
     timeoutMs: config.codexTimeoutMs,
-    killGraceMs: 5_000,
     maxStdoutBytes: 512 * 1024,
     maxStderrBytes: 1024 * 1024,
   });
-  const result = stdout.trim();
-  if (!result) throw new Error(`Codex returned an empty response: ${stderr.slice(-500)}`);
-  return result.slice(0, 3800);
+  return text.slice(0, 3800);
 }
 
 async function runCodexActionItems(documentText) {
@@ -632,25 +632,18 @@ async function runCodexActionItems(documentText) {
 会议纪要：
 ${documentText.slice(0, 40_000)}
 `.trim();
-  const args = [
-    'exec', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check',
-    '--sandbox', 'read-only', '--color', 'never', '-m', config.codexModel,
-    '-C', CODEX_RUNTIME_DIR, '-',
-  ];
-  const { stdout } = await runBufferedProcess(CODEX_BIN, args, {
+  const { text: output } = await AI_RUNTIME_CLIENT.run(prompt, {
     cwd: CODEX_RUNTIME_DIR,
-    env: codexEnv(),
-    input: prompt,
+    model: SELECTED_AI_RUNTIME.id === 'codex' ? config.codexModel : '',
     timeoutMs: config.codexTimeoutMs,
-    killGraceMs: 5_000,
     maxStdoutBytes: 256 * 1024,
     maxStderrBytes: 1024 * 1024,
   });
   try {
-    const start = stdout.indexOf('[');
-    const end = stdout.lastIndexOf(']');
+    const start = output.indexOf('[');
+    const end = output.lastIndexOf(']');
     if (start < 0 || end < start) throw new Error('JSON array not found');
-    const parsed = JSON.parse(stdout.slice(start, end + 1));
+    const parsed = JSON.parse(output.slice(start, end + 1));
     return parsed
       .filter(item => item && typeof item.summary === 'string')
       .slice(0, 6)
@@ -675,21 +668,14 @@ async function runCodexMulticaPlan(request, history) {
     workspaces,
     defaultWorkspaceId: config.multicaDefaultWorkspaceId,
   });
-  const args = [
-    'exec', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check',
-    '--sandbox', 'read-only', '--color', 'never', '-m', config.codexModel,
-    '-C', CODEX_RUNTIME_DIR, '-',
-  ];
-  const { stdout } = await runBufferedProcess(CODEX_BIN, args, {
+  const { text: output } = await AI_RUNTIME_CLIENT.run(prompt, {
     cwd: CODEX_RUNTIME_DIR,
-    env: codexEnv(),
-    input: prompt,
+    model: SELECTED_AI_RUNTIME.id === 'codex' ? config.codexModel : '',
     timeoutMs: config.codexTimeoutMs,
-    killGraceMs: 5_000,
     maxStdoutBytes: 256 * 1024,
     maxStderrBytes: 1024 * 1024,
   });
-  return normalizeMulticaPlan(parseMulticaPlannerOutput(stdout), {
+  return normalizeMulticaPlan(parseMulticaPlannerOutput(output), {
     workspaces,
     defaultWorkspaceId: config.multicaDefaultWorkspaceId,
   });
@@ -884,6 +870,7 @@ async function processIncoming(client, message, sender) {
       lastPollSuccessAt: state.get('health', 'last_poll_success_at', ''),
       lastPollError: state.get('health', 'last_poll_error', null),
       websocketConnected: state.get('health', 'websocket_connected', false),
+      aiRuntimeLabel: SELECTED_AI_RUNTIME.label,
       multicaEnabled: config.multicaEnabled,
       lastMulticaSyncAt: state.get('health', 'last_multica_sync_at', ''),
       lastMulticaSyncError: state.get('health', 'last_multica_sync_error', null),
@@ -1697,6 +1684,11 @@ async function main() {
 
   try {
     state.set('health', 'last_start_at', new Date().toISOString());
+    state.set('health', 'ai_runtime', {
+      configured: config.aiRuntime,
+      selected: SELECTED_AI_RUNTIME.id,
+      label: SELECTED_AI_RUNTIME.label,
+    });
     state.set('health', 'websocket_connected', false);
     const recovered = state.recoverProcessingInbound(new Date().toISOString());
     if (recovered) console.log(`[inbound] recovered ${recovered} stale message(s)`);
@@ -1717,6 +1709,7 @@ async function main() {
     } else {
       superviseLarkCliEvents().catch(error => console.error('[websocket-supervisor-fatal]', error));
     }
+    console.log(`[ai-runtime] selected ${SELECTED_AI_RUNTIME.label} (${config.aiRuntime})`);
     console.log(`[poll] user message polling active every ${POLL_INTERVAL_MS}ms; websocket auxiliary active`);
     await runUserPollingLoop();
     if (drainPromise) await drainPromise.catch(() => {});

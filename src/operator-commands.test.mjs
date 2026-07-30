@@ -27,6 +27,7 @@ assert.equal(matchOperatorCommand(''), null);
     lastPollSuccessAt: '2026-07-30T00:59:55.000Z',
     lastPollError: null,
     websocketConnected: true,
+    aiRuntimeLabel: 'Codex CLI',
     multicaEnabled: true,
     lastMulticaSyncAt: '2026-07-30T00:59:55.000Z',
     lastMulticaSyncError: null,
@@ -44,6 +45,7 @@ assert.equal(matchOperatorCommand(''), null);
     lastPollSuccessAt: '2026-07-30T00:59:55.000Z',
     lastPollError: null,
     websocketConnected: true,
+    aiRuntimeLabel: 'Codex CLI',
     multicaEnabled: true,
     lastMulticaSyncAt: '2026-07-30T00:58:00.000Z',
     lastMulticaSyncError: null,
@@ -61,6 +63,7 @@ assert.equal(matchOperatorCommand(''), null);
     lastPollSuccessAt: '2026-07-30T00:59:55.000Z',
     lastPollError: null,
     websocketConnected: true,
+    aiRuntimeLabel: 'Codex CLI',
     multicaEnabled: true,
     lastMulticaSyncAt: '2026-07-30T00:59:50.000Z',
     lastMulticaSyncError: null,
@@ -71,6 +74,7 @@ assert.equal(matchOperatorCommand(''), null);
   assert.match(text, /运行状态：正常/);
   assert.match(text, /主消息轮询：5 秒前/);
   assert.match(text, /辅助监听：已连接/);
+  assert.match(text, /AI 运行时：Codex CLI/);
   assert.match(text, /Multica 同步：10 秒前/);
   assert.match(text, /待处理 1/);
   assert.match(text, /http:\/\/127\.0\.0\.1:17655/);
