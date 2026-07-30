@@ -68,7 +68,18 @@ body {
   letter-spacing: .2em;
 }
 
-h1 { margin: 5px 0 0; font-size: 19px; letter-spacing: .02em; }
+h1 {
+  margin: 4px 0 0;
+  font: 800 27px/.95 "DIN Alternate", "Avenir Next Condensed", sans-serif;
+  letter-spacing: .08em;
+}
+.brand-subtitle {
+  margin: 6px 0 0;
+  color: #c3c8b9;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+}
 .clock-block { text-align: right; }
 .clock-block span {
   display: block;

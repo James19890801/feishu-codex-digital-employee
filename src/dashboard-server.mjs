@@ -230,8 +230,8 @@ async function notifyState(view) {
   }), { mode: 0o600 }).catch(() => {});
   if (!event) return;
   const title = event === 'recovered'
-    ? '数字员工已恢复'
-    : event === 'partial_recovery' ? '数字员工正在恢复' : '数字员工通道断线';
+    ? 'AIPRO 已恢复'
+    : event === 'partial_recovery' ? 'AIPRO 正在恢复' : 'AIPRO 通道断线';
   const message = event === 'recovered'
     ? '主轮询、WebSocket 和数据库已恢复正常。'
     : event === 'partial_recovery'

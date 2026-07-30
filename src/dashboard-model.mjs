@@ -1,5 +1,5 @@
 const ISSUE_LABELS = {
-  process_not_running: '数字员工主进程已停止',
+  process_not_running: 'AIPRO 主进程已停止',
   poll_cursor_stale: '主消息轮询已停止推进',
   messages_processing_stale: '存在超时处理中消息',
   messages_failed: '存在待处理失败或死信',

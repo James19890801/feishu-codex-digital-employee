@@ -2,7 +2,7 @@ const $ = id => document.getElementById(id);
 const stateLabels = {
   online: { title: '运行正常', kicker: '主通道正在真实工作', code: 'LIVE' },
   degraded: { title: '需要维护', kicker: '进程在线，但关键链路异常', code: 'WARN' },
-  offline: { title: '主进程离线', kicker: '看门人在线，数字员工已停止', code: 'DOWN' },
+  offline: { title: '主进程离线', kicker: '看门人在线，AIPRO 已停止', code: 'DOWN' },
   error: { title: '面板失联', kicker: '无法读取本机状态 API', code: 'ERR' },
 };
 const eventLabels = {
@@ -142,7 +142,7 @@ async function refresh() {
 }
 
 async function restart() {
-  if (!window.confirm('确认重启数字员工主进程？面板不会关闭。')) return;
+  if (!window.confirm('确认重启 AIPRO 主进程？面板不会关闭。')) return;
   $('restartButton').disabled = true;
   try {
     const response = await fetch('/api/restart', {
