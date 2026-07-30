@@ -1,4 +1,6 @@
 node_modules/
+__pycache__/
+*.pyc
 config.local.json
 PERSONA.md
 BIBLE.md

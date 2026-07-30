@@ -51,6 +51,13 @@ import {
   matchOperatorCommand,
 } from './operator-commands.mjs';
 import {
+  refersToRecentFiles,
+  refersToRecentImages,
+  requestedImageLimit,
+  selectRecentFileRef,
+  selectRecentImageRefs,
+} from './media-context.mjs';
+import {
   assertCompleteSearchResult,
   canPerformMutation,
   effectiveTask,
@@ -239,22 +246,7 @@ function parsePost(content) {
   };
 }
 
-function refersToRecentImages(text) {
-  return [
-    /(上面|前面|刚才|刚刚|之前).{0,8}(图片|照片|截图)/,
-    /这(?:一|两|二|三|四|几|些|\d+)张(?:图片|照片|截图)/,
-    /(?:图片|照片|截图)(?:里|里面|中|上).{0,10}(?:什么|内容|吃的|写了什么|有什么)/,
-  ].some(pattern => pattern.test(text));
-}
-
-function requestedImageLimit(text) {
-  if (/(?:一|1)张/.test(text)) return 1;
-  if (/(?:两|二|2)张/.test(text)) return 2;
-  if (/(?:三|3)张/.test(text)) return 3;
-  return 4;
-}
-
-async function findRecentImageRefs(client, message, senderOpenId, requestText) {
+async function listRecentChatMessages(client, message) {
   const response = await client.im.message.list({
     params: {
       container_id_type: 'chat',
@@ -265,25 +257,23 @@ async function findRecentImageRefs(client, message, senderOpenId, requestText) {
     },
   });
   if (response.code !== 0) throw new Error(`Feishu message history failed: ${response.code ?? 'unknown'} ${response.msg || ''}`);
+  return response.data?.items || [];
+}
+
+async function findRecentImageRefs(client, message, senderOpenId, requestText) {
+  return selectRecentImageRefs(await listRecentChatMessages(client, message), {
+    senderOpenId,
+    currentTime: Number(message.create_time || Date.now()),
+    limit: requestedImageLimit(requestText),
+  });
+}
+
+async function findRecentFileRef(client, message, senderOpenId, { includeCurrent = false } = {}) {
   const currentTime = Number(message.create_time || Date.now());
-  const earliestTime = currentTime - 30 * 60 * 1000;
-  return (response.data?.items || [])
-    .filter(item => item.msg_type === 'image'
-      && item.sender?.sender_type === 'user'
-      && item.sender?.id === senderOpenId
-      && Number(item.create_time) < currentTime
-      && Number(item.create_time) >= earliestTime)
-    .map(item => {
-      try {
-        const content = JSON.parse(item.body?.content || '{}');
-        return content.image_key ? { messageId: item.message_id, fileKey: content.image_key } : null;
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean)
-    .slice(0, requestedImageLimit(requestText))
-    .reverse();
+  return selectRecentFileRef(await listRecentChatMessages(client, message), {
+    senderOpenId,
+    currentTime: currentTime + (includeCurrent ? 1 : 0),
+  });
 }
 
 async function extractFileText(filePath) {
@@ -661,6 +651,7 @@ async function processIncoming(client, message, sender) {
   let imageRefs = [];
   let fileKey = '';
   let fileName = '';
+  let fileRef = null;
   try {
     const content = JSON.parse(message.content || '{}');
     if (message.message_type === 'post') {
@@ -743,11 +734,33 @@ async function processIncoming(client, message, sender) {
     return;
   }
   imageRefs = imageKeys.map(fileKey => ({ messageId: message.message_id, fileKey }));
+  if (message.message_type === 'file' && fileKey) {
+    fileRef = { messageId: message.message_id, fileKey, fileName };
+  }
+  if (!fileRef && message.message_type === 'file' && client) {
+    try {
+      fileRef = await findRecentFileRef(client, message, senderOpenId, { includeCurrent: true });
+    } catch (error) {
+      console.error(`[file-resolution-error] ${message.message_id}:`, error);
+    }
+  }
+  if (message.message_type === 'file' && !fileRef) {
+    await sendText(client, message.chat_id, '文件收到了，但当前没有拿到可读取的文件资源。你可以再发一句希望我怎么处理，我会从最近消息里重新读取。', `digital-employee-file-resource-unavailable-${message.message_id}`);
+    audit('capability_unavailable', message, senderOpenId, { capability: 'file_resource' });
+    return;
+  }
   if (!imageRefs.length && ['text', 'post'].includes(message.message_type) && refersToRecentImages(cleanText)) {
     try {
       imageRefs = await findRecentImageRefs(client, message, senderOpenId, cleanText);
     } catch (error) {
       console.error(`[image-context-error] ${message.message_id}:`, error);
+    }
+  }
+  if (!fileRef && ['text', 'post'].includes(message.message_type) && refersToRecentFiles(cleanText)) {
+    try {
+      fileRef = await findRecentFileRef(client, message, senderOpenId);
+    } catch (error) {
+      console.error(`[file-context-error] ${message.message_id}:`, error);
     }
   }
   const pendingTaskBatch = pendingActions.get('task_batch', message.chat_id, senderOpenId);
@@ -912,13 +925,15 @@ async function processIncoming(client, message, sender) {
     }
     return;
   }
-  const knowledgeResult = !imageRefs.length && ['text', 'post'].includes(message.message_type)
+  const knowledgeResult = !imageRefs.length && !fileRef && ['text', 'post'].includes(message.message_type)
     ? await searchFeishuKnowledge(client, cleanText, senderOpenId)
     : null;
   let task = imageRefs.length
     ? `${cleanText ? `对方的问题是：${cleanText}\n` : ''}看一下图片里的内容，然后结合图片直接回复对方。如果是聊天截图，先理解对话语境，再给出最自然的回应或建议。`
     : cleanText;
-  if (message.message_type === 'file') task = `请阅读文件“${fileName || '未命名文件'}”，概括关键信息，并根据内容直接回复对方。`;
+  if (fileRef) {
+    task = `${cleanText ? `对方的问题是：${cleanText}\n` : ''}请阅读文件“${fileRef.fileName || '未命名文件'}”，结合文件内容直接回复对方。`;
+  }
   if (knowledgeResult?.denied) {
     task = knowledgeResult.reason === 'reader_not_allowed'
       ? '对方请求读取一份没有向其开放的飞书资料。请简短说明这份资料目前没有向他开放，不要泄露内容。'
@@ -950,14 +965,13 @@ async function processIncoming(client, message, sender) {
         imagePaths.push(imagePath);
       }
     }
-    if (message.message_type === 'file') {
-      if (!fileKey) throw new Error('File message did not contain file_key');
+    if (fileRef) {
       tempDir = tempDir || await mkdtemp(join(tmpdir(), 'xiaozhao-feishu-'));
-      const safeName = basename(fileName || `attachment${extname(fileName) || '.bin'}`);
+      const safeName = basename(fileRef.fileName || `attachment${extname(fileRef.fileName || '') || '.bin'}`);
       const filePath = join(tempDir, safeName);
       const resource = await client.im.messageResource.get({
         params: { type: 'file' },
-        path: { message_id: message.message_id, file_key: fileKey },
+        path: { message_id: fileRef.messageId, file_key: fileRef.fileKey },
       });
       await resource.writeFile(filePath);
       const extracted = await extractFileText(filePath);
@@ -981,8 +995,8 @@ async function processIncoming(client, message, sender) {
       }
     }
     const history = formatHistory(message.chat_id, senderOpenId);
-    const historyLabel = message.message_type === 'file'
-      ? `发送了文件：${fileName || '未命名文件'}`
+    const historyLabel = fileRef
+      ? `${cleanText || '请求读取文件'}：${fileRef.fileName || '未命名文件'}`
       : imageRefs.length ? `${cleanText || '发送了图片'}（含图片）` : task;
     remember(message.chat_id, senderOpenId, 'user', historyLabel);
     if (artifactRequest) {

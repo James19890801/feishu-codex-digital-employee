@@ -12,6 +12,9 @@ command -v node >/dev/null 2>&1 || { echo "未找到 Node.js"; exit 1; }
 command -v lark-cli >/dev/null 2>&1 || {
   echo "未找到 lark-cli。请先按 README 安装飞书官方 CLI。"; exit 1;
 }
+PYTHON_BIN="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
+test -x "$PYTHON_BIN" || PYTHON_BIN="$(command -v python3 2>/dev/null || true)"
+test -x "$PYTHON_BIN" || { echo "未找到 Python 3"; exit 1; }
 
 test -f "$ROOT/config.local.json" || cp "$ROOT/config.example.json" "$ROOT/config.local.json"
 test -f "$ROOT/PERSONA.md" || cp "$ROOT/templates/PERSONA.example.md" "$ROOT/PERSONA.md"
@@ -24,5 +27,6 @@ if command -v pnpm >/dev/null 2>&1; then
 else
   npm install
 fi
+"$PYTHON_BIN" -m pip install --disable-pip-version-check -r "$ROOT/requirements.txt"
 
 echo "初始文件已生成。现在请填写 config.local.json、PERSONA.md 和 BIBLE.md。"

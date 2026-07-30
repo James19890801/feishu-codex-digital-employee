@@ -23,5 +23,7 @@
   "codexBin": "/Applications/ChatGPT.app/Contents/Resources/codex",
   "codexModel": "gpt-5.6-terra",
   "codexProxyUrl": "",
-  "larkCli": ""
+  "larkCli": "",
+  "nodeBin": "",
+  "pythonBin": ""
 }
