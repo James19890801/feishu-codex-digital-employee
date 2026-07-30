@@ -338,6 +338,13 @@ Only the configured ownerOpenId can confirm task, calendar, or batch action-item
 creation. Other contacts may ask AIPRO to draft content, but they cannot use it
 to perform owner-side mutations.
 
+Multica Issue operations use a separate collaboration rule. Any person who can
+legitimately reach the authorized Feishu identity may request a Multica read or
+write from a qualifying group mention or direct message. The same requesting
+person must confirm that person's pending mutation in the same conversation.
+This removes AIPRO workspace and sender allowlists without removing
+authentication, confirmation, stale-write protection, or audit controls.
+
 
 TEXT, IMAGE, AND FILE CAPABILITIES
 
@@ -432,6 +439,78 @@ Creation is not immediate.
     Only then is the Feishu API called.
 
 Pending confirmations are stored in SQLite and expire automatically.
+
+
+MULTICA BUSINESS SYSTEM INTEGRATION
+
+AIPRO includes a bidirectional Multica Issue adapter. It uses the official
+Multica CLI and the currently authenticated Multica profile. AIPRO does not
+read, copy, display, or send the Multica access token to Codex.
+
+Supported Issue operations:
+
+    Discover every workspace visible to the authenticated Multica account
+    List Issues in one workspace
+    Search Issue identifiers, titles, descriptions, and statuses
+    Read a specific Issue by identifier or UUID
+    Create an Issue
+    Update title, description, status, priority, assignee, project, and dates
+    Add a follow-up comment
+    Follow or unfollow an Issue from the originating Feishu conversation
+    Enable or stop all-workspace change synchronization for a conversation
+
+There is no AIPRO Multica workspace allowlist. Every workspace returned by the
+authenticated Multica account is available to the constrained planner. Multica
+itself remains the authority for authentication and the account's effective
+access.
+
+Read operations execute immediately. Create, update, and comment operations
+first return an exact preview and require confirmation from the requester.
+Cancellation and assignee changes require a six-digit second confirmation.
+Delete, permission changes, token operations, arbitrary API calls, arbitrary
+commands, and arbitrary local-file access are not exposed.
+
+Example Feishu requests:
+
+    "查一下 MYS-2"
+    "列出 Multica 里进行中的 Issues"
+    "在黄山空间创建一个高优先级发布 Issue"
+    "把 MYS-2 状态改为 in_review"
+    "给 MYS-2 加一条跟进评论：等待客户确认"
+    "关注 MYS-2 的变化"
+    "把 Multica 全空间变化同步到这里"
+    "停止向这里同步 Multica 全空间变化"
+
+Issue reads automatically associate the Issue with the current Feishu
+conversation. Later changes to that Issue can therefore be sent back to the
+same group or direct message. A conversation may also explicitly subscribe to
+all-workspace synchronization so that newly created Issues and changes to any
+visible Issue are reported there.
+
+The synchronizer is polling-based and independent from Feishu message polling.
+The default interval is 10 seconds. It scans all visible Multica workspaces,
+stores a local fingerprint of relevant fields, and reports only changes after
+the initial baseline. The baseline does not flood Feishu with existing Issues.
+Notification idempotency keys prevent duplicate deliveries after retries or
+restarts.
+
+Commercial reliability controls include:
+
+    Bounded pagination and a configurable maximum Issue count
+    Bounded process time and output size
+    Exponential retry for safe read operations
+    No blind retry for non-idempotent Issue creation or comments
+    Stale updated_at comparison before an Issue update
+    Per-recipient notification isolation
+    Persistent Issue cache and subscriptions in SQLite
+    Baseline-on-first-start behavior
+    Structured mutation and synchronization audit events
+    Independent dashboard freshness and error indicators
+    Read-only live smoke testing
+
+If Multica is temporarily unavailable, Feishu message handling remains alive.
+The Multica synchronization loop records the failure, uses bounded exponential
+backoff, displays a degraded state, and resumes after the service recovers.
 
 
 CONVERSATION MEMORY
@@ -543,6 +622,8 @@ The dashboard displays:
     Current scope configuration
     Current event transport
     Current model
+    Multica integration state and last synchronization freshness
+    Last Multica scan, change, and notification counts
     A conversational configuration assistant
     Before-and-after change previews
     Confirmation level and confirmation code
@@ -647,6 +728,12 @@ Feishu runtime:
     An authorized Feishu custom application
     User OAuth permissions
     Optional application secret for SDK business capabilities
+
+Multica runtime:
+
+    Multica desktop application with its official CLI
+    An authenticated Multica profile
+    At least one workspace visible to that profile
 
 
 INSTALLATION
@@ -773,6 +860,11 @@ Minimal example:
       "eventTransport": "lark-cli",
       "pollIntervalMs": 5000,
       "maxConcurrentReplies": 2,
+      "multicaEnabled": true,
+      "multicaProfile": "desktop-api.multica.ai",
+      "multicaDefaultWorkspaceId": "",
+      "multicaSyncIntervalMs": 10000,
+      "multicaMaxIssues": 5000,
       "dashboardPort": 17655,
       "codexModel": "gpt-5.6-terra"
     }
@@ -825,6 +917,27 @@ Polling and reliability fields:
 
     rateLimitMaxMessages
         Default 10.
+
+Multica fields:
+
+    multicaEnabled
+        Enables the Multica Issue adapter and background synchronizer.
+
+    multicaProfile
+        Authenticated Multica CLI profile name.
+
+    multicaDefaultWorkspaceId
+        Optional UUID used when a create request does not name a workspace.
+
+    multicaSyncIntervalMs
+        Default 10000. Allowed range 5000 through 300000.
+
+    multicaMaxIssues
+        Maximum Issues scanned across all workspaces. Default 5000.
+
+    multicaBin
+        Optional official Multica CLI executable path. The default points to
+        the CLI bundled with Multica.app.
 
 Timeout and runtime fields:
 
@@ -925,6 +1038,10 @@ Check the event consumer:
 Run a real Codex sample:
 
     npm run codex-smoke
+
+Run a read-only live Multica sample:
+
+    npm run multica-smoke
 
 Run the complete acceptance suite:
 
@@ -1362,6 +1479,9 @@ For the current single-Mac architecture, production readiness means:
     SQLite integrity is healthy.
     There are no overdue failed or dead messages.
     Codex passes a real sample.
+    Multica workspace discovery and read-only Issue scanning pass.
+    Multica synchronization freshness is healthy when the integration is
+    enabled.
     Real group and direct-message tests pass.
     File and mutation capabilities pass separate real tests when enabled.
     The account owner knows how to pause, inspect, restart, and recover the

@@ -1,5 +1,6 @@
 import * as lark from '@larksuiteoapi/node-sdk';
 import { spawn } from 'node:child_process';
+import { randomInt } from 'node:crypto';
 import {
   lstat,
   mkdir,
@@ -65,6 +66,15 @@ import {
   planPollWindow,
   validateInboundPayload,
 } from './reliability.mjs';
+import { MulticaClient } from './multica-client.mjs';
+import {
+  buildMulticaPlannerPrompt,
+  looksLikeMulticaRequest,
+  normalizeMulticaPlan,
+  parseMulticaPlannerOutput,
+} from './multica-planner.mjs';
+import { MulticaCapability } from './multica-capability.mjs';
+import { MulticaSynchronizer } from './multica-sync.mjs';
 
 const APP_ID = config.feishuAppId;
 const OWNER_OPEN_ID = config.ownerOpenId;
@@ -112,10 +122,31 @@ const POLL_MAX_CATCHUP_MS = config.pollMaxCatchupMs;
 const POLL_WINDOW_MS = config.pollWindowMs;
 const MAX_CONCURRENT_REPLIES = config.maxConcurrentReplies;
 const DASHBOARD_URL = `http://127.0.0.1:${config.dashboardPort}`;
+const MULTICA_CLIENT = config.multicaEnabled
+  ? new MulticaClient({
+      bin: config.multicaBin,
+      profile: config.multicaProfile,
+      defaultWorkspaceId: config.multicaDefaultWorkspaceId,
+      timeoutMs: config.helperTimeoutMs,
+      maxIssues: config.multicaMaxIssues,
+    })
+  : null;
+const MULTICA_CAPABILITY = MULTICA_CLIENT
+  ? new MulticaCapability({ client: MULTICA_CLIENT, state })
+  : null;
+const MULTICA_SYNCHRONIZER = MULTICA_CLIENT
+  ? new MulticaSynchronizer({
+      client: MULTICA_CLIENT,
+      state,
+      notify: (chatId, text, idempotencyKey) => sendText(null, chatId, text, idempotencyKey),
+      audit: (event, detail) => state.audit(event, { detail }),
+    })
+  : null;
 let stopping = false;
 let activeEventChild = null;
 let activeSdkWsClient = null;
 let drainPromise = null;
+let multicaSyncPromise = null;
 let businessClient = null;
 let sdkAppSecret = '';
 const shutdownDelay = new InterruptibleDelay();
@@ -635,6 +666,156 @@ ${documentText.slice(0, 40_000)}
   }
 }
 
+async function runCodexMulticaPlan(request, history) {
+  if (!MULTICA_CLIENT) throw new Error('Multica integration is disabled');
+  const workspaces = await MULTICA_CLIENT.listWorkspaces();
+  const prompt = buildMulticaPlannerPrompt({
+    request,
+    history,
+    workspaces,
+    defaultWorkspaceId: config.multicaDefaultWorkspaceId,
+  });
+  const args = [
+    'exec', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check',
+    '--sandbox', 'read-only', '--color', 'never', '-m', config.codexModel,
+    '-C', CODEX_RUNTIME_DIR, '-',
+  ];
+  const { stdout } = await runBufferedProcess(CODEX_BIN, args, {
+    cwd: CODEX_RUNTIME_DIR,
+    env: codexEnv(),
+    input: prompt,
+    timeoutMs: config.codexTimeoutMs,
+    killGraceMs: 5_000,
+    maxStdoutBytes: 256 * 1024,
+    maxStderrBytes: 1024 * 1024,
+  });
+  return normalizeMulticaPlan(parseMulticaPlannerOutput(stdout), {
+    workspaces,
+    defaultWorkspaceId: config.multicaDefaultWorkspaceId,
+  });
+}
+
+function multicaConfirmationMatches(text, pending) {
+  if (pending.pending.plan.confirmationLevel === 'double') {
+    const match = String(text).match(/^确认\s+(\d{6})[。！! ]*$/);
+    return Boolean(match && match[1] === pending.confirmationCode);
+  }
+  return /^(确认|确认执行|可以|好|好哦)[。！! ]*$/.test(text);
+}
+
+async function applyPendingMultica(message, senderOpenId, cleanText) {
+  const pending = pendingActions.get('multica', message.chat_id, senderOpenId);
+  if (!pending) return false;
+  if (/^(取消|不用了|不执行|放弃)[。！! ]*$/.test(cleanText)) {
+    pendingActions.delete('multica', message.chat_id, senderOpenId);
+    await sendText(
+      null,
+      message.chat_id,
+      '好哦，这次 Multica 修改已经取消，没有写入任何内容。',
+      `multica-cancel-${message.message_id}`,
+    );
+    audit('multica_mutation_cancelled', message, senderOpenId, {
+      action: pending.pending.plan.action,
+    });
+    return true;
+  }
+  const looksLikeConfirmation = /^(确认|确认执行|可以|好|好哦)(?:\s+\d{6})?[。！! ]*$/.test(cleanText);
+  if (!looksLikeConfirmation) return false;
+  if (!multicaConfirmationMatches(cleanText, pending)) {
+    const answer = pending.pending.plan.confirmationLevel === 'double'
+      ? `确认码不对。请回复“确认 ${pending.confirmationCode}”执行，或回复“取消”。`
+      : '请回复“确认”执行，或回复“取消”。';
+    await sendText(null, message.chat_id, answer, `multica-confirm-invalid-${message.message_id}`);
+    return true;
+  }
+  try {
+    const result = await MULTICA_CAPABILITY.applyMutation(pending.pending, {
+      chatId: message.chat_id,
+      senderId: senderOpenId,
+    });
+    pendingActions.delete('multica', message.chat_id, senderOpenId);
+    await sendText(null, message.chat_id, result.text, `multica-applied-${message.message_id}`);
+    remember(message.chat_id, senderOpenId, 'user', cleanText);
+    remember(message.chat_id, senderOpenId, 'assistant', result.text);
+    audit('multica_mutation_applied', message, senderOpenId, {
+      action: pending.pending.plan.action,
+      issueId: result.issue?.id || '',
+      identifier: result.issue?.identifier || '',
+    });
+  } catch (error) {
+    pendingActions.delete('multica', message.chat_id, senderOpenId);
+    const answer = /changed after the preview/i.test(String(error?.message || ''))
+      ? '这个 Issue 在确认前已经发生变化，所以我没有覆盖它。请重新发一次修改指令，我会基于最新状态生成方案。'
+      : `Multica 写入没有完成：${processFailureSummary(error)}`;
+    await sendText(null, message.chat_id, answer, `multica-apply-error-${message.message_id}`);
+    audit('multica_mutation_failed', message, senderOpenId, {
+      action: pending.pending.plan.action,
+      error: String(error?.message || error).slice(0, 1000),
+    });
+  }
+  return true;
+}
+
+async function handleMulticaRequest(message, senderOpenId, cleanText) {
+  if (!MULTICA_CAPABILITY) {
+    await sendText(
+      null,
+      message.chat_id,
+      'Multica 业务系统能力还没有启用。',
+      `multica-disabled-${message.message_id}`,
+    );
+    return true;
+  }
+  const history = formatHistory(message.chat_id, senderOpenId);
+  const plan = await runCodexMulticaPlan(cleanText, history);
+  audit('multica_plan_created', message, senderOpenId, {
+    action: plan.action,
+    confirmationLevel: plan.confirmationLevel,
+    issue: plan.issue || '',
+    workspaceId: plan.workspaceId || '',
+  });
+  if (plan.confirmationLevel === 'none') {
+    const result = await MULTICA_CAPABILITY.execute(plan, {
+      chatId: message.chat_id,
+      senderId: senderOpenId,
+    });
+    remember(message.chat_id, senderOpenId, 'user', cleanText);
+    remember(message.chat_id, senderOpenId, 'assistant', result.text);
+    await sendText(null, message.chat_id, result.text, `multica-read-${message.message_id}`);
+    audit('multica_action_completed', message, senderOpenId, {
+      action: plan.action,
+      issueId: result.issue?.id || '',
+      identifier: result.issue?.identifier || '',
+    });
+    return true;
+  }
+  const prepared = await MULTICA_CAPABILITY.prepareMutation(plan, {
+    chatId: message.chat_id,
+    senderId: senderOpenId,
+  });
+  const confirmationCode = plan.confirmationLevel === 'double'
+    ? String(randomInt(100000, 1000000))
+    : '';
+  pendingActions.set('multica', message.chat_id, senderOpenId, {
+    pending: prepared.pending,
+    confirmationCode,
+  });
+  const confirmation = plan.confirmationLevel === 'double'
+    ? `\n\n这是敏感变更。请回复“确认 ${confirmationCode}”执行，或回复“取消”。`
+    : '\n\n请回复“确认”执行，或回复“取消”。';
+  await sendText(
+    null,
+    message.chat_id,
+    `${prepared.text}${confirmation}`,
+    `multica-preview-${message.message_id}`,
+  );
+  audit('multica_mutation_previewed', message, senderOpenId, {
+    action: plan.action,
+    confirmationLevel: plan.confirmationLevel,
+  });
+  return true;
+}
+
 async function processIncoming(client, message, sender) {
   if (sender?.sender_type === 'app') return;
   if (!config.allowAllChats && !AUTHORIZED_CHAT_IDS.has(message.chat_id)) return;
@@ -697,11 +878,17 @@ async function processIncoming(client, message, sender) {
     return;
   }
   if (operatorCommand === 'status') {
+    const lastMulticaSyncResult = state.get('health', 'last_multica_sync_result', null);
     const answer = buildStatusReply({
       startedAt: state.get('health', 'last_start_at', ''),
       lastPollSuccessAt: state.get('health', 'last_poll_success_at', ''),
       lastPollError: state.get('health', 'last_poll_error', null),
       websocketConnected: state.get('health', 'websocket_connected', false),
+      multicaEnabled: config.multicaEnabled,
+      lastMulticaSyncAt: state.get('health', 'last_multica_sync_at', ''),
+      lastMulticaSyncError: state.get('health', 'last_multica_sync_error', null),
+      maxMulticaSyncAgeMs: Math.max(60_000, config.multicaSyncIntervalMs * 6),
+      multicaPending: Number(lastMulticaSyncResult?.pending || 0),
       inboxCounts: state.inboxStatusCounts(),
       dashboardUrl: DASHBOARD_URL,
       detailed: senderOpenId === OWNER_OPEN_ID,
@@ -762,6 +949,24 @@ async function processIncoming(client, message, sender) {
     } catch (error) {
       console.error(`[file-context-error] ${message.message_id}:`, error);
     }
+  }
+  if (await applyPendingMultica(message, senderOpenId, cleanText)) return;
+  if (looksLikeMulticaRequest(cleanText)) {
+    try {
+      await handleMulticaRequest(message, senderOpenId, cleanText);
+    } catch (error) {
+      console.error(`[multica-request-error] ${message.message_id}:`, error);
+      await sendText(
+        null,
+        message.chat_id,
+        `Multica 刚刚没有处理成功：${processFailureSummary(error)}`,
+        `multica-request-error-${message.message_id}`,
+      );
+      audit('multica_request_failed', message, senderOpenId, {
+        error: String(error?.message || error).slice(0, 1000),
+      });
+    }
+    return;
   }
   const pendingTaskBatch = pendingActions.get('task_batch', message.chat_id, senderOpenId);
   if (pendingTaskBatch && /^(确认|确认创建|全部确认|可以|好|好哦)[。！! ]*$/.test(cleanText)) {
@@ -1261,6 +1466,42 @@ async function runUserPollingLoop() {
   }
 }
 
+async function runMulticaSyncLoop() {
+  if (!MULTICA_SYNCHRONIZER) return;
+  let failures = 0;
+  while (!stopping) {
+    const startedAt = Date.now();
+    try {
+      const result = await MULTICA_SYNCHRONIZER.cycle();
+      failures = 0;
+      state.set('health', 'last_multica_sync_at', new Date().toISOString());
+      state.set('health', 'last_multica_sync_result', result);
+      state.unset('health', 'last_multica_sync_error');
+      if (result.changes) {
+        console.log(`[multica-sync] changes=${result.changes} notified=${result.notified}`);
+      }
+    } catch (error) {
+      if (stopping) break;
+      failures += 1;
+      const delayMs = Math.min(5 * 60_000, 1_000 * (2 ** Math.min(failures, 9)));
+      const summary = processFailureSummary(error);
+      state.set('health', 'last_multica_sync_error', {
+        at: new Date().toISOString(),
+        failures,
+        error: summary,
+      });
+      state.audit('multica_sync_error', {
+        detail: { failures, delayMs, error: summary },
+      });
+      console.error(`[multica-sync-error] retry in ${delayMs}ms:`, error);
+      await wait(delayMs);
+      continue;
+    }
+    const elapsed = Date.now() - startedAt;
+    await wait(Math.max(250, config.multicaSyncIntervalMs - elapsed));
+  }
+}
+
 async function createBusinessClient() {
   try {
     const appSecret = await getSecret();
@@ -1465,6 +1706,11 @@ async function main() {
     businessClient = await createBusinessClient();
     await initializeUserPolling();
     triggerDrain();
+    if (MULTICA_SYNCHRONIZER) {
+      multicaSyncPromise = runMulticaSyncLoop()
+        .catch(error => console.error('[multica-sync-fatal]', error));
+      console.log(`[multica-sync] active every ${config.multicaSyncIntervalMs}ms across all workspaces`);
+    }
 
     if (config.eventTransport === 'sdk') {
       superviseSdkEvents(businessClient).catch(error => console.error('[websocket-sdk-supervisor-fatal]', error));
@@ -1474,6 +1720,7 @@ async function main() {
     console.log(`[poll] user message polling active every ${POLL_INTERVAL_MS}ms; websocket auxiliary active`);
     await runUserPollingLoop();
     if (drainPromise) await drainPromise.catch(() => {});
+    if (multicaSyncPromise) await multicaSyncPromise.catch(() => {});
   } finally {
     try {
       state.close();

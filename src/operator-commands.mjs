@@ -25,6 +25,8 @@ export function buildHelpReply({ dashboardUrl }) {
     '• 单聊直接发送问题',
     '• 发送“状态”查看通道健康',
     '• 发送“暂停接管”或“恢复接管”切换真人接管',
+    '• 可以查询、创建、更新和跟进 Multica Issue；写入前会先让请求人确认',
+    '• 发送“把 Multica 全空间变化同步到这里”开启业务变化同步',
     '',
     `可视化面板：${dashboardUrl}`,
     '面板仅在这台 Mac 上可以打开。',
@@ -37,6 +39,11 @@ export function buildStatusReply({
   lastPollSuccessAt,
   lastPollError,
   websocketConnected,
+  multicaEnabled = false,
+  lastMulticaSyncAt = '',
+  lastMulticaSyncError = null,
+  maxMulticaSyncAgeMs = 60_000,
+  multicaPending = 0,
   inboxCounts = {},
   dashboardUrl,
   detailed = false,
@@ -45,13 +52,26 @@ export function buildStatusReply({
   const pollHealthy = Number.isFinite(pollTimestamp)
     && nowMs - pollTimestamp <= 60_000
     && !lastPollError;
-  const healthy = pollHealthy && websocketConnected
+  const multicaTimestamp = Date.parse(lastMulticaSyncAt || '');
+  const multicaHealthy = !multicaEnabled || (
+    Number.isFinite(multicaTimestamp)
+    && nowMs - multicaTimestamp <= maxMulticaSyncAgeMs
+    && !lastMulticaSyncError
+    && Number(multicaPending || 0) === 0
+  );
+  const healthy = pollHealthy && websocketConnected && multicaHealthy
     && Number(inboxCounts.dead || 0) === 0;
   const lines = [
     `运行状态：${healthy ? '正常' : '需要维护'}`,
     `主消息轮询：${formatAge(nowMs, lastPollSuccessAt)}`,
     `辅助监听：${websocketConnected ? '已连接' : '未连接'}`,
   ];
+  if (multicaEnabled) {
+    lines.push(
+      `Multica 同步：${formatAge(nowMs, lastMulticaSyncAt)}`
+      + (multicaPending ? `，待补发 ${multicaPending}` : ''),
+    );
+  }
   if (detailed) {
     lines.push(
       `主进程：运行中${startedAt ? `，启动于 ${new Date(startedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}` : ''}`,

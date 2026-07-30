@@ -62,4 +62,45 @@ const base = {
   assert.equal(view.maintenance.credentialBlocked, true);
 }
 
+{
+  const view = buildOperatorView({
+    ...base,
+    multicaEnabled: true,
+    lastMulticaSyncAt: '2026-07-30T00:59:55.000Z',
+    maxMulticaSyncAgeMs: 60_000,
+    lastMulticaSyncError: null,
+    lastMulticaSyncResult: { scanned: 17, changes: 0, notified: 0 },
+  });
+  assert.equal(view.multica.enabled, true);
+  assert.equal(view.multica.healthy, true);
+  assert.equal(view.multica.scanned, 17);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    multicaEnabled: true,
+    lastMulticaSyncAt: '2026-07-30T00:59:55.000Z',
+    maxMulticaSyncAgeMs: 60_000,
+    lastMulticaSyncError: null,
+    lastMulticaSyncResult: { scanned: 17, changes: 1, notified: 0, pending: 1 },
+  });
+  assert.equal(view.state, 'degraded');
+  assert.equal(view.issues.includes('multica_delivery_pending'), true);
+  assert.equal(view.multica.pending, 1);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    multicaEnabled: true,
+    lastMulticaSyncAt: '2026-07-30T00:50:00.000Z',
+    maxMulticaSyncAgeMs: 60_000,
+    lastMulticaSyncError: { error: 'timeout' },
+  });
+  assert.equal(view.state, 'degraded');
+  assert.equal(view.issues.includes('multica_sync_stale'), true);
+  assert.equal(view.issues.includes('multica_sync_error'), true);
+}
+
 console.log('DASHBOARD_MODEL_TEST_OK');

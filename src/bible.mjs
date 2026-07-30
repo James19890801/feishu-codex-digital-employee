@@ -11,12 +11,18 @@ const L2_PATTERNS = [
   /(?:发给|发送给|转发给|回复给).{0,30}(?:老师|领导|客户|同事|群|邮箱)/,
   /(?:发布|投稿|提交|报名|申请|答复邀约)/,
   /(?:创建|新建|修改|取消).{0,8}(?:待办|任务|日程|会议|群聊|权限)/,
+  /(?:创建|新建).{0,20}(?:multica|issue|问题单)/i,
+  /(?:更新|修改|评论|备注|跟进|取消).{0,12}(?:[A-Z][A-Z0-9]{0,15}-\d+|multica|issue|问题单)/i,
+  /(?:[A-Z][A-Z0-9]{0,15}-\d+).{0,12}(?:更新|修改|评论|备注|跟进|取消)/i,
   /(?:代表我|以我的名义|替我承诺)/,
 ];
 
 export function classifyIntent(text = '', context = {}) {
   if (context.hasImages) return 'image_understanding';
   if (context.hasFile) return 'file_understanding';
+  if (/\bmultica\b|\bissue\b|[A-Za-z][A-Za-z0-9]{0,15}-\d+\b|问题单/i.test(text)) {
+    return 'multica_issue';
+  }
   if (/(待办|任务|提醒)/.test(text)) return 'task';
   if (/(日程|日历|安排|会议时间)/.test(text)) return 'calendar';
   if (/(报告|方案|对比|总结).{0,12}(?:生成|制作|输出|整理|发回)|(?:生成|制作|输出|整理).{0,12}(?:报告|方案|对比|总结)/.test(text)) return 'artifact';

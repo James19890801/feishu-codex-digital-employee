@@ -18,6 +18,11 @@
   "helperTimeoutMs": 30000,
   "rateLimitWindowMs": 300000,
   "rateLimitMaxMessages": 10,
+  "multicaEnabled": false,
+  "multicaProfile": "desktop-api.multica.ai",
+  "multicaDefaultWorkspaceId": "",
+  "multicaSyncIntervalMs": 10000,
+  "multicaMaxIssues": 5000,
   "dashboardPort": 17655,
   "artifactDir": "",
   "codexBin": "/Applications/ChatGPT.app/Contents/Resources/codex",
@@ -25,5 +30,6 @@
   "codexProxyUrl": "",
   "larkCli": "",
   "nodeBin": "",
-  "pythonBin": ""
+  "pythonBin": "",
+  "multicaBin": ""
 }

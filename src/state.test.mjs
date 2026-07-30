@@ -57,6 +57,81 @@ try {
   assert.equal(state.consumeRateLimit('sender:1', 3_000, 60_000, 2), false);
   assert.equal(state.consumeRateLimit('sender:1', 61_001, 60_000, 2), true);
 
+  const issue = {
+    id: 'issue-1',
+    workspace_id: 'ws-1',
+    identifier: 'MYS-1',
+    title: 'Commercial launch',
+    status: 'todo',
+    priority: 'high',
+    assignee_id: null,
+    due_date: null,
+    updated_at: '2026-07-29T14:00:00.000Z',
+  };
+  const baselineIssue = state.upsertMulticaIssue(issue, now);
+  assert.equal(baselineIssue.isNew, true);
+  assert.deepEqual(baselineIssue.changedFields, []);
+  const unchangedIssue = state.upsertMulticaIssue(issue, '2026-07-29T14:00:01.000Z');
+  assert.equal(unchangedIssue.isNew, false);
+  assert.deepEqual(unchangedIssue.changedFields, []);
+  const changedIssue = state.upsertMulticaIssue({
+    ...issue,
+    status: 'in_progress',
+    updated_at: '2026-07-29T14:00:02.000Z',
+  }, '2026-07-29T14:00:02.000Z');
+  assert.deepEqual(changedIssue.changedFields, ['status']);
+  assert.equal(changedIssue.before.status, 'todo');
+  assert.equal(changedIssue.after.status, 'in_progress');
+
+  state.subscribeMulticaIssue(issue.id, 'chat-1', 'user-1', now);
+  state.subscribeMulticaIssue(issue.id, 'chat-1', 'user-1', now);
+  assert.deepEqual(state.multicaIssueSubscribers(issue.id), [{
+    chatId: 'chat-1',
+    senderId: 'user-1',
+  }]);
+  state.unsubscribeMulticaIssue(issue.id, 'chat-1', 'user-1');
+  assert.deepEqual(state.multicaIssueSubscribers(issue.id), []);
+
+  state.subscribeMulticaGlobal('chat-2', 'user-2', now);
+  state.subscribeMulticaGlobal('chat-2', 'user-2', now);
+  assert.deepEqual(state.multicaGlobalSubscribers(), [{
+    chatId: 'chat-2',
+    senderId: 'user-2',
+  }]);
+  state.unsubscribeMulticaGlobal('chat-2', 'user-2');
+  assert.deepEqual(state.multicaGlobalSubscribers(), []);
+
+  assert.equal(state.enqueueMulticaNotification({
+    notificationKey: 'multica-sync-test',
+    issueId: issue.id,
+    chatId: 'chat-1',
+    senderId: 'user-1',
+    content: 'Issue changed',
+    availableAt: now,
+  }), true);
+  assert.equal(state.enqueueMulticaNotification({
+    notificationKey: 'multica-sync-test',
+    issueId: issue.id,
+    chatId: 'chat-1',
+    senderId: 'user-1',
+    content: 'Issue changed',
+    availableAt: now,
+  }), false);
+  assert.equal(state.multicaNotificationCount(), 1);
+  assert.equal(state.listDueMulticaNotifications(now, 10)[0].notificationKey, 'multica-sync-test');
+  state.failMulticaNotification(
+    'multica-sync-test',
+    'temporary error',
+    '2026-07-29T14:00:05.000Z',
+  );
+  assert.equal(state.listDueMulticaNotifications(now, 10).length, 0);
+  assert.equal(
+    state.listDueMulticaNotifications('2026-07-29T14:00:05.000Z', 10)[0].attempts,
+    1,
+  );
+  state.completeMulticaNotification('multica-sync-test');
+  assert.equal(state.multicaNotificationCount(), 0);
+
   state.db.prepare(`INSERT INTO inbound_message
     (message_id, source, payload, status, attempts, available_at, first_seen_at, updated_at)
     VALUES (?, 'test', ?, 'pending', 0, ?, ?, ?)`)

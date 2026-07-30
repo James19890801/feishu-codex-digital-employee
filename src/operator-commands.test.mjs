@@ -17,7 +17,41 @@ assert.equal(matchOperatorCommand(''), null);
   assert.match(text, /群聊 @ 我/);
   assert.match(text, /单聊直接发送/);
   assert.match(text, /“状态”/);
+  assert.match(text, /Multica/);
   assert.match(text, /仅在这台 Mac/);
+}
+
+{
+  const text = buildStatusReply({
+    nowMs: Date.parse('2026-07-30T01:00:00.000Z'),
+    lastPollSuccessAt: '2026-07-30T00:59:55.000Z',
+    lastPollError: null,
+    websocketConnected: true,
+    multicaEnabled: true,
+    lastMulticaSyncAt: '2026-07-30T00:59:55.000Z',
+    lastMulticaSyncError: null,
+    multicaPending: 2,
+    inboxCounts: {},
+    dashboardUrl: 'http://127.0.0.1:17655',
+  });
+  assert.match(text, /运行状态：需要维护/);
+  assert.match(text, /待补发 2/);
+}
+
+{
+  const text = buildStatusReply({
+    nowMs: Date.parse('2026-07-30T01:00:00.000Z'),
+    lastPollSuccessAt: '2026-07-30T00:59:55.000Z',
+    lastPollError: null,
+    websocketConnected: true,
+    multicaEnabled: true,
+    lastMulticaSyncAt: '2026-07-30T00:58:00.000Z',
+    lastMulticaSyncError: null,
+    maxMulticaSyncAgeMs: 180_000,
+    inboxCounts: {},
+    dashboardUrl: 'http://127.0.0.1:17655',
+  });
+  assert.match(text, /运行状态：正常/);
 }
 
 {
@@ -27,6 +61,9 @@ assert.equal(matchOperatorCommand(''), null);
     lastPollSuccessAt: '2026-07-30T00:59:55.000Z',
     lastPollError: null,
     websocketConnected: true,
+    multicaEnabled: true,
+    lastMulticaSyncAt: '2026-07-30T00:59:50.000Z',
+    lastMulticaSyncError: null,
     inboxCounts: { pending: 1, completed: 20, failed: 0, dead: 0 },
     dashboardUrl: 'http://127.0.0.1:17655',
     detailed: true,
@@ -34,6 +71,7 @@ assert.equal(matchOperatorCommand(''), null);
   assert.match(text, /运行状态：正常/);
   assert.match(text, /主消息轮询：5 秒前/);
   assert.match(text, /辅助监听：已连接/);
+  assert.match(text, /Multica 同步：10 秒前/);
   assert.match(text, /待处理 1/);
   assert.match(text, /http:\/\/127\.0\.0\.1:17655/);
 }

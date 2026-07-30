@@ -17,6 +17,11 @@ const CONFIG_RULES = {
   rateLimitWindowMs: { type: 'integer', min: 60000, max: 3600000, risk: 'single' },
   rateLimitMaxMessages: { type: 'integer', min: 1, max: 100, risk: 'single' },
   codexModel: { type: 'model', risk: 'double' },
+  multicaEnabled: { type: 'boolean', risk: 'double' },
+  multicaProfile: { type: 'string', maxLength: 200, risk: 'double' },
+  multicaDefaultWorkspaceId: { type: 'uuidOrEmpty', risk: 'double' },
+  multicaSyncIntervalMs: { type: 'integer', min: 5000, max: 300000, risk: 'single' },
+  multicaMaxIssues: { type: 'integer', min: 100, max: 20000, risk: 'single' },
 };
 
 const PUBLIC_CONFIG_KEYS = Object.keys(CONFIG_RULES);
@@ -70,6 +75,14 @@ function normalizeConfigValue(key, value) {
   if (rule.type === 'model') {
     if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(value)) {
       throw new Error(`${key} must be a valid model identifier`);
+    }
+    return value;
+  }
+  if (rule.type === 'uuidOrEmpty') {
+    if (value === '') return '';
+    if (typeof value !== 'string'
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+      throw new Error(`${key} must be a UUID or an empty string`);
     }
     return value;
   }
@@ -270,6 +283,7 @@ export const assistantSchema = {
     'larkCli',
     'nodeBin',
     'pythonBin',
+    'multicaBin',
   ],
 };
 

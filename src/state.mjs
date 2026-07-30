@@ -53,6 +53,43 @@ export class AgentState {
         count INTEGER NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS multica_issue_cache (
+        issue_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        identifier TEXT NOT NULL,
+        snapshot TEXT NOT NULL,
+        issue_updated_at TEXT NOT NULL,
+        seen_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS multica_issue_cache_workspace
+        ON multica_issue_cache(workspace_id, issue_updated_at DESC);
+      CREATE TABLE IF NOT EXISTS multica_issue_subscription (
+        issue_id TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY(issue_id, chat_id, sender_id)
+      );
+      CREATE TABLE IF NOT EXISTS multica_global_subscription (
+        chat_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY(chat_id, sender_id)
+      );
+      CREATE TABLE IF NOT EXISTS multica_notification_outbox (
+        notification_key TEXT PRIMARY KEY,
+        issue_id TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        available_at TEXT NOT NULL,
+        last_error TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS multica_notification_due
+        ON multica_notification_outbox(available_at, created_at);
     `);
   }
 
@@ -215,6 +252,167 @@ export class AgentState {
       WHERE subject = ? AND window_start_ms = ? AND count < ?`)
       .run(new Date(nowMs).toISOString(), subject, windowStartMs, limit);
     return result.changes === 1;
+  }
+
+  upsertMulticaIssue(issue, seenAt = new Date().toISOString()) {
+    if (!issue?.id || !issue?.workspace_id || !issue?.identifier) {
+      throw new Error('Multica issue cache requires id, workspace_id, and identifier');
+    }
+    const normalized = structuredClone(issue);
+    const priorRow = this.db.prepare(
+      'SELECT snapshot FROM multica_issue_cache WHERE issue_id = ?',
+    ).get(issue.id);
+    let before = null;
+    try {
+      before = priorRow ? JSON.parse(priorRow.snapshot) : null;
+    } catch {
+      before = null;
+    }
+    const trackedFields = [
+      'title',
+      'description',
+      'status',
+      'priority',
+      'assignee_id',
+      'assignee_type',
+      'project_id',
+      'parent_issue_id',
+      'start_date',
+      'due_date',
+    ];
+    const changedFields = before
+      ? trackedFields.filter(key => JSON.stringify(before[key] ?? null)
+        !== JSON.stringify(normalized[key] ?? null))
+      : [];
+    this.db.prepare(`INSERT INTO multica_issue_cache
+      (issue_id, workspace_id, identifier, snapshot, issue_updated_at, seen_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(issue_id) DO UPDATE SET
+        workspace_id=excluded.workspace_id,
+        identifier=excluded.identifier,
+        snapshot=excluded.snapshot,
+        issue_updated_at=excluded.issue_updated_at,
+        seen_at=excluded.seen_at`)
+      .run(
+        issue.id,
+        issue.workspace_id,
+        issue.identifier,
+        JSON.stringify(normalized),
+        String(issue.updated_at || ''),
+        seenAt,
+      );
+    return {
+      isNew: !before,
+      changedFields,
+      before,
+      after: normalized,
+    };
+  }
+
+  getMulticaIssue(issueId) {
+    const row = this.db.prepare(
+      'SELECT snapshot FROM multica_issue_cache WHERE issue_id = ?',
+    ).get(issueId);
+    if (!row) return null;
+    try { return JSON.parse(row.snapshot); } catch { return null; }
+  }
+
+  subscribeMulticaIssue(issueId, chatId, senderId, createdAt = new Date().toISOString()) {
+    this.db.prepare(`INSERT OR IGNORE INTO multica_issue_subscription
+      (issue_id, chat_id, sender_id, created_at) VALUES (?, ?, ?, ?)`)
+      .run(issueId, chatId, senderId || '', createdAt);
+  }
+
+  unsubscribeMulticaIssue(issueId, chatId, senderId) {
+    this.db.prepare(`DELETE FROM multica_issue_subscription
+      WHERE issue_id = ? AND chat_id = ? AND sender_id = ?`)
+      .run(issueId, chatId, senderId || '');
+  }
+
+  multicaIssueSubscribers(issueId) {
+    return this.db.prepare(`SELECT chat_id, sender_id
+      FROM multica_issue_subscription WHERE issue_id = ? ORDER BY created_at, chat_id`)
+      .all(issueId)
+      .map(row => ({ chatId: row.chat_id, senderId: row.sender_id }));
+  }
+
+  subscribeMulticaGlobal(chatId, senderId, createdAt = new Date().toISOString()) {
+    this.db.prepare(`INSERT OR IGNORE INTO multica_global_subscription
+      (chat_id, sender_id, created_at) VALUES (?, ?, ?)`)
+      .run(chatId, senderId || '', createdAt);
+  }
+
+  unsubscribeMulticaGlobal(chatId, senderId) {
+    this.db.prepare(`DELETE FROM multica_global_subscription
+      WHERE chat_id = ? AND sender_id = ?`).run(chatId, senderId || '');
+  }
+
+  multicaGlobalSubscribers() {
+    return this.db.prepare(`SELECT chat_id, sender_id
+      FROM multica_global_subscription ORDER BY created_at, chat_id`)
+      .all()
+      .map(row => ({ chatId: row.chat_id, senderId: row.sender_id }));
+  }
+
+  enqueueMulticaNotification({
+    notificationKey,
+    issueId,
+    chatId,
+    senderId = '',
+    content,
+    availableAt = new Date().toISOString(),
+  }) {
+    const now = new Date().toISOString();
+    const result = this.db.prepare(`INSERT OR IGNORE INTO multica_notification_outbox
+      (notification_key, issue_id, chat_id, sender_id, content, attempts,
+       available_at, last_error, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?, '', ?, ?)`)
+      .run(notificationKey, issueId, chatId, senderId, content, availableAt, now, now);
+    return result.changes === 1;
+  }
+
+  listDueMulticaNotifications(now = new Date().toISOString(), limit = 200) {
+    return this.db.prepare(`SELECT notification_key, issue_id, chat_id, sender_id,
+      content, attempts, available_at, last_error
+      FROM multica_notification_outbox
+      WHERE available_at <= ?
+      ORDER BY available_at, created_at
+      LIMIT ?`)
+      .all(now, Math.max(1, Math.min(1000, Number(limit) || 200)))
+      .map(row => ({
+        notificationKey: row.notification_key,
+        issueId: row.issue_id,
+        chatId: row.chat_id,
+        senderId: row.sender_id,
+        content: row.content,
+        attempts: Number(row.attempts || 0),
+        availableAt: row.available_at,
+        lastError: row.last_error,
+      }));
+  }
+
+  completeMulticaNotification(notificationKey) {
+    return this.db.prepare(
+      'DELETE FROM multica_notification_outbox WHERE notification_key = ?',
+    ).run(notificationKey).changes === 1;
+  }
+
+  failMulticaNotification(notificationKey, error, availableAt) {
+    return this.db.prepare(`UPDATE multica_notification_outbox
+      SET attempts = attempts + 1, available_at = ?, last_error = ?, updated_at = ?
+      WHERE notification_key = ?`)
+      .run(
+        availableAt,
+        String(error || '').slice(0, 1000),
+        new Date().toISOString(),
+        notificationKey,
+      ).changes === 1;
+  }
+
+  multicaNotificationCount() {
+    return Number(this.db.prepare(
+      'SELECT COUNT(*) AS count FROM multica_notification_outbox',
+    ).get()?.count || 0);
   }
 
   prune({

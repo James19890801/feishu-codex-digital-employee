@@ -24,6 +24,17 @@ try {
   }, 2_000);
   pending.delete('calendar', 'oc_1', 'ou_1');
   assert.equal(pending.get('calendar', 'oc_1', 'ou_1', 2_001), null);
+
+  pending.set('multica', 'oc_1', 'ou_1', {
+    confirmationCode: '482731',
+    pending: {
+      plan: { action: 'create', fields: { title: 'Commercial launch' } },
+    },
+  }, 3_000);
+  assert.equal(
+    pending.get('multica', 'oc_1', 'ou_1', 3_001).pending.plan.action,
+    'create',
+  );
   console.log('PENDING_ACTIONS_TEST_OK');
 } finally {
   rmSync(dir, { recursive: true, force: true });

@@ -7,6 +7,7 @@ cd "$ROOT"
 npm run check
 npm test
 npm run codex-smoke
+npm run multica-smoke
 npm run health
 lark-cli auth check --scope 'search:message im:message im:message:readonly im:message.group_msg:get_as_user im:message.p2p_msg:get_as_user im:message.send_as_user' --json
 npm run event-health

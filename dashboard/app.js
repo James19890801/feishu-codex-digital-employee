@@ -21,6 +21,14 @@ const eventLabels = {
   inbound_dead_lettered: '消息进入死信',
   poller_error: '主轮询异常',
   websocket_error: '辅助监听异常',
+  multica_sync_error: 'Multica 同步异常',
+  multica_delivery_pending: 'Multica 通知等待重试',
+  multica_sync_change: 'Multica Issue 变化',
+  multica_sync_notification_failed: 'Multica 通知失败',
+  multica_plan_created: 'Multica 方案已生成',
+  multica_action_completed: 'Multica 操作完成',
+  multica_mutation_applied: 'Multica 写入完成',
+  multica_mutation_failed: 'Multica 写入失败',
   sdk_client_unavailable: '业务凭据未配置',
   message_rate_limited: '消息触发限流',
   maintenance_error: '维护任务异常',
@@ -116,6 +124,15 @@ function render(data) {
   $('codexValue').textContent = data.codex.proxyReachable ? '可连接' : '网络不可达';
   $('codexMeta').textContent = data.codex.model || '模型未配置';
   setDot('codexDot', data.codex.proxyReachable);
+
+  $('multicaValue').textContent = !data.multica.enabled
+    ? '未启用'
+    : data.multica.healthy ? '同步在线' : '需要维护';
+  $('multicaMeta').textContent = data.multica.enabled
+    ? `最近同步 ${formatAge(data.multica.ageMs)} · 扫描 ${data.multica.scanned || 0} 条`
+      + (data.multica.pending ? ` · 待补发 ${data.multica.pending}` : '')
+    : '可在对话配置面板启用';
+  setDot('multicaDot', data.multica.enabled && data.multica.healthy);
 
   const counts = data.database.inboxCounts || {};
   $('completedCount').textContent = counts.completed || 0;

@@ -63,6 +63,21 @@ assert.equal(safePlan.confirmationLevel, 'single');
 assert.equal(safePlan.changes[0].before, 5000);
 assert.equal(safePlan.changes[0].after, 3000);
 
+const multicaPlan = assistant.createChangePlan({
+  summary: 'Enable Multica integration',
+  changes: [{
+    target: 'config',
+    key: 'multicaEnabled',
+    value: true,
+  }, {
+    target: 'config',
+    key: 'multicaSyncIntervalMs',
+    value: 10000,
+  }],
+}, documents);
+assert.equal(multicaPlan.confirmationLevel, 'double');
+assert.equal(multicaPlan.changes[0].after, true);
+
 const sensitivePlan = assistant.createChangePlan({
   summary: 'Restrict message scope',
   changes: [{

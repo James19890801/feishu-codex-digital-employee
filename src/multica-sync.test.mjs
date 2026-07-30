@@ -1,0 +1,123 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { AgentState } from './state.mjs';
+import {
+  MulticaSynchronizer,
+  formatMulticaChange,
+} from './multica-sync.mjs';
+
+const dir = mkdtempSync(join(tmpdir(), 'aipro-multica-sync-'));
+try {
+  const state = new AgentState(join(dir, 'state.sqlite'));
+  const issue1 = {
+    id: 'issue-1',
+    workspace_id: 'ws-1',
+    workspace_name: 'My Space',
+    identifier: 'MYS-1',
+    title: 'Commercial launch',
+    description: 'Prepare the launch.',
+    status: 'todo',
+    priority: 'high',
+    assignee_id: null,
+    due_date: null,
+    updated_at: '2026-07-30T10:00:00Z',
+  };
+  let issues = [issue1];
+  const notices = [];
+  const audits = [];
+  let failChat = '';
+  const synchronizer = new MulticaSynchronizer({
+    client: { listAllIssues: async () => structuredClone(issues) },
+    state,
+    notify: async (chatId, text, idempotencyKey) => {
+      if (chatId === failChat) throw new Error('temporary Feishu failure');
+      notices.push({ chatId, text, idempotencyKey });
+    },
+    audit: (event, detail) => audits.push({ event, detail }),
+  });
+
+  const baseline = await synchronizer.cycle();
+  assert.deepEqual(baseline, { baseline: true, scanned: 1, notified: 0, changes: 0 });
+  assert.equal(notices.length, 0);
+
+  state.subscribeMulticaGlobal('chat-global', 'owner');
+  state.subscribeMulticaIssue('issue-1', 'chat-issue', 'user');
+  state.subscribeMulticaIssue('issue-1', 'chat-global', 'another-user');
+  issues = [{
+    ...issue1,
+    status: 'in_progress',
+    updated_at: '2026-07-30T10:01:00Z',
+  }];
+  const changed = await synchronizer.cycle();
+  assert.equal(changed.baseline, false);
+  assert.equal(changed.changes, 1);
+  assert.equal(changed.notified, 2);
+  assert.deepEqual(notices.map(item => item.chatId).sort(), ['chat-global', 'chat-issue']);
+  assert.match(notices[0].text, /MYS-1/);
+  assert.match(notices[0].text, /待处理 → 进行中/);
+
+  notices.length = 0;
+  const unchanged = await synchronizer.cycle();
+  assert.equal(unchanged.changes, 0);
+  assert.equal(unchanged.notified, 0);
+
+  issues = [{
+    ...issues[0],
+    priority: 'urgent',
+    updated_at: '2026-07-30T10:01:30Z',
+  }];
+  failChat = 'chat-issue';
+  const partiallyDelivered = await synchronizer.cycle();
+  assert.equal(partiallyDelivered.changes, 1);
+  assert.equal(partiallyDelivered.notified, 1);
+  assert.equal(partiallyDelivered.failed, 1);
+  assert.equal(partiallyDelivered.pending, 1);
+  failChat = '';
+  const retried = await synchronizer.cycle({
+    now: new Date(Date.now() + 10 * 60_000),
+  });
+  assert.equal(retried.changes, 0);
+  assert.equal(retried.notified, 1);
+  assert.equal(retried.pending, 0);
+  assert.equal(notices.at(-1).chatId, 'chat-issue');
+
+  notices.length = 0;
+  issues = [
+    ...issues,
+    {
+      id: 'issue-2',
+      workspace_id: 'ws-1',
+      workspace_name: 'My Space',
+      identifier: 'MYS-2',
+      title: 'New external issue',
+      description: '',
+      status: 'todo',
+      priority: 'none',
+      assignee_id: null,
+      due_date: null,
+      updated_at: '2026-07-30T10:02:00Z',
+    },
+  ];
+  const created = await synchronizer.cycle();
+  assert.equal(created.changes, 1);
+  assert.equal(created.notified, 1);
+  assert.equal(notices[0].chatId, 'chat-global');
+  assert.match(notices[0].text, /新 Issue/);
+  assert.equal(audits.some(item => item.event === 'multica_sync_change'), true);
+
+  assert.equal(
+    formatMulticaChange({
+      isNew: false,
+      changedFields: ['priority'],
+      before: { identifier: 'MYS-1', title: 'A', priority: 'high' },
+      after: { identifier: 'MYS-1', title: 'A', priority: 'urgent', workspace_name: 'My Space' },
+    }).includes('高 → 紧急'),
+    true,
+  );
+
+  console.log('MULTICA_SYNC_TEST_OK');
+} finally {
+  rmSync(dir, { recursive: true, force: true });
+}

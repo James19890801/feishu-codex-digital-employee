@@ -7,6 +7,9 @@ const ISSUE_LABELS = {
   websocket_consumer_missing: 'WebSocket 辅助监听未连接',
   codex_proxy_unreachable: 'Codex 网络代理不可达',
   credential_access_blocked: '后台进程无法读取飞书用户凭据',
+  multica_sync_stale: 'Multica 全空间同步已停止推进',
+  multica_sync_error: 'Multica 最近一次同步失败',
+  multica_delivery_pending: 'Multica 变化通知正在等待重试',
 };
 
 export function isCredentialAccessBlocked(lastPollError) {
@@ -18,6 +21,9 @@ export function buildOperatorView(input) {
     ? Math.max(0, input.nowMs - input.pollCursorMs)
     : null;
   const issues = [];
+  const multicaSyncAgeMs = input.multicaEnabled && input.lastMulticaSyncAt
+    ? Math.max(0, input.nowMs - new Date(input.lastMulticaSyncAt).getTime())
+    : null;
   if (!input.processAlive) issues.push('process_not_running');
   if (pollAgeMs === null || pollAgeMs > input.maxPollAgeMs) issues.push('poll_cursor_stale');
   if (input.staleProcessing > 0) issues.push('messages_processing_stale');
@@ -26,6 +32,15 @@ export function buildOperatorView(input) {
   if (!input.websocketActive) issues.push('websocket_consumer_missing');
   if (!input.codexProxyReachable) issues.push('codex_proxy_unreachable');
   if (input.credentialBlocked) issues.push('credential_access_blocked');
+  if (input.multicaEnabled
+    && (multicaSyncAgeMs === null || !Number.isFinite(multicaSyncAgeMs)
+      || multicaSyncAgeMs > input.maxMulticaSyncAgeMs)) {
+    issues.push('multica_sync_stale');
+  }
+  if (input.multicaEnabled && input.lastMulticaSyncError) issues.push('multica_sync_error');
+  if (input.multicaEnabled && Number(input.lastMulticaSyncResult?.pending || 0) > 0) {
+    issues.push('multica_delivery_pending');
+  }
 
   const state = !input.processAlive ? 'offline' : issues.length ? 'degraded' : 'online';
   return {
@@ -57,6 +72,21 @@ export function buildOperatorView(input) {
     codex: {
       proxyReachable: Boolean(input.codexProxyReachable),
       model: input.codexModel || '',
+    },
+    multica: {
+      enabled: Boolean(input.multicaEnabled),
+      healthy: !input.multicaEnabled
+        || (!issues.includes('multica_sync_stale')
+          && !issues.includes('multica_sync_error')
+          && !issues.includes('multica_delivery_pending')),
+      lastSyncAt: input.lastMulticaSyncAt || '',
+      ageMs: multicaSyncAgeMs,
+      lastError: input.lastMulticaSyncError || null,
+      scanned: Number(input.lastMulticaSyncResult?.scanned || 0),
+      changes: Number(input.lastMulticaSyncResult?.changes || 0),
+      notified: Number(input.lastMulticaSyncResult?.notified || 0),
+      pending: Number(input.lastMulticaSyncResult?.pending || 0),
+      failed: Number(input.lastMulticaSyncResult?.failed || 0),
     },
     database: {
       healthy: input.sqliteIntegrity === 'ok',

@@ -57,6 +57,15 @@ export const config = {
   rateLimitMaxMessages: boundedInteger(raw.rateLimitMaxMessages, {
     name: 'rateLimitMaxMessages', fallback: 10, min: 1, max: 100,
   }),
+  multicaEnabled: raw.multicaEnabled === true,
+  multicaProfile: raw.multicaProfile || 'desktop-api.multica.ai',
+  multicaDefaultWorkspaceId: raw.multicaDefaultWorkspaceId || '',
+  multicaSyncIntervalMs: boundedInteger(raw.multicaSyncIntervalMs, {
+    name: 'multicaSyncIntervalMs', fallback: 10000, min: 5000, max: 300000,
+  }),
+  multicaMaxIssues: boundedInteger(raw.multicaMaxIssues, {
+    name: 'multicaMaxIssues', fallback: 5000, min: 100, max: 20000,
+  }),
   dashboardPort: boundedInteger(raw.dashboardPort, {
     name: 'dashboardPort', fallback: 17655, min: 1024, max: 65535,
   }),
@@ -68,6 +77,8 @@ export const config = {
   larkCli: raw.larkCli || join(home, '.local', 'bin', 'lark-cli'),
   nodeBin: raw.nodeBin || join(home, '.cache', 'codex-runtimes', 'codex-primary-runtime', 'dependencies', 'node', 'bin'),
   pythonBin: raw.pythonBin || join(home, '.cache', 'codex-runtimes', 'codex-primary-runtime', 'dependencies', 'python', 'bin', 'python3'),
+  multicaBin: raw.multicaBin
+    || '/Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/multica',
 };
 
 for (const key of ['feishuAppId', 'ownerOpenId']) {
@@ -87,6 +98,11 @@ if (config.codexProxyUrl) {
 }
 if (!['lark-cli', 'sdk'].includes(config.eventTransport)) {
   throw new Error('eventTransport 只能是 lark-cli 或 sdk');
+}
+if (config.multicaDefaultWorkspaceId
+  && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    .test(config.multicaDefaultWorkspaceId)) {
+  throw new Error('multicaDefaultWorkspaceId 必须是 UUID');
 }
 if (!config.allowAllChats && !config.authorizedChatIds.length) {
   throw new Error('未启用 allowAllChats 时，config.local.json 至少需要一个 authorizedChatIds');

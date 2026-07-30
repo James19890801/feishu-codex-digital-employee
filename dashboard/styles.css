@@ -227,7 +227,7 @@ h1 {
 
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
   margin-top: 12px;
 }
@@ -237,7 +237,7 @@ h1 {
   border: 1px solid var(--line);
   background: linear-gradient(145deg, var(--panel-2), #171914);
 }
-.metric-card.wide { grid-column: span 4; min-height: auto; }
+.metric-card.wide { grid-column: span 5; min-height: auto; }
 .metric-head { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 11px; letter-spacing: .08em; }
 .metric-head span { font: 700 10px/1 "DIN Alternate", monospace; color: #62685d; }
 .metric-head b { font-weight: 700; }

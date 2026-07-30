@@ -86,6 +86,8 @@ function safeDetail(value) {
     for (const key of [
       'failures', 'delayMs', 'error', 'attemptNumber', 'retryAt',
       'fastPath', 'answerChars', 'capability', 'rateLimited',
+      'action', 'identifier', 'issueId', 'workspaceId', 'changedFields',
+      'recipients', 'changes', 'notified', 'scanned',
     ]) {
       if (detail[key] !== undefined) allowed[key] = detail[key];
     }
@@ -189,6 +191,9 @@ async function collectStatus() {
     lastPollDurationMs: 0,
     lastPollError: null,
     lastWebsocketReadyAt: '',
+    lastMulticaSyncAt: '',
+    lastMulticaSyncError: null,
+    lastMulticaSyncResult: null,
     inboxCounts: {},
     recentEvents: [],
   };
@@ -212,6 +217,9 @@ async function collectStatus() {
         lastPollDurationMs: Number(parseSetting(db, 'health', 'last_poll_duration_ms', 0)),
         lastPollError: parseSetting(db, 'health', 'last_poll_error', null),
         lastWebsocketReadyAt: parseSetting(db, 'health', 'last_websocket_ready_at', ''),
+        lastMulticaSyncAt: parseSetting(db, 'health', 'last_multica_sync_at', ''),
+        lastMulticaSyncError: parseSetting(db, 'health', 'last_multica_sync_error', null),
+        lastMulticaSyncResult: parseSetting(db, 'health', 'last_multica_sync_result', null),
         inboxCounts: Object.fromEntries(counts.map(row => [row.status, Number(row.count)])),
         recentEvents: db.prepare(`SELECT event, detail, created_at
           FROM audit ORDER BY id DESC LIMIT 12`).all().map(row => ({
@@ -241,11 +249,17 @@ async function collectStatus() {
     codexProxyReachable,
     credentialBlocked: isCredentialAccessBlocked(database.lastPollError),
     codexModel: config.codexModel,
+    multicaEnabled: config.multicaEnabled,
+    maxMulticaSyncAgeMs: Math.max(60_000, config.multicaSyncIntervalMs * 6),
     configuration: {
       allChats: config.allowAllChats,
       digitalTwinLabel: config.digitalTwinLabel,
       pollIntervalMs: config.pollIntervalMs,
       eventTransport: config.eventTransport,
+      multicaEnabled: config.multicaEnabled,
+      multicaProfile: config.multicaProfile,
+      multicaDefaultWorkspaceId: config.multicaDefaultWorkspaceId,
+      multicaSyncIntervalMs: config.multicaSyncIntervalMs,
     },
     ...database,
   });

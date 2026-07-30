@@ -58,8 +58,29 @@ const lastPollError = setting('health', 'last_poll_error', null);
 const lastPollSuccessAt = setting('health', 'last_poll_success_at', '');
 const lastPollDurationMs = Number(setting('health', 'last_poll_duration_ms', 0));
 const lastWebsocketReadyAt = setting('health', 'last_websocket_ready_at', '');
+const lastMulticaSyncAt = setting('health', 'last_multica_sync_at', '');
+const lastMulticaSyncError = setting('health', 'last_multica_sync_error', null);
+const lastMulticaSyncResult = setting('health', 'last_multica_sync_result', null);
 if (lastPollError?.at && (!lastPollSuccessAt || lastPollError.at > lastPollSuccessAt)) {
   result.issues.push('poller_last_run_failed');
+}
+let multicaSyncAgeMs = null;
+if (config.multicaEnabled) {
+  multicaSyncAgeMs = lastMulticaSyncAt
+    ? nowMs - new Date(lastMulticaSyncAt).getTime()
+    : null;
+  const maxMulticaSyncAgeMs = Math.max(
+    60_000,
+    Number(config.multicaSyncIntervalMs || 10_000) * 6,
+  );
+  if (multicaSyncAgeMs === null || !Number.isFinite(multicaSyncAgeMs)
+    || multicaSyncAgeMs > maxMulticaSyncAgeMs) {
+    result.issues.push('multica_sync_stale');
+  }
+  if (lastMulticaSyncError) result.issues.push('multica_sync_error');
+  if (Number(lastMulticaSyncResult?.pending || 0) > 0) {
+    result.issues.push('multica_delivery_pending');
+  }
 }
 result.healthy = result.issues.length === 0;
 result.metrics = {
@@ -71,6 +92,14 @@ result.metrics = {
   lastPollDurationMs,
   lastWebsocketReadyAt,
   codexProxyReachable: proxyReachable,
+  multicaEnabled: config.multicaEnabled === true,
+  lastMulticaSyncAt,
+  multicaSyncAgeMs,
+  multicaScanned: Number(lastMulticaSyncResult?.scanned || 0),
+  multicaChanges: Number(lastMulticaSyncResult?.changes || 0),
+  multicaNotified: Number(lastMulticaSyncResult?.notified || 0),
+  multicaPending: Number(lastMulticaSyncResult?.pending || 0),
+  multicaFailed: Number(lastMulticaSyncResult?.failed || 0),
 };
 console.log(JSON.stringify(result, null, 2));
 if (!result.healthy) process.exitCode = 1;
