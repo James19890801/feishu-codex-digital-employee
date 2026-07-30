@@ -80,6 +80,13 @@ h1 {
   font-weight: 600;
   letter-spacing: .08em;
 }
+.brand-credit {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: .06em;
+}
 .clock-block { text-align: right; }
 .clock-block span {
   display: block;
