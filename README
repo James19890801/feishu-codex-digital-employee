@@ -1,0 +1,1343 @@
+AIPRO
+
+AI Digital Human Platform Operating Through an Authorized Real-Person Identity
+
+First Developer: Yingzhi Zhao (赵颖知)
+Second Developer: Teacher Zhan (詹老师)
+
+Repository:
+https://github.com/James19890801/feishu-codex-digital-employee
+
+
+PRODUCT SUMMARY
+
+AIPRO is a local-first AI digital human platform for Feishu/Lark. It is designed
+for an account owner who wants an AI system to receive work-related messages,
+understand requests, use approved knowledge and tools, and reply through the
+owner's authorized Feishu user identity.
+
+AIPRO is not a separate chatbot account. The core text channel uses official
+user OAuth and the official lark-cli tool. Incoming messages are discovered
+primarily through user-visible message polling. A WebSocket event consumer is
+kept as a secondary low-latency signal. Replies are sent with the authorized
+user identity through lark-cli --as user.
+
+The platform combines:
+
+    Real-person identity messaging
+    Group mention and direct-message triggers
+    Codex-based understanding and response generation
+    Persistent message queues
+    Message deduplication
+    Per-conversation ordering
+    Retry and dead-letter handling
+    Local conversation memory
+    Structured audit records
+    Rate limiting
+    Human takeover controls
+    Feishu document, task, calendar, image, and file integrations
+    A local operations dashboard
+    macOS process supervision and recovery
+
+This repository contains the complete single-Mac implementation. It is intended
+for an account owner or an organization that has explicitly authorized the
+account, application, permissions, and operating environment.
+
+
+WHAT PROBLEM AIPRO SOLVES
+
+Most enterprise chatbots operate as visible bot accounts. That model does not
+fit every workflow. In some cases, colleagues already communicate with a real
+person through existing group chats and direct messages. AIPRO adds an
+automation layer behind that authorized identity while preserving the original
+conversation context.
+
+Typical use cases include:
+
+    Answering routine questions in the account owner's communication style
+    Responding when the owner is mentioned in a group
+    Responding to direct messages sent to the owner
+    Summarizing text, screenshots, documents, and meeting materials
+    Drafting natural replies, reports, plans, and structured documents
+    Generating a Word document and sending it to the original conversation
+    Searching approved Feishu knowledge
+    Checking accessible calendar information
+    Preparing tasks or calendar events for owner confirmation
+    Turning meeting notes into proposed action items
+    Providing a visible health and maintenance interface
+
+AIPRO does not authorize itself. It only operates within the permissions granted
+by the account owner, the Feishu application, the operating system, lark-cli,
+and Codex.
+
+
+CORE PRODUCT PRINCIPLES
+
+1. Polling is the primary message source.
+
+   AIPRO searches messages visible to the authorized user. This is the core
+   path for group mentions and direct messages.
+
+2. WebSocket is an auxiliary source.
+
+   The real-time event consumer improves normal latency and provides an
+   additional signal, but the system does not depend on WebSocket as its only
+   source of incoming messages.
+
+3. Both sources share one persistent inbox.
+
+   Polling and WebSocket events are written into the same SQLite inbox. The
+   Feishu message ID is the unique key, so one message is processed only once
+   even when both sources deliver it.
+
+4. Replies use the authorized user identity.
+
+   Text and generated files are sent through official lark-cli user-identity
+   commands. The repository does not implement unofficial account takeover or
+   protocol reverse engineering.
+
+5. Risk is evaluated before execution.
+
+   Read-only work can run automatically. Actions that change real work state
+   require a preview and confirmation from the account owner. Prohibited
+   actions are refused.
+
+6. Operations must be observable.
+
+   Queue state, polling freshness, WebSocket state, SQLite integrity, process
+   state, recent audit events, and recovery status are available through a
+   local dashboard and health commands.
+
+
+SUPPORTED MESSAGE BEHAVIOR
+
+Group chats:
+
+    All visible group chats can be enabled.
+    AIPRO responds only when the real-person account is explicitly mentioned.
+    A message sent by the account owner is ignored.
+    A message sent by an application is ignored.
+    Messages without a relevant mention are ignored.
+
+Direct messages:
+
+    Messages from other people to the account owner can trigger AIPRO directly.
+    No mention is required in a direct message.
+    Messages sent by the account owner are ignored.
+
+Current default scope:
+
+    allowAllChats is true.
+    authorizedChatIds is an empty list.
+    There is no chat whitelist.
+    Group messages still require an explicit mention.
+    Direct messages trigger directly.
+    digitalTwinLabel is empty, so no fixed AI prefix is added.
+
+Allowing all chats does not mean broadcasting to all chats. It means AIPRO may
+respond in any visible conversation that satisfies the trigger rules. The
+system does not automatically send unsolicited messages to every conversation.
+
+
+END-TO-END MESSAGE FLOW
+
+Step 1: Discover
+
+    The polling loop searches group and direct messages in parallel.
+    The WebSocket consumer listens for im.message.receive_v1 events.
+
+Step 2: Filter
+
+    The system removes deleted messages, messages from the owner, unsupported
+    chat types, unsupported message types, non-mentioned group messages, and
+    messages outside the configured scope.
+
+Step 3: Persist
+
+    Valid messages are inserted into a SQLite inbox. The message ID is unique.
+    Duplicate delivery from another source is ignored.
+
+Step 4: Schedule
+
+    Messages in the same conversation are processed serially. Different
+    conversations can be processed concurrently, up to the configured global
+    limit.
+
+Step 5: Decide
+
+    AIPRO classifies the request, checks access rules, determines the risk level,
+    and chooses direct execution, preview and confirmation, clarification, or
+    refusal.
+
+Step 6: Execute
+
+    Codex handles language understanding and response generation. Optional
+    Feishu SDK functions handle documents, images, files, tasks, and calendars.
+
+Step 7: Reply
+
+    The final response is sent back to the original chat using the authorized
+    user identity and an idempotency key.
+
+Step 8: Record
+
+    Conversation memory, workflow decisions, retries, confirmations, delivery
+    results, and operational events are recorded locally.
+
+
+MESSAGE POLLING DESIGN
+
+The default polling interval is 5,000 milliseconds.
+
+Each polling cycle:
+
+    Searches group messages visible to the authorized user
+    Restricts group results to messages that mention the owner
+    Searches direct messages visible to the authorized user
+    Requests all search-result pages
+    Rejects incomplete pagination
+    Normalizes results into the internal message format
+    Inserts new messages into the persistent inbox
+    Advances the polling cursor only after a complete successful search
+
+Reliability windows:
+
+    Default overlap: 3 minutes
+    Initial baseline lookback: 15 minutes
+    Default maximum catch-up period: 24 hours
+    Default single search window: 15 minutes
+
+The overlap protects against indexing delay and short network interruptions.
+SQLite deduplication prevents the overlap from producing repeated replies.
+
+On the first start, AIPRO creates a baseline from recent messages and marks them
+as completed without replying. This prevents a fresh installation from replying
+to old conversation history.
+
+If the search API reports that more pages remain, AIPRO refuses to advance the
+cursor. This favors a visible retry over silent message loss.
+
+
+WEBSOCKET DESIGN
+
+The default auxiliary transport is:
+
+    lark-cli event consume im.message.receive_v1 --as bot
+
+The consumer is supervised by the main process. When the consumer exits or
+fails, AIPRO restarts it with bounded exponential backoff.
+
+The alternative eventTransport value is sdk. In SDK mode, the Feishu Node SDK
+opens the WebSocket connection directly. SDK mode requires an application
+secret stored in the configured macOS Keychain service.
+
+WebSocket availability is displayed separately from polling health. If
+WebSocket is temporarily unavailable but polling remains healthy, AIPRO can
+continue to receive qualifying user messages.
+
+
+AI EXECUTION
+
+AIPRO invokes Codex in an ephemeral session.
+
+The Codex process uses:
+
+    An isolated runtime directory
+    An isolated Codex home
+    A link to the existing authorized Codex login
+    Read-only sandbox mode
+    No unrelated user configuration
+    No unrelated local skill loading
+    A bounded timeout
+    Bounded standard output and standard error
+    Controlled termination on timeout or service shutdown
+
+The prompt combines:
+
+    The account owner's Persona
+    The operating Bible
+    The current workflow decision
+    Recent conversation memory for the same chat and sender
+    The current user request
+    Authorized document or file content when applicable
+
+The model is instructed not to read unrelated local files, run arbitrary
+commands, fabricate authorization, claim personal approval, or execute
+prohibited actions.
+
+
+PERSONA AND OPERATING BIBLE
+
+PERSONA.md defines:
+
+    Professional identity
+    Audience
+    Expertise
+    Tone
+    Sentence style
+    Preferred vocabulary
+    Real de-identified writing samples
+    Statements and behaviors to avoid
+
+BIBLE.md defines:
+
+    Trigger rules
+    Workflows
+    Risk levels
+    Direct-execution actions
+    Confirmation requirements
+    Prohibited actions
+    Human takeover behavior
+    Completion criteria
+
+The generated local Persona and Bible files are excluded from Git because they
+may contain private operating context.
+
+
+RISK LEVELS
+
+Level L0: Direct execution
+
+    Question answering
+    Summarization
+    Rewriting
+    Translation
+    Drafting
+    Approved knowledge retrieval
+    Image understanding
+    File understanding
+
+Level L1: Execute and report
+
+    Reversible document generation
+    Word report creation
+    Deliverables returned to the original conversation
+
+Level L2: Preview and owner confirmation
+
+    Creating tasks
+    Creating calendar events
+    Batch creation of action items
+    Cross-conversation delivery
+    Publishing
+    Formal submission
+    Commitments that affect real work state
+
+Level L3: Prohibited automatic execution
+
+    Payments and transfers
+    Contract signing
+    Hiring commitments
+    Legal or financial commitments
+    Password, verification-code, or private-key handling
+    Irreversible deletion
+    Unauthorized identity use
+    Concealing automation for a high-risk action
+
+Only the configured ownerOpenId can confirm task, calendar, or batch action-item
+creation. Other contacts may ask AIPRO to draft content, but they cannot use it
+to perform owner-side mutations.
+
+
+TEXT, IMAGE, AND FILE CAPABILITIES
+
+Text:
+
+    General questions
+    Summaries
+    Rewriting and translation
+    Draft replies
+    Structured reports
+    Operational commands
+
+Images:
+
+    Current-message images when the event contains a resource key
+    Recent image lookup in the same conversation
+    Up to four recent images by default
+    Screenshot and visual-content understanding through Codex image input
+
+Files:
+
+    PDF
+    DOCX
+    TXT
+    Markdown source files
+    CSV
+    JSON
+    LOG
+    XML
+    HTML
+
+File limits:
+
+    Maximum file size: 20 MB
+    Maximum extracted text passed forward: 40,000 characters
+    Maximum PDF pages inspected: 60
+
+Recommended attachment workflow:
+
+    First send the image or file.
+    Then send a text instruction in the same conversation, such as:
+    "Summarize the file I just sent."
+
+AIPRO searches only the same conversation, only the same sender, and only the
+previous 30 minutes. It does not substitute a file sent by another person.
+
+Generated deliverables:
+
+    AIPRO can produce a structured DOCX report.
+    The file is written to the configured artifact directory.
+    The file is sent back to the original conversation.
+
+Python dependencies for file processing are pinned in requirements.txt and are
+validated by npm run check.
+
+
+FEISHU KNOWLEDGE
+
+knowledge-catalog.json controls approved knowledge access for non-owner users.
+
+Each catalog item may define:
+
+    Document token
+    Title
+    URL
+    Aliases
+    Reader open IDs
+
+The account owner may search documents visible to the configured Feishu
+application. Other contacts can read only catalog items that explicitly include
+their open ID.
+
+Document content is truncated to the configured safe limit before it is passed
+to the model. Responses are instructed to retain the source title and URL.
+
+
+TASKS AND CALENDAR
+
+AIPRO can prepare:
+
+    A single Feishu task
+    A batch of tasks extracted from meeting notes
+    A calendar event
+    A calendar query for today, tomorrow, or the day after tomorrow
+
+Creation is not immediate.
+
+    AIPRO parses the title and time.
+    Missing required information is requested.
+    A preview is sent.
+    The owner replies with a confirmation command.
+    Only then is the Feishu API called.
+
+Pending confirmations are stored in SQLite and expire automatically.
+
+
+CONVERSATION MEMORY
+
+Memory is isolated by:
+
+    Chat ID
+    Sender open ID
+
+This prevents conversation context from one person from being mixed with
+another person's context in the same group.
+
+The model receives the most recent 12 memory entries. The database retains a
+bounded history for each chat and sender. Scheduled maintenance removes expired
+conversation and audit records according to the local retention policy.
+
+
+PERSISTENT QUEUE AND DEDUPLICATION
+
+The SQLite database contains:
+
+    Conversation memory
+    Settings and health state
+    Audit events
+    Persistent inbound messages
+    Rate-limit counters
+    Pending confirmations
+
+Inbound states:
+
+    pending
+    processing
+    failed
+    completed
+    dead
+
+Claiming a message is an atomic database update. A second worker cannot claim
+the same message at the same time.
+
+Messages normally receive up to three processing attempts. Retry delays use
+exponential backoff. If the final user-facing failure notice also cannot be
+sent, the message enters the dead state so the original expensive operation is
+not executed indefinitely.
+
+When the service restarts, messages left in processing are returned to pending.
+A singleton lock prevents two local main processes from running concurrently.
+
+
+RATE LIMITING
+
+The default non-owner rate limit is:
+
+    10 triggering messages
+    Per sender
+    Per 5-minute window
+
+The owner is not subject to this inbound limit.
+
+When a user exceeds the limit, AIPRO sends at most one rate-limit notice during
+the same window. This prevents notification amplification.
+
+
+HUMAN TAKEOVER
+
+The account owner can send the localized pause or resume command defined by the
+deployed command parser. The exact production command strings are maintained in
+src/operator-commands.mjs and src/index.mjs.
+
+The pause state is stored per conversation. While paused, AIPRO records that a
+message was skipped and does not generate an automated reply.
+
+
+OPERATOR COMMANDS
+
+The deployed command parser supports four operator actions:
+
+    Status
+    Help
+    Pause automated handling
+    Resume automated handling
+
+The account owner receives a detailed status response. Other users receive a
+reduced view that does not expose internal queue or local process details.
+
+
+LOCAL OPERATIONS DASHBOARD
+
+Dashboard URL:
+
+http://127.0.0.1:17655
+
+The dashboard is an independent local watchdog. It listens only on the loopback
+interface and is not exposed to the local network or the public internet.
+
+The dashboard displays:
+
+    Main process state and PID
+    Process start time
+    Polling freshness
+    Last successful poll
+    Poll duration
+    Last polling error
+    WebSocket state
+    Active WebSocket consumer count
+    Codex proxy reachability
+    SQLite integrity
+    Pending, processing, failed, completed, and dead counts
+    Recent sanitized audit events
+    Current scope configuration
+    Current event transport
+    Current model
+
+The dashboard refreshes every five seconds.
+
+It can restart the main LaunchAgent. The restart endpoint verifies the request
+host, origin, and a required custom action header.
+
+The dashboard sets restrictive browser security headers, disables caching,
+denies framing, and uses a Content Security Policy.
+
+macOS notifications are produced for:
+
+    Channel failure
+    Partial recovery
+    Full recovery
+
+
+SYSTEM REQUIREMENTS
+
+Operating system:
+
+    macOS 13 or later
+
+Node.js:
+
+    Version 22.5.0 or later
+    AIPRO uses the built-in node:sqlite module
+
+Python:
+
+    Python 3.10 or later
+    python-docx 1.2.0
+    pypdf 6.10.0
+
+Package manager:
+
+    pnpm is recommended
+    npm is supported as a fallback
+
+AI runtime:
+
+    Codex CLI must be installed and authenticated
+    The ChatGPT macOS application can provide the Codex executable
+
+Feishu runtime:
+
+    Official @larksuite/cli
+    An authorized Feishu custom application
+    User OAuth permissions
+    Optional application secret for SDK business capabilities
+
+
+INSTALLATION
+
+1. Install the official Feishu CLI.
+
+    pnpm add -g @larksuite/cli
+
+   Or:
+
+    npm install -g @larksuite/cli
+
+2. Clone the repository.
+
+    git clone https://github.com/James19890801/feishu-codex-digital-employee.git
+    cd feishu-codex-digital-employee
+
+3. Run setup.
+
+    chmod +x scripts/*.sh
+    ./scripts/setup.sh
+
+The setup script:
+
+    Checks Node.js
+    Checks Python
+    Checks Codex
+    Checks lark-cli
+    Installs locked Node dependencies
+    Installs pinned Python dependencies
+    Creates config.local.json
+    Creates PERSONA.md
+    Creates BIBLE.md
+    Creates the local data directory
+
+
+FEISHU USER OAUTH
+
+Required user OAuth scopes:
+
+    offline_access
+    search:message
+    im:message
+    im:message:readonly
+    im:message.group_msg:get_as_user
+    im:message.p2p_msg:get_as_user
+    im:message.send_as_user
+
+Login command:
+
+    lark-cli auth login --scope 'offline_access search:message im:message im:message:readonly im:message.group_msg:get_as_user im:message.p2p_msg:get_as_user im:message.send_as_user'
+
+Verification command:
+
+    lark-cli auth check --scope 'search:message im:message im:message:readonly im:message.group_msg:get_as_user im:message.p2p_msg:get_as_user im:message.send_as_user' --json
+
+A successful result must report ok as true and must not report missing required
+scopes.
+
+
+FEISHU APPLICATION SETUP
+
+The Feishu custom application must:
+
+    Be owned or managed by an authorized person or organization
+    Be available to the account owner
+    Have an approved and published application version
+    Subscribe to im.message.receive_v1 for auxiliary events
+    Have message permissions required by the selected identity mode
+    Have additional document, resource, task, or calendar permissions for
+    optional business capabilities
+
+Permission names and approval requirements may vary by Feishu tenant and
+application configuration. A permission appearing in the developer console is
+not enough; the application version must be published and the resource must be
+visible to the calling identity.
+
+
+APPLICATION SECRET STORAGE
+
+Core message polling and user-identity replies use user OAuth and do not require
+an application secret in the repository.
+
+The following capabilities require SDK application credentials:
+
+    Direct SDK WebSocket mode
+    Image resource download
+    File resource download
+    Feishu document access
+    Task operations
+    Calendar operations
+
+Store the application secret in macOS Keychain:
+
+    security add-generic-password -U \
+      -a 'cli_YOUR_APP_ID' \
+      -s 'codex-feishu-digital-employee' \
+      -w 'YOUR_APP_SECRET'
+
+Never place the secret in config.local.json, source code, logs, the README, or a
+Git commit.
+
+If lark-cli background processes report that Keychain access is blocked, the
+following command changes lark-cli credential storage behavior:
+
+    lark-cli config keychain-downgrade
+
+Use that command only after accepting its security impact. It may allow
+processes under the same macOS user to read a local credential file.
+
+
+LOCAL CONFIGURATION
+
+The primary local configuration file is config.local.json.
+
+Minimal example:
+
+    {
+      "feishuAppId": "cli_xxxxxxxxxxxxxxxx",
+      "ownerOpenId": "ou_xxxxxxxxxxxxxxxx",
+      "authorizedChatIds": [],
+      "allowAllChats": true,
+      "digitalTwinLabel": "",
+      "eventTransport": "lark-cli",
+      "pollIntervalMs": 5000,
+      "maxConcurrentReplies": 2,
+      "dashboardPort": 17655,
+      "codexModel": "gpt-5.6-terra"
+    }
+
+Identity and scope fields:
+
+    feishuAppId
+        Required Feishu custom application ID.
+
+    ownerOpenId
+        Required open ID of the real-person account being assisted.
+
+    allowAllChats
+        Enables all qualifying visible conversations when true.
+
+    authorizedChatIds
+        Chat allowlist used when allowAllChats is false.
+
+    digitalTwinLabel
+        Optional text added before replies. An empty string adds no prefix.
+
+    actionItemDocumentToken
+        Optional document token used for meeting-note action-item extraction.
+
+Polling and reliability fields:
+
+    eventTransport
+        lark-cli or sdk.
+
+    pollIntervalMs
+        Default 5000.
+
+    pollOverlapMs
+        Default 180000.
+
+    pollInitialLookbackMs
+        Default 900000.
+
+    pollMaxCatchupMs
+        Default 86400000.
+
+    pollWindowMs
+        Default 900000.
+
+    maxConcurrentReplies
+        Default 2. Allowed range 1 through 4.
+
+    rateLimitWindowMs
+        Default 300000.
+
+    rateLimitMaxMessages
+        Default 10.
+
+Timeout and runtime fields:
+
+    larkCliTimeoutMs
+        Default 45000.
+
+    codexTimeoutMs
+        Default 120000.
+
+    helperTimeoutMs
+        Default 30000.
+
+    dashboardPort
+        Default 17655.
+
+    artifactDir
+        Optional output directory for generated files.
+
+    codexBin
+        Codex executable path.
+
+    codexModel
+        Codex model name.
+
+    codexProxyUrl
+        Optional trusted HTTP or HTTPS proxy.
+
+    larkCli
+        Optional lark-cli executable path.
+
+    nodeBin
+        Optional Node.js binary directory.
+
+    pythonBin
+        Optional Python interpreter path.
+
+All integer settings have minimum and maximum validation. Invalid App IDs, open
+IDs, paths, ports, intervals, concurrency values, proxy protocols, and transport
+values fail during startup instead of allowing a partially broken process.
+
+
+STARTING THE SERVICES
+
+Install and start the main service:
+
+    ./scripts/install-service.sh
+
+Install and start the dashboard:
+
+    ./scripts/install-dashboard-service.sh
+
+Run full verification:
+
+    ./scripts/verify.sh
+
+The main LaunchAgent label is:
+
+    com.local.feishu-codex-digital-employee
+
+The dashboard LaunchAgent label is:
+
+    com.local.feishu-codex-dashboard
+
+Both services use RunAtLoad and KeepAlive. They are automatically restarted by
+macOS when the process exits unexpectedly.
+
+
+OPERATIONS COMMANDS
+
+Check the main service:
+
+    launchctl print "gui/$(id -u)/com.local.feishu-codex-digital-employee"
+
+Check the dashboard service:
+
+    launchctl print "gui/$(id -u)/com.local.feishu-codex-dashboard"
+
+Restart the main service:
+
+    launchctl kickstart -k "gui/$(id -u)/com.local.feishu-codex-digital-employee"
+
+Watch main logs:
+
+    tail -f bridge.log bridge-error.log
+
+Watch dashboard logs:
+
+    tail -f dashboard.log dashboard-error.log
+
+Run the local health check:
+
+    npm run health
+
+Check the event consumer:
+
+    npm run event-health
+
+Run a real Codex sample:
+
+    npm run codex-smoke
+
+Run the complete acceptance suite:
+
+    ./scripts/verify.sh
+
+
+VERIFICATION
+
+The complete verification script checks:
+
+    JavaScript syntax
+    Required local files
+    Configuration values and paths
+    Python helper imports
+    Automated test suites
+    A real Codex response
+    SQLite integrity
+    Polling cursor freshness
+    Stale processing messages
+    Failed and dead messages
+    Proxy reachability
+    Feishu user OAuth scopes
+    WebSocket event-bus state
+    Active WebSocket consumers
+    Main LaunchAgent state
+    Dashboard LaunchAgent state
+    Dashboard API availability
+
+The repository also includes tests for:
+
+    Knowledge access
+    SQLite inbox state
+    Workflow classification
+    Polling filters and windows
+    Recent image and file isolation
+    Pagination completeness
+    Retry policy
+    Subprocess timeout and termination
+    Pending confirmations
+    Log maintenance
+    Per-chat serial queues
+    Interruptible delays
+    Singleton locking
+    Dashboard status modeling
+    Operator commands
+    Notification policy
+    Event-consumer behavior
+
+Production dependency auditing:
+
+    pnpm audit --prod
+
+
+REAL FEISHU ACCEPTANCE TESTS
+
+Automated tests do not prove end-to-end message delivery. Before production use,
+perform the following real Feishu tests.
+
+Test 1:
+
+    Mention the owner in a group and ask a simple question.
+    Confirm that one reply arrives in the original group.
+
+Test 2:
+
+    Send a direct message to the owner.
+    Confirm that no mention is required.
+
+Test 3:
+
+    Confirm that a message delivered by both polling and WebSocket receives
+    only one reply.
+
+Test 4:
+
+    Send an image, then ask AIPRO to analyze the image.
+    Confirm that the correct sender's recent image is used.
+
+Test 5:
+
+    Send a PDF or DOCX file, then ask AIPRO to summarize the recent file.
+    Confirm that the file is downloaded and parsed.
+
+Test 6:
+
+    Request a Word report.
+    Confirm that the returned DOCX opens correctly.
+
+Test 7:
+
+    Request a task or calendar event.
+    Confirm that AIPRO sends a preview and waits for owner confirmation.
+
+Test 8:
+
+    Pause and resume automated handling.
+    Confirm that the state applies only to the selected conversation.
+
+Test 9:
+
+    Restart the main process.
+    Confirm that completed messages are not replayed and interrupted messages
+    recover safely.
+
+Test 10:
+
+    Disconnect and restore the network.
+    Confirm that polling resumes, the cursor advances, and the dashboard returns
+    to a healthy state.
+
+
+PROJECT LAYOUT
+
+dashboard/
+
+    Browser interface for local operations.
+
+docs/
+
+    Acceptance and reliability/security audit documents.
+
+scripts/setup.sh
+
+    Environment checks, dependency installation, and local file creation.
+
+scripts/install-service.sh
+
+    Main LaunchAgent installer.
+
+scripts/install-dashboard-service.sh
+
+    Dashboard LaunchAgent installer.
+
+scripts/verify.sh
+
+    Complete local acceptance workflow.
+
+scripts/health-check.mjs
+
+    SQLite, queue, polling, and proxy health.
+
+scripts/event-health.mjs
+
+    Event bus and active-consumer health.
+
+scripts/codex-smoke.mjs
+
+    Real Codex sample request.
+
+scripts/check-python.mjs
+
+    Python helper dependency check.
+
+src/index.mjs
+
+    Main message bridge, workflow execution, Codex calls, Feishu actions, and
+    response delivery.
+
+src/polling.mjs
+
+    Message search arguments, filtering, normalization, retry delay, and poll
+    window behavior.
+
+src/state.mjs
+
+    SQLite inbox, conversation memory, audit records, rate limiting, recovery,
+    and retention.
+
+src/reliability.mjs
+
+    Configuration bounds, message validation, health evaluation, and mutation
+    authorization.
+
+src/process-runner.mjs
+
+    Child-process timeouts, bounded output, completion detection, and shutdown.
+
+src/media-context.mjs
+
+    Recent image and file reference matching with sender and time isolation.
+
+src/dashboard-server.mjs
+
+    Local watchdog, status API, static dashboard, restart action, and desktop
+    notifications.
+
+src/artifact_writer.py
+
+    DOCX generation.
+
+src/extract_file_text.py
+
+    PDF, DOCX, and text extraction.
+
+templates/
+
+    Safe starting templates for Persona and Bible configuration.
+
+config.example.json
+
+    Non-secret configuration example.
+
+knowledge-catalog.json
+
+    Approved Feishu knowledge catalog.
+
+requirements.txt
+
+    Pinned Python dependencies.
+
+package.json
+
+    Node.js dependencies and operational commands.
+
+
+LOCAL FILES EXCLUDED FROM GIT
+
+The repository excludes:
+
+    config.local.json
+    PERSONA.md
+    BIBLE.md
+    data/
+    node_modules/
+    log files
+    Python cache files
+    macOS metadata files
+
+The data directory may contain:
+
+    SQLite state
+    SQLite WAL files
+    Process locks
+    Dashboard notification state
+    Isolated Codex runtime files
+    Local Codex authentication link
+
+Do not upload the data directory.
+
+
+SECURITY AND PRIVACY
+
+Credential controls:
+
+    No application secret is stored in source code.
+    User OAuth is managed by official lark-cli.
+    Optional SDK secrets are stored in macOS Keychain.
+    Local configuration and runtime data are ignored by Git.
+
+AI runtime controls:
+
+    Ephemeral Codex sessions
+    Read-only sandbox
+    Isolated working directory
+    Isolated Codex home
+    Bounded time and output
+    Controlled process termination
+
+Message controls:
+
+    Sender validation
+    Chat-type validation
+    Group mention requirement
+    Owner-message exclusion
+    Message-ID deduplication
+    Per-sender rate limiting
+    Owner-only mutation confirmation
+
+Dashboard controls:
+
+    Loopback-only listening
+    Host validation
+    Origin validation for restart
+    Required custom action header
+    Content Security Policy
+    No caching
+    Frame denial
+
+Data controls:
+
+    Bounded memory per conversation
+    Scheduled retention cleanup
+    Sanitized dashboard event details
+    SQLite integrity checks
+    WAL checkpoint maintenance
+
+No security control can make an authorized real-person automation system
+risk-free. The account owner remains responsible for authorization, disclosure,
+governance, access review, and human intervention.
+
+
+KNOWN LIMITATIONS
+
+1. Single-machine availability
+
+   The current version runs on one Mac. It cannot respond while that Mac is
+   powered off, sleeping, logged out, disconnected, or physically damaged.
+
+2. No fixed end-to-end latency guarantee
+
+   Response time depends on polling, Feishu indexing, network conditions, Codex
+   inference, optional resource downloads, and message delivery.
+
+3. Upstream service dependency
+
+   Feishu, lark-cli, Codex, OpenAI connectivity, the local network, and optional
+   proxy services can fail independently.
+
+4. Maximum catch-up period
+
+   The default configuration catches up no more than 24 hours after an outage.
+
+5. Optional capability credentials
+
+   Text polling and user-identity sending may be healthy while media, document,
+   task, or calendar capabilities are unavailable because of missing
+   application permissions or SDK credentials.
+
+6. node:sqlite status
+
+   The current Node.js runtime may print an experimental warning for
+   node:sqlite. The warning itself does not mean the database is unhealthy.
+
+7. No multi-node failover
+
+   Achieving infrastructure-level high availability requires a hosted queue,
+   shared database, leader election, multiple workers, remote monitoring, and a
+   continuously available deployment environment. Those features are outside
+   this single-Mac release.
+
+8. Governance responsibility
+
+   An empty digitalTwinLabel removes a fixed display prefix. It must not be used
+   to justify deception, unauthorized identity use, or high-risk commitments.
+
+
+TROUBLESHOOTING
+
+Problem: A group mention receives no reply.
+
+    Confirm that ownerOpenId belongs to the real-person account.
+    Confirm that the group message explicitly mentions that account.
+    Check user OAuth scopes.
+    Run npm run health.
+    Inspect bridge-error.log.
+
+Problem: A direct message receives no reply.
+
+    Confirm that the message was sent by another person.
+    Confirm p2p user-message permission.
+    Confirm that the conversation is not paused.
+    Check polling freshness.
+
+Problem: A message is received but Codex does not answer.
+
+    Run npm run codex-smoke.
+    Confirm that Codex is authenticated.
+    Check codexProxyUrl when a proxy is required.
+    Inspect timeout and process errors.
+
+Problem: Text works but images, files, tasks, or calendars do not work.
+
+    Check the application secret in macOS Keychain.
+    Check published Feishu application permissions.
+    Run npm run check for Python dependencies.
+    Confirm that the resource is visible to the application.
+    Confirm that the owner is the person approving a mutation.
+
+Problem: The dashboard does not open.
+
+    Check the dashboard LaunchAgent.
+    Run:
+
+    curl --fail http://127.0.0.1:17655/api/status
+
+    Inspect dashboard-error.log.
+
+Problem: WebSocket is disconnected.
+
+    Run npm run event-health.
+    Run:
+
+    lark-cli event status --json --fail-on-orphan
+
+    If polling remains healthy, the primary message path may continue operating
+    while the auxiliary event consumer recovers.
+
+Problem: Keychain access is blocked.
+
+    Review the security implications first.
+    If accepted, run:
+
+    lark-cli config keychain-downgrade
+
+    Restart the main service and verify again.
+
+
+DEVELOPMENT AND TESTING
+
+Install locked dependencies:
+
+    pnpm install --frozen-lockfile
+
+Validate configuration, JavaScript, and Python helpers:
+
+    npm run check
+
+Run automated tests:
+
+    npm test
+
+Audit production dependencies:
+
+    pnpm audit --prod
+
+Run a real Codex sample:
+
+    npm run codex-smoke
+
+Run complete local acceptance:
+
+    ./scripts/verify.sh
+
+
+PRODUCTION READINESS
+
+For the current single-Mac architecture, production readiness means:
+
+    The repository installs from declared dependencies.
+    Local secrets and runtime data are not committed.
+    Required OAuth scopes are granted.
+    The main and dashboard LaunchAgents are running.
+    The polling cursor is fresh.
+    The WebSocket consumer is active.
+    SQLite integrity is healthy.
+    There are no overdue failed or dead messages.
+    Codex passes a real sample.
+    Real group and direct-message tests pass.
+    File and mutation capabilities pass separate real tests when enabled.
+    The account owner knows how to pause, inspect, restart, and recover the
+    service.
+
+This definition does not claim zero failure. It defines a verifiable operating
+state and makes remaining single-machine and upstream-service risks explicit.
+
+
+AUTHORS
+
+First Developer:
+Yingzhi Zhao (赵颖知)
+
+Second Developer:
+Teacher Zhan (詹老师)
+
+
+FINAL NOTE
+
+AIPRO is a practical operating system for an authorized AI digital human, not
+just a conversational demo. Its value comes from the complete loop:
+
+    Detect the right message
+    Preserve identity and context
+    Decide what is safe
+    Execute useful work
+    Return the result to the original conversation
+    Record what happened
+    Recover when a component fails
+    Give the owner a visible control surface
+
+Use it only with explicit authorization and appropriate organizational
+governance.
