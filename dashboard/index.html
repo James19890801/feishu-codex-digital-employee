@@ -63,7 +63,7 @@
         <div>
           <span>OMNICHANNEL ROUTER / ISOLATED FAILURE DOMAINS</span>
           <h3>IM 通道</h3>
-          <p>三条通道复用同一套 Codex、记忆、队列和审计；任何新增通道故障都不会停止飞书主链路。</p>
+          <p>四条通道复用同一套 Codex、记忆、队列和审计；可选通道互相隔离，任何新增通道故障都不会停止飞书主链路。</p>
         </div>
         <b>飞书主通道优先</b>
       </div>
@@ -83,8 +83,13 @@
           <b id="channelWecomStatus">检测中</b>
           <p id="channelWecomMeta">智能机器人身份 · 官方 WebSocket SDK</p>
         </article>
+        <article class="channel-card" data-channel="wechat">
+          <header><i id="channelWechatDot"></i><strong>微信 / WeChat</strong><span>OPTIONAL</span></header>
+          <b id="channelWechatStatus">检测中</b>
+          <p id="channelWechatMeta">个人微信身份 · GeWe 第三方 REST + Webhook</p>
+        </article>
       </div>
-      <p class="channel-identity-note">身份说明：飞书和钉钉可按已授权真人用户身份运行；企业微信官方智能机器人通道以机器人身份运行，不会伪装为真人。</p>
+      <p class="channel-identity-note">身份说明：飞书和钉钉可按已授权真人用户身份运行；企业微信以官方机器人身份运行；个人微信由 GeWe 第三方 API 提供，非腾讯官方开放接口，存在账号风控风险。</p>
     </section>
 
     <section class="metrics-grid">
@@ -179,6 +184,7 @@
             <button type="button" data-config-prompt="所有公开发布和跨会话发送都必须先由本人确认。">加强确认规则</button>
             <button type="button" data-config-prompt="启用钉钉通道，保持所有群 @ 我才回复、所有单聊直接回复。">启用钉钉</button>
             <button type="button" data-config-prompt="告诉我启用企业微信通道还缺少哪些配置，但不要把密钥写进配置文件。">接入企业微信</button>
+            <button type="button" data-config-prompt="告诉我接入 GeWe 个人微信还缺少哪些配置，保持默认关闭，不要把 Token 写进配置文件，不影响飞书主通道。">接入个人微信</button>
           </div>
 
           <form class="assistant-composer" id="configForm">

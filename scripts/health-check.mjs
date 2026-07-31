@@ -79,6 +79,7 @@ const lastAiRuntimeSuccessAt = setting('health', 'last_ai_runtime_success_at', '
 const lastAiRuntimeError = setting('health', 'last_ai_runtime_error', null);
 const dingtalkChannel = setting('channel', 'dingtalk', {});
 const wecomChannel = setting('channel', 'wecom', {});
+const geweChannel = setting('channel', 'wechat', {});
 const backupAgeMs = lastBackupAt ? nowMs - new Date(lastBackupAt).getTime() : null;
 if (backupAgeMs === null || !Number.isFinite(backupAgeMs)
   || backupAgeMs > 12 * 60 * 60_000) {
@@ -97,6 +98,9 @@ if (config.dingtalkEnabled === true && !dingtalkChannel.connected) {
 }
 if (config.wecomEnabled === true && !wecomChannel.connected) {
   result.issues.push('wecom_channel_unavailable');
+}
+if (config.geweEnabled === true && !geweChannel.connected) {
+  result.issues.push('wechat_channel_unavailable');
 }
 let multicaSyncAgeMs = null;
 if (config.multicaEnabled) {
@@ -157,6 +161,16 @@ result.metrics = {
       authenticated: Boolean(wecomChannel.authenticated),
       connected: Boolean(wecomChannel.connected),
       identityMode: 'bot',
+    },
+    wechat: {
+      enabled: config.geweEnabled === true,
+      configured: Boolean(geweChannel.configured),
+      authenticated: Boolean(geweChannel.authenticated),
+      callbackListening: Boolean(geweChannel.callbackListening),
+      callbackRegistered: Boolean(geweChannel.callbackRegistered),
+      connected: Boolean(geweChannel.connected),
+      identityMode: 'personal-third-party',
+      providerOfficial: false,
     },
   },
 };

@@ -65,6 +65,17 @@ export const config = {
   wecomBotId: raw.wecomBotId || '',
   wecomKeychainService: raw.wecomKeychainService || 'aipro-wecom-bot',
   wecomWebsocketUrl: raw.wecomWebsocketUrl || 'wss://openws.work.weixin.qq.com',
+  geweEnabled: raw.geweEnabled === true,
+  geweAppId: raw.geweAppId || '',
+  geweKeychainService: raw.geweKeychainService || 'aipro-gewe',
+  geweApiBaseUrl: raw.geweApiBaseUrl || 'https://api.geweapi.com',
+  gewePublicCallbackBaseUrl: raw.gewePublicCallbackBaseUrl || '',
+  geweCallbackPort: boundedInteger(raw.geweCallbackPort, {
+    name: 'geweCallbackPort', fallback: 17656, min: 1024, max: 65535,
+  }),
+  geweMentionNames: Array.isArray(raw.geweMentionNames)
+    ? raw.geweMentionNames.map(value => String(value).trim()).filter(Boolean).slice(0, 10)
+    : [],
   multicaEnabled: raw.multicaEnabled === true,
   multicaProfile: raw.multicaProfile || 'desktop-api.multica.ai',
   multicaDefaultWorkspaceId: raw.multicaDefaultWorkspaceId || '',
@@ -115,6 +126,16 @@ if (config.wecomEnabled && !config.wecomBotId) {
 }
 if (!/^wss:\/\/[^/\s]+(?:\/.*)?$/i.test(config.wecomWebsocketUrl)) {
   throw new Error('wecomWebsocketUrl 必须是 wss 地址');
+}
+for (const [name, value] of [
+  ['geweApiBaseUrl', config.geweApiBaseUrl],
+  ['gewePublicCallbackBaseUrl', config.gewePublicCallbackBaseUrl],
+]) {
+  if (!value && name === 'gewePublicCallbackBaseUrl') continue;
+  const url = new URL(value);
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+    throw new Error(`${name} 必须是不含凭据、查询或锚点的 HTTPS 地址`);
+  }
 }
 if (config.multicaDefaultWorkspaceId
   && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i

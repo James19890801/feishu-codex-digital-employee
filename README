@@ -12,7 +12,7 @@ https://github.com/James19890801/feishu-codex-digital-employee
 PRODUCT SUMMARY
 
 AIPRO is a local-first, multi-channel AI digital human platform for Feishu/Lark,
-DingTalk, and WeCom. It is designed for an account owner who wants an AI system
+DingTalk, WeCom, and personal WeChat. It is designed for an account owner who wants an AI system
 to receive work-related messages, understand requests, use approved knowledge
 and tools, and reply through an explicitly authorized enterprise IM channel.
 
@@ -21,18 +21,22 @@ user OAuth and the official lark-cli tool. Incoming Feishu messages are
 discovered primarily through user-visible message polling, with a WebSocket
 event consumer as a secondary low-latency signal. DingTalk uses the official
 DingTalk Workspace CLI personal-event WebSocket and current-user sending APIs.
-WeCom uses the official Tencent WeCom AI Bot WebSocket SDK.
+WeCom uses the official Tencent WeCom AI Bot WebSocket SDK. Personal WeChat is
+an optional integration through the third-party GeWe REST API and public
+Webhook service. GeWe is not a Tencent official WeChat Open API.
 
 Identity modes are intentionally explicit:
 
     Feishu: authorized real-person user identity
     DingTalk: authorized real-person user identity
     WeCom: official AI Bot identity
+    Personal WeChat: authorized personal account through a third-party provider
 
 AIPRO never presents the WeCom bot channel as a real-person identity. Each
 optional channel has an isolated connection lifecycle and health state. A
 missing credential, expired login, network failure, or reconnect loop in
-DingTalk or WeCom cannot stop the Feishu polling loop or Codex response engine.
+DingTalk, WeCom, or GeWe cannot stop the Feishu polling loop or Codex response
+engine. Personal WeChat is disabled by default.
 
 The platform combines:
 
@@ -88,7 +92,21 @@ WeCom
     Transport: heartbeat, authentication, and reconnect support from the
     official Tencent WeCom SDK
 
-All three channels normalize messages into the same persistent SQLite inbox.
+Personal WeChat through GeWe
+
+    Role: optional, disabled-by-default channel
+    Identity: the personal WeChat account explicitly authorized by its owner
+    Provider: GeWe third-party API; not a Tencent official Open API
+    Inbound: public HTTPS Webhook forwarded to a loopback-only local receiver
+    Group trigger: an explicit mention of the current WeChat account
+    Direct trigger: every qualifying inbound direct message
+    Outbound: GeWe postText REST endpoint over HTTPS
+    Idempotency: appid plus newMsgId, as required by provider documentation
+    Delivery control: serialized sends with at least one second between requests
+    Failure domain: independent credentials, listener, health state, and queue
+    Risk: WeChat may restrict or suspend accounts using third-party automation
+
+All four channels normalize messages into the same persistent SQLite inbox.
 They therefore share the same deduplication, rate limits, per-conversation
 ordering, retry policy, dead-letter handling, Codex runtime, Persona, operating
 Bible, conversation memory, Multica bridge, and audit trail.
@@ -136,8 +154,46 @@ WeCom
 
        wss://openws.work.weixin.qq.com
 
+Personal WeChat through GeWe
+
+1. In the GeWe console, create an API Token and log in the intended personal
+   WeChat account. Copy the stable appId/device ID. Do not copy browser cookies
+   or session storage into AIPRO.
+
+2. Store the API Token in macOS Keychain as a Generic Password:
+
+       Account: the exact GeWe appId
+       Service: aipro-gewe
+       Password: the GeWe API Token
+
+   AIPRO automatically creates a separate random callback-path secret in the
+   same Keychain service under the account `<appId>:callback`. Neither secret
+   is stored in configuration files, dashboard responses, logs, snapshots, or
+   Git.
+
+3. Provide a stable public HTTPS reverse proxy or ingress. It must forward to:
+
+       http://127.0.0.1:17656
+
+   The local receiver never binds to the LAN. AIPRO appends its secret callback
+   path to gewePublicCallbackBaseUrl and registers the resulting HTTPS URL with
+   GeWe. A temporary tunnel is suitable only for testing; production requires a
+   stable ingress with TLS, monitoring, and access logging that redacts paths.
+
+4. Configure geweAppId and gewePublicCallbackBaseUrl, then set geweEnabled to
+   true through config.local.json or the dashboard Configuration Copilot. If a
+   GeWe callback v2 payload does not include explicit mentioned-account IDs,
+   add the account display name to geweMentionNames. Callback v1 uses the exact
+   atuserlist account ID and does not need this fallback.
+
+5. Restart AIPRO. The channel is considered connected only when the loopback
+   receiver is listening, the public callback is registered, and GeWe reports
+   the WeChat account online. Any failure degrades only the personal WeChat
+   card; it does not stop Feishu, DingTalk, WeCom, Codex, memory, or audit.
+
 The local dashboard shows installed, configured, authenticated, connected, and
-last-error states independently for Feishu, DingTalk, and WeCom.
+last-error states independently for Feishu, DingTalk, WeCom, and personal
+WeChat.
 
 Official channel sources:
 
@@ -149,6 +205,21 @@ Official channel sources:
 
     Tencent WeCom reference channel implementation
     https://github.com/WecomTeam/wecom-openclaw-plugin
+
+Third-party personal WeChat provider documentation:
+
+    GeWe Webhook events
+    https://doc.geweapi.com/doc-3146208
+
+    GeWe callback structures
+    https://doc.geweapi.com/doc-3599831
+    https://doc.geweapi.com/doc-8680561
+
+    GeWe text sending
+    https://doc.geweapi.com/api-139908313
+
+    GeWe account-risk notice
+    https://doc.geweapi.com/doc-6356339
 
 This repository contains the complete single-Mac implementation. It is intended
 for an account owner or an organization that has explicitly authorized the

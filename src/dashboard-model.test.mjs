@@ -39,6 +39,28 @@ const base = {
   assert.equal(view.channels.feishu.healthy, true);
   assert.equal(view.channels.dingtalk.enabled, false);
   assert.equal(view.channels.wecom.enabled, false);
+  assert.equal(view.channels.wechat.enabled, false);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    geweChannel: {
+      enabled: true,
+      installed: true,
+      configured: true,
+      authenticated: true,
+      connected: false,
+      identityMode: 'personal-third-party',
+      transport: 'GeWe REST + public webhook',
+      lastError: { error: 'public callback is unreachable' },
+    },
+  });
+  assert.equal(view.state, 'degraded');
+  assert.equal(view.issues.includes('wechat_channel_unavailable'), true);
+  assert.equal(view.channels.wechat.healthy, false);
+  assert.equal(view.channels.feishu.healthy, true);
+  assert.equal(view.channels.wechat.identityMode, 'personal-third-party');
 }
 
 {

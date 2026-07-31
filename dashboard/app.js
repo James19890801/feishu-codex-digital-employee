@@ -25,6 +25,7 @@ const eventLabels = {
   websocket_error: '辅助监听异常',
   dingtalk_channel_error: '钉钉通道异常',
   wecom_channel_error: '企业微信通道异常',
+  wechat_channel_error: '个人微信通道异常',
   im_channel_connected: 'IM 通道已连接',
   im_channel_disconnected: 'IM 通道已断开',
   multica_sync_error: 'Multica 同步异常',
@@ -151,6 +152,11 @@ function render(data) {
     'Wecom',
     data.channels?.wecom,
     '智能机器人身份 · 官方 WebSocket SDK',
+  );
+  renderChannel(
+    'Wechat',
+    data.channels?.wechat,
+    '个人微信身份 · GeWe 第三方 REST + Webhook',
   );
 
   $('processValue').textContent = data.process.alive ? '运行中' : '已停止';

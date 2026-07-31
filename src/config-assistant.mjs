@@ -25,6 +25,10 @@ const CONFIG_RULES = {
   dingtalkProfile: { type: 'string', maxLength: 200, risk: 'double' },
   wecomEnabled: { type: 'boolean', risk: 'double' },
   wecomBotId: { type: 'string', maxLength: 200, risk: 'double' },
+  geweEnabled: { type: 'boolean', risk: 'double' },
+  geweAppId: { type: 'string', maxLength: 200, risk: 'double' },
+  gewePublicCallbackBaseUrl: { type: 'httpsUrlOrEmpty', risk: 'double' },
+  geweMentionNames: { type: 'stringArray', maxItems: 10, maxLength: 100, risk: 'double' },
   codexModel: { type: 'model', risk: 'double' },
   multicaEnabled: { type: 'boolean', risk: 'double' },
   multicaProfile: { type: 'string', maxLength: 200, risk: 'double' },
@@ -39,7 +43,7 @@ const TARGET_RISK = {
   bible: 'double',
   knowledgeCatalog: 'double',
 };
-const CREDENTIAL_PATTERN = /(?:sk-[A-Za-z0-9_-]{20,}|(?:access|refresh)[_-]?token\s*[:=]\s*["']?[A-Za-z0-9._-]{12,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|app[_ -]?secret\s*[:=]\s*["']?[^\s"']{8,})/i;
+const CREDENTIAL_PATTERN = /(?:sk-[A-Za-z0-9_-]{20,}|(?:(?:access|refresh|gewe|api)[_-]?token)\s*[:=]\s*["']?[A-Za-z0-9._-]{12,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|app[_ -]?secret\s*[:=]\s*["']?[^\s"']{8,})/i;
 
 function assertNoCredentials(value) {
   const serialized = typeof value === 'string' ? value : JSON.stringify(value);
@@ -94,6 +98,26 @@ function normalizeConfigValue(key, value) {
       throw new Error(`${key} must be a UUID or an empty string`);
     }
     return value;
+  }
+  if (rule.type === 'httpsUrlOrEmpty') {
+    if (value === '') return '';
+    if (typeof value !== 'string' || value.length > 500) {
+      throw new Error(`${key} must be an HTTPS URL or an empty string`);
+    }
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+      throw new Error(`${key} must be an HTTPS URL without credentials, query, or fragment`);
+    }
+    return url.href.replace(/\/$/, '');
+  }
+  if (rule.type === 'stringArray') {
+    if (!Array.isArray(value) || value.length > rule.maxItems
+      || value.some(item => typeof item !== 'string' || !item.trim() || item.length > rule.maxLength)) {
+      throw new Error(`${key} must contain at most ${rule.maxItems} non-empty strings`);
+    }
+    const normalized = [...new Set(value.map(item => item.trim()))];
+    assertNoCredentials(normalized);
+    return normalized;
   }
   throw new Error(`Unsupported rule for ${key}`);
 }
@@ -293,6 +317,9 @@ export const assistantSchema = {
     'dingtalkBin',
     'wecomKeychainService',
     'wecomWebsocketUrl',
+    'geweKeychainService',
+    'geweApiBaseUrl',
+    'geweCallbackPort',
     'nodeBin',
     'pythonBin',
     'multicaBin',

@@ -1,6 +1,6 @@
 import * as lark from '@larksuiteoapi/node-sdk';
 import { spawn } from 'node:child_process';
-import { randomInt } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import {
   lstat,
@@ -92,6 +92,8 @@ import {
 } from './im-channels.mjs';
 import {
   DingTalkChannel,
+  GeWeChannel,
+  GeWeWebhookServer,
   WeComChannel,
 } from './im-channel-runtime.mjs';
 
@@ -174,10 +176,13 @@ let activeSdkWsClient = null;
 let drainPromise = null;
 let multicaSyncPromise = null;
 let dingTalkSupervisorPromise = null;
+let geWeMonitorPromise = null;
 let businessClient = null;
 let sdkAppSecret = '';
 let dingTalkChannel = null;
 let weComChannel = null;
+let geWeChannel = null;
+let geWeWebhookServer = null;
 const shutdownDelay = new InterruptibleDelay();
 
 function remember(chatId, senderOpenId, role, content) {
@@ -300,6 +305,24 @@ async function getKeychainSecret(service, account) {
     maxStderrBytes: 64 * 1024,
   });
   return stdout.trim();
+}
+
+async function ensureKeychainSecret(service, account) {
+  try {
+    return await getKeychainSecret(service, account);
+  } catch (error) {
+    const summary = processFailureSummary(error);
+    if (!/could not be found|item not found|SecKeychainSearchCopyNext/i.test(summary)) throw error;
+  }
+  const secret = randomBytes(32).toString('base64url');
+  await runBufferedProcess('/usr/bin/security', [
+    'add-generic-password', '-U', '-a', account, '-s', service, '-w', secret,
+  ], {
+    timeoutMs: 10_000,
+    maxStdoutBytes: 64 * 1024,
+    maxStderrBytes: 64 * 1024,
+  });
+  return secret;
 }
 
 function cleanTask(text) {
@@ -463,6 +486,10 @@ async function sendText(client, chatId, text, uuid) {
   if (target?.channel === 'wecom') {
     if (!weComChannel) throw new Error('WeCom channel is not available');
     return weComChannel.send(target, text, uuid);
+  }
+  if (target?.channel === 'wechat') {
+    if (!geWeChannel) throw new Error('Personal WeChat channel is not available');
+    return geWeChannel.send(target, text);
   }
   const args = [
     'im', '+messages-send', '--as', 'user', '--chat-id', chatId,
@@ -1748,6 +1775,18 @@ async function initializeAdditionalImChannels() {
     identityMode: 'bot',
     transport: 'official websocket sdk',
   });
+  updateImChannelStatus('wechat', {
+    enabled: config.geweEnabled,
+    installed: true,
+    configured: Boolean(config.geweAppId && config.gewePublicCallbackBaseUrl),
+    authenticated: false,
+    connected: false,
+    callbackListening: false,
+    callbackRegistered: false,
+    identityMode: 'personal-third-party',
+    transport: 'GeWe REST + public webhook',
+    providerOfficial: false,
+  });
 
   if (config.dingtalkEnabled) {
     if (!existsSync(config.dingtalkBin)) {
@@ -1797,6 +1836,73 @@ async function initializeAdditionalImChannels() {
       });
       state.audit('wecom_channel_error', { detail: { error: summary } });
       console.error('[wecom-start-error]', error);
+    }
+  }
+
+  if (config.geweEnabled) {
+    try {
+      if (!config.geweAppId) throw new Error('GeWe appId is not configured');
+      if (!config.gewePublicCallbackBaseUrl) {
+        throw new Error('GeWe public HTTPS callback base URL is not configured');
+      }
+      const token = await getKeychainSecret(config.geweKeychainService, config.geweAppId);
+      if (!token) throw new Error('GeWe API token is empty');
+      const callbackSecret = await ensureKeychainSecret(
+        config.geweKeychainService,
+        `${config.geweAppId}:callback`,
+      );
+      geWeChannel = new GeWeChannel({
+        appId: config.geweAppId,
+        token,
+        apiBaseUrl: config.geweApiBaseUrl,
+        mentionNames: config.geweMentionNames,
+        onStatus: patch => updateImChannelStatus('wechat', patch),
+      });
+      geWeWebhookServer = new GeWeWebhookServer({
+        channel: geWeChannel,
+        callbackSecret,
+        port: config.geweCallbackPort,
+        onStatus: patch => updateImChannelStatus('wechat', patch),
+        onMessage: payload => {
+          if (enqueueInbound(payload, 'webhook-gewe-personal-wechat')) triggerDrain();
+        },
+      });
+      await geWeWebhookServer.start();
+      const callbackUrl = `${config.gewePublicCallbackBaseUrl.replace(/\/$/, '')}${geWeWebhookServer.path()}`;
+      await geWeChannel.setCallback(callbackUrl);
+      updateImChannelStatus('wechat', { callbackRegistered: true });
+      await geWeChannel.checkOnline();
+      geWeMonitorPromise = superviseGeWeHealth()
+        .catch(error => console.error('[wechat-gewe-monitor-fatal]', error));
+      console.log(`[wechat] GeWe personal WeChat webhook listening on 127.0.0.1:${config.geweCallbackPort}`);
+    } catch (error) {
+      const summary = processFailureSummary(error);
+      if (geWeWebhookServer) await geWeWebhookServer.stop().catch(() => {});
+      geWeWebhookServer = null;
+      geWeChannel = null;
+      updateImChannelStatus('wechat', {
+        configured: Boolean(config.geweAppId && config.gewePublicCallbackBaseUrl),
+        authenticated: false,
+        connected: false,
+        callbackListening: false,
+        lastError: { at: new Date().toISOString(), error: summary },
+      });
+      state.audit('wechat_channel_error', { detail: { error: summary } });
+      console.error('[wechat-gewe-start-error]', error);
+    }
+  }
+}
+
+async function superviseGeWeHealth() {
+  while (!stopping && geWeChannel) {
+    await wait(30_000);
+    if (stopping || !geWeChannel) break;
+    try {
+      await geWeChannel.checkOnline();
+    } catch (error) {
+      const summary = processFailureSummary(error);
+      state.audit('wechat_channel_error', { detail: { error: summary } });
+      console.error('[wechat-gewe-health-error]', error);
     }
   }
 }
@@ -1994,6 +2100,11 @@ function stopGracefully(signal) {
     weComChannel.stop();
     weComChannel = null;
   }
+  if (geWeWebhookServer) {
+    geWeWebhookServer.stop().catch(() => {});
+    geWeWebhookServer = null;
+  }
+  geWeChannel = null;
   if (activeSdkWsClient) {
     const sdkWsClient = activeSdkWsClient;
     activeSdkWsClient = null;
@@ -2041,6 +2152,7 @@ async function main() {
     if (drainPromise) await drainPromise.catch(() => {});
     if (multicaSyncPromise) await multicaSyncPromise.catch(() => {});
     if (dingTalkSupervisorPromise) await dingTalkSupervisorPromise.catch(() => {});
+    if (geWeMonitorPromise) await geWeMonitorPromise.catch(() => {});
   } finally {
     try {
       state.close();

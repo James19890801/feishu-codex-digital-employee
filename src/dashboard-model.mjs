@@ -17,6 +17,7 @@ const ISSUE_LABELS = {
   multica_delivery_dead: 'Multica 变化通知已进入死信，需要人工处理',
   dingtalk_channel_unavailable: '钉钉通道已启用但未连接',
   wecom_channel_unavailable: '企业微信通道已启用但未连接',
+  wechat_channel_unavailable: '个人微信通道已启用但未连接',
 };
 
 export function isCredentialAccessBlocked(lastPollError) {
@@ -68,11 +69,15 @@ export function buildOperatorView(input) {
   }
   const dingtalkChannel = input.dingtalkChannel || {};
   const wecomChannel = input.wecomChannel || {};
+  const geweChannel = input.geweChannel || {};
   if (dingtalkChannel.enabled && !dingtalkChannel.connected) {
     issues.push('dingtalk_channel_unavailable');
   }
   if (wecomChannel.enabled && !wecomChannel.connected) {
     issues.push('wecom_channel_unavailable');
+  }
+  if (geweChannel.enabled && !geweChannel.connected) {
+    issues.push('wechat_channel_unavailable');
   }
 
   const state = !input.processAlive ? 'offline' : issues.length ? 'degraded' : 'online';
@@ -141,6 +146,19 @@ export function buildOperatorView(input) {
         transport: wecomChannel.transport || 'websocket',
         lastReadyAt: wecomChannel.lastReadyAt || '',
         lastError: wecomChannel.lastError || null,
+      },
+      wechat: {
+        enabled: Boolean(geweChannel.enabled),
+        installed: Boolean(geweChannel.installed),
+        configured: Boolean(geweChannel.configured),
+        authenticated: Boolean(geweChannel.authenticated),
+        connected: Boolean(geweChannel.connected),
+        healthy: !geweChannel.enabled || Boolean(geweChannel.connected),
+        identityMode: geweChannel.identityMode || 'personal-third-party',
+        transport: geweChannel.transport || 'GeWe REST + public webhook',
+        lastReadyAt: geweChannel.lastReadyAt || '',
+        lastError: geweChannel.lastError || null,
+        risk: 'third-party-unofficial-wechat-api',
       },
     },
     codex: {

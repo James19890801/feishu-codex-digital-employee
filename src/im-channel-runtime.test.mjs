@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import {
   DingTalkChannel,
+  GeWeChannel,
   WeComChannel,
 } from './im-channel-runtime.mjs';
 
@@ -120,6 +121,68 @@ import {
   channel.stop();
   assert.equal(FakeWSClient.instance.isConnected, false);
   assert.equal(FakeWSClient.instance.listenerCount('message'), 0);
+}
+
+{
+  const calls = [];
+  const statuses = [];
+  let now = 1_000;
+  const channel = new GeWeChannel({
+    appId: 'device-a',
+    token: 'super-secret-token',
+    apiBaseUrl: 'https://api.geweapi.com',
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ret: 200, msg: '操作成功', data: true }),
+      };
+    },
+    now: () => now,
+    sleep: async ms => { now += ms; },
+    onStatus: status => statuses.push(status),
+  });
+
+  assert.equal(await channel.checkOnline(), true);
+  assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/login/checkOnline');
+  assert.equal(calls[0].options.headers['X-GEWE-TOKEN'], 'super-secret-token');
+  assert.deepEqual(JSON.parse(calls[0].options.body), { appId: 'device-a' });
+
+  await channel.setCallback('https://aipro.example.com/webhooks/gewe/callback_secret_1234567890123456');
+  assert.equal(calls[1].url, 'https://api.geweapi.com/gewe/v2/api/login/setCallback');
+  assert.deepEqual(JSON.parse(calls[1].options.body), {
+    token: 'super-secret-token',
+    callbackUrl: 'https://aipro.example.com/webhooks/gewe/callback_secret_1234567890123456',
+  });
+  await assert.rejects(
+    channel.setCallback('http://aipro.example.com/webhooks/gewe/insecure'),
+    /https/i,
+  );
+
+  calls.length = 0;
+  await Promise.all([
+    channel.send({ channel: 'wechat', kind: 'user', id: 'wxid_a' }, '第一条'),
+    channel.send({ channel: 'wechat', kind: 'group', id: 'room@chatroom' }, '第二条'),
+  ]);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    appId: 'device-a',
+    toWxid: 'wxid_a',
+    content: '第一条',
+  });
+  assert.equal(JSON.parse(calls[1].options.body).toWxid, 'room@chatroom');
+  assert.ok(now >= 2_000, 'GeWe sends must be serialized with at least a one-second gap');
+  assert.equal(statuses.at(-1).lastError, null);
+
+  await assert.rejects(
+    () => new GeWeChannel({
+      appId: 'device-a',
+      token: 'secret',
+      apiBaseUrl: 'http://api.geweapi.com',
+    }).checkOnline(),
+    /https/i,
+  );
 }
 
 console.log('IM_CHANNEL_RUNTIME_TEST_OK');

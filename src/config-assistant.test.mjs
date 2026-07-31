@@ -47,6 +47,10 @@ const documents = {
     dingtalkProfile: '',
     wecomEnabled: false,
     wecomBotId: '',
+    geweEnabled: false,
+    geweAppId: '',
+    gewePublicCallbackBaseUrl: '',
+    geweMentionNames: [],
   },
   persona: '# Persona\n\n- Keep replies concise.\n',
   bible: '# Bible\n\n- Never make payments.\n',
@@ -128,6 +132,42 @@ assert.deepEqual(channelPlan.changes.map(change => change.key), [
   'wecomEnabled',
   'wecomBotId',
 ]);
+
+const wechatPlan = assistant.createChangePlan({
+  summary: 'Configure personal WeChat through GeWe',
+  changes: [{
+    target: 'config',
+    key: 'geweAppId',
+    value: 'wx_device_123',
+  }, {
+    target: 'config',
+    key: 'gewePublicCallbackBaseUrl',
+    value: 'https://aipro.example.com',
+  }, {
+    target: 'config',
+    key: 'geweEnabled',
+    value: true,
+  }, {
+    target: 'config',
+    key: 'geweMentionNames',
+    value: ['James'],
+  }],
+}, documents);
+assert.equal(wechatPlan.confirmationLevel, 'double');
+assert.deepEqual(wechatPlan.changes.map(change => change.key), [
+  'geweAppId',
+  'gewePublicCallbackBaseUrl',
+  'geweEnabled',
+  'geweMentionNames',
+]);
+assert.throws(() => assistant.createChangePlan({
+  summary: 'Reject plaintext GeWe token',
+  changes: [{
+    target: 'config',
+    key: 'geweToken',
+    value: 'gw_live_this_must_never_be_stored',
+  }],
+}, documents), /cannot be changed/i);
 
 const sensitivePlan = assistant.createChangePlan({
   summary: 'Restrict message scope',
@@ -239,6 +279,10 @@ assert.deepEqual(
 assert.equal(assistant.validateAssistantRequest('Make routine replies shorter.'), 'Make routine replies shorter.');
 assert.throws(
   () => assistant.validateAssistantRequest('Use token sk-abcdefghijklmnopqrstuvwxyz123456'),
+  /credential/i,
+);
+assert.throws(
+  () => assistant.validateAssistantRequest('gewe-token=abcdefghijklmnopqrstuvwxyz123456'),
   /credential/i,
 );
 assert.throws(
