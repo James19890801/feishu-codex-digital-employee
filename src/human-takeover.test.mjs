@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import * as humanTakeoverModule from './human-takeover.mjs';
 import {
   MINIMUM_TAKEOVER_MS,
   activateHumanTakeover,
@@ -12,6 +13,30 @@ import {
 } from './human-takeover.mjs';
 
 assert.equal(MINIMUM_TAKEOVER_MS, 5 * 60_000);
+
+assert.equal(
+  typeof humanTakeoverModule.takeoverSyncFailurePolicy,
+  'function',
+  'DingTalk takeover sync failures must have an explicit durable retry policy',
+);
+assert.equal(humanTakeoverModule.takeoverSyncFailurePolicy({
+  current: null,
+  nowMs: 1_000,
+  attemptNumber: 1,
+  maxAttempts: 3,
+}), 'retry');
+assert.equal(humanTakeoverModule.takeoverSyncFailurePolicy({
+  current: null,
+  nowMs: 1_000,
+  attemptNumber: 3,
+  maxAttempts: 3,
+}), 'proceed_degraded');
+assert.equal(humanTakeoverModule.takeoverSyncFailurePolicy({
+  current: { pausedUntilMs: 10_000 },
+  nowMs: 1_000,
+  attemptNumber: 3,
+  maxAttempts: 3,
+}), 'suppress');
 
 for (const phrase of [
   '数字人请退场',

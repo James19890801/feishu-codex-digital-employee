@@ -29,6 +29,16 @@ export function humanTakeoverStatus(value, nowMs = Date.now()) {
   };
 }
 
+export function takeoverSyncFailurePolicy({
+  current = null,
+  nowMs = Date.now(),
+  attemptNumber = 1,
+  maxAttempts = 3,
+} = {}) {
+  if (humanTakeoverStatus(current, nowMs).active) return 'suppress';
+  return Number(attemptNumber) < Number(maxAttempts) ? 'retry' : 'proceed_degraded';
+}
+
 export function activateHumanTakeover(previous, {
   nowMs = Date.now(),
   sourceMessageId = '',

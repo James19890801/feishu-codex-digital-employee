@@ -124,6 +124,7 @@ import {
   applyOwnerActivityHistory,
   evaluateHumanTakeover,
   humanTakeoverStatus,
+  takeoverSyncFailurePolicy,
 } from './human-takeover.mjs';
 import {
   buildFirstTakeoverGreeting,
@@ -1385,12 +1386,19 @@ async function processIncoming(client, message, sender, metadata = {}) {
     try {
       await syncRecentDingTalkTakeover(message, metadata);
     } catch (error) {
-      audit('takeover_control_check_failed_closed', message, senderOpenId, {
+      const failurePolicy = takeoverSyncFailurePolicy({
+        current: readHumanTakeover(message.chat_id),
+        attemptNumber: metadata.inboundAttemptNumber,
+      });
+      audit('takeover_control_check_failed', message, senderOpenId, {
         channel: 'dingtalk',
+        failurePolicy,
+        attemptNumber: Number(metadata.inboundAttemptNumber || 1),
         error: processFailureSummary(error),
       });
       console.error(`[takeover-control-check-error] ${message.message_id}:`, error);
-      return;
+      if (failurePolicy === 'suppress') return;
+      if (failurePolicy === 'retry') throw error;
     }
   }
 
@@ -2018,7 +2026,10 @@ async function processStoredInbound(item, client = null) {
         state.completeInbound(message.message_id);
         return;
       }
-      await processIncoming(client, message, sender, payload.metadata || {});
+      await processIncoming(client, message, sender, {
+        ...(payload.metadata || {}),
+        inboundAttemptNumber: item.attempts + 1,
+      });
       state.completeInbound(message.message_id);
     } catch (error) {
       const attemptNumber = item.attempts + 1;
