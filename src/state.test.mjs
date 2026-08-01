@@ -230,6 +230,7 @@ try {
   }), true);
   assert.equal(state.completeMulticaDispatch('issue-2'), true);
   assert.equal(state.multicaDispatchPendingCount(), 0);
+  assert.equal(state.getMulticaDispatch('issue-2').status, 'completed');
 
   assert.equal(state.enqueueMulticaNotification({
     notificationKey: 'multica-sync-test',

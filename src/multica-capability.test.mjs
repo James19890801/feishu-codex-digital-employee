@@ -82,8 +82,17 @@ const client = {
   }),
 };
 
-const capability = new MulticaCapability({ client, state });
-const context = { chatId: 'chat-1', senderId: 'user-1', chatType: 'group' };
+const capability = new MulticaCapability({
+  client,
+  state,
+  authorizeWrite: candidate => candidate.ownerAuthorized === true,
+});
+const context = {
+  chatId: 'chat-1',
+  senderId: 'user-1',
+  chatType: 'group',
+  ownerAuthorized: true,
+};
 
 const getResult = await capability.execute({
   action: 'get',
@@ -116,7 +125,11 @@ const syncResult = await capability.execute({
   confirmationLevel: 'none',
 }, context);
 assert.match(syncResult.text, /同步/);
-assert.deepEqual(globalSubscriptions[0], context);
+assert.deepEqual(globalSubscriptions[0], {
+  chatId: 'chat-1',
+  senderId: 'user-1',
+  chatType: 'group',
+});
 
 const createPreview = await capability.prepareMutation({
   summary: 'Create issue',
@@ -139,6 +152,39 @@ assert.match(createResult.text, /MYS-2/);
 assert.match(createResult.text, /https:\/\/multica\.ai\/my-space\/issues\/MYS-2/);
 assert.equal(cached.some(item => item.identifier === 'MYS-2'), true);
 assert.equal(subscriptions.some(item => item.issueId === 'issue-new'), true);
+
+for (const unauthorizedPlan of [{
+    summary: 'Unauthorized create',
+    action: 'create',
+    workspaceId: 'ws-1',
+    confirmationLevel: 'single',
+    fields: { title: 'Must not be created', status: 'todo', priority: 'none' },
+  }, {
+    summary: 'Unauthorized assignment',
+    action: 'update',
+    issue: 'MYS-1',
+    confirmationLevel: 'double',
+    fields: { assignee: 'Forbidden Squad' },
+  }, {
+    summary: 'Unauthorized comment',
+    action: 'comment',
+    issue: 'MYS-1',
+    confirmationLevel: 'single',
+    content: 'Must not be written',
+  }]) {
+  await assert.rejects(
+    capability.prepareMutation(unauthorizedPlan, { ...context, ownerAuthorized: false }),
+    error => error?.code === 'MULTICA_OWNER_REQUIRED',
+  );
+}
+
+await assert.rejects(
+  capability.applyMutation(createPreview.pending, {
+    ...context,
+    ownerAuthorized: false,
+  }),
+  error => error?.code === 'MULTICA_OWNER_REQUIRED',
+);
 
 const updatePreview = await capability.prepareMutation({
   summary: 'Start issue',

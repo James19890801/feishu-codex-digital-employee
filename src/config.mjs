@@ -82,6 +82,7 @@ export const config = {
   multicaProfile: raw.multicaProfile || 'desktop-api.multica.ai',
   multicaAppUrl: raw.multicaAppUrl || 'https://multica.ai',
   multicaDefaultWorkspaceId: raw.multicaDefaultWorkspaceId || '',
+  multicaOwnerSquad: String(raw.multicaOwnerSquad || '詹老师的开发团伙').trim(),
   multicaSyncIntervalMs: boundedInteger(raw.multicaSyncIntervalMs, {
     name: 'multicaSyncIntervalMs', fallback: 10000, min: 5000, max: 300000,
   }),
@@ -138,6 +139,9 @@ if (!['auto', 'codex', 'qoder', 'codebuddy', 'trae'].includes(config.aiRuntime))
 if (config.dingtalkOwnerOpenId
   && !/^[A-Za-z0-9_-]{8,256}$/.test(config.dingtalkOwnerOpenId)) {
   throw new Error('dingtalkOwnerOpenId 格式无效');
+}
+if (config.dingtalkEnabled && !config.dingtalkOwnerOpenId) {
+  throw new Error('启用 dingtalkEnabled 时必须填写 dingtalkOwnerOpenId 以验证 Owner');
 }
 if (config.wecomEnabled && !config.wecomBotId) {
   throw new Error('启用 wecomEnabled 时必须填写 wecomBotId');
