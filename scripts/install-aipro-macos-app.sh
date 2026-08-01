@@ -32,7 +32,7 @@ STAGED="${DESTINATION}.install-${$}"
 /bin/rm -rf "$STAGED"
 /usr/bin/ditto "$BUNDLE" "$STAGED"
 if [[ -e "$DESTINATION" ]]; then
-  BACKUP="${DESTINATION}.backup-${EPOCHSECONDS}"
+  BACKUP="${DESTINATION}.backup-$(/bin/date +%s)"
   /bin/mv "$DESTINATION" "$BACKUP"
   if ! /bin/mv "$STAGED" "$DESTINATION"; then
     /bin/mv "$BACKUP" "$DESTINATION"

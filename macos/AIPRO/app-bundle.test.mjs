@@ -18,6 +18,21 @@ assert.match(source, /com\.local\.feishu-codex-dashboard/);
 assert.match(source, /com\.local\.feishu-codex-digital-employee/);
 assert.match(source, /com\.local\.aipro-wechat-poc/);
 assert.match(source, /WKWebView/);
+assert.match(
+  source,
+  /func applicationShouldHandleReopen\(_ sender: NSApplication, hasVisibleWindows flag: Bool\) -> Bool/,
+  'clicking the Dock icon while AIPRO is already running must be handled',
+);
+assert.match(
+  source,
+  /private func openDashboardInBrowser\(\)[\s\S]*OpenConfiguration\(\)[\s\S]*activates = true[\s\S]*withApplicationAt[\s\S]*NSApp\.terminate/,
+  'the launcher must activate the default browser and then exit cleanly',
+);
+assert.match(
+  source,
+  /func applicationDidBecomeActive\(_ notification: Notification\)[\s\S]*openDashboardInBrowser\(\)/,
+  'activating a running windowless AIPRO app must reopen the dashboard',
+);
 
 const bundle = process.env.AIPRO_APP_BUNDLE;
 if (bundle) {

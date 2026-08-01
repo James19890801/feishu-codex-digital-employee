@@ -15,8 +15,10 @@ final class AIPROApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     private var webView: WKWebView!
     private var retryTimer: Timer?
     private var dashboardLoaded = false
+    private var browserLaunchInProgress = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSLog("AIPRO launcher started")
         NSApp.setActivationPolicy(.regular)
         configureMenu()
         configureWindow()
@@ -28,6 +30,24 @@ final class AIPROApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard dashboardLoaded, !window.isVisible else { return }
+        openDashboardInBrowser()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if dashboardLoaded {
+            openDashboardInBrowser()
+        } else {
+            window.makeKeyAndOrderFront(nil)
+            showStartingPage()
+            recoverServices()
+            beginDashboardProbe()
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        return true
     }
 
     private func configureWindow() {
@@ -117,7 +137,9 @@ final class AIPROApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     private func probeDashboard() {
         var request = URLRequest(url: URL(string: "http://127.0.0.1:17655/api/status")!)
         request.timeoutInterval = 1.0
-        URLSession.shared.dataTask(with: request) { [weak self] _, response, _ in
+        URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            NSLog("AIPRO dashboard probe status=%d error=%@", statusCode, error?.localizedDescription ?? "none")
             guard let http = response as? HTTPURLResponse, (200..<500).contains(http.statusCode) else { return }
             DispatchQueue.main.async {
                 guard let self, !self.dashboardLoaded else { return }
@@ -125,6 +147,8 @@ final class AIPROApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
                 self.retryTimer?.invalidate()
                 self.retryTimer = nil
                 self.webView.load(URLRequest(url: dashboardURL, cachePolicy: .reloadIgnoringLocalCacheData))
+                self.openDashboardInBrowser()
+                self.window.orderOut(nil)
             }
         }.resume()
     }
@@ -141,7 +165,43 @@ final class AIPROApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     }
 
     @objc private func openInBrowser() {
-        NSWorkspace.shared.open(dashboardURL)
+        openDashboardInBrowser()
+    }
+
+    private func openDashboardInBrowser() {
+        guard !browserLaunchInProgress else { return }
+        NSLog("AIPRO opening dashboard in default browser")
+        browserLaunchInProgress = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self else { return }
+            guard let browserURL = NSWorkspace.shared.urlForApplication(toOpen: dashboardURL) else {
+                self.browserLaunchInProgress = false
+                self.window.makeKeyAndOrderFront(nil)
+                return
+            }
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
+            configuration.addsToRecentItems = false
+            NSWorkspace.shared.open(
+                [dashboardURL],
+                withApplicationAt: browserURL,
+                configuration: configuration
+            ) { browser, error in
+                DispatchQueue.main.async {
+                    self.browserLaunchInProgress = false
+                    guard error == nil else {
+                        self.window.makeKeyAndOrderFront(nil)
+                        return
+                    }
+                    browser?.activate(options: [.activateAllWindows])
+                    NSApp.terminate(nil)
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                guard self?.browserLaunchInProgress == true else { return }
+                NSApp.terminate(nil)
+            }
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
