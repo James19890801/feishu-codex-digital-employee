@@ -168,6 +168,70 @@ try {
   state.unsubscribeMulticaGlobal('chat-2', 'user-2');
   assert.deepEqual(state.multicaGlobalSubscribers(), []);
 
+  assert.equal(state.bindMulticaFeedbackRegistration({
+    registrationKey: 'feedback-key-1',
+    issue,
+    createdAt: now,
+  }), true);
+  assert.equal(state.bindMulticaFeedbackRegistration({
+    registrationKey: 'feedback-key-1',
+    issue: { ...issue, id: 'issue-duplicate', identifier: 'MYS-999' },
+    createdAt: now,
+  }), false);
+  assert.deepEqual(state.getMulticaFeedbackRegistration('feedback-key-1'), {
+    registrationKey: 'feedback-key-1',
+    issue,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  assert.equal(state.enqueueMulticaDispatch({
+    issueId: issue.id,
+    workspaceId: issue.workspace_id,
+    assignee: '詹老师的开发团伙',
+    availableAt: now,
+  }), true);
+  assert.equal(state.enqueueMulticaDispatch({
+    issueId: issue.id,
+    workspaceId: issue.workspace_id,
+    assignee: '另一个 Squad',
+    availableAt: now,
+  }), false);
+  assert.deepEqual(state.listDueMulticaDispatches(now, 10)[0], {
+    issueId: issue.id,
+    workspaceId: issue.workspace_id,
+    assignee: '詹老师的开发团伙',
+    attempts: 0,
+    availableAt: now,
+    lastError: '',
+  });
+  assert.deepEqual(state.failMulticaDispatch(
+    issue.id,
+    'temporary dispatch failure',
+    '2026-07-29T14:00:05.000Z',
+    2,
+  ), { updated: true, deadLettered: false, attempts: 1 });
+  assert.equal(state.multicaDispatchPendingCount(), 1);
+  assert.equal(state.listDueMulticaDispatches(now, 10).length, 0);
+  assert.deepEqual(state.failMulticaDispatch(
+    issue.id,
+    'permanent dispatch failure',
+    '2026-07-29T14:00:06.000Z',
+    2,
+  ), { updated: true, deadLettered: true, attempts: 2 });
+  assert.equal(state.multicaDispatchPendingCount(), 0);
+  assert.equal(state.multicaDispatchDeadCount(), 1);
+
+  assert.equal(state.enqueueMulticaDispatch({
+    issueId: 'issue-2',
+    workspaceId: 'ws-1',
+    assignee: '詹老师的开发团伙',
+    availableAt: now,
+  }), true);
+  assert.equal(state.completeMulticaDispatch('issue-2'), true);
+  assert.equal(state.multicaDispatchPendingCount(), 0);
+  assert.equal(state.getMulticaDispatch('issue-2').status, 'completed');
+
   assert.equal(state.enqueueMulticaNotification({
     notificationKey: 'multica-sync-test',
     issueId: issue.id,

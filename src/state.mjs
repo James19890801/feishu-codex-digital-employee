@@ -112,6 +112,29 @@ export class AgentState {
       );
       CREATE INDEX IF NOT EXISTS multica_notification_due
         ON multica_notification_outbox(available_at, created_at);
+      CREATE TABLE IF NOT EXISTS multica_feedback_registration (
+        registration_key TEXT PRIMARY KEY,
+        issue_id TEXT NOT NULL,
+        issue_snapshot TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS multica_feedback_issue
+        ON multica_feedback_registration(issue_id);
+      CREATE TABLE IF NOT EXISTS multica_dispatch_outbox (
+        issue_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        assignee TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        available_at TEXT NOT NULL,
+        last_error TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        dead_at TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS multica_dispatch_due
+        ON multica_dispatch_outbox(status, available_at, created_at);
       CREATE TABLE IF NOT EXISTS mutation_execution (
         execution_key TEXT PRIMARY KEY,
         kind TEXT NOT NULL,
@@ -596,6 +619,142 @@ export class AgentState {
         senderId: row.sender_id,
         chatType: row.chat_type,
       }));
+  }
+
+  bindMulticaFeedbackRegistration({
+    registrationKey,
+    issue,
+    createdAt = new Date().toISOString(),
+  }) {
+    if (!registrationKey || !issue?.id || !issue?.workspace_id || !issue?.identifier) {
+      throw new Error('Multica feedback registration requires a key and complete issue');
+    }
+    const result = this.db.prepare(`INSERT OR IGNORE INTO multica_feedback_registration
+      (registration_key, issue_id, issue_snapshot, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)`).run(
+      String(registrationKey),
+      String(issue.id),
+      JSON.stringify(structuredClone(issue)),
+      createdAt,
+      createdAt,
+    );
+    return result.changes === 1;
+  }
+
+  getMulticaFeedbackRegistration(registrationKey) {
+    const row = this.db.prepare(`SELECT registration_key, issue_snapshot, created_at, updated_at
+      FROM multica_feedback_registration WHERE registration_key = ?`)
+      .get(String(registrationKey || ''));
+    if (!row) return null;
+    let issue = null;
+    try { issue = JSON.parse(row.issue_snapshot); } catch { return null; }
+    return {
+      registrationKey: row.registration_key,
+      issue,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  enqueueMulticaDispatch({
+    issueId,
+    workspaceId,
+    assignee,
+    availableAt = new Date().toISOString(),
+  }) {
+    const now = new Date().toISOString();
+    const result = this.db.prepare(`INSERT OR IGNORE INTO multica_dispatch_outbox
+      (issue_id, workspace_id, assignee, attempts, status, available_at,
+       last_error, created_at, updated_at, dead_at)
+      VALUES (?, ?, ?, 0, 'pending', ?, '', ?, ?, '')`).run(
+      String(issueId || ''),
+      String(workspaceId || ''),
+      String(assignee || ''),
+      availableAt,
+      now,
+      now,
+    );
+    return result.changes === 1;
+  }
+
+  listDueMulticaDispatches(now = new Date().toISOString(), limit = 100) {
+    return this.db.prepare(`SELECT issue_id, workspace_id, assignee, attempts,
+      available_at, last_error FROM multica_dispatch_outbox
+      WHERE status = 'pending' AND available_at <= ?
+      ORDER BY available_at, created_at LIMIT ?`)
+      .all(now, Math.max(1, Math.min(1000, Number(limit) || 100)))
+      .map(row => ({
+        issueId: row.issue_id,
+        workspaceId: row.workspace_id,
+        assignee: row.assignee,
+        attempts: Number(row.attempts || 0),
+        availableAt: row.available_at,
+        lastError: row.last_error,
+      }));
+  }
+
+  completeMulticaDispatch(issueId) {
+    return this.db.prepare(`UPDATE multica_dispatch_outbox
+      SET status = 'completed', last_error = '', updated_at = ?, dead_at = ''
+      WHERE issue_id = ? AND status = 'pending'`)
+      .run(new Date().toISOString(), String(issueId || '')).changes === 1;
+  }
+
+  getMulticaDispatch(issueId) {
+    const row = this.db.prepare(`SELECT issue_id, workspace_id, assignee, attempts,
+      status, available_at, last_error, created_at, updated_at, dead_at
+      FROM multica_dispatch_outbox WHERE issue_id = ?`).get(String(issueId || ''));
+    if (!row) return null;
+    return {
+      issueId: row.issue_id,
+      workspaceId: row.workspace_id,
+      assignee: row.assignee,
+      attempts: Number(row.attempts || 0),
+      status: row.status,
+      availableAt: row.available_at,
+      lastError: row.last_error,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      deadAt: row.dead_at,
+    };
+  }
+
+  failMulticaDispatch(issueId, error, availableAt, maxAttempts = 10) {
+    const row = this.db.prepare(`SELECT attempts, status FROM multica_dispatch_outbox
+      WHERE issue_id = ?`).get(String(issueId || ''));
+    if (!row || row.status !== 'pending') {
+      return {
+        updated: false,
+        deadLettered: row?.status === 'dead',
+        attempts: Number(row?.attempts || 0),
+      };
+    }
+    const attempts = Number(row.attempts || 0) + 1;
+    const deadLettered = attempts >= Math.max(1, Number(maxAttempts) || 10);
+    const updatedAt = new Date().toISOString();
+    const updated = this.db.prepare(`UPDATE multica_dispatch_outbox
+      SET attempts = ?, status = ?, available_at = ?, last_error = ?,
+          updated_at = ?, dead_at = ?
+      WHERE issue_id = ? AND status = 'pending'`).run(
+      attempts,
+      deadLettered ? 'dead' : 'pending',
+      availableAt,
+      String(error || '').slice(0, 1000),
+      updatedAt,
+      deadLettered ? updatedAt : '',
+      String(issueId || ''),
+    ).changes === 1;
+    return { updated, deadLettered: updated && deadLettered, attempts };
+  }
+
+  multicaDispatchPendingCount() {
+    return Number(this.db.prepare(`SELECT COUNT(*) AS count FROM multica_dispatch_outbox
+      WHERE status = 'pending'`).get()?.count || 0);
+  }
+
+  multicaDispatchDeadCount() {
+    return Number(this.db.prepare(`SELECT COUNT(*) AS count FROM multica_dispatch_outbox
+      WHERE status = 'dead'`).get()?.count || 0);
   }
 
   enqueueMulticaNotification({

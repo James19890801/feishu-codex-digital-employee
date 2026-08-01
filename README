@@ -592,12 +592,24 @@ Only the configured ownerOpenId can confirm task, calendar, or batch action-item
 creation. Other contacts may ask AIPRO to draft content, but they cannot use it
 to perform owner-side mutations.
 
-Multica Issue operations use a separate collaboration rule. Any person who can
-legitimately reach the authorized Feishu identity may request a Multica read or
-write from a qualifying group mention or direct message. The same requesting
-person must confirm that person's pending mutation in the same conversation.
-This removes AIPRO workspace and sender allowlists without removing
-authentication, confirmation, stale-write protection, or audit controls.
+Multica reads remain available to legitimate contacts, but every general
+Multica write requires both the verified account Owner and an authenticated
+Feishu or DingTalk self-chat context. The configured Multica Owner account is
+`494161546@qq.com`; IM authorization still uses the channel-specific Owner ID,
+the `p2p` chat type, and trusted `selfChat` metadata together. The check fails
+closed and is repeated when a write is previewed, when it is confirmed, and
+before an Issue is executed. Owner group messages and ordinary p2p messages may
+read or register feedback, but cannot create, update, comment, assign,
+dispatch, execute, accept, or publish an arbitrary Issue.
+
+The only non-Owner write exception is constrained AIPRO feedback intake. For a
+Bug, remediation comment, or feature request, AIPRO first asks one clarifying
+acceptance question. After the answer it may create exactly one unassigned
+`backlog` Issue containing the source channel, original conversation, original
+request, clarification, and acceptance criteria. It subscribes the originating
+conversation but never dispatches or executes that Issue. Only feedback both
+proposed and clarified in a verified Owner self-chat uses a persistent outbox
+to assign the Issue to the configured Owner Squad and move it to `todo`.
 
 
 TEXT, IMAGE, AND FILE CAPABILITIES
@@ -719,11 +731,12 @@ authenticated Multica account is available to the constrained planner. Multica
 itself remains the authority for authentication and the account's effective
 access.
 
-Read operations execute immediately. Create, update, and comment operations
-first return an exact preview and require confirmation from the requester.
+Read operations execute immediately. Owner create, update, and comment
+operations first return an exact preview and require Owner confirmation.
 Cancellation and assignee changes require a six-digit second confirmation.
-Delete, permission changes, token operations, arbitrary API calls, arbitrary
-commands, and arbitrary local-file access are not exposed.
+The Owner check is repeated at confirmation time. Delete, permission changes,
+token operations, arbitrary API calls, arbitrary commands, and arbitrary
+local-file access are not exposed.
 
 Example Feishu requests:
 
@@ -735,6 +748,7 @@ Example Feishu requests:
     "关注 MYS-2 的变化"
     "把 Multica 全空间变化同步到这里"
     "停止向这里同步 Multica 全空间变化"
+    "反馈一个 AIPRO Bug：状态更新没有同步回来"
 
 Issue reads automatically associate the Issue with the current Feishu
 conversation. Later changes to that Issue can therefore be sent back to the
@@ -760,6 +774,8 @@ Commercial reliability controls include:
     Persistent Issue cache and subscriptions in SQLite
     Baseline-on-first-start behavior
     Structured mutation and synchronization audit events
+    Stable feedback registration keys and reconciliation before re-creation
+    Persistent Owner-Squad dispatch outbox with bounded retry and dead letters
     Independent dashboard freshness and error indicators
     Read-only live smoke testing
 
@@ -1223,6 +1239,7 @@ Minimal example:
       "multicaEnabled": true,
       "multicaProfile": "desktop-api.multica.ai",
       "multicaDefaultWorkspaceId": "",
+      "multicaOwnerSquad": "詹老师的开发团伙",
       "multicaSyncIntervalMs": 10000,
       "multicaMaxIssues": 5000,
       "dashboardPort": 17655,
@@ -1288,6 +1305,10 @@ Multica fields:
 
     multicaDefaultWorkspaceId
         Optional UUID used when a create request does not name a workspace.
+
+    multicaOwnerSquad
+        Squad name used only for verified Owner feedback dispatch. Defaults to
+        "詹老师的开发团伙". Non-Owner feedback never uses this value.
 
     multicaSyncIntervalMs
         Default 10000. Allowed range 5000 through 300000.

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { isAuthorizedMulticaOwner } from './multica-access.mjs';
 import {
   MulticaWorkLifecycle,
   parseMulticaWorkRequest,
@@ -46,7 +47,14 @@ function fixture(initialStatus = 'todo') {
     },
   };
   return {
-    lifecycle: new MulticaWorkLifecycle({ client, state }),
+    lifecycle: new MulticaWorkLifecycle({
+      client,
+      state,
+      authorizeWrite: candidate => isAuthorizedMulticaOwner(candidate, {
+        ownerOpenId: 'ou-owner',
+        dingtalkOwnerOpenId: 'dt-owner',
+      }),
+    }),
     updates,
     subscriptions,
     current: () => structuredClone(issue),
@@ -57,6 +65,7 @@ const context = {
   chatId: 'oc-work',
   senderId: 'ou-owner',
   chatType: 'p2p',
+  metadata: { channel: 'feishu', selfChat: true },
 };
 
 {
@@ -95,6 +104,20 @@ const context = {
     /terminal status/i,
   );
   assert.equal(test.updates.length, 0);
+}
+
+{
+  const test = fixture();
+  await assert.rejects(
+    test.lifecycle.begin('MYS-9', {
+      ...context,
+      chatType: 'group',
+      metadata: { channel: 'feishu', selfChat: true },
+    }),
+    error => error?.code === 'MULTICA_OWNER_REQUIRED',
+  );
+  assert.equal(test.updates.length, 0);
+  assert.equal(test.subscriptions.length, 0);
 }
 
 {

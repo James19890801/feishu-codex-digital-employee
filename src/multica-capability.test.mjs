@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { MulticaCapability } from './multica-capability.mjs';
+import { isAuthorizedMulticaOwner } from './multica-access.mjs';
 
 const subscriptions = [];
 const globalSubscriptions = [];
@@ -82,8 +83,20 @@ const client = {
   }),
 };
 
-const capability = new MulticaCapability({ client, state });
-const context = { chatId: 'chat-1', senderId: 'user-1', chatType: 'group' };
+const capability = new MulticaCapability({
+  client,
+  state,
+  authorizeWrite: candidate => isAuthorizedMulticaOwner(candidate, {
+    ownerOpenId: 'ou_owner',
+    dingtalkOwnerOpenId: 'dt_owner',
+  }),
+});
+const context = {
+  chatId: 'chat-1',
+  senderId: 'ou_owner',
+  chatType: 'p2p',
+  metadata: { channel: 'feishu', selfChat: true },
+};
 
 const getResult = await capability.execute({
   action: 'get',
@@ -98,8 +111,8 @@ assert.doesNotMatch(getResult.text, /Prepare the launch\./);
 assert.deepEqual(subscriptions[0], {
   issueId: 'issue-1',
   chatId: 'chat-1',
-  senderId: 'user-1',
-  options: { chatType: 'group' },
+  senderId: 'ou_owner',
+  options: { chatType: 'p2p' },
 });
 
 const searchResult = await capability.execute({
@@ -116,7 +129,11 @@ const syncResult = await capability.execute({
   confirmationLevel: 'none',
 }, context);
 assert.match(syncResult.text, /同步/);
-assert.deepEqual(globalSubscriptions[0], context);
+assert.deepEqual(globalSubscriptions[0], {
+  chatId: 'chat-1',
+  senderId: 'ou_owner',
+  chatType: 'p2p',
+});
 
 const createPreview = await capability.prepareMutation({
   summary: 'Create issue',
@@ -139,6 +156,45 @@ assert.match(createResult.text, /MYS-2/);
 assert.match(createResult.text, /https:\/\/multica\.ai\/my-space\/issues\/MYS-2/);
 assert.equal(cached.some(item => item.identifier === 'MYS-2'), true);
 assert.equal(subscriptions.some(item => item.issueId === 'issue-new'), true);
+
+const unauthorizedContext = {
+  ...context,
+  chatType: 'group',
+  metadata: { channel: 'feishu', selfChat: true },
+};
+
+for (const unauthorizedPlan of [{
+    summary: 'Unauthorized create',
+    action: 'create',
+    workspaceId: 'ws-1',
+    confirmationLevel: 'single',
+    fields: { title: 'Must not be created', status: 'todo', priority: 'none' },
+  }, {
+    summary: 'Unauthorized assignment',
+    action: 'update',
+    issue: 'MYS-1',
+    confirmationLevel: 'double',
+    fields: { assignee: 'Forbidden Squad' },
+  }, {
+    summary: 'Unauthorized comment',
+    action: 'comment',
+    issue: 'MYS-1',
+    confirmationLevel: 'single',
+    content: 'Must not be written',
+  }]) {
+  await assert.rejects(
+    capability.prepareMutation(unauthorizedPlan, unauthorizedContext),
+    error => error?.code === 'MULTICA_OWNER_REQUIRED',
+  );
+}
+
+await assert.rejects(
+  capability.applyMutation(createPreview.pending, {
+    ...context,
+    metadata: { channel: 'feishu' },
+  }),
+  error => error?.code === 'MULTICA_OWNER_REQUIRED',
+);
 
 const updatePreview = await capability.prepareMutation({
   summary: 'Start issue',

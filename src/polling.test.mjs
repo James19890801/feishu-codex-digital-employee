@@ -153,6 +153,7 @@ const selfDirectMessage = {
   assert.equal(selfMessages[0].chat_type, 'p2p');
   assert.equal(selfMessages[0].self_chat, true);
   assert.equal(normalizeSearchMessage(selfMessages[0]).metadata.selfChat, true);
+  assert.equal(normalizeSearchMessage(selfMessages[0]).metadata.channel, 'feishu');
 }
 
 {

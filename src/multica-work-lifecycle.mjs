@@ -19,12 +19,18 @@ function contextValue(context) {
 }
 
 export class MulticaWorkLifecycle {
-  constructor({ client, state }) {
+  constructor({ client, state, authorizeWrite = () => false }) {
     this.client = client;
     this.state = state;
+    this.authorizeWrite = authorizeWrite;
   }
 
   async begin(reference, rawContext) {
+    if (this.authorizeWrite(rawContext) !== true) {
+      const error = new Error('Verified Owner authorization is required to execute Multica work');
+      error.code = 'MULTICA_OWNER_REQUIRED';
+      throw error;
+    }
     const context = contextValue(rawContext);
     let issue = await this.client.getIssue(reference);
     const workspaceName = issue.workspace_name;

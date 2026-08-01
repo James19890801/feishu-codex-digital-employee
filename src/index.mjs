@@ -86,6 +86,12 @@ import {
   parseMulticaPlannerOutput,
 } from './multica-planner.mjs';
 import { MulticaCapability } from './multica-capability.mjs';
+import { isAuthorizedMulticaOwner } from './multica-access.mjs';
+import {
+  isFeedbackCancellation,
+  looksLikeMulticaFeedback,
+  MulticaFeedbackWorkflow,
+} from './multica-feedback.mjs';
 import { MulticaSynchronizer } from './multica-sync.mjs';
 import {
   MulticaWorkLifecycle,
@@ -200,15 +206,39 @@ const MULTICA_CLIENT = config.multicaEnabled
       maxIssues: config.multicaMaxIssues,
     })
   : null;
+const MULTICA_OWNER_IDENTITIES = {
+  ownerOpenId: config.ownerOpenId,
+  dingtalkOwnerOpenId: config.dingtalkOwnerOpenId,
+};
+const authorizeMulticaWrite = context => isAuthorizedMulticaOwner(
+  context,
+  MULTICA_OWNER_IDENTITIES,
+);
 const MULTICA_CAPABILITY = MULTICA_CLIENT
   ? new MulticaCapability({
       client: MULTICA_CLIENT,
       state,
       appUrl: config.multicaAppUrl,
+      authorizeWrite: authorizeMulticaWrite,
     })
   : null;
 const MULTICA_WORK_LIFECYCLE = MULTICA_CLIENT
-  ? new MulticaWorkLifecycle({ client: MULTICA_CLIENT, state })
+  ? new MulticaWorkLifecycle({
+      client: MULTICA_CLIENT,
+      state,
+      authorizeWrite: authorizeMulticaWrite,
+    })
+  : null;
+const MULTICA_FEEDBACK_WORKFLOW = MULTICA_CLIENT
+  ? new MulticaFeedbackWorkflow({
+      client: MULTICA_CLIENT,
+      state,
+      workspaceId: config.multicaDefaultWorkspaceId,
+      ownerSquad: config.multicaOwnerSquad,
+      appUrl: config.multicaAppUrl,
+      authorizeOwner: authorizeMulticaWrite,
+      audit: (event, detail) => state.audit(event, { detail }),
+    })
   : null;
 const MULTICA_SYNCHRONIZER = MULTICA_CLIENT
   ? new MulticaSynchronizer({
@@ -253,6 +283,19 @@ function formatHistory(chatId, senderOpenId) {
   const history = state.history(chatId, senderOpenId, 12);
   if (!history.length) return '（这是当前运行周期内的第一条消息）';
   return history.map(item => `${item.role === 'user' ? '对方' : '助理'}：${item.content}`).join('\n');
+}
+
+function multicaContext(message, senderOpenId, metadata = {}) {
+  const context = {
+    chatId: message.chat_id,
+    senderId: senderOpenId,
+    chatType: message.chat_type,
+    metadata: structuredClone(metadata || {}),
+  };
+  return {
+    ...context,
+    ownerAuthorized: authorizeMulticaWrite(context),
+  };
 }
 
 function audit(event, message, senderOpenId, detail = {}) {
@@ -975,7 +1018,114 @@ function multicaConfirmationMatches(text, pending) {
   return /^(确认|确认执行|可以|好|好哦)[。！! ]*$/.test(text);
 }
 
-async function applyPendingMultica(message, senderOpenId, cleanText) {
+async function applyPendingFeedback(message, senderOpenId, cleanText, metadata = {}) {
+  const pending = pendingActions.get('multica_feedback', message.chat_id, senderOpenId);
+  if (!pending) return false;
+  if (isFeedbackCancellation(cleanText)) {
+    const cancellation = MULTICA_FEEDBACK_WORKFLOW
+      ? MULTICA_FEEDBACK_WORKFLOW.cancel(pending, {
+          context: multicaContext(message, senderOpenId, metadata),
+        })
+      : { text: '好的，这次反馈登记已取消，没有创建 Multica Issue。' };
+    pendingActions.delete('multica_feedback', message.chat_id, senderOpenId);
+    await sendText(
+      null,
+      message.chat_id,
+      cancellation.text,
+      `multica-feedback-cancel-${message.message_id}`,
+    );
+    audit('multica_feedback_cancel_receipt_sent', message, senderOpenId, {
+      sourceMessageId: pending.sourceMessageId,
+    });
+    return true;
+  }
+  if (!MULTICA_FEEDBACK_WORKFLOW) {
+    await sendText(
+      null,
+      message.chat_id,
+      'Multica 反馈登记能力当前不可用；待补充内容已保留，可稍后重试或回复“取消”。',
+      `multica-feedback-disabled-${message.message_id}`,
+    );
+    return true;
+  }
+  if (!cleanText) {
+    await sendText(
+      null,
+      message.chat_id,
+      '请补充一个可验证的完成标准，或回复“取消”。',
+      `multica-feedback-empty-${message.message_id}`,
+    );
+    return true;
+  }
+  try {
+    const result = await MULTICA_FEEDBACK_WORKFLOW.register(pending, cleanText, {
+      context: multicaContext(message, senderOpenId, metadata),
+    });
+    pendingActions.delete('multica_feedback', message.chat_id, senderOpenId);
+    remember(message.chat_id, senderOpenId, 'user', cleanText);
+    remember(message.chat_id, senderOpenId, 'assistant', result.text);
+    await sendText(
+      null,
+      message.chat_id,
+      result.text,
+      `multica-feedback-registered-${message.message_id}`,
+    );
+    audit('multica_feedback_receipt_sent', message, senderOpenId, {
+      issueId: result.issue.id,
+      identifier: result.issue.identifier,
+      replayed: result.replayed,
+      ownerDispatched: result.ownerDispatched,
+      dispatchPending: result.dispatchPending,
+    });
+  } catch (error) {
+    await sendText(
+      null,
+      message.chat_id,
+      `反馈暂时没有登记完成：${processFailureSummary(error)}\n请重新回复同一验收标准重试，或回复“取消”。`,
+      `multica-feedback-error-${message.message_id}`,
+    );
+    audit('multica_feedback_registration_failed', message, senderOpenId, {
+      sourceMessageId: pending.sourceMessageId,
+      error: String(error?.message || error).slice(0, 1000),
+    });
+  }
+  return true;
+}
+
+async function startMulticaFeedback(message, senderOpenId, cleanText, metadata = {}) {
+  if (!MULTICA_FEEDBACK_WORKFLOW) {
+    await sendText(
+      null,
+      message.chat_id,
+      'Multica 反馈登记能力还没有启用。',
+      `multica-feedback-disabled-${message.message_id}`,
+    );
+    return true;
+  }
+  const context = multicaContext(message, senderOpenId, metadata);
+  const started = MULTICA_FEEDBACK_WORKFLOW.begin({
+    text: cleanText,
+    sourceMessageId: message.message_id,
+    context,
+  });
+  pendingActions.set(
+    'multica_feedback',
+    message.chat_id,
+    senderOpenId,
+    started.pending,
+  );
+  remember(message.chat_id, senderOpenId, 'user', cleanText);
+  remember(message.chat_id, senderOpenId, 'assistant', started.text);
+  await sendText(
+    null,
+    message.chat_id,
+    started.text,
+    `multica-feedback-clarify-${message.message_id}`,
+  );
+  return true;
+}
+
+async function applyPendingMultica(message, senderOpenId, cleanText, metadata = {}) {
   const pending = pendingActions.get('multica', message.chat_id, senderOpenId);
   if (!pending) return false;
   if (/^(取消|不用了|不执行|放弃)[。！! ]*$/.test(cleanText)) {
@@ -1000,17 +1150,28 @@ async function applyPendingMultica(message, senderOpenId, cleanText) {
     await sendText(null, message.chat_id, answer, `multica-confirm-invalid-${message.message_id}`);
     return true;
   }
+  const context = multicaContext(message, senderOpenId, metadata);
+  if (!context.ownerAuthorized) {
+    pendingActions.delete('multica', message.chat_id, senderOpenId);
+    await sendText(
+      null,
+      message.chat_id,
+      '只有经过验证的 Owner 在飞书或钉钉 self-chat 中才能确认 Multica 写入；本次操作未执行。',
+      `multica-owner-required-${message.message_id}`,
+    );
+    audit('multica_write_denied', message, senderOpenId, {
+      action: pending.pending.plan.action,
+      phase: 'apply',
+    });
+    return true;
+  }
   let execution;
   try {
     execution = await executeMutationOnce({
       state,
       executionKey: `multica:${message.message_id}`,
       kind: `multica_${pending.pending.plan.action}`,
-      operation: () => MULTICA_CAPABILITY.applyMutation(pending.pending, {
-        chatId: message.chat_id,
-        senderId: senderOpenId,
-        chatType: message.chat_type,
-      }),
+      operation: () => MULTICA_CAPABILITY.applyMutation(pending.pending, context),
       definitelyNotApplied: error => /changed after the preview/i.test(
         String(error?.message || ''),
       ),
@@ -1043,7 +1204,7 @@ async function applyPendingMultica(message, senderOpenId, cleanText) {
   return true;
 }
 
-async function handleMulticaRequest(message, senderOpenId, cleanText) {
+async function handleMulticaRequest(message, senderOpenId, cleanText, metadata = {}) {
   if (!MULTICA_CAPABILITY) {
     await sendText(
       null,
@@ -1055,6 +1216,7 @@ async function handleMulticaRequest(message, senderOpenId, cleanText) {
   }
   const history = formatHistory(message.chat_id, senderOpenId);
   const plan = await runCodexMulticaPlan(cleanText, history);
+  const context = multicaContext(message, senderOpenId, metadata);
   audit('multica_plan_created', message, senderOpenId, {
     action: plan.action,
     confirmationLevel: plan.confirmationLevel,
@@ -1062,11 +1224,7 @@ async function handleMulticaRequest(message, senderOpenId, cleanText) {
     workspaceId: plan.workspaceId || '',
   });
   if (plan.confirmationLevel === 'none') {
-    const result = await MULTICA_CAPABILITY.execute(plan, {
-      chatId: message.chat_id,
-      senderId: senderOpenId,
-      chatType: message.chat_type,
-    });
+    const result = await MULTICA_CAPABILITY.execute(plan, context);
     remember(message.chat_id, senderOpenId, 'user', cleanText);
     remember(message.chat_id, senderOpenId, 'assistant', result.text);
     await sendText(null, message.chat_id, result.text, `multica-read-${message.message_id}`);
@@ -1077,11 +1235,20 @@ async function handleMulticaRequest(message, senderOpenId, cleanText) {
     });
     return true;
   }
-  const prepared = await MULTICA_CAPABILITY.prepareMutation(plan, {
-    chatId: message.chat_id,
-    senderId: senderOpenId,
-    chatType: message.chat_type,
-  });
+  if (!context.ownerAuthorized) {
+    await sendText(
+      null,
+      message.chat_id,
+      '只有经过验证的 Owner 在飞书或钉钉 self-chat 中才能创建、更新、评论或派发 Multica Issue。当前会话仍可查询，或反馈 AIPRO 的 Bug、整改意见和功能需求；反馈会先追问并仅登记为未指派 backlog。',
+      `multica-owner-required-${message.message_id}`,
+    );
+    audit('multica_write_denied', message, senderOpenId, {
+      action: plan.action,
+      phase: 'prepare',
+    });
+    return true;
+  }
+  const prepared = await MULTICA_CAPABILITY.prepareMutation(plan, context);
   const confirmationCode = plan.confirmationLevel === 'double'
     ? String(randomInt(100000, 1000000))
     : '';
@@ -1105,7 +1272,7 @@ async function handleMulticaRequest(message, senderOpenId, cleanText) {
   return true;
 }
 
-async function handleMulticaWorkRequest(message, senderOpenId, request, decision) {
+async function handleMulticaWorkRequest(message, senderOpenId, request, decision, metadata = {}) {
   if (!MULTICA_WORK_LIFECYCLE) {
     await sendText(
       null,
@@ -1115,11 +1282,17 @@ async function handleMulticaWorkRequest(message, senderOpenId, request, decision
     );
     return true;
   }
-  const context = {
-    chatId: message.chat_id,
-    senderId: senderOpenId,
-    chatType: message.chat_type,
-  };
+  const context = multicaContext(message, senderOpenId, metadata);
+  if (!context.ownerAuthorized) {
+    await sendText(
+      null,
+      message.chat_id,
+      '只有经过验证的 Owner 在飞书或钉钉 self-chat 中才能执行 Multica Issue；本次没有修改状态或启动任务。',
+      `multica-work-owner-required-${message.message_id}`,
+    );
+    audit('multica_work_denied', message, senderOpenId, { issue: request.issue });
+    return true;
+  }
   const history = formatHistory(message.chat_id, senderOpenId);
   audit('multica_work_requested', message, senderOpenId, {
     issue: request.issue,
@@ -1361,6 +1534,12 @@ async function processIncoming(client, message, sender, metadata = {}) {
   if (message.chat_type === 'group'
     && (!Array.isArray(message.mentions) || message.mentions.length === 0)) return;
 
+  if (await applyPendingFeedback(message, senderOpenId, cleanText, metadata)) return;
+  if (looksLikeMulticaFeedback(cleanText)) {
+    await startMulticaFeedback(message, senderOpenId, cleanText, metadata);
+    return;
+  }
+
   const existingHistory = state.history(message.chat_id, senderOpenId, 12);
   if (shouldIntroduceAssistant({
     chatType: message.chat_type,
@@ -1469,7 +1648,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
       console.error(`[file-context-error] ${message.message_id}:`, error);
     }
   }
-  if (await applyPendingMultica(message, senderOpenId, cleanText)) return;
+  if (await applyPendingMultica(message, senderOpenId, cleanText, metadata)) return;
   const multicaWorkRequest = parseMulticaWorkRequest(cleanText);
   if (multicaWorkRequest) {
     try {
@@ -1478,6 +1657,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
         senderOpenId,
         multicaWorkRequest,
         decision,
+        metadata,
       );
     } catch (error) {
       console.error(`[multica-work-error] ${message.message_id}:`, error);
@@ -1496,7 +1676,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
   }
   if (looksLikeMulticaRequest(cleanText)) {
     try {
-      await handleMulticaRequest(message, senderOpenId, cleanText);
+      await handleMulticaRequest(message, senderOpenId, cleanText, metadata);
     } catch (error) {
       console.error(`[multica-request-error] ${message.message_id}:`, error);
       await sendText(
@@ -2313,13 +2493,18 @@ async function runMulticaSyncLoop() {
   while (!stopping) {
     const startedAt = Date.now();
     try {
+      const dispatch = MULTICA_FEEDBACK_WORKFLOW
+        ? await MULTICA_FEEDBACK_WORKFLOW.deliverDispatches()
+        : { dispatched: 0, failed: 0, dead: 0, pending: 0, deadTotal: 0 };
       const result = await MULTICA_SYNCHRONIZER.cycle();
       failures = 0;
       state.set('health', 'last_multica_sync_at', new Date().toISOString());
       state.set('health', 'last_multica_sync_result', result);
+      state.set('health', 'last_multica_dispatch_result', dispatch);
       state.unset('health', 'last_multica_sync_error');
-      if (result.changes) {
-        console.log(`[multica-sync] changes=${result.changes} notified=${result.notified}`);
+      if (result.changes || dispatch.dispatched || dispatch.failed) {
+        console.log(`[multica-sync] changes=${result.changes} notified=${result.notified}`
+          + ` dispatch=${dispatch.dispatched}/${dispatch.failed}`);
       }
     } catch (error) {
       if (stopping) break;
