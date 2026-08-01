@@ -1,0 +1,115 @@
+ObjC.import('Foundation');
+
+function output(value) {
+  return JSON.stringify(value);
+}
+
+function decodePayload(encoded) {
+  if (!encoded) return {};
+  try {
+    const data = $.NSData.alloc.initWithBase64EncodedStringOptions(encoded, 0);
+    const string = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding);
+    return JSON.parse(ObjC.unwrap(string));
+  } catch (error) {
+    return {};
+  }
+}
+
+function screenLocked() {
+  try {
+    const app = Application.currentApplication();
+    app.includeStandardAdditions = true;
+    const text = app.doShellScript(
+      "/usr/sbin/ioreg -n Root -d1 | /usr/bin/grep -E 'CGSSessionScreenIsLocked.*(Yes|true)' || /usr/bin/true",
+    );
+    return String(text || '').trim().length > 0;
+  } catch (error) {
+    return true;
+  }
+}
+
+function findWeChatProcess(systemEvents) {
+  const processes = systemEvents.applicationProcesses();
+  for (let index = 0; index < processes.length; index += 1) {
+    try {
+      if (String(processes[index].name()) === 'WeChat') return processes[index];
+    } catch (error) {
+      // Continue; inaccessible processes are not candidates.
+    }
+  }
+  return null;
+}
+
+function capabilityProbe() {
+  if (screenLocked()) {
+    return {
+      ok: false,
+      available: false,
+      reason: 'screen_locked',
+      clientRunning: false,
+      permissionGranted: false,
+      screenUnlocked: false,
+    };
+  }
+  const systemEvents = Application('System Events');
+  const process = findWeChatProcess(systemEvents);
+  if (!process) {
+    return {
+      ok: false,
+      available: false,
+      reason: 'client_not_running',
+      clientRunning: false,
+      permissionGranted: null,
+      screenUnlocked: true,
+    };
+  }
+  try {
+    const windows = process.windows();
+    return {
+      ok: true,
+      available: true,
+      reason: '',
+      clientRunning: true,
+      permissionGranted: true,
+      screenUnlocked: true,
+      windowCount: windows.length,
+      selectorProfileReady: false,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      available: false,
+      reason: 'permission_missing',
+      clientRunning: true,
+      permissionGranted: false,
+      screenUnlocked: true,
+    };
+  }
+}
+
+function selectorUnavailable(action) {
+  const probe = capabilityProbe();
+  if (!probe.available) return probe;
+  return {
+    ok: false,
+    available: false,
+    reason: 'selector_profile_required',
+    action: action,
+    observations: [],
+    matched: false,
+    sent: false,
+  };
+}
+
+function run(argv) {
+  const action = String(argv[0] || 'probe');
+  decodePayload(argv[1] || '');
+  if (action === 'probe') return output(capabilityProbe());
+  if ([
+    'scan', 'resolve-target', 'verify-target', 'insert-text',
+    'clear-text', 'send', 'verify-sent',
+  ].includes(action)) {
+    return output(selectorUnavailable(action));
+  }
+  return output({ ok: false, available: false, reason: 'unsupported_action' });
+}
