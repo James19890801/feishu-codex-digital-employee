@@ -7,3 +7,4 @@ BIBLE.md
 data/
 *.log
 .DS_Store
+.worktrees/
