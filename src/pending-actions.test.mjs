@@ -35,6 +35,26 @@ try {
     pending.get('multica', 'oc_1', 'ou_1', 3_001).pending.plan.action,
     'create',
   );
+
+  pending.set('multica_feedback', 'dingtalk:user:owner', 'dingtalk:owner', {
+    originalRequest: '创建一个培训课件 Issue',
+    sourceMessageId: 'message-feedback-1',
+    context: {
+      chatId: 'dingtalk:user:owner',
+      senderId: 'dingtalk:owner',
+      chatType: 'p2p',
+      metadata: { channel: 'dingtalk', selfChat: true },
+    },
+  }, 4_000);
+  assert.equal(
+    pending.get(
+      'multica_feedback',
+      'dingtalk:user:owner',
+      'dingtalk:owner',
+      4_001,
+    ).originalRequest,
+    '创建一个培训课件 Issue',
+  );
   console.log('PENDING_ACTIONS_TEST_OK');
 } finally {
   rmSync(dir, { recursive: true, force: true });
