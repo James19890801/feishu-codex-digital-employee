@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <title>AIPRO · 基于真人身份运行的AI数字人平台</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%2311120f'/%3E%3Cpath d='M13 47 28 15h8l15 32h-9l-3-7H25l-3 7zm15-15h8l-4-10z' fill='%23c7ff45'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -72,21 +73,25 @@
           <header><i id="channelFeishuDot"></i><strong>飞书 / Lark</strong><span>PRIMARY</span></header>
           <b id="channelFeishuStatus">检测中</b>
           <p id="channelFeishuMeta">真人用户身份 · 轮询 + WebSocket</p>
+          <button type="button" data-channel-open="feishu">查看与测试</button>
         </article>
         <article class="channel-card" data-channel="dingtalk">
           <header><i id="channelDingtalkDot"></i><strong>钉钉 / DingTalk</strong><span>OPTIONAL</span></header>
           <b id="channelDingtalkStatus">检测中</b>
           <p id="channelDingtalkMeta">真人用户身份 · DWS 个人事件长连接</p>
+          <button type="button" data-channel-open="dingtalk">配置连接</button>
         </article>
         <article class="channel-card" data-channel="wecom">
           <header><i id="channelWecomDot"></i><strong>企业微信 / WeCom</strong><span>OPTIONAL</span></header>
           <b id="channelWecomStatus">检测中</b>
           <p id="channelWecomMeta">智能机器人身份 · 官方 WebSocket SDK</p>
+          <button type="button" data-channel-open="wecom">配置连接</button>
         </article>
         <article class="channel-card" data-channel="wechat">
           <header><i id="channelWechatDot"></i><strong>微信 / WeChat</strong><span>OPTIONAL</span></header>
           <b id="channelWechatStatus">检测中</b>
           <p id="channelWechatMeta">个人微信身份 · GeWe 第三方 REST + Webhook</p>
+          <button type="button" data-channel-open="wechat">配置连接</button>
         </article>
       </div>
       <p class="channel-identity-note">身份说明：飞书和钉钉可按已授权真人用户身份运行；企业微信以官方机器人身份运行；个人微信由 GeWe 第三方 API 提供，非腾讯官方开放接口，存在账号风控风险。</p>
@@ -279,6 +284,69 @@
       </aside>
     </section>
   </main>
+
+  <dialog class="channel-dialog" id="channelDialog" aria-labelledby="channelDialogTitle">
+    <div class="channel-dialog-shell">
+      <header class="channel-dialog-header">
+        <div>
+          <span id="channelDialogEyebrow">IM CHANNEL / LOCAL SETUP</span>
+          <h2 id="channelDialogTitle">配置 IM 通道</h2>
+          <p id="channelDialogDescription">只显示当前通道需要的配置。</p>
+        </div>
+        <button type="button" class="channel-dialog-close" id="channelDialogClose" aria-label="关闭">×</button>
+      </header>
+
+      <div class="channel-safety" id="channelSafety">
+        <b>隔离保护已启用</b>
+        <span>本通道配置失败会自动回滚，不会停止飞书 + Codex 主链路。</span>
+      </div>
+
+      <form id="channelForm" class="channel-form">
+        <label class="channel-toggle" id="channelEnabledRow">
+          <span><b>启用通道</b><small>保存后自动重启并执行真实连接测试</small></span>
+          <input type="checkbox" id="channelEnabled">
+        </label>
+
+        <section class="channel-fields hidden" data-channel-fields="feishu">
+          <label>受保护的应用身份<input id="channelFeishuIdentity" readonly></label>
+          <p class="field-note">飞书是主通道。这里可以查看和复测，但不能关闭或覆盖凭据。</p>
+        </section>
+
+        <section class="channel-fields hidden" data-channel-fields="dingtalk">
+          <label>DWS 登录配置名<input id="channelDingtalkProfile" maxlength="200" placeholder="留空则使用本机默认登录"></label>
+          <p class="field-note">后台会自动探测本机 DWS CLI 与已有登录状态；只有未登录时才需要在终端完成一次授权。</p>
+        </section>
+
+        <section class="channel-fields hidden" data-channel-fields="wecom">
+          <label>Bot ID<input id="channelWecomBotId" maxlength="200" autocomplete="off" placeholder="企业微信智能机器人 Bot ID"></label>
+          <label>Bot Secret <span id="channelWecomCredentialState"></span><input type="password" id="channelWecomCredential" maxlength="4096" autocomplete="new-password" placeholder="已保存时可留空"></label>
+          <p class="field-note">Secret 只从本机页面直写 macOS Keychain，不回显、不进入配置文件、日志或 Git。</p>
+        </section>
+
+        <section class="channel-fields hidden" data-channel-fields="wechat">
+          <label>GeWe App ID<input id="channelWechatAppId" maxlength="200" autocomplete="off" placeholder="微信节点 App ID"></label>
+          <label>GeWe API Token <span id="channelWechatCredentialState"></span><input type="password" id="channelWechatCredential" maxlength="4096" autocomplete="new-password" placeholder="已保存时可留空"></label>
+          <label>公网 HTTPS 回调地址<input type="url" id="channelWechatCallback" maxlength="500" placeholder="https://example.com/aipro"></label>
+          <label>@ 名称（逗号或换行分隔）<textarea id="channelWechatMentions" rows="3" maxlength="1000" placeholder="James, 詹老师"></textarea></label>
+          <p class="field-note warning">个人微信使用 GeWe 第三方 API，并非腾讯官方开放接口，存在账号风控风险。</p>
+        </section>
+
+        <div class="channel-validation" id="channelValidation" aria-live="polite">
+          <div class="channel-validation-head">
+            <span>CONNECTION TEST</span>
+            <b id="channelValidationState">尚未测试</b>
+          </div>
+          <div id="channelValidationChecks"><p>点击“测试当前连接”，查看每一个验收项。</p></div>
+        </div>
+
+        <div class="channel-form-actions">
+          <button class="button" type="button" id="channelTestButton">测试当前连接</button>
+          <button class="button primary" type="submit" id="channelSaveButton">保存并连接</button>
+        </div>
+        <p class="channel-apply-contract">保存流程：校验必填项 → 密钥写入 Keychain → 配置备份 → 重启 → 连接验收 → 失败自动回滚</p>
+      </form>
+    </div>
+  </dialog>
 
   <div class="toast" id="toast" role="status"></div>
   <script type="module" src="/app.js"></script>

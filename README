@@ -942,11 +942,51 @@ The dashboard displays:
     Before-and-after change previews
     Confirmation level and confirmation code
     Recent configuration rollback points
+    Click-to-configure controls for every IM channel
+    Per-channel connection tests with visible pass/fail checks
 
 The dashboard refreshes every five seconds.
 
 It can restart the main LaunchAgent. The restart endpoint verifies the request
 host, origin, and a required custom action header.
+
+IM CHANNEL SETUP AND CONNECTION TESTS
+
+Each IM channel card is a configuration entry point. Clicking a card opens a
+local modal that displays only the fields required by that channel. The
+dashboard automatically reuses installed CLIs and existing local login state
+where possible. Operators do not need to edit config.local.json for routine
+channel setup.
+
+The Feishu card is protected: it can be inspected and connection-tested but
+cannot be disabled or overwritten from this workflow. DingTalk exposes its DWS
+profile selector. WeCom accepts the official Bot ID and Bot Secret. Personal
+WeChat accepts the GeWe App ID, API Token, public HTTPS callback URL, and local
+mention names.
+
+Secrets entered in the local modal are sent only to the loopback dashboard and
+stored directly in macOS Keychain. They are never returned to the browser,
+written to config.local.json, appended to audit logs, or committed to Git. The
+Keychain command reads secret material from standard input so it does not appear
+in the process argument list. An existing secret is represented only by a
+boolean "stored" state.
+
+Saving a channel performs a complete transaction:
+
+    Validate required fields and safe URL rules
+    Store or reuse the channel credential in macOS Keychain
+    Create a configuration snapshot
+    Validate the generated configuration
+    Restart the main process
+    Verify the main Feishu polling, WebSocket, and SQLite health
+    Verify the selected channel runtime, configuration, authentication, and connection
+    Restore both configuration and the prior Keychain credential on failure
+
+The modal also provides a read-only "test current connection" action. It shows
+each validation check separately so an operator can distinguish missing local
+runtime, missing configuration, authentication failure, and transport failure.
+Disabled optional channels report a healthy disabled state and do not degrade
+the Feishu + Codex primary path.
 
 CONVERSATIONAL CONFIGURATION ASSISTANT
 
@@ -1676,11 +1716,14 @@ Dashboard controls:
 
     Loopback-only listening
     Host validation
-    Origin validation for restart
+    Origin validation for every mutating or connection-test request
+    Random in-memory dashboard session token
     Required custom action header
     Content Security Policy
     No caching
     Frame denial
+    Protected Feishu primary-channel configuration
+    Secret-only Keychain writes with no credential echo
 
 Data controls:
 

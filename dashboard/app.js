@@ -1,5 +1,8 @@
 import {
   assistantRequestHeaders,
+  channelNeedsCredential,
+  channelRequestHeaders,
+  channelSubmitLabel,
   formatAssistantValue,
   planCanApply,
   rollbackConfirmation,
@@ -47,6 +50,28 @@ let configSessionToken = '';
 let pendingConfigPlan = null;
 let configBusy = false;
 let latestRuntimeState = null;
+let latestChannelConfigurations = {};
+let selectedChannel = '';
+let channelBusy = false;
+
+const channelCopy = {
+  feishu: {
+    title: '飞书主通道',
+    description: '受保护的真人身份主链路：用户消息轮询为主，WebSocket 为辅。',
+  },
+  dingtalk: {
+    title: '连接钉钉',
+    description: '优先自动使用本机 DWS CLI 与已有真人身份登录。',
+  },
+  wecom: {
+    title: '连接企业微信',
+    description: '填写官方智能机器人身份，后台建立 WebSocket 长连接。',
+  },
+  wechat: {
+    title: '连接个人微信',
+    description: '填写 GeWe 节点信息，通过第三方 REST + Webhook 接收与回复。',
+  },
+};
 
 function formatAge(ms) {
   if (ms === null || !Number.isFinite(ms)) return '未知';
@@ -393,11 +418,190 @@ async function loadConfigurationAssistant() {
   try {
     const payload = await responseJson(await fetch('/api/config', { cache: 'no-store' }));
     configSessionToken = payload.sessionToken;
+    latestChannelConfigurations = payload.channels || {};
     renderConfigurationOverview(payload);
     renderSnapshots(payload.snapshots);
+    return payload;
   } catch (error) {
     $('configConnection').textContent = '配置通道异常';
     appendConfigMessage('system', `无法读取当前配置：${error.message}`);
+    return null;
+  }
+}
+
+function setChannelBusy(busy) {
+  channelBusy = busy;
+  $('channelTestButton').disabled = busy;
+  $('channelSaveButton').disabled = busy
+    || latestChannelConfigurations[selectedChannel]?.protected === true;
+  $('channelDialogClose').disabled = busy;
+}
+
+function renderChannelReport(report) {
+  const validation = $('channelValidation');
+  validation.dataset.state = report?.state || '';
+  $('channelValidationState').textContent = report?.state === 'connected'
+    ? '全部通过 · 已连接'
+    : report?.state === 'disabled'
+      ? '通道未启用'
+      : report?.state === 'failed' ? '未通过' : '尚未测试';
+  const checks = $('channelValidationChecks');
+  checks.replaceChildren();
+  if (!report?.checks?.length) {
+    const empty = document.createElement('p');
+    empty.textContent = '点击“测试当前连接”，查看每一个验收项。';
+    checks.append(empty);
+    return;
+  }
+  for (const item of report.checks) {
+    const row = document.createElement('div');
+    row.className = `channel-check${item.passed ? ' passed' : ''}`;
+    const dot = document.createElement('i');
+    const label = document.createElement('span');
+    label.textContent = item.label;
+    const detail = document.createElement('small');
+    detail.textContent = item.detail || (item.passed ? '通过' : '未通过');
+    row.append(dot, label, detail);
+    checks.append(row);
+  }
+  if (report.detail) {
+    const detail = document.createElement('p');
+    detail.textContent = `最近错误：${report.detail}`;
+    checks.append(detail);
+  }
+}
+
+function renderChannelForm(channel, configuration) {
+  selectedChannel = channel;
+  const copy = channelCopy[channel];
+  $('channelDialogTitle').textContent = copy?.title || '配置 IM 通道';
+  $('channelDialogDescription').textContent = copy?.description || '';
+  $('channelEnabledRow').classList.toggle('hidden', configuration.protected === true);
+  $('channelEnabled').checked = configuration.enabled === true;
+  $('channelFeishuIdentity').value = configuration.identity || '';
+  $('channelDingtalkProfile').value = configuration.profile || '';
+  $('channelWecomBotId').value = configuration.botId || '';
+  $('channelWecomCredential').value = '';
+  $('channelWecomCredentialState').textContent = configuration.credentialStored
+    ? 'Keychain 已保存 · 留空不覆盖' : '尚未保存 · 启用时必填';
+  $('channelWechatAppId').value = configuration.appId || '';
+  $('channelWechatCredential').value = '';
+  $('channelWechatCredentialState').textContent = configuration.credentialStored
+    ? 'Keychain 已保存 · 留空不覆盖' : '尚未保存 · 启用时必填';
+  $('channelWechatCallback').value = configuration.publicCallbackBaseUrl || '';
+  $('channelWechatMentions').value = (configuration.mentionNames || []).join(', ');
+  for (const section of document.querySelectorAll('[data-channel-fields]')) {
+    section.classList.toggle('hidden', section.dataset.channelFields !== channel);
+  }
+  $('channelSaveButton').textContent = channelSubmitLabel(configuration);
+  renderChannelReport(null);
+  setChannelBusy(false);
+}
+
+async function openChannelDialog(channel) {
+  const payload = await loadConfigurationAssistant();
+  const configuration = payload?.channels?.[channel];
+  if (!configuration) {
+    showToast('无法读取这个通道的配置。');
+    return;
+  }
+  renderChannelForm(channel, configuration);
+  $('channelDialog').showModal();
+}
+
+function closeChannelDialog() {
+  if (!channelBusy) $('channelDialog').close();
+}
+
+function channelRequestBody() {
+  const base = {
+    channel: selectedChannel,
+    enabled: $('channelEnabled').checked,
+    confirmed: true,
+  };
+  if (selectedChannel === 'dingtalk') {
+    base.profile = $('channelDingtalkProfile').value.trim();
+  } else if (selectedChannel === 'wecom') {
+    base.botId = $('channelWecomBotId').value.trim();
+    base.credential = $('channelWecomCredential').value;
+  } else if (selectedChannel === 'wechat') {
+    base.appId = $('channelWechatAppId').value.trim();
+    base.credential = $('channelWechatCredential').value;
+    base.publicCallbackBaseUrl = $('channelWechatCallback').value.trim();
+    base.mentionNames = $('channelWechatMentions').value;
+  }
+  return base;
+}
+
+async function testSelectedChannel() {
+  if (channelBusy || !selectedChannel) return;
+  await loadConfigurationAssistant();
+  if (!configSessionToken) return;
+  setChannelBusy(true);
+  $('channelValidationState').textContent = '正在执行真实连接测试…';
+  try {
+    const payload = await responseJson(await fetch('/api/channels/test', {
+      method: 'POST',
+      headers: assistantRequestHeaders('channel-test', configSessionToken),
+      body: JSON.stringify({ channel: selectedChannel }),
+    }));
+    renderChannelReport(payload.report);
+  } catch (error) {
+    renderChannelReport({
+      state: 'failed',
+      detail: error.message,
+      checks: [{ label: '测试接口', passed: false, detail: error.message }],
+    });
+  } finally {
+    setChannelBusy(false);
+  }
+}
+
+async function saveSelectedChannel(event) {
+  event.preventDefault();
+  if (channelBusy || !selectedChannel) return;
+  const configuration = latestChannelConfigurations[selectedChannel];
+  if (!configuration || configuration.protected) return;
+  const body = channelRequestBody();
+  const enteredCredential = body.credential || '';
+  const requestedIdentity = selectedChannel === 'wecom' ? body.botId : body.appId;
+  if (body.enabled && ['wecom', 'wechat'].includes(selectedChannel)
+    && channelNeedsCredential(configuration, enteredCredential, requestedIdentity)) {
+    showToast('启用前请填写当前通道的密钥。');
+    $(selectedChannel === 'wecom' ? 'channelWecomCredential' : 'channelWechatCredential').focus();
+    return;
+  }
+  if (!window.confirm('确认保存这条通道配置？系统会备份、重启并自动测试连接；失败会回滚。')) return;
+  setChannelBusy(true);
+  $('channelValidationState').textContent = '正在备份、连接与验收…';
+  try {
+    const payload = await responseJson(await fetch('/api/channels/configure', {
+      method: 'POST',
+      headers: channelRequestHeaders(configSessionToken),
+      body: JSON.stringify(body),
+    }));
+    $('channelWecomCredential').value = '';
+    $('channelWechatCredential').value = '';
+    renderChannelReport(payload.report);
+    showToast(payload.report?.state === 'disabled'
+      ? '配置已保存，通道保持关闭。' : '配置已保存，真实连接测试通过。');
+    await Promise.all([loadConfigurationAssistant(), refresh()]);
+    renderChannelForm(selectedChannel, latestChannelConfigurations[selectedChannel]);
+    renderChannelReport(payload.report);
+  } catch (error) {
+    renderChannelReport({
+      state: 'failed',
+      detail: error.message,
+      checks: [{
+        label: error.rolledBack ? '连接验收（已自动回滚）' : '配置保存',
+        passed: false,
+        detail: error.message,
+      }],
+    });
+    showToast(error.rolledBack ? '连接失败，已自动恢复原配置。' : `配置失败：${error.message}`);
+    await Promise.all([loadConfigurationAssistant(), refresh()]);
+  } finally {
+    setChannelBusy(false);
   }
 }
 
@@ -626,6 +830,22 @@ $('restartButton').addEventListener('click', restart);
 $('configForm').addEventListener('submit', submitConfigRequest);
 $('applyPlanButton').addEventListener('click', applyConfigPlan);
 $('cancelPlanButton').addEventListener('click', cancelConfigPlan);
+$('channelDialogClose').addEventListener('click', closeChannelDialog);
+$('channelTestButton').addEventListener('click', testSelectedChannel);
+$('channelForm').addEventListener('submit', saveSelectedChannel);
+$('channelEnabled').addEventListener('change', () => {
+  const configuration = latestChannelConfigurations[selectedChannel] || {};
+  $('channelSaveButton').textContent = channelSubmitLabel({
+    ...configuration,
+    enabled: $('channelEnabled').checked,
+  });
+});
+$('channelDialog').addEventListener('cancel', event => {
+  if (channelBusy) event.preventDefault();
+});
+for (const button of document.querySelectorAll('[data-channel-open]')) {
+  button.addEventListener('click', () => openChannelDialog(button.dataset.channelOpen));
+}
 $('runtimeGrid').addEventListener('click', event => {
   const button = event.target.closest('[data-runtime-id]');
   if (button && !button.disabled) requestRuntimePlan(button.dataset.runtimeId);

@@ -12,6 +12,9 @@ assert.equal(typeof ui.planCanApply, 'function');
 assert.equal(typeof ui.rollbackConfirmation, 'function');
 assert.equal(typeof ui.runtimeCanSelect, 'function');
 assert.equal(typeof ui.runtimeStatusLabel, 'function');
+assert.equal(typeof ui.channelRequestHeaders, 'function');
+assert.equal(typeof ui.channelSubmitLabel, 'function');
+assert.equal(typeof ui.channelNeedsCredential, 'function');
 
 assert.equal(ui.formatAssistantValue(3000), '3000');
 assert.equal(ui.formatAssistantValue('short replies'), 'short replies');
@@ -36,5 +39,18 @@ assert.equal(ui.runtimeCanSelect({ id: 'codex', available: true }, 'codex'), fal
 assert.equal(ui.runtimeStatusLabel({ installed: false, available: false }), '未安装');
 assert.equal(ui.runtimeStatusLabel({ installed: true, available: false }), '仅检测到应用');
 assert.equal(ui.runtimeStatusLabel({ installed: true, available: true }), '可用');
+assert.deepEqual(ui.channelRequestHeaders('session-token'), {
+  'Content-Type': 'application/json',
+  'X-Dashboard-Action': 'channel-config',
+  'X-Dashboard-Session': 'session-token',
+});
+assert.equal(ui.channelSubmitLabel({ enabled: true }), '保存并连接');
+assert.equal(ui.channelSubmitLabel({ enabled: false }), '保存配置');
+assert.equal(ui.channelSubmitLabel({ protected: true }), '主通道受保护');
+assert.equal(ui.channelNeedsCredential({ credentialStored: false }, ''), true);
+assert.equal(ui.channelNeedsCredential({ credentialStored: true }, ''), false);
+assert.equal(ui.channelNeedsCredential({ credentialStored: false }, 'new-secret'), false);
+assert.equal(ui.channelNeedsCredential({ credentialStored: true, botId: 'bot-old' }, '', 'bot-new'), true);
+assert.equal(ui.channelNeedsCredential({ credentialStored: true, appId: 'app-old' }, '', 'app-old'), false);
 
 console.log('CONFIG_UI_TEST_OK');

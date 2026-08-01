@@ -29,6 +29,16 @@ import {
   parseDashboardJson,
 } from './dashboard-api-security.mjs';
 import {
+  channelConfigurationView,
+  channelConnectionReport,
+  channelCredentialTarget,
+  normalizeChannelConfigurationRequest,
+} from './channel-configuration.mjs';
+import {
+  keychainCredentialExists,
+  replaceKeychainCredential,
+} from './channel-credentials.mjs';
+import {
   buildOperatorView,
   isCredentialAccessBlocked,
 } from './dashboard-model.mjs';
@@ -602,7 +612,17 @@ async function waitForMainConfigurationHealth({ requireWebsocket = true } = {}) 
   throw new Error(`Post-change health check failed: ${issues}`);
 }
 
-async function applyConfigurationAssistantPlan(plan) {
+async function waitForChannelConnection(channel, { timeoutMs = 35_000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let report = channelConnectionReport(channel, await collectStatus());
+  while (!report.ok && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 1_000));
+    report = channelConnectionReport(channel, await collectStatus());
+  }
+  return report;
+}
+
+async function applyConfigurationAssistantPlan(plan, { verifyChannel = '' } = {}) {
   const current = await readEffectiveConfigurationDocuments();
   assertPlanMatchesDocuments(current, plan);
   const snapshot = await createConfigurationSnapshot(config.workdir, {
@@ -617,7 +637,14 @@ async function applyConfigurationAssistantPlan(plan) {
     await validateConfigurationOnDisk({ verifyRuntime });
     synchronizeDashboardConfiguration(updated.config);
     await restartMainService();
-    const status = await waitForMainConfigurationHealth();
+    let status = await waitForMainConfigurationHealth();
+    if (verifyChannel) {
+      const channelReport = await waitForChannelConnection(verifyChannel);
+      if (!channelReport.ok) {
+        throw new Error(`Channel connection test failed: ${channelReport.detail || 'connection unavailable'}`);
+      }
+      status = await collectStatus();
+    }
     await appendConfigurationAudit(config.workdir, {
       event: 'configuration_applied',
       planId: plan.id,
@@ -654,6 +681,65 @@ async function applyConfigurationAssistantPlan(plan) {
       : `Configuration failed and was automatically rolled back: ${error.message}`);
     failure.rolledBack = !rollbackError;
     throw failure;
+  }
+}
+
+async function readChannelConfiguration(documents) {
+  const [wecomCredential, wechatCredential] = await Promise.all([
+    keychainCredentialExists(channelCredentialTarget('wecom', documents.config)),
+    keychainCredentialExists(channelCredentialTarget('wechat', documents.config)),
+  ]);
+  return channelConfigurationView(documents.config, {
+    wecom: wecomCredential,
+    wechat: wechatCredential,
+  });
+}
+
+async function configureChannel(channel, payload) {
+  if (payload.confirmed !== true) throw new Error('Channel configuration confirmation is required');
+  const normalized = normalizeChannelConfigurationRequest(channel, payload);
+  const current = await readEffectiveConfigurationDocuments();
+  const proposalChanges = Object.entries(normalized.changes).map(([key, value]) => ({
+    target: 'config',
+    key,
+    value,
+    reason: `IM channel configuration: ${channel}`,
+  }));
+  const plan = createChangePlan({
+    summary: `Configure ${channel} IM channel`,
+    answer: '',
+    changes: proposalChanges,
+  }, current, {
+    id: `channel-${channel}-${Date.now()}-${randomUUID().slice(0, 8)}`,
+  });
+  const targetConfiguration = { ...current.config, ...normalized.changes };
+  const credentialTarget = channelCredentialTarget(channel, targetConfiguration);
+  if (normalized.changes[`${channel === 'wechat' ? 'gewe' : channel}Enabled`] === true
+    && credentialTarget && !normalized.credential
+    && !await keychainCredentialExists(credentialTarget)) {
+    throw new Error(`${credentialTarget.label} is required before this channel can be enabled`);
+  }
+  let rollbackCredential = null;
+  try {
+    if (normalized.credential && credentialTarget) {
+      rollbackCredential = await replaceKeychainCredential(credentialTarget, normalized.credential);
+    }
+    const result = await applyConfigurationAssistantPlan(plan, { verifyChannel: channel });
+    return {
+      ...result,
+      report: channelConnectionReport(channel, result.status),
+    };
+  } catch (error) {
+    if (rollbackCredential) {
+      try {
+        await rollbackCredential();
+      } catch (rollbackError) {
+        const failure = new Error(`Channel configuration failed; credential rollback also failed: ${rollbackError.message}`);
+        failure.rolledBack = false;
+        throw failure;
+      }
+    }
+    throw error;
   }
 }
 
@@ -729,8 +815,56 @@ const server = createServer(async (request, response) => {
           knowledgeDocuments: documents.knowledgeCatalog.length,
         },
         aiRuntime: currentAiRuntimeState(),
+        channels: await readChannelConfiguration(documents),
         snapshots: await listConfigurationSnapshots(config.workdir, 12),
       });
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/channels/configure') {
+      if (!allowedConfigAction(request, 'channel-config')) {
+        sendJson(response, 403, { ok: false, error: 'channel configuration rejected' });
+        return;
+      }
+      try {
+        const body = await readDashboardJson(request);
+        const channel = String(body.channel || '');
+        const result = await configurationMutationQueue.run(
+          'configuration',
+          () => configureChannel(channel, body),
+        );
+        sendJson(response, 200, {
+          ok: true,
+          message: result.report.state === 'disabled'
+            ? 'Channel configuration saved; channel remains disabled'
+            : 'Channel configured, restarted, and connection-tested',
+          snapshot: result.snapshot,
+          report: result.report,
+        });
+      } catch (error) {
+        sendJson(response, error?.rolledBack ? 409 : 400, {
+          ok: false,
+          rolledBack: Boolean(error?.rolledBack),
+          error: String(error?.message || error).slice(0, 700),
+        });
+      }
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/channels/test') {
+      if (!allowedConfigAction(request, 'channel-test')) {
+        sendJson(response, 403, { ok: false, error: 'channel test rejected' });
+        return;
+      }
+      try {
+        const body = await readDashboardJson(request);
+        const channel = String(body.channel || '');
+        const report = await waitForChannelConnection(channel, { timeoutMs: 8_000 });
+        sendJson(response, 200, { ok: true, report });
+      } catch (error) {
+        sendJson(response, 400, {
+          ok: false,
+          error: String(error?.message || error).slice(0, 500),
+        });
+      }
       return;
     }
     if (request.method === 'POST' && url.pathname === '/api/config/runtime-plan') {
