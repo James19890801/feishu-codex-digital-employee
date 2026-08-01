@@ -11,16 +11,41 @@ const identities = {
 
 assert.equal(isAuthorizedMulticaOwner({
   senderId: 'ou_owner',
-  metadata: {},
+  chatType: 'group',
+  metadata: { channel: 'feishu', selfChat: true },
+}, identities), false, 'an Owner group message must never authorize Multica writes');
+
+assert.equal(isAuthorizedMulticaOwner({
+  senderId: 'ou_owner',
+  chatType: 'p2p',
+  metadata: { channel: 'feishu' },
+}, identities), false, 'an ordinary Owner p2p message must never authorize Multica writes');
+
+assert.equal(isAuthorizedMulticaOwner({
+  senderId: 'ou_owner',
+  chatType: 'p2p',
+  metadata: { channel: 'feishu', selfChat: true },
 }, identities), true);
 
 assert.equal(isAuthorizedMulticaOwner({
+  senderId: 'ou_owner',
+  chatType: 'p2p',
+  metadata: { selfChat: true },
+}, identities), false, 'an unknown channel must fail closed even with self-chat metadata');
+
+assert.equal(isAuthorizedMulticaOwner({
   senderId: 'dingtalk:dt_owner',
+  chatType: 'p2p',
   metadata: { channel: 'dingtalk', selfChat: true },
 }, identities), true);
 
 for (const context of [
   { senderId: 'ou_other', metadata: {} },
+  {
+    senderId: 'ou_other',
+    chatType: 'p2p',
+    metadata: { channel: 'feishu', selfChat: true },
+  },
   { senderId: 'dingtalk:dt_owner', metadata: { channel: 'dingtalk' } },
   { senderId: 'dingtalk:dt_other', metadata: { channel: 'dingtalk', selfChat: true } },
   { senderId: 'dingtalk:dt_owner', metadata: { channel: 'feishu', selfChat: true } },
@@ -36,6 +61,8 @@ assert.equal(isAuthorizedMulticaOwner({
 
 assert.doesNotThrow(() => requireAuthorizedMulticaOwner({
   senderId: 'ou_owner',
+  chatType: 'p2p',
+  metadata: { channel: 'feishu', selfChat: true },
 }, identities));
 assert.throws(
   () => requireAuthorizedMulticaOwner({ senderId: 'ou_other' }, identities),

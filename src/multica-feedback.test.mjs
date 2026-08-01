@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentState } from './state.mjs';
+import { isAuthorizedMulticaOwner } from './multica-access.mjs';
 import {
   MulticaFeedbackWorkflow,
   feedbackClarificationQuestion,
@@ -65,6 +66,10 @@ function fixture({ failDispatch = false, existingIssues = [] } = {}) {
     appUrl: 'https://multica.ai',
     audit: (event, detail) => audits.push({ event, detail }),
     maxDispatchAttempts: 3,
+    authorizeOwner: context => isAuthorizedMulticaOwner(context, {
+      ownerOpenId: 'ou_owner',
+      dingtalkOwnerOpenId: 'dt_owner',
+    }),
   });
   return {
     state,
@@ -94,6 +99,27 @@ const ownerContext = {
   metadata: { channel: 'feishu', selfChat: true },
 };
 
+const ownerGroupContext = {
+  chatId: 'oc_owner_group',
+  senderId: 'ou_owner',
+  chatType: 'group',
+  metadata: { channel: 'feishu', selfChat: true },
+};
+
+const ownerOrdinaryP2pContext = {
+  chatId: 'oc_owner_with_other',
+  senderId: 'ou_owner',
+  chatType: 'p2p',
+  metadata: { channel: 'feishu' },
+};
+
+const forgedSelfChatContext = {
+  chatId: 'oc_forged_self',
+  senderId: 'ou_attacker',
+  chatType: 'p2p',
+  metadata: { channel: 'feishu', selfChat: true },
+};
+
 {
   const test = fixture();
   try {
@@ -101,7 +127,6 @@ const ownerContext = {
       text: 'AIPRO 发消息时偶尔报错',
       sourceMessageId: 'message-non-owner',
       context: nonOwnerContext,
-      ownerAuthorized: false,
     });
     assert.equal(started.kind, 'clarification');
     assert.equal(started.text, feedbackClarificationQuestion());
@@ -145,6 +170,59 @@ const ownerContext = {
   }
 }
 
+for (const [label, context] of [
+  ['Owner group', ownerGroupContext],
+  ['Owner ordinary p2p', ownerOrdinaryP2pContext],
+  ['forged self-chat', forgedSelfChatContext],
+]) {
+  const test = fixture();
+  try {
+    const started = test.workflow.begin({
+      text: `AIPRO 功能需求：${label} 反馈`,
+      sourceMessageId: `message-${label}`,
+      context,
+      ownerAuthorized: true,
+    });
+    assert.equal(started.pending.ownerAuthorized, false, `${label} must fail closed at intake`);
+    const registered = await test.workflow.register(
+      started.pending,
+      '完成后能看到登记结果。',
+      { context, now: new Date('2026-08-02T00:00:00.000Z') },
+    );
+    assert.equal(registered.ownerDispatched, false, `${label} must not auto-dispatch`);
+    assert.equal(registered.issue.status, 'backlog');
+    assert.equal(test.updates.length, 0, `${label} must not update or assign the Issue`);
+  } finally {
+    test.close();
+  }
+}
+
+{
+  const test = fixture();
+  try {
+    const started = test.workflow.begin({
+      text: 'AIPRO 功能需求：澄清完成时再次授权',
+      sourceMessageId: 'message-owner-clarification-reauth',
+      context: ownerContext,
+    });
+    const registered = await test.workflow.register(
+      started.pending,
+      '完成后能看到登记结果。',
+      {
+        context: {
+          ...ownerContext,
+          metadata: { channel: 'feishu' },
+        },
+        now: new Date('2026-08-02T00:00:00.000Z'),
+      },
+    );
+    assert.equal(registered.ownerDispatched, false);
+    assert.equal(test.updates.length, 0, 'clarification outside self-chat must not dispatch');
+  } finally {
+    test.close();
+  }
+}
+
 {
   const test = fixture();
   try {
@@ -152,7 +230,6 @@ const ownerContext = {
       text: '给数字人提个功能需求：支持进度同步',
       sourceMessageId: 'message-owner',
       context: ownerContext,
-      ownerAuthorized: true,
     });
     const registered = await test.workflow.register(
       started.pending,
@@ -191,7 +268,6 @@ const ownerContext = {
       text: 'AIPRO 有个 Bug：状态不会回传',
       sourceMessageId: 'message-dispatch-failure',
       context: ownerContext,
-      ownerAuthorized: true,
     });
     const registered = await test.workflow.register(
       started.pending,
@@ -227,7 +303,6 @@ await assert.rejects(async () => {
       text: 'AIPRO 有个 Bug',
       sourceMessageId: 'message-context',
       context: ownerContext,
-      ownerAuthorized: true,
     });
     await test.workflow.register(started.pending, '验收补充', {
       context: { ...ownerContext, senderId: 'ou_attacker' },

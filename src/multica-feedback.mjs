@@ -97,6 +97,7 @@ export class MulticaFeedbackWorkflow {
     workspaceId,
     ownerSquad,
     appUrl,
+    authorizeOwner = () => false,
     audit = () => {},
     maxDispatchAttempts = 10,
   }) {
@@ -105,11 +106,12 @@ export class MulticaFeedbackWorkflow {
     this.workspaceId = String(workspaceId || '').trim();
     this.ownerSquad = String(ownerSquad || '').trim();
     this.appUrl = appUrl;
+    this.authorizeOwner = authorizeOwner;
     this.audit = audit;
     this.maxDispatchAttempts = Math.max(1, Math.min(50, Number(maxDispatchAttempts) || 10));
   }
 
-  begin({ text, sourceMessageId, context, ownerAuthorized = false }) {
+  begin({ text, sourceMessageId, context }) {
     const originalRequest = requiredText(text, 'Original feedback', 10_000);
     const messageId = requiredText(sourceMessageId, 'Source message ID', 500);
     if (!context?.chatId || !context?.senderId) {
@@ -118,7 +120,6 @@ export class MulticaFeedbackWorkflow {
     const pending = {
       originalRequest,
       sourceMessageId: messageId,
-      ownerAuthorized: ownerAuthorized === true,
       context: {
         chatId: String(context.chatId),
         senderId: String(context.senderId),
@@ -126,6 +127,7 @@ export class MulticaFeedbackWorkflow {
         metadata: structuredClone(context.metadata || {}),
       },
     };
+    pending.ownerAuthorized = this.authorizeOwner(pending.context) === true;
     this.audit('multica_feedback_clarification_requested', {
       sourceMessageId: messageId,
       chatId: pending.context.chatId,
@@ -194,10 +196,13 @@ export class MulticaFeedbackWorkflow {
       throw new Error('Feedback confirmation context does not match the original request');
     }
     const clarification = requiredText(clarificationValue, 'Feedback clarification', 10_000);
+    const ownerAuthorized = this.authorizeOwner(pending.context) === true
+      && this.authorizeOwner(context) === true;
+    const authorizedPending = { ...pending, ownerAuthorized };
     const workspace = await this.workspace();
     const key = registrationKey(pending);
     const { issue, replayed } = await this.findOrCreate(
-      pending,
+      authorizedPending,
       clarification,
       workspace,
       key,
@@ -207,12 +212,12 @@ export class MulticaFeedbackWorkflow {
       registrationKey: key,
       issueId: issue.id,
       identifier: issue.identifier,
-      ownerAuthorized: pending.ownerAuthorized,
+      ownerAuthorized,
     });
 
     let ownerDispatched = false;
     let dispatchPending = false;
-    if (pending.ownerAuthorized) {
+    if (ownerAuthorized) {
       if (!this.ownerSquad) throw new Error('Multica Owner Squad is not configured');
       const priorDispatch = this.state.getMulticaDispatch(issue.id);
       if (priorDispatch?.status !== 'completed') {
@@ -230,7 +235,7 @@ export class MulticaFeedbackWorkflow {
     }
 
     const link = multicaIssueUrl(issue, this.appUrl);
-    const text = pending.ownerAuthorized
+    const text = ownerAuthorized
       ? ownerDispatched
         ? `反馈已登记并派发：${issue.identifier}\n负责人：${this.ownerSquad}`
         : `反馈已登记：${issue.identifier}\nIssue 保持未指派 backlog；派发待重试，不会提前执行。`

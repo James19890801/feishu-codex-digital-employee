@@ -593,19 +593,23 @@ creation. Other contacts may ask AIPRO to draft content, but they cannot use it
 to perform owner-side mutations.
 
 Multica reads remain available to legitimate contacts, but every general
-Multica write requires a verified account Owner. The Owner check is repeated
-when a write is previewed, when it is confirmed, and before an Issue is
-executed. Other contacts cannot create, update, comment, assign, dispatch, or
-execute an arbitrary Issue.
+Multica write requires both the verified account Owner and an authenticated
+Feishu or DingTalk self-chat context. The configured Multica Owner account is
+`494161546@qq.com`; IM authorization still uses the channel-specific Owner ID,
+the `p2p` chat type, and trusted `selfChat` metadata together. The check fails
+closed and is repeated when a write is previewed, when it is confirmed, and
+before an Issue is executed. Owner group messages and ordinary p2p messages may
+read or register feedback, but cannot create, update, comment, assign,
+dispatch, execute, accept, or publish an arbitrary Issue.
 
 The only non-Owner write exception is constrained AIPRO feedback intake. For a
 Bug, remediation comment, or feature request, AIPRO first asks one clarifying
 acceptance question. After the answer it may create exactly one unassigned
 `backlog` Issue containing the source channel, original conversation, original
 request, clarification, and acceptance criteria. It subscribes the originating
-conversation but never dispatches or executes that Issue. Owner feedback uses
-the same clarification step, then a persistent outbox assigns the Issue to the
-configured Owner Squad and moves it to `todo`.
+conversation but never dispatches or executes that Issue. Only feedback both
+proposed and clarified in a verified Owner self-chat uses a persistent outbox
+to assign the Issue to the configured Owner Squad and move it to `todo`.
 
 
 TEXT, IMAGE, AND FILE CAPABILITIES
