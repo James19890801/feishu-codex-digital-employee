@@ -56,6 +56,10 @@ assert.equal(fingerprint, messageFingerprint(direct.event));
 assert.match(fingerprint, /^[a-f0-9]{64}$/);
 assert.equal(fingerprint.includes('受控测试联系人'), false);
 assert.equal(fingerprint.includes('在吗'), false);
+assert.equal(
+  messageFingerprint({ ...direct.event, sourceMessageId: 'row-1', observedAt: '2026-08-01T03:00:00Z' }),
+  messageFingerprint({ ...direct.event, sourceMessageId: 'row-1', observedAt: '2026-08-01T03:01:00Z' }),
+);
 
 const chatId = wechatChatId(direct.event);
 assert.match(chatId, /^wechat-poc:user:[a-f0-9]{32}$/);

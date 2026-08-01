@@ -14,6 +14,9 @@ function systemLikeText(text) {
 }
 
 export function messageFingerprint(event) {
+  if (String(event?.sourceMessageId || '').trim()) {
+    return sha256(`wechat-poc-source:${String(event.sourceMessageId).trim()}`);
+  }
   return sha256(JSON.stringify([
     event?.sourceMessageId || '',
     event?.conversationKind || '',

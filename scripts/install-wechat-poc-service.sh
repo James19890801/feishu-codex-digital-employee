@@ -6,6 +6,12 @@ NODE="${AIPRO_NODE_BIN:-$(command -v node)}"
 LABEL="com.local.aipro-wechat-poc"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 mkdir -p "$HOME/Library/LaunchAgents"
+mkdir -p "$ROOT/data/wechat-poc/bin"
+
+xcrun swiftc "$ROOT/scripts/wechat-poc-vision.swift" \
+  -framework Vision -framework ImageIO -framework CoreGraphics \
+  -o "$ROOT/data/wechat-poc/bin/wechat-poc-vision"
+chmod 700 "$ROOT/data/wechat-poc/bin/wechat-poc-vision"
 
 /usr/bin/python3 - "$PLIST" "$ROOT" "$NODE" <<'PY'
 import plistlib
