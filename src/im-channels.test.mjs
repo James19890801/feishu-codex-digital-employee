@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  buildDingTalkConversationPollingArgs,
   buildDingTalkSelfPollingArgs,
   buildDingTalkConsumerArgs,
   buildDingTalkSendArgs,
@@ -60,6 +61,28 @@ assert.deepEqual(parseChannelChatId('wechat:user:wxid_friend'), {
   id: 'wxid_friend',
 });
 
+{
+  const ownerControl = normalizeGeWeWebhook({
+    appid: 'app-1',
+    wxid: 'wxid_owner',
+    msgType: 'TEXT',
+    isSelf: true,
+    fromUser: 'wxid_owner',
+    toUser: 'wxid_friend',
+    content: '数字人请退场',
+    newMsgId: 'self-control-1',
+    createTime: 1785571200,
+  });
+  assert.equal(ownerControl.message.chat_id, 'wechat:user:wxid_friend');
+  assert.equal(ownerControl.sender.sender_id.open_id, 'wechat:wxid_owner');
+  assert.equal(ownerControl.metadata.ownerControlAuthenticated, true);
+  assert.equal(normalizeGeWeWebhook({
+    appid: 'app-1', wxid: 'wxid_owner', msgType: 'TEXT', isSelf: true,
+    fromUser: 'wxid_owner', toUser: 'wxid_friend', content: '普通人工消息',
+    newMsgId: 'self-normal-1',
+  }), null);
+}
+
 assert.deepEqual(buildDingTalkConsumerArgs(), [
   'event', 'consume',
   'user_im_message_receive_at',
@@ -82,6 +105,33 @@ assert.deepEqual(buildDingTalkSelfPollingArgs('corp:user', 'user', '2026-08-01 1
   '--user', 'user',
   '--time', '2026-08-01 13:50:00',
   '--direction', 'newer',
+  '--limit', '50',
+  '--format', 'json',
+]);
+
+assert.deepEqual(buildDingTalkConversationPollingArgs(
+  'corp:user',
+  { channel: 'dingtalk', kind: 'group', id: 'cid-group' },
+  '2026-08-01 13:50:00',
+), [
+  '--profile', 'corp:user',
+  'chat', 'message', 'list',
+  '--group', 'cid-group',
+  '--time', '2026-08-01 13:50:00',
+  '--direction', 'older',
+  '--limit', '50',
+  '--format', 'json',
+]);
+assert.deepEqual(buildDingTalkConversationPollingArgs(
+  'corp:user',
+  { channel: 'dingtalk', kind: 'user', id: 'open-friend' },
+  '2026-08-01 13:50:00',
+), [
+  '--profile', 'corp:user',
+  'chat', 'message', 'list',
+  '--open-dingtalk-id', 'open-friend',
+  '--time', '2026-08-01 13:50:00',
+  '--direction', 'older',
   '--limit', '50',
   '--format', 'json',
 ]);

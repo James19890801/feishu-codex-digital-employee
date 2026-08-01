@@ -145,7 +145,7 @@ export class MulticaCapability {
       this.cacheAndFollow(issue, context);
       return {
         kind: 'reply',
-        text: issueLines(issue, { appUrl: this.appUrl }).join('\n'),
+        text: issueLines(issue, { appUrl: this.appUrl, includeDescription: false }).join('\n'),
         issue,
       };
     }

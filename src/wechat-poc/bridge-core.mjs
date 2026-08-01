@@ -214,6 +214,15 @@ export class WeChatPocBridge {
   async stop(reason = 'worker_stop') {
     if (this.stopped) return;
     this.stopped = true;
-    await this.failClosed(reason);
+    const control = await this.controlStore.advanceGeneration(reason);
+    const cancelled = this.state.cancelBeforeGeneration(control.generation, reason);
+    this.state.audit('wechat_poc_worker_stopped', {
+      detail: {
+        reason,
+        enabled: control.enabled,
+        generation: control.generation,
+        cancelled,
+      },
+    });
   }
 }

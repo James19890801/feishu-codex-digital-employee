@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict';
+import './human-takeover.test.mjs';
+import './conversation-etiquette.test.mjs';
+import './delivery-routing.test.mjs';
+import './online-delivery.test.mjs';
+import './artifact-writer.test.mjs';
 import {
+  buildOwnerControlPollingArgs,
+  comparePollingItems,
   buildPollingSearchArgs,
   buildSelfChatPollingArgs,
   markSelfChatMessages,
   normalizeSearchMessage,
   pollFailureDelayMs,
   retryDelayMs,
+  selectOwnerControlMessages,
+  selectOwnerActivityMessages,
   selectInboundMessages,
   shouldRetryMessage,
   toLarkSearchIso,
@@ -62,6 +71,58 @@ const selfDirectMessage = {
     'om_direct',
     'om_self_chat',
   ]);
+}
+
+{
+  const externalFirst = { ...directMessage, message_id: 'om_external_first', create_time: '2026-07-29 22:34' };
+  const ownerLater = {
+    ...directMessage,
+    message_id: 'om_owner_later',
+    create_time: '2026-07-29 22:35',
+    owner_activity: true,
+    sender: { id: ownerOpenId, sender_type: 'user' },
+  };
+  assert.deepEqual([externalFirst, ownerLater].sort(comparePollingItems).map(item => item.message_id), [
+    'om_owner_later',
+    'om_external_first',
+  ]);
+}
+
+{
+  const ownerControls = selectOwnerControlMessages([
+    { ...groupMention, message_id: 'om_owner_pause', content: '数字人请退场', mentions: [],
+      sender: { id: ownerOpenId, sender_type: 'user' } },
+    { ...directMessage, message_id: 'om_owner_stop', content: '数字人停止。',
+      sender: { id: ownerOpenId, sender_type: 'user' } },
+    { ...groupMention, message_id: 'om_attacker_stop', content: '数字人停止', mentions: [],
+      sender: { id: 'ou_attacker', sender_type: 'user' } },
+    { ...groupMention, message_id: 'om_owner_question', content: '数字人停止后会怎么样', mentions: [],
+      sender: { id: ownerOpenId, sender_type: 'user' } },
+  ], ownerOpenId);
+  assert.deepEqual(ownerControls.map(item => item.message_id), [
+    'om_owner_pause',
+    'om_owner_stop',
+  ]);
+  assert.equal(ownerControls.every(item => item.operator_control === true), true);
+  assert.equal(normalizeSearchMessage(ownerControls[0]).metadata.operatorControl, true);
+}
+
+{
+  const ownerActivity = selectOwnerActivityMessages([
+    { ...groupMention, message_id: 'om_owner_manual', content: '我来跟他聊', mentions: [],
+      sender: { id: ownerOpenId, sender_type: 'user' } },
+    { ...directMessage, message_id: 'om_owner_stop_activity', content: '数字人停止',
+      sender: { id: ownerOpenId, sender_type: 'user' } },
+    { ...directMessage, message_id: 'om_other_activity', sender: { id: 'ou_other', sender_type: 'user' } },
+  ], ownerOpenId);
+  assert.deepEqual(ownerActivity.map(item => item.message_id), [
+    'om_owner_manual',
+    'om_owner_stop_activity',
+  ]);
+  assert.equal(ownerActivity[0].owner_activity, true);
+  assert.equal(ownerActivity[0].operator_control, false);
+  assert.equal(ownerActivity[1].operator_control, true);
+  assert.equal(normalizeSearchMessage(ownerActivity[0]).metadata.ownerActivity, true);
 }
 
 {
@@ -127,6 +188,17 @@ const selfDirectMessage = {
     'im', '+chat-messages-list', '--as', 'user', '--user-id', ownerOpenId,
   ]);
   assert.ok(selfArgs.includes('--no-reactions'));
+
+  const ownerControlArgs = buildOwnerControlPollingArgs(
+    ownerOpenId,
+    '2026-07-29T22:30:00+08:00',
+    '2026-07-29T22:35:00+08:00',
+  );
+  assert.deepEqual(ownerControlArgs.slice(0, 8), [
+    'im', '+messages-search', '--as', 'user', '--query', '', '--sender', ownerOpenId,
+  ]);
+  assert.equal(ownerControlArgs.includes('--is-at-me'), false);
+  assert.equal(ownerControlArgs.includes('--page-all'), true);
 }
 
 {

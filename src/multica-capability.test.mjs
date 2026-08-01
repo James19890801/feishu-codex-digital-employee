@@ -94,6 +94,7 @@ assert.equal(getResult.kind, 'reply');
 assert.match(getResult.text, /MYS-1/);
 assert.match(getResult.text, /待处理/);
 assert.match(getResult.text, /https:\/\/multica\.ai\/my-space\/issues\/MYS-1/);
+assert.doesNotMatch(getResult.text, /Prepare the launch\./);
 assert.deepEqual(subscriptions[0], {
   issueId: 'issue-1',
   chatId: 'chat-1',

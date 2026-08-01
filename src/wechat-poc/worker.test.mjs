@@ -19,8 +19,7 @@ const bridge = {
     return { scanned: 1, accepted: 1, secretText: '不得写入状态' };
   },
   async stop(reason) {
-    enabled = false;
-    return { enabled: false, reason };
+    return { enabled, reason };
   },
 };
 const controlStore = {
@@ -60,7 +59,7 @@ try {
 
   await worker.shutdown('SIGTERM');
   const stopped = JSON.parse(await readFile(statusPath, 'utf8'));
-  assert.equal(stopped.state, 'disabled');
+  assert.equal(stopped.control.enabled, true);
   assert.equal(stopped.lastAction, 'SIGTERM');
   console.log('WECHAT_POC_WORKER_TEST_OK');
 } finally {

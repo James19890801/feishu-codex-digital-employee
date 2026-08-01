@@ -38,6 +38,11 @@ try {
   assert.equal(enabled.updatedAt, fixedNow);
   assert.equal(enabled.reason, 'operator');
 
+  const restartedWhileEnabled = await store.advanceGeneration('worker_restart');
+  assert.equal(restartedWhileEnabled.enabled, true);
+  assert.equal(restartedWhileEnabled.generation, 2);
+  assert.equal(restartedWhileEnabled.reason, 'worker_restart');
+
   const fileInfo = await stat(join(directory, 'control.json'));
   assert.equal(fileInfo.mode & 0o777, 0o600);
   assert.deepEqual(
@@ -47,7 +52,7 @@ try {
 
   const restarted = await store.failClosed('worker_start');
   assert.equal(restarted.enabled, false);
-  assert.equal(restarted.generation, 2);
+  assert.equal(restarted.generation, 3);
   assert.equal(restarted.boundaryAt, fixedNow);
   assert.equal(restarted.reason, 'worker_start');
   assert.deepEqual(await store.read(), restarted);

@@ -17,6 +17,8 @@ assert.equal(matchOperatorCommand(''), null);
   assert.match(text, /群聊 @ 我/);
   assert.match(text, /单聊直接发送/);
   assert.match(text, /“状态”/);
+  assert.match(text, /数字人请退场/);
+  assert.match(text, /5 分钟/);
   assert.match(text, /Multica/);
   assert.match(text, /仅在这台 Mac/);
 }

@@ -1,3 +1,5 @@
+import { matchHumanTakeoverCommand } from './human-takeover.mjs';
+
 const CHANNEL_TARGET_PATTERN = /^(dingtalk|wecom|wechat):(group|user):(.+)$/;
 
 export function formatChannelChatId(channel, kind, id) {
@@ -58,6 +60,24 @@ export function buildDingTalkSelfPollingArgs(profile, userId, start) {
     '--user', String(userId || ''),
     '--time', String(start || ''),
     '--direction', 'newer',
+    '--limit', '50',
+    '--format', 'json',
+  ];
+}
+
+export function buildDingTalkConversationPollingArgs(profile, target, start) {
+  if (target?.channel !== 'dingtalk' || !['group', 'user'].includes(target?.kind)) {
+    throw new Error('A DingTalk group or user target is required for conversation polling');
+  }
+  const recipient = target.kind === 'group'
+    ? ['--group', String(target.id || '')]
+    : ['--open-dingtalk-id', String(target.id || '')];
+  return [
+    ...(profile ? ['--profile', profile] : []),
+    'chat', 'message', 'list',
+    ...recipient,
+    '--time', String(start || ''),
+    '--direction', 'older',
     '--limit', '50',
     '--format', 'json',
   ];
@@ -270,31 +290,36 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
   const isSelf = v1
     ? fromUser === selfWxid
     : data?.isSelf === true || fromUser === selfWxid;
-  if (!messageId || !fromUser || isSelf) return null;
+  if (!messageId || !fromUser) return null;
 
   const group = fromUser.endsWith('@chatroom') || toUser.endsWith('@chatroom');
   const groupId = fromUser.endsWith('@chatroom') ? fromUser : toUser;
   const parsedGroup = group ? splitGeWeGroupContent(rawContent) : null;
-  const senderId = group
+  if (isSelf && !matchHumanTakeoverCommand(rawContent)) return null;
+  const senderId = isSelf
+    ? selfWxid
+    : group
     ? String(
         (v1 ? '' : data?.senderWxid || data?.sender || data?.memberWxid)
         || parsedGroup?.senderId
         || '',
       ).trim()
     : fromUser;
-  if (!senderId || senderId === selfWxid) return null;
-  const mentioned = !group
+  if (!senderId || (!isSelf && senderId === selfWxid)) return null;
+  const mentioned = isSelf || !group
     || (v1
       ? geWeV1Mentioned(data?.MsgSource, selfWxid)
       : geWeV2Mentioned(data, selfWxid, mentionNames));
   if (!mentioned) return null;
-  const text = group ? parsedGroup.text : rawContent;
+  const text = isSelf ? rawContent : group ? parsedGroup.text : rawContent;
   if (!String(text).trim()) return null;
+  const targetId = group ? groupId : isSelf ? toUser : senderId;
+  if (!targetId) return null;
 
   return {
     message: {
       message_id: `wechat:${appId}:${messageId}`,
-      chat_id: formatChannelChatId('wechat', group ? 'group' : 'user', group ? groupId : senderId),
+      chat_id: formatChannelChatId('wechat', group ? 'group' : 'user', targetId),
       chat_type: group ? 'group' : 'p2p',
       message_type: 'text',
       create_time: normalizedTimestamp(v1 ? data?.CreateTime : data?.createTime),
@@ -308,6 +333,7 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
     metadata: {
       channel: 'wechat',
       appId,
+      ...(isSelf ? { ownerControlAuthenticated: true, operatorControl: true } : {}),
       callbackVersion: v1 ? 'v1' : 'v2',
     },
   };

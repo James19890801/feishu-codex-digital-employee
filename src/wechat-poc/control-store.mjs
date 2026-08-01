@@ -104,6 +104,19 @@ export class WeChatPocControlStore {
     });
   }
 
+  async advanceGeneration(reason = 'worker_boundary') {
+    const previous = await this.read();
+    const timestamp = this.now();
+    return this.write({
+      version: 1,
+      enabled: previous.enabled,
+      generation: previous.generation + 1,
+      boundaryAt: timestamp,
+      updatedAt: timestamp,
+      reason: String(reason || 'worker_boundary').slice(0, 120),
+    });
+  }
+
   async failClosed(reason = 'fail_closed') {
     return this.setEnabled(false, { reason });
   }

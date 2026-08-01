@@ -21,6 +21,7 @@ const responder = new WeChatPocResponder({
   state,
   personaText: 'PERSONA_TEST',
   bibleText: 'BIBLE_TEST',
+  privacyBoundaryText: 'PRIVACY_BOUNDARY_TEST',
   cwd: '/tmp/aipro-wechat-poc',
   model: 'gpt-test',
   timeoutMs: 30_000,
@@ -36,6 +37,7 @@ const reply = await responder.reply(event);
 assert.equal(reply.length, 3800);
 assert.match(calls[0].prompt, /PERSONA_TEST/);
 assert.match(calls[0].prompt, /BIBLE_TEST/);
+assert.match(calls[0].prompt, /PRIVACY_BOUNDARY_TEST/);
 assert.match(calls[0].prompt, /个人微信单聊/);
 assert.match(calls[0].prompt, /上次的问题/);
 assert.match(calls[0].prompt, /现在方便吗/);

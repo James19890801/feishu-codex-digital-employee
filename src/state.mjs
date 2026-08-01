@@ -365,7 +365,7 @@ export class AgentState {
   recordOutboundEcho(chatId, content, {
     messageId = '',
     now = new Date().toISOString(),
-    ttlMs = 120_000,
+    ttlMs = 10 * 60_000,
   } = {}) {
     const expiresAt = new Date(new Date(now).getTime() + Math.max(5_000, Number(ttlMs) || 120_000))
       .toISOString();
@@ -390,6 +390,21 @@ export class AgentState {
   cancelOutboundEcho(id) {
     return this.db.prepare('DELETE FROM outbound_echo WHERE id = ?')
       .run(Number(id)).changes === 1;
+  }
+
+  hasOutboundEcho(chatId, content, {
+    messageId = '',
+    now = new Date().toISOString(),
+  } = {}) {
+    this.db.prepare('DELETE FROM outbound_echo WHERE expires_at < ?').run(now);
+    const row = messageId
+      ? this.db.prepare(`SELECT id FROM outbound_echo
+          WHERE message_id = ? AND expires_at >= ? ORDER BY id LIMIT 1`)
+        .get(String(messageId), now)
+      : null;
+    return Boolean(row || this.db.prepare(`SELECT id FROM outbound_echo
+      WHERE chat_id = ? AND content_hash = ? AND expires_at >= ?
+      ORDER BY id LIMIT 1`).get(String(chatId || ''), outboundContentHash(content), now));
   }
 
   consumeOutboundEcho(chatId, content, {

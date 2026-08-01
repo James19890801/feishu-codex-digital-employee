@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { AiRuntimeClient, discoverAiRuntimes, selectAiRuntime } from '../ai-runtime.mjs';
 import { acquireSingletonLock } from '../singleton-lock.mjs';
+import { buildPrivacyBoundary } from '../privacy-boundary.mjs';
 import { WeChatPocBridge } from './bridge-core.mjs';
 import { WeChatPocControlStore } from './control-store.mjs';
 import { MacOsWeChatUiAdapter } from './macos-ui-adapter.mjs';
@@ -174,6 +175,9 @@ async function createDefaultWorker() {
     state,
     personaText,
     bibleText,
+    privacyBoundaryText: buildPrivacyBoundary({
+      ownerContactPhone: config.ownerContactPhone,
+    }),
     cwd: runtimeDirectory,
     model: runtime.id === 'codex' ? config.codexModel : '',
     timeoutMs: config.codexTimeoutMs,

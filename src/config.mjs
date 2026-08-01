@@ -21,6 +21,7 @@ export const config = {
   keychainService: raw.keychainService || 'codex-feishu-digital-employee',
   authorizedChatIds: raw.authorizedChatIds || [],
   allowAllChats: raw.allowAllChats === true,
+  ownerContactPhone: String(raw.ownerContactPhone || '').trim(),
   actionItemDocumentToken: raw.actionItemDocumentToken || '',
   digitalTwinLabel: raw.digitalTwinLabel ?? '【AI数字分身】',
   eventTransport: raw.eventTransport || 'lark-cli',
@@ -60,6 +61,7 @@ export const config = {
   aiRuntime: raw.aiRuntime || 'auto',
   dingtalkEnabled: raw.dingtalkEnabled === true,
   dingtalkProfile: raw.dingtalkProfile || '',
+  dingtalkOwnerOpenId: String(raw.dingtalkOwnerOpenId || '').trim(),
   dingtalkBin: raw.dingtalkBin || join(home, '.npm-global', 'bin', 'dws'),
   wecomEnabled: raw.wecomEnabled === true,
   wecomBotId: raw.wecomBotId || '',
@@ -110,6 +112,10 @@ if (!/^cli_[0-9a-fA-F]{16}$/.test(config.feishuAppId)) {
 if (!/^ou_[A-Za-z0-9]+$/.test(config.ownerOpenId)) {
   throw new Error('ownerOpenId 格式无效');
 }
+if (config.ownerContactPhone
+  && !/^\+?[0-9][0-9 ()-]{5,28}[0-9]$/.test(config.ownerContactPhone)) {
+  throw new Error('ownerContactPhone 格式无效');
+}
 if (config.codexProxyUrl) {
   const proxy = new URL(config.codexProxyUrl);
   if (!['http:', 'https:'].includes(proxy.protocol)) {
@@ -128,6 +134,10 @@ if (!['lark-cli', 'sdk'].includes(config.eventTransport)) {
 }
 if (!['auto', 'codex', 'qoder', 'codebuddy', 'trae'].includes(config.aiRuntime)) {
   throw new Error('aiRuntime 只能是 auto、codex、qoder、codebuddy 或 trae');
+}
+if (config.dingtalkOwnerOpenId
+  && !/^[A-Za-z0-9_-]{8,256}$/.test(config.dingtalkOwnerOpenId)) {
+  throw new Error('dingtalkOwnerOpenId 格式无效');
 }
 if (config.wecomEnabled && !config.wecomBotId) {
   throw new Error('启用 wecomEnabled 时必须填写 wecomBotId');

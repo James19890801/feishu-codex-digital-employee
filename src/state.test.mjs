@@ -97,10 +97,18 @@ try {
     ttlMs: 120_000,
   });
   state.attachOutboundMessageId(messageEchoId, 'dingtalk-message-1');
+  assert.equal(state.hasOutboundEcho('dingtalk:user:self', '内容可能被平台重写', {
+    messageId: 'dingtalk-message-1',
+    now: '2026-07-29T14:00:01.000Z',
+  }), true);
   assert.equal(state.consumeOutboundEcho('dingtalk:user:self', '内容可能被平台重写', {
     messageId: 'dingtalk-message-1',
     now: '2026-07-29T14:00:01.000Z',
   }), true);
+  assert.equal(state.hasOutboundEcho('dingtalk:user:self', '钉钉回复', {
+    messageId: 'dingtalk-message-1',
+    now: '2026-07-29T14:00:02.000Z',
+  }), false);
 
   const cancelledEchoId = state.recordOutboundEcho('oc_self', '发送失败', { now });
   assert.equal(state.cancelOutboundEcho(cancelledEchoId), true);

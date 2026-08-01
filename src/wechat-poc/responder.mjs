@@ -4,6 +4,7 @@ export class WeChatPocResponder {
     state,
     personaText,
     bibleText,
+    privacyBoundaryText = '',
     cwd,
     model = '',
     timeoutMs = 120_000,
@@ -15,6 +16,7 @@ export class WeChatPocResponder {
     this.state = state;
     this.personaText = String(personaText || '');
     this.bibleText = String(bibleText || '');
+    this.privacyBoundaryText = String(privacyBoundaryText || '');
     this.cwd = cwd;
     this.model = model;
     this.timeoutMs = timeoutMs;
@@ -42,6 +44,9 @@ ${this.personaText}
 
 数字员工 Bible：
 ${this.bibleText}
+
+全局隐私与决策底线：
+${this.privacyBoundaryText}
 
 当前入口：${context}
 

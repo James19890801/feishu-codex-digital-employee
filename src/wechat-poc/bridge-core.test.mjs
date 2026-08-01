@@ -152,7 +152,9 @@ try {
   assert.equal(maxActiveReplies, 1, 'POC replies must remain serialized in phase one');
 
   await bridge.stop('test_stop');
-  assert.equal((await controlStore.read()).enabled, false);
+  const stopped = await controlStore.read();
+  assert.equal(stopped.enabled, true, 'graceful restart must preserve the operator switch');
+  assert.equal(stopped.reason, 'test_stop');
   console.log('WECHAT_POC_BRIDGE_CORE_TEST_OK');
 } finally {
   state.close();
