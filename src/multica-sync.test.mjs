@@ -15,6 +15,7 @@ try {
     id: 'issue-1',
     workspace_id: 'ws-1',
     workspace_name: 'My Space',
+    workspace_slug: 'my-space',
     identifier: 'MYS-1',
     title: 'Commercial launch',
     description: 'Prepare the launch.',
@@ -31,9 +32,9 @@ try {
   const synchronizer = new MulticaSynchronizer({
     client: { listAllIssues: async () => structuredClone(issues) },
     state,
-    notify: async (chatId, text, idempotencyKey) => {
+    notify: async (chatId, text, idempotencyKey, recipient) => {
       if (chatId === failChat) throw new Error('temporary Feishu failure');
-      notices.push({ chatId, text, idempotencyKey });
+      notices.push({ chatId, text, idempotencyKey, recipient });
     },
     audit: (event, detail) => audits.push({ event, detail }),
   });
@@ -43,7 +44,7 @@ try {
   assert.equal(notices.length, 0);
 
   state.subscribeMulticaGlobal('chat-global', 'owner');
-  state.subscribeMulticaIssue('issue-1', 'chat-issue', 'user');
+  state.subscribeMulticaIssue('issue-1', 'chat-issue', 'user', { chatType: 'group' });
   state.subscribeMulticaIssue('issue-1', 'chat-global', 'another-user');
   issues = [{
     ...issue1,
@@ -57,6 +58,11 @@ try {
   assert.deepEqual(notices.map(item => item.chatId).sort(), ['chat-global', 'chat-issue']);
   assert.match(notices[0].text, /MYS-1/);
   assert.match(notices[0].text, /待处理 → 进行中/);
+  assert.match(notices[0].text, /https:\/\/multica\.ai\/my-space\/issues\/MYS-1/);
+  assert.deepEqual(
+    notices.find(item => item.chatId === 'chat-issue').recipient,
+    { senderId: 'user', chatType: 'group' },
+  );
 
   notices.length = 0;
   const unchanged = await synchronizer.cycle();

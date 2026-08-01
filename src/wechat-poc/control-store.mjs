@@ -76,6 +76,20 @@ export class WeChatPocControlStore {
     return control;
   }
 
+  async initialize({ enabledByDefault = false } = {}) {
+    const current = await this.read();
+    if (current.reason !== 'not_initialized') return current;
+    const timestamp = this.now();
+    return this.write({
+      version: 1,
+      enabled: enabledByDefault === true,
+      generation: 1,
+      boundaryAt: timestamp,
+      updatedAt: timestamp,
+      reason: enabledByDefault === true ? 'auto_enabled' : 'initialized_disabled',
+    });
+  }
+
   async setEnabled(enabled, { reason = 'operator' } = {}) {
     if (typeof enabled !== 'boolean') throw new Error('WeChat POC enabled must be boolean');
     const previous = await this.read();

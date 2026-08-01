@@ -8,9 +8,10 @@ const directory = await mkdtemp(join(tmpdir(), 'aipro-wechat-worker-'));
 const statusPath = join(directory, 'status.json');
 let resolveTick;
 let tickCalls = 0;
+let enabled = true;
 const bridge = {
   async initialize() {
-    return { version: 1, enabled: false, generation: 1, reason: 'worker_start' };
+    return { version: 1, enabled: true, generation: 1, reason: 'auto_enabled' };
   },
   async tick() {
     tickCalls += 1;
@@ -18,12 +19,13 @@ const bridge = {
     return { scanned: 1, accepted: 1, secretText: '不得写入状态' };
   },
   async stop(reason) {
+    enabled = false;
     return { enabled: false, reason };
   },
 };
 const controlStore = {
   async read() {
-    return { version: 1, enabled: false, generation: 1, reason: 'worker_start' };
+    return { version: 1, enabled, generation: 1, reason: enabled ? 'auto_enabled' : 'SIGTERM' };
   },
 };
 const state = {
@@ -40,8 +42,8 @@ const worker = new WeChatPocWorker({
 try {
   await worker.initialize();
   const initial = JSON.parse(await readFile(statusPath, 'utf8'));
-  assert.equal(initial.control.enabled, false);
-  assert.equal(initial.state, 'disabled');
+  assert.equal(initial.control.enabled, true);
+  assert.equal(initial.state, 'online');
 
   const first = worker.runOnce();
   const overlapping = await worker.runOnce();

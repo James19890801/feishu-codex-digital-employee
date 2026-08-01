@@ -230,6 +230,7 @@ async function collectStatus() {
     lastBackupError: null,
     lastAiRuntimeSuccessAt: '',
     lastAiRuntimeError: null,
+    selfChatCircuitLast: null,
     dingtalkChannel: {
       enabled: config.dingtalkEnabled,
       installed: existsSync(config.dingtalkBin),
@@ -288,6 +289,7 @@ async function collectStatus() {
         lastBackupError: parseSetting(db, 'health', 'last_database_backup_error', null),
         lastAiRuntimeSuccessAt: parseSetting(db, 'health', 'last_ai_runtime_success_at', ''),
         lastAiRuntimeError: parseSetting(db, 'health', 'last_ai_runtime_error', null),
+        selfChatCircuitLast: parseSetting(db, 'health', 'self_chat_circuit_last', null),
         dingtalkChannel: {
           ...defaults.dingtalkChannel,
           ...parseSetting(db, 'channel', 'dingtalk', {}),

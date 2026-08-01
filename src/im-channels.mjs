@@ -18,6 +18,28 @@ export function parseChannelChatId(chatId) {
   return { channel: match[1], kind: match[2], id: match[3] };
 }
 
+export function prepareGroupMention({ chatId, chatType, senderId, text }) {
+  const content = String(text || '');
+  if (chatType !== 'group') return { text: content, atOpenDingTalkIds: [] };
+  const target = parseChannelChatId(chatId);
+  if (target?.channel === 'dingtalk' && target.kind === 'group') {
+    const openDingTalkId = String(senderId || '').replace(/^dingtalk:/, '').trim();
+    if (!openDingTalkId) return { text: content, atOpenDingTalkIds: [] };
+    return {
+      text: `<@${openDingTalkId}>\n${content}`,
+      atOpenDingTalkIds: [openDingTalkId],
+    };
+  }
+  const openId = String(senderId || '').trim();
+  if (!target && /^ou_[A-Za-z0-9]+$/.test(openId)) {
+    return {
+      text: `<at user_id="${openId}">发起人</at>\n${content}`,
+      atOpenDingTalkIds: [],
+    };
+  }
+  return { text: content, atOpenDingTalkIds: [] };
+}
+
 export function buildDingTalkConsumerArgs(profile = '') {
   return [
     ...(profile ? ['--profile', profile] : []),
@@ -29,7 +51,21 @@ export function buildDingTalkConsumerArgs(profile = '') {
   ];
 }
 
-export function buildDingTalkSendArgs(target, text, uuid = '') {
+export function buildDingTalkSelfPollingArgs(profile, userId, start) {
+  return [
+    ...(profile ? ['--profile', profile] : []),
+    'chat', 'message', 'list',
+    '--user', String(userId || ''),
+    '--time', String(start || ''),
+    '--direction', 'newer',
+    '--limit', '50',
+    '--format', 'json',
+  ];
+}
+
+export function buildDingTalkSendArgs(target, text, uuid = '', {
+  atOpenDingTalkIds = [],
+} = {}) {
   if (target?.channel !== 'dingtalk') {
     throw new Error('DingTalk sender received a non-DingTalk target');
   }
@@ -45,6 +81,11 @@ export function buildDingTalkSendArgs(target, text, uuid = '') {
     '--text', String(text || ''),
     '--ai-tag=false',
   ];
+  const mentionIds = target.kind === 'group'
+    ? [...new Set(atOpenDingTalkIds.map(value => String(value || '').trim()).filter(Boolean))]
+      .slice(0, 20)
+    : [];
+  if (mentionIds.length) args.push('--at-open-dingtalk-ids', mentionIds.join(','));
   if (uuid) args.push('--uuid', String(uuid).slice(0, 128));
   args.push('--yes', '--format', 'json');
   return args;
@@ -92,6 +133,42 @@ export function normalizeDingTalkEvent(event) {
       eventType: type,
     },
   };
+}
+
+export function normalizeDingTalkSelfMessages(result) {
+  const root = result?.result || result?.data || result || {};
+  const messages = Array.isArray(root) ? root : (root.messages || root.items || []);
+  return (Array.isArray(messages) ? messages : []).flatMap(item => {
+    const messageId = String(item?.openMessageId || item?.messageId || item?.message_id || '').trim();
+    const senderId = String(
+      item?.senderOpenDingTalkId || item?.sender_open_dingtalk_id || '',
+    ).trim();
+    const content = String(item?.content || item?.text || '').trim();
+    if (!messageId || !senderId || !content) return [];
+    return [{
+      message: {
+        message_id: `dingtalk:${messageId}`,
+        chat_id: formatChannelChatId('dingtalk', 'user', senderId),
+        chat_type: 'p2p',
+        message_type: 'text',
+        create_time: normalizedTimestamp(item?.createTime || item?.create_time),
+        content: JSON.stringify({ text: content }),
+        mentions: [],
+      },
+      sender: {
+        sender_type: 'user',
+        sender_id: { open_id: `dingtalk:${senderId}` },
+      },
+      metadata: {
+        channel: 'dingtalk',
+        selfChat: true,
+        source: 'self-poll',
+        conversationId: String(
+          item?.openConversationId || item?.open_conversation_id || '',
+        ),
+      },
+    }];
+  });
 }
 
 function weComText(body) {

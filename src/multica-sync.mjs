@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { multicaIssueUrl } from './multica-links.mjs';
 
 const STATUS_LABELS = {
   backlog: '需求池',
@@ -54,8 +55,9 @@ function notificationKey(issue, chatId) {
   return `multica-sync-${digest}`;
 }
 
-export function formatMulticaChange(change) {
+export function formatMulticaChange(change, { appUrl } = {}) {
   const issue = change.after;
+  const link = multicaIssueUrl(issue, appUrl);
   const workspace = issue.workspace_name ? ` · ${issue.workspace_name}` : '';
   if (change.isNew) {
     return [
@@ -63,6 +65,7 @@ export function formatMulticaChange(change) {
       issue.title || '未命名 Issue',
       `状态：${STATUS_LABELS[issue.status] || issue.status || '未设置'}`,
       `优先级：${PRIORITY_LABELS[issue.priority] || issue.priority || '未设置'}`,
+      ...(link ? [`查看：${link}`] : []),
     ].join('\n');
   }
   const lines = change.changedFields.map(field => {
@@ -75,6 +78,7 @@ export function formatMulticaChange(change) {
     `Multica Issue 更新：${issue.identifier}${workspace}`,
     issue.title || change.before?.title || '未命名 Issue',
     ...lines,
+    ...(link ? [`查看：${link}`] : []),
   ].join('\n');
 }
 
@@ -85,6 +89,7 @@ export class MulticaSynchronizer {
     notify,
     audit = () => {},
     maxNotificationAttempts = 10,
+    appUrl,
   }) {
     this.client = client;
     this.state = state;
@@ -94,6 +99,7 @@ export class MulticaSynchronizer {
       1,
       Math.min(50, Number(maxNotificationAttempts) || 10),
     );
+    this.appUrl = appUrl;
   }
 
   async deliverNotifications(now = new Date()) {
@@ -103,7 +109,10 @@ export class MulticaSynchronizer {
     const due = this.state.listDueMulticaNotifications(now.toISOString(), 200);
     for (const item of due) {
       try {
-        await this.notify(item.chatId, item.content, item.notificationKey);
+        await this.notify(item.chatId, item.content, item.notificationKey, {
+          senderId: item.senderId,
+          chatType: item.chatType,
+        });
         this.state.completeMulticaNotification(item.notificationKey);
         notified += 1;
       } catch (error) {
@@ -155,14 +164,15 @@ export class MulticaSynchronizer {
       const issueSubscribers = change.isNew
         ? []
         : this.state.multicaIssueSubscribers(change.after.id);
-      const recipients = uniqueRecipients([...globalSubscribers, ...issueSubscribers]);
-      const message = formatMulticaChange(change);
+      const recipients = uniqueRecipients([...issueSubscribers, ...globalSubscribers]);
+      const message = formatMulticaChange(change, { appUrl: this.appUrl });
       for (const recipient of recipients) {
         this.state.enqueueMulticaNotification({
           notificationKey: notificationKey(change.after, recipient.chatId),
           issueId: change.after.id,
           chatId: recipient.chatId,
           senderId: recipient.senderId,
+          chatType: recipient.chatType,
           content: message,
           availableAt: now.toISOString(),
         });

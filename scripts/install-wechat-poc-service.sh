@@ -39,4 +39,4 @@ chmod 600 "$PLIST"
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 launchctl kickstart "gui/$(id -u)/$LABEL"
-echo "Installed $LABEL (auto-reply remains fail-closed)."
+echo "Installed $LABEL (first install auto-connects; emergency-stop state persists)."

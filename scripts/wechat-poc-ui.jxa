@@ -43,18 +43,19 @@ function findWeChatProcess(systemEvents) {
 }
 
 function capabilityProbe() {
-  if (screenLocked()) {
+  const locked = screenLocked();
+  const systemEvents = Application('System Events');
+  const process = findWeChatProcess(systemEvents);
+  if (locked) {
     return {
       ok: false,
       available: false,
       reason: 'screen_locked',
-      clientRunning: false,
-      permissionGranted: false,
+      clientRunning: Boolean(process),
+      permissionGranted: null,
       screenUnlocked: false,
     };
   }
-  const systemEvents = Application('System Events');
-  const process = findWeChatProcess(systemEvents);
   if (!process) {
     return {
       ok: false,
@@ -113,13 +114,163 @@ function ensureWindowVisible() {
   if (!process) throw new Error('client_not_running');
   const windows = process.windows();
   if (!windows.length) throw new Error('wechat_window_unavailable');
+  let main = windows[0];
+  for (let index = 0; index < windows.length; index += 1) {
+    try {
+      const name = String(windows[index].name() || '');
+      const size = windows[index].size();
+      if ((name === '微信' || name === 'WeChat')
+          && Number(size[0]) >= 500 && Number(size[1]) >= 300) {
+        main = windows[index];
+        break;
+      }
+    } catch (error) {}
+  }
   try {
-    const minimized = windows[0].attributes.byName('AXMinimized');
+    const minimized = main.attributes.byName('AXMinimized');
     if (minimized.value() === true) minimized.value = false;
   } catch (error) {
     // The window may already be visible or the client may not expose this attribute.
   }
   try { process.frontmost = true; } catch (error) {}
+  try { main.actions.byName('AXRaise').perform(); } catch (error) {}
+}
+
+function normalizedStaticTexts(element, depth, result) {
+  if (depth > 12) return;
+  let role = '';
+  try { role = String(element.role() || ''); } catch (error) {}
+  if (role === 'AXStaticText') {
+    try {
+      const value = String(element.value() || '').trim();
+      if (value) result.push(value);
+    } catch (error) {}
+  }
+  let children = [];
+  try { children = element.uiElements(); } catch (error) {}
+  for (let index = 0; index < children.length; index += 1) {
+    normalizedStaticTexts(children[index], depth + 1, result);
+  }
+}
+
+function notificationGroups(element, depth, result) {
+  if (depth > 12) return;
+  let subrole = '';
+  try { subrole = String(element.subrole() || ''); } catch (error) {}
+  if (subrole === 'AXNotificationCenterBanner' || subrole === 'AXNotificationCenterBannerStack') {
+    result.push(element);
+    return;
+  }
+  let children = [];
+  try { children = element.uiElements(); } catch (error) {}
+  for (let index = 0; index < children.length; index += 1) {
+    notificationGroups(children[index], depth + 1, result);
+  }
+}
+
+function weChatDockHasUnread(systemEvents) {
+  try {
+    const dock = systemEvents.applicationProcesses.byName('Dock');
+    const stack = dock.uiElements().slice();
+    while (stack.length) {
+      const element = stack.pop();
+      let title = '';
+      try { title = String(element.title() || ''); } catch (error) {}
+      if (title === '微信' || title === 'WeChat') {
+        try {
+          const label = element.attributes.byName('AXStatusLabel').value();
+          return label !== null && String(label || '').trim().length > 0;
+        } catch (error) { return false; }
+      }
+      try {
+        const children = element.uiElements();
+        for (let index = 0; index < children.length; index += 1) stack.push(children[index]);
+      } catch (error) {}
+    }
+  } catch (error) {}
+  return false;
+}
+
+function notificationObservation(group, boundaryAt) {
+  const texts = [];
+  normalizedStaticTexts(group, 0, texts);
+  const useful = texts.filter(function(value) {
+    return !/^\d{1,2}:\d{2}$/.test(value) && !/^(?:微信|WeChat)$/.test(value);
+  });
+  if (useful.length < 2) return null;
+  const title = useful[0].trim();
+  const rawBody = useful.slice(1).join('\n').trim();
+  if (!title || !rawBody) return null;
+  const senderMatch = /^([^:：\n]{1,80})[:：]\s*([\s\S]+)$/.exec(rawBody);
+  const groupConversation = Boolean(senderMatch) || /群$/.test(title);
+  const senderName = groupConversation && senderMatch ? senderMatch[1].trim() : title;
+  const text = groupConversation && senderMatch ? senderMatch[2].trim() : rawBody;
+  const mentionedSelf = groupConversation
+    && /(?:[@＠](?:James|詹老师)|\[有人@我\]|有人@我)/i.test(rawBody);
+  let identifier = '';
+  try { identifier = String(group.attributes.byName('AXIdentifier').value() || ''); } catch (error) {}
+  const observedAt = new Date().toISOString();
+  return {
+    sourceMessageId: identifier || [title, rawBody, texts[texts.length - 1] || observedAt].join('|'),
+    conversationKind: groupConversation ? 'group' : 'direct',
+    conversationTitle: title,
+    senderName: senderName,
+    direction: 'incoming',
+    contentType: 'text',
+    text: text,
+    mentionedSelf: mentionedSelf,
+    observedAt: observedAt,
+    messageAt: observedAt,
+  };
+}
+
+function scanNotifications(payload) {
+  const systemEvents = Application('System Events');
+  if (!weChatDockHasUnread(systemEvents)) {
+    return { ok: true, available: true, observations: [], source: 'notification_center' };
+  }
+  const process = systemEvents.applicationProcesses.byName('NotificationCenter');
+  const groups = [];
+  try {
+    const windows = process.windows();
+    for (let index = 0; index < windows.length; index += 1) {
+      notificationGroups(windows[index], 0, groups);
+    }
+  } catch (error) {
+    return { ok: false, available: false, reason: 'notification_center_permission_missing', observations: [] };
+  }
+  const seen = {};
+  const observations = [];
+  for (let index = 0; index < groups.length; index += 1) {
+    const observation = notificationObservation(groups[index], payload.boundaryAt);
+    if (!observation || seen[observation.sourceMessageId]) continue;
+    seen[observation.sourceMessageId] = true;
+    observations.push(observation);
+  }
+  return { ok: true, available: true, observations: observations, source: 'notification_center' };
+}
+
+function searchTarget(payload) {
+  ensureWindowVisible();
+  const title = String(payload.conversationTitle || '').trim();
+  if (!title) throw new Error('missing_target_title');
+  const app = Application.currentApplication();
+  app.includeStandardAdditions = true;
+  const systemEvents = Application('System Events');
+  systemEvents.keyCode(53);
+  app.delay(0.12);
+  systemEvents.keystroke('f', { using: ['command down'] });
+  app.delay(0.3);
+  systemEvents.keystroke('a', { using: ['command down'] });
+  let previous = null;
+  try { previous = app.theClipboard(); } catch (error) {}
+  app.setTheClipboardTo(title);
+  systemEvents.keystroke('v', { using: ['command down'] });
+  app.delay(1.2);
+  systemEvents.keyCode(36);
+  app.delay(0.45);
+  if (typeof previous === 'string') app.setTheClipboardTo(previous);
+  return { ok: true, searched: true, conversationTitle: title };
 }
 
 function currentAnalysis(payload) {
@@ -316,6 +467,8 @@ function insertText(payload) {
   try { previous = app.theClipboard(); } catch (error) {}
   app.setTheClipboardTo(String(payload.text || ''));
   const systemEvents = Application('System Events');
+  systemEvents.keystroke('a', { using: ['command down'] });
+  systemEvents.keyCode(51);
   systemEvents.keystroke('v', { using: ['command down'] });
   shell('/bin/sleep 0.15');
   if (typeof previous === 'string') app.setTheClipboardTo(previous);
@@ -334,6 +487,11 @@ function clearText(payload) {
 
 function sendMessage(payload) {
   ensureWindowVisible();
+  const proof = payload.targetProof || {};
+  if (Number(proof.itemType) !== 3 || Number(proof.moduleType) !== 2
+      || new Date().getTime() - Number(proof.selectedAt || 0) > 8000) {
+    return { ok: false, sent: false, uncertain: true, reason: 'target_proof_expired' };
+  }
   const systemEvents = Application('System Events');
   systemEvents.keyCode(36);
   shell('/bin/sleep 0.35');
@@ -361,6 +519,8 @@ function run(argv) {
       shell('/bin/sleep 0.45');
       return output({ ok: true, available: true });
     }
+    if (action === 'scan-notifications') return output(scanNotifications(payload));
+    if (action === 'search-target') return output(searchTarget(payload));
     if (action === 'scan') return output(scan(payload));
     if (action === 'resolve-target') return output(resolveTarget(payload));
     if (action === 'verify-target') return output(verifyTarget(payload));

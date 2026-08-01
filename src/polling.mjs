@@ -12,7 +12,9 @@ export function selectInboundMessages(messages, ownerOpenId) {
   return (Array.isArray(messages) ? messages : [])
     .filter(message => {
       if (!message?.message_id || seen.has(message.message_id) || message.deleted) return false;
-      if (message.sender?.sender_type !== 'user' || message.sender?.id === ownerOpenId) return false;
+      if (message.sender?.sender_type !== 'user') return false;
+      if (message.sender?.id === ownerOpenId
+        && !(message.chat_type === 'p2p' && message.self_chat === true)) return false;
       if (!['text', 'post'].includes(message.msg_type || 'text')) return false;
       if (message.chat_type === 'group') {
         if (!message.mentions?.some(mention => mention?.id === ownerOpenId)) return false;
@@ -28,7 +30,7 @@ export function selectInboundMessages(messages, ownerOpenId) {
 }
 
 export function normalizeSearchMessage(item) {
-  return {
+  const payload = {
     message: {
       message_id: item.message_id,
       chat_id: item.chat_id,
@@ -43,6 +45,8 @@ export function normalizeSearchMessage(item) {
       sender_id: { open_id: item.sender?.id || '' },
     },
   };
+  if (item.self_chat === true) payload.metadata = { selfChat: true };
+  return payload;
 }
 
 export function toLarkSearchIso(date) {
@@ -59,6 +63,23 @@ export function buildPollingSearchArgs(chatType, start, end) {
   ];
   if (chatType === 'group') args.push('--is-at-me');
   return args;
+}
+
+export function buildSelfChatPollingArgs(ownerOpenId, start, end) {
+  return [
+    'im', '+chat-messages-list', '--as', 'user', '--user-id', ownerOpenId,
+    '--start', start, '--end', end,
+    '--order', 'asc', '--page-size', '50', '--no-reactions', '--format', 'json',
+  ];
+}
+
+export function markSelfChatMessages(result) {
+  const messages = result?.data?.messages || result?.messages || [];
+  return (Array.isArray(messages) ? messages : []).map(message => ({
+    ...message,
+    chat_type: 'p2p',
+    self_chat: true,
+  }));
 }
 
 export function retryDelayMs(attempts) {

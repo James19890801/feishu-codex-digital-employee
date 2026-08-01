@@ -78,6 +78,7 @@ export const config = {
     : [],
   multicaEnabled: raw.multicaEnabled === true,
   multicaProfile: raw.multicaProfile || 'desktop-api.multica.ai',
+  multicaAppUrl: raw.multicaAppUrl || 'https://multica.ai',
   multicaDefaultWorkspaceId: raw.multicaDefaultWorkspaceId || '',
   multicaSyncIntervalMs: boundedInteger(raw.multicaSyncIntervalMs, {
     name: 'multicaSyncIntervalMs', fallback: 10000, min: 5000, max: 300000,
@@ -113,6 +114,13 @@ if (config.codexProxyUrl) {
   const proxy = new URL(config.codexProxyUrl);
   if (!['http:', 'https:'].includes(proxy.protocol)) {
     throw new Error('codexProxyUrl 只能使用 http 或 https');
+  }
+}
+{
+  const multicaAppUrl = new URL(config.multicaAppUrl);
+  if (!['http:', 'https:'].includes(multicaAppUrl.protocol)
+    || multicaAppUrl.username || multicaAppUrl.password) {
+    throw new Error('multicaAppUrl 只能使用 http 或 https，且不能包含账号密码');
   }
 }
 if (!['lark-cli', 'sdk'].includes(config.eventTransport)) {

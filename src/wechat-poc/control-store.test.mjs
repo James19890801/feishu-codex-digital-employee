@@ -18,6 +18,15 @@ try {
     reason: 'not_initialized',
   });
 
+  const initialized = await store.initialize({ enabledByDefault: true });
+  assert.equal(initialized.enabled, true);
+  assert.equal(initialized.generation, 1);
+  assert.equal(initialized.boundaryAt, fixedNow);
+  assert.equal(initialized.reason, 'auto_enabled');
+
+  const preserved = await store.initialize({ enabledByDefault: true });
+  assert.deepEqual(preserved, initialized, 'restart must preserve the operator switch');
+
   await writeFile(join(directory, 'control.json'), '{bad json', { mode: 0o600 });
   assert.equal((await store.read()).enabled, false);
   assert.equal((await store.read()).reason, 'invalid_control_state');

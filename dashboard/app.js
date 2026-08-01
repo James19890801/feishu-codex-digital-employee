@@ -380,7 +380,7 @@ async function postWeChatPoc(path, action, body = {}) {
 
 async function toggleWeChatPoc(event) {
   const enabled = event.target.checked;
-  if (enabled && !window.confirm('确认启用个人微信自动回复？单聊全部回复，群聊仅明确 @，仅处理文本。该功能重启后默认关闭，可随时紧急停止。')) {
+  if (enabled && !window.confirm('确认恢复个人微信自动回复？单聊全部回复，群聊仅明确 @，仅处理文本。启用状态会跨重启保留，可随时紧急停止。')) {
     event.target.checked = false;
     return;
   }

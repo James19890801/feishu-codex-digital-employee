@@ -24,6 +24,10 @@ import {
   tokenFromSearchResult,
 } from './knowledge.mjs';
 import { AgentState } from './state.mjs';
+import {
+  hasSelfChatOutboundMarker,
+  markSelfChatOutbound,
+} from './self-chat-guard.mjs';
 import { decideWorkflow, workflowInstruction } from './bible.mjs';
 import { PendingActionStore } from './pending-actions.mjs';
 import { rotateLogIfNeeded } from './log-maintenance.mjs';
@@ -37,6 +41,8 @@ import {
 } from './event-consumer.mjs';
 import {
   buildPollingSearchArgs,
+  buildSelfChatPollingArgs,
+  markSelfChatMessages,
   normalizeSearchMessage,
   pollFailureDelayMs,
   retryDelayMs,
@@ -79,6 +85,11 @@ import {
 import { MulticaCapability } from './multica-capability.mjs';
 import { MulticaSynchronizer } from './multica-sync.mjs';
 import {
+  MulticaWorkLifecycle,
+  parseMulticaWorkRequest,
+} from './multica-work-lifecycle.mjs';
+import { multicaIssueUrl } from './multica-links.mjs';
+import {
   MutationOutcomeAmbiguousError,
   executeMutationOnce,
 } from './mutation-execution.mjs';
@@ -88,7 +99,10 @@ import {
   selectAiRuntime,
 } from './ai-runtime.mjs';
 import {
+  buildDingTalkSelfPollingArgs,
+  normalizeDingTalkSelfMessages,
   parseChannelChatId,
+  prepareGroupMention,
 } from './im-channels.mjs';
 import {
   DingTalkChannel,
@@ -159,14 +173,31 @@ const MULTICA_CLIENT = config.multicaEnabled
     })
   : null;
 const MULTICA_CAPABILITY = MULTICA_CLIENT
-  ? new MulticaCapability({ client: MULTICA_CLIENT, state })
+  ? new MulticaCapability({
+      client: MULTICA_CLIENT,
+      state,
+      appUrl: config.multicaAppUrl,
+    })
+  : null;
+const MULTICA_WORK_LIFECYCLE = MULTICA_CLIENT
+  ? new MulticaWorkLifecycle({ client: MULTICA_CLIENT, state })
   : null;
 const MULTICA_SYNCHRONIZER = MULTICA_CLIENT
   ? new MulticaSynchronizer({
       client: MULTICA_CLIENT,
       state,
-      notify: (chatId, text, idempotencyKey) => sendText(null, chatId, text, idempotencyKey),
+      notify: (chatId, text, idempotencyKey, recipient) => sendText(
+        null,
+        chatId,
+        text,
+        idempotencyKey,
+        {
+          mentionSenderId: recipient?.senderId || '',
+          chatType: recipient?.chatType || '',
+        },
+      ),
       audit: (event, detail) => state.audit(event, { detail }),
+      appUrl: config.multicaAppUrl,
     })
   : null;
 let stopping = false;
@@ -176,6 +207,7 @@ let activeSdkWsClient = null;
 let drainPromise = null;
 let multicaSyncPromise = null;
 let dingTalkSupervisorPromise = null;
+let dingTalkSelfPollingPromise = null;
 let geWeMonitorPromise = null;
 let businessClient = null;
 let sdkAppSecret = '';
@@ -280,6 +312,46 @@ async function runLarkCli(args, options = {}) {
 function labelDigitalTwin(text) {
   if (!DIGITAL_TWIN_LABEL) return text;
   return text.startsWith(DIGITAL_TWIN_LABEL) ? text : `${DIGITAL_TWIN_LABEL}\n${text}`;
+}
+
+function outboundMessageId(result, depth = 0) {
+  if (!result || typeof result !== 'object' || depth > 5) return '';
+  for (const key of ['message_id', 'messageId', 'msg_id', 'msgId']) {
+    if (typeof result[key] === 'string' && result[key].trim()) return result[key].trim();
+  }
+  for (const value of Object.values(result)) {
+    const found = outboundMessageId(value, depth + 1);
+    if (found) return found;
+  }
+  return '';
+}
+
+async function sendWithEchoGuard(chatId, text, operation) {
+  const echoId = state.recordOutboundEcho(chatId, text);
+  try {
+    const result = await operation();
+    const messageId = outboundMessageId(result);
+    if (messageId) {
+      state.attachOutboundMessageId(echoId, messageId);
+      state.seedInbound(messageId, 'outbound-send', {
+        message: {
+          message_id: messageId,
+          chat_id: chatId,
+          chat_type: 'p2p',
+          message_type: 'text',
+          create_time: String(Date.now()),
+          content: JSON.stringify({ text }),
+          mentions: [],
+        },
+        sender: { sender_type: 'user', sender_id: { open_id: OWNER_OPEN_ID } },
+        metadata: { outbound: true },
+      });
+    }
+    return result;
+  } catch (error) {
+    state.cancelOutboundEcho(echoId);
+    throw error;
+  }
 }
 
 async function sendFile(client, chatId, path, uuid) {
@@ -477,26 +549,64 @@ function formatTaskTime(date) {
   }).format(date);
 }
 
-async function sendText(client, chatId, text, uuid) {
+async function sendText(client, chatId, text, uuid, {
+  mentionSenderId = '',
+  chatType = '',
+} = {}) {
+  let outboundText = String(text || '');
+  if (state.isSelfChat(chatId)) {
+    const circuit = state.claimSelfChatOutbound(chatId);
+    if (!circuit.allowed) {
+      state.set('health', 'self_chat_circuit_last', {
+        chatId,
+        openUntilMs: circuit.openUntilMs,
+        trippedAt: new Date().toISOString(),
+      });
+      state.audit('self_chat_circuit_open', {
+        chatId,
+        detail: {
+          tripped: circuit.tripped,
+          openUntilMs: circuit.openUntilMs,
+          uuid: String(uuid || '').slice(0, 100),
+        },
+      });
+      console.error(`[self-chat-circuit] suppressed outbound message for ${chatId}`);
+      return { suppressed: true, reason: 'self_chat_circuit_open' };
+    }
+    outboundText = markSelfChatOutbound(outboundText);
+  }
+  const mention = prepareGroupMention({
+    chatId,
+    chatType,
+    senderId: mentionSenderId,
+    text: outboundText,
+  });
+  outboundText = mention.text;
   const target = parseChannelChatId(chatId);
   if (target?.channel === 'dingtalk') {
     if (!dingTalkChannel) throw new Error('DingTalk channel is not available');
-    return dingTalkChannel.send(target, text, uuid);
+    if (target.kind !== 'user') {
+      return dingTalkChannel.send(target, outboundText, uuid, {
+        atOpenDingTalkIds: mention.atOpenDingTalkIds,
+      });
+    }
+    return sendWithEchoGuard(chatId, outboundText, () => dingTalkChannel.send(target, outboundText, uuid));
   }
   if (target?.channel === 'wecom') {
     if (!weComChannel) throw new Error('WeCom channel is not available');
-    return weComChannel.send(target, text, uuid);
+    return weComChannel.send(target, outboundText, uuid);
   }
   if (target?.channel === 'wechat') {
     if (!geWeChannel) throw new Error('Personal WeChat channel is not available');
-    return geWeChannel.send(target, text);
+    return geWeChannel.send(target, outboundText);
   }
+  const labeledText = labelDigitalTwin(outboundText);
   const args = [
     'im', '+messages-send', '--as', 'user', '--chat-id', chatId,
-    '--text', labelDigitalTwin(text), '--format', 'json',
+    '--text', labeledText, '--format', 'json',
   ];
   if (uuid) args.push('--idempotency-key', uuid.slice(0, 50));
-  await runLarkCli(args);
+  return sendWithEchoGuard(chatId, labeledText, () => runLarkCli(args));
 }
 
 async function createConfirmedTask(client, draft) {
@@ -807,6 +917,7 @@ async function applyPendingMultica(message, senderOpenId, cleanText) {
       operation: () => MULTICA_CAPABILITY.applyMutation(pending.pending, {
         chatId: message.chat_id,
         senderId: senderOpenId,
+        chatType: message.chat_type,
       }),
       definitelyNotApplied: error => /changed after the preview/i.test(
         String(error?.message || ''),
@@ -862,6 +973,7 @@ async function handleMulticaRequest(message, senderOpenId, cleanText) {
     const result = await MULTICA_CAPABILITY.execute(plan, {
       chatId: message.chat_id,
       senderId: senderOpenId,
+      chatType: message.chat_type,
     });
     remember(message.chat_id, senderOpenId, 'user', cleanText);
     remember(message.chat_id, senderOpenId, 'assistant', result.text);
@@ -876,6 +988,7 @@ async function handleMulticaRequest(message, senderOpenId, cleanText) {
   const prepared = await MULTICA_CAPABILITY.prepareMutation(plan, {
     chatId: message.chat_id,
     senderId: senderOpenId,
+    chatType: message.chat_type,
   });
   const confirmationCode = plan.confirmationLevel === 'double'
     ? String(randomInt(100000, 1000000))
@@ -896,6 +1009,85 @@ async function handleMulticaRequest(message, senderOpenId, cleanText) {
   audit('multica_mutation_previewed', message, senderOpenId, {
     action: plan.action,
     confirmationLevel: plan.confirmationLevel,
+  });
+  return true;
+}
+
+async function handleMulticaWorkRequest(message, senderOpenId, request, decision) {
+  if (!MULTICA_WORK_LIFECYCLE) {
+    await sendText(
+      null,
+      message.chat_id,
+      'Multica 任务生命周期能力还没有启用。',
+      `multica-work-disabled-${message.message_id}`,
+    );
+    return true;
+  }
+  const context = {
+    chatId: message.chat_id,
+    senderId: senderOpenId,
+    chatType: message.chat_type,
+  };
+  const history = formatHistory(message.chat_id, senderOpenId);
+  audit('multica_work_requested', message, senderOpenId, {
+    issue: request.issue,
+    task: request.task.slice(0, 500),
+  });
+  const result = await MULTICA_WORK_LIFECYCLE.run({
+    reference: request.issue,
+    context,
+    onStarted: async issue => {
+      await sendText(
+        null,
+        message.chat_id,
+        `${issue.identifier} 已开始执行，状态已自动更新为“进行中”。`
+          + `${multicaIssueUrl(issue, config.multicaAppUrl)
+            ? `\n查看：${multicaIssueUrl(issue, config.multicaAppUrl)}` : ''}`,
+        `multica-work-started-${message.message_id}`,
+      );
+      audit('multica_work_started', message, senderOpenId, {
+        issueId: issue.id,
+        identifier: issue.identifier,
+      });
+    },
+    execute: () => runCodex(
+      `你正在执行 Multica Issue ${request.issue} 对应的工作。\n\n具体任务：${request.task}\n\n请直接交付可发送给当前用户的最终结果；没有完成任务所需的关键信息时，明确说明缺少什么，不得假装已经完成。`,
+      history,
+      [],
+      decision,
+    ),
+    deliver: async answer => {
+      remember(message.chat_id, senderOpenId, 'user', `处理 ${request.issue}：${request.task}`);
+      remember(message.chat_id, senderOpenId, 'assistant', answer);
+      await sendText(
+        null,
+        message.chat_id,
+        answer,
+        `multica-work-result-${message.message_id}`,
+      );
+    },
+  });
+  if (result.outcome === 'completed') {
+    audit('multica_work_completed', message, senderOpenId, {
+      issueId: result.issue.id,
+      identifier: result.issue.identifier,
+      answerChars: result.answer.length,
+    });
+    return true;
+  }
+  const error = processFailureSummary(result.error);
+  await sendText(
+    null,
+    message.chat_id,
+    `${result.issue.identifier || request.issue} 执行受阻，状态已自动更新为“受阻”。\n原因：${error}`
+      + `${multicaIssueUrl(result.issue, config.multicaAppUrl)
+        ? `\n查看：${multicaIssueUrl(result.issue, config.multicaAppUrl)}` : ''}`,
+    `multica-work-blocked-${message.message_id}`,
+  );
+  audit('multica_work_blocked', message, senderOpenId, {
+    issueId: result.issue.id,
+    identifier: result.issue.identifier,
+    error,
   });
   return true;
 }
@@ -1037,6 +1229,30 @@ async function processIncoming(client, message, sender) {
     }
   }
   if (await applyPendingMultica(message, senderOpenId, cleanText)) return;
+  const multicaWorkRequest = parseMulticaWorkRequest(cleanText);
+  if (multicaWorkRequest) {
+    try {
+      await handleMulticaWorkRequest(
+        message,
+        senderOpenId,
+        multicaWorkRequest,
+        decision,
+      );
+    } catch (error) {
+      console.error(`[multica-work-error] ${message.message_id}:`, error);
+      await sendText(
+        null,
+        message.chat_id,
+        `Multica 任务没有启动：${processFailureSummary(error)}`,
+        `multica-work-error-${message.message_id}`,
+      );
+      audit('multica_work_failed', message, senderOpenId, {
+        issue: multicaWorkRequest.issue,
+        error: String(error?.message || error).slice(0, 1000),
+      });
+    }
+    return;
+  }
   if (looksLikeMulticaRequest(cleanText)) {
     try {
       await handleMulticaRequest(message, senderOpenId, cleanText);
@@ -1370,9 +1586,48 @@ function enqueueInbound(payload, source) {
     });
     return false;
   }
-  if (state.hasInbound(messageId)) return false;
   const senderOpenId = payload.sender?.sender_id?.open_id || '';
-  const rateLimited = senderOpenId !== OWNER_OPEN_ID && !state.consumeRateLimit(
+  const selfChat = payload.metadata?.selfChat === true;
+  if (selfChat) state.markSelfChat(payload.message.chat_id);
+  if (senderOpenId === OWNER_OPEN_ID
+    && !(selfChat && payload.message.chat_type === 'p2p')) {
+    state.audit('inbound_rejected', {
+      chatId: payload.message.chat_id || '',
+      senderId: senderOpenId,
+      messageId: messageId || '',
+      detail: { source, reason: 'owner_message_outside_self_chat' },
+    });
+    return false;
+  }
+  const echoGuardEnabled = payload.message.chat_type === 'p2p'
+    && (selfChat || payload.metadata?.channel === 'dingtalk');
+  if (echoGuardEnabled) {
+    let text = '';
+    try { text = String(JSON.parse(payload.message.content || '{}').text || ''); } catch {}
+    if (selfChat && hasSelfChatOutboundMarker(text)) {
+      if (state.seedInbound(messageId, 'outbound-marker', payload)) {
+        state.audit('outbound_marker_ignored', {
+          chatId: payload.message.chat_id || '',
+          senderId: senderOpenId,
+          messageId: messageId || '',
+          detail: { source, channel: payload.metadata?.channel || 'feishu' },
+        });
+      }
+      return false;
+    }
+    if (state.consumeOutboundEcho(payload.message.chat_id, text, { messageId })) {
+      state.seedInbound(messageId, 'outbound-echo', payload);
+      state.audit('outbound_echo_ignored', {
+        chatId: payload.message.chat_id || '',
+        senderId: senderOpenId,
+        messageId: messageId || '',
+        detail: { source, channel: payload.metadata?.channel || 'feishu' },
+      });
+      return false;
+    }
+  }
+  if (state.hasInbound(messageId)) return false;
+  const rateLimited = senderOpenId !== OWNER_OPEN_ID && !selfChat && !state.consumeRateLimit(
     `sender:${senderOpenId || payload.message.chat_id}`,
     Date.now(),
     config.rateLimitWindowMs,
@@ -1509,13 +1764,15 @@ function triggerDrain(client = businessClient) {
 async function fetchUserInboundMessages(startMs, endMs) {
   const start = toLarkSearchIso(new Date(startMs));
   const end = toLarkSearchIso(new Date(endMs));
-  const [groupResult, p2pResult] = await Promise.all([
+  const [groupResult, p2pResult, selfResult] = await Promise.all([
     runLarkCli(buildPollingSearchArgs('group', start, end)),
     runLarkCli(buildPollingSearchArgs('p2p', start, end)),
+    runLarkCli(buildSelfChatPollingArgs(OWNER_OPEN_ID, start, end)),
   ]);
   return selectInboundMessages([
     ...assertCompleteSearchResult(groupResult, 'group'),
     ...assertCompleteSearchResult(p2pResult, 'p2p'),
+    ...markSelfChatMessages(selfResult),
   ], OWNER_OPEN_ID);
 }
 
@@ -1596,6 +1853,122 @@ async function runUserPollingLoop() {
     }
     const elapsed = Date.now() - startedAt;
     await wait(Math.max(250, POLL_INTERVAL_MS - elapsed));
+  }
+}
+
+function dingTalkSelfUserId() {
+  const profile = String(config.dingtalkProfile || '');
+  const separator = profile.indexOf(':');
+  return separator >= 0 ? profile.slice(separator + 1).trim() : '';
+}
+
+function dingTalkPollingTime(timestampMs) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(new Date(timestampMs));
+  const value = type => parts.find(part => part.type === type)?.value || '';
+  return `${value('year')}-${value('month')}-${value('day')} ${value('hour')}:${value('minute')}:${value('second')}`;
+}
+
+async function fetchDingTalkSelfMessages(startMs, endMs) {
+  const userId = dingTalkSelfUserId();
+  if (!config.dingtalkEnabled || !userId) return [];
+  const { stdout, stderr } = await runBufferedProcess(
+    config.dingtalkBin,
+    buildDingTalkSelfPollingArgs(
+      config.dingtalkProfile,
+      userId,
+      dingTalkPollingTime(startMs),
+    ),
+    {
+      cwd: WORKDIR,
+      env: dingtalkProcessEnv(),
+      timeoutMs: config.larkCliTimeoutMs,
+      maxStdoutBytes: 8 * 1024 * 1024,
+      maxStderrBytes: 1024 * 1024,
+    },
+  );
+  let result;
+  try { result = JSON.parse(stdout); } catch {
+    throw new Error(`dws self-chat poll returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
+  }
+  if (result.success === false || result.error) {
+    throw new Error(`dws self-chat poll failed: ${JSON.stringify(result.error || result).slice(0, 1000)}`);
+  }
+  return normalizeDingTalkSelfMessages(result)
+    .filter(payload => Number(payload.message.create_time || 0) <= endMs);
+}
+
+async function initializeDingTalkSelfPolling() {
+  if (!config.dingtalkEnabled || !dingTalkSelfUserId()) return false;
+  const nowMs = Date.now();
+  if (!state.get('dingtalk_self_poller', 'initialized_v1', false)) {
+    const snapshot = await fetchDingTalkSelfMessages(nowMs - POLL_INITIAL_LOOKBACK_MS, nowMs);
+    const seededAt = new Date().toISOString();
+    let seeded = 0;
+    for (const payload of snapshot) {
+      if (state.seedInbound(payload.message.message_id, 'dingtalk-self-baseline', payload, seededAt)) {
+        seeded += 1;
+      }
+    }
+    state.set('dingtalk_self_poller', 'cursor_ms', nowMs);
+    state.set('dingtalk_self_poller', 'initialized_v1', true);
+    state.audit('dingtalk_self_poller_baseline_seeded', { detail: { seeded } });
+    console.log(`[dingtalk-self-poll] baseline ready; seeded ${seeded} existing message(s)`);
+    return true;
+  }
+  if (!state.get('dingtalk_self_poller', 'cursor_ms', 0)) {
+    state.set('dingtalk_self_poller', 'cursor_ms', nowMs);
+  }
+  return true;
+}
+
+async function pollDingTalkSelfMessagesOnce() {
+  const nowMs = Date.now();
+  const cursorMs = Number(state.get('dingtalk_self_poller', 'cursor_ms', nowMs));
+  const { startMs, endMs } = planPollWindow(cursorMs, nowMs, {
+    overlapMs: POLL_OVERLAP_MS,
+    maxCatchupMs: POLL_MAX_CATCHUP_MS,
+    maxWindowMs: POLL_WINDOW_MS,
+  });
+  const payloads = await fetchDingTalkSelfMessages(startMs, endMs);
+  let enqueued = 0;
+  for (const payload of payloads) {
+    if (enqueueInbound(payload, 'dingtalk-self-poll')) enqueued += 1;
+  }
+  state.set('dingtalk_self_poller', 'cursor_ms', endMs);
+  state.set('health', 'last_dingtalk_self_poll_success_at', new Date().toISOString());
+  state.unset('health', 'last_dingtalk_self_poll_error');
+  if (enqueued) {
+    console.log(`[dingtalk-self-poll] enqueued ${enqueued} new message(s)`);
+    triggerDrain();
+  }
+  return enqueued;
+}
+
+async function runDingTalkSelfPollingLoop() {
+  let failures = 0;
+  while (!stopping) {
+    const startedAt = Date.now();
+    try {
+      await pollDingTalkSelfMessagesOnce();
+      failures = 0;
+    } catch (error) {
+      if (stopping) break;
+      failures += 1;
+      const delayMs = pollFailureDelayMs(error, failures, { baseIntervalMs: POLL_INTERVAL_MS });
+      const summary = processFailureSummary(error);
+      state.set('health', 'last_dingtalk_self_poll_error', {
+        at: new Date().toISOString(), error: summary,
+      });
+      state.audit('dingtalk_self_poll_error', { detail: { failures, delayMs, error: summary } });
+      console.error(`[dingtalk-self-poll-error] retry in ${delayMs}ms:`, error);
+      await wait(delayMs);
+      continue;
+    }
+    await wait(Math.max(0, POLL_INTERVAL_MS - (Date.now() - startedAt)));
   }
 }
 
@@ -2135,6 +2508,10 @@ async function main() {
     await initializeUserPolling();
     triggerDrain();
     await initializeAdditionalImChannels();
+    if (await initializeDingTalkSelfPolling()) {
+      dingTalkSelfPollingPromise = runDingTalkSelfPollingLoop()
+        .catch(error => console.error('[dingtalk-self-poll-fatal]', error));
+    }
     if (MULTICA_SYNCHRONIZER) {
       multicaSyncPromise = runMulticaSyncLoop()
         .catch(error => console.error('[multica-sync-fatal]', error));
@@ -2152,6 +2529,7 @@ async function main() {
     if (drainPromise) await drainPromise.catch(() => {});
     if (multicaSyncPromise) await multicaSyncPromise.catch(() => {});
     if (dingTalkSupervisorPromise) await dingTalkSupervisorPromise.catch(() => {});
+    if (dingTalkSelfPollingPromise) await dingTalkSelfPollingPromise.catch(() => {});
     if (geWeMonitorPromise) await geWeMonitorPromise.catch(() => {});
   } finally {
     try {

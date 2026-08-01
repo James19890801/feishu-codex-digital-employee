@@ -64,7 +64,7 @@
         <div>
           <span>OMNICHANNEL ROUTER / ISOLATED FAILURE DOMAINS</span>
           <h3>IM 通道</h3>
-          <p>多条通道复用同一套 Codex、记忆、队列和审计；个人微信 POC 独立进程、默认关闭，任何故障都不会停止飞书或钉钉。</p>
+          <p>多条通道复用同一套 Codex、记忆、队列和审计；个人微信 POC 独立进程、首次安装默认在线，紧急停止状态跨重启保留，任何故障都不会停止飞书或钉钉。</p>
         </div>
         <b>飞书主通道优先</b>
       </div>
@@ -96,7 +96,7 @@
         <article class="channel-card wechat-poc-card" data-channel="wechat-poc">
           <header><i id="wechatPocDot"></i><strong>个人微信 POC</strong><span>ISOLATED</span></header>
           <b id="wechatPocStatus">检测中</b>
-          <p id="wechatPocMeta">官方 macOS 微信 · 本机辅助功能桥接 · 重启默认关闭</p>
+          <p id="wechatPocMeta">官方 macOS 微信 · 通知轮询 + 本地发送回执 · 默认在线</p>
           <div class="wechat-poc-controls">
             <label class="wechat-poc-toggle"><input id="wechatPocToggle" type="checkbox"><span>自动回复</span></label>
             <button id="wechatPocOpenClient" type="button">打开微信 / 扫码</button>
@@ -200,7 +200,7 @@
             <button type="button" data-config-prompt="所有公开发布和跨会话发送都必须先由本人确认。">加强确认规则</button>
             <button type="button" data-config-prompt="启用钉钉通道，保持所有群 @ 我才回复、所有单聊直接回复。">启用钉钉</button>
             <button type="button" data-config-prompt="告诉我启用企业微信通道还缺少哪些配置，但不要把密钥写进配置文件。">接入企业微信</button>
-            <button type="button" data-config-prompt="告诉我接入 GeWe 个人微信还缺少哪些配置，保持默认关闭，不要把 Token 写进配置文件，不影响飞书主通道。">接入个人微信</button>
+            <button type="button" data-config-prompt="检查官方 macOS 个人微信本机桥接是否在线；保持飞书、钉钉隔离，并保留紧急停止开关。">检查个人微信</button>
           </div>
 
           <form class="assistant-composer" id="configForm">

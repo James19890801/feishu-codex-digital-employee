@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { WeChatNativeTelemetry } from './native-telemetry.mjs';
 
 function assertNoCoordinates(value) {
   if (!value || typeof value !== 'object') return;
@@ -82,12 +83,14 @@ export class MacOsWeChatUiAdapter {
     runner = runBufferedProcess,
     timeoutMs = 8_000,
     helperPath = '',
+    telemetry = new WeChatNativeTelemetry(),
   }) {
     if (!scriptPath) throw new Error('WeChat POC JXA script path is required');
     this.scriptPath = scriptPath;
     this.helperPath = helperPath || join(dirname(scriptPath), '..', 'data', 'wechat-poc', 'bin', 'wechat-poc-vision');
     this.runner = runner;
     this.timeoutMs = timeoutMs;
+    this.telemetry = telemetry;
   }
 
   async run(action, payload = {}) {
@@ -155,6 +158,14 @@ export class MacOsWeChatUiAdapter {
   }
 
   async scan({ boundaryAt = '' } = {}) {
+    const result = await this.run('scan-notifications', { boundaryAt });
+    if (result?.available !== true || !Array.isArray(result?.observations)) {
+      throw new Error(result?.reason || 'wechat_notification_scan_unavailable');
+    }
+    return result.observations;
+  }
+
+  async scanProtectedWindow({ boundaryAt = '' } = {}) {
     const { analysis } = await this.analyzeWindow();
     const boundaryMs = Date.parse(boundaryAt);
     const excluded = /^(?:文件传输助手|公众号|腾讯新闻|微信团队|微信支付|服务通知|订阅号消息)$/;
@@ -176,29 +187,40 @@ export class MacOsWeChatUiAdapter {
   }
 
   async resolveTarget(event) {
-    await this.run('prepare-window');
-    const snapshot = await this.analyzeWindow();
-    const expected = String(event?.conversationTitle || '').replace(/\s+/g, '');
-    const row = unreadRows(snapshot.analysis).find(candidate => {
-      const title = candidate.title.replace(/\s+/g, '');
-      return title === expected || title.includes(expected) || expected.includes(title);
-    });
-    if (!row) return { matched: false, reason: 'unread_target_not_found' };
-    const pointX = Number(snapshot.info.x) + row.titleCenterX * Number(snapshot.info.width);
-    const pointY = Number(snapshot.info.y) + (1 - row.titleCenterY) * Number(snapshot.info.height);
-    await this.runJson(this.helperPath, ['click', String(pointX), String(pointY)]);
-    await new Promise(resolve => setTimeout(resolve, 450));
+    const title = String(event?.conversationTitle || '').trim();
+    if (!title) return { matched: false, reason: 'missing_target_title' };
+    const afterCursor = typeof this.telemetry.refreshCursor === 'function'
+      ? await this.telemetry.refreshCursor()
+      : this.telemetry.cursor();
+    const searched = await this.run('search-target', { conversationTitle: title });
+    if (searched?.ok !== true) return { matched: false, reason: searched?.reason || 'target_search_failed' };
+    const selection = await this.telemetry.waitForSelection({ title, afterCursor });
+    if (!selection || selection.itemName !== title
+      || Number(selection.itemType) !== 3 || Number(selection.moduleType) !== 2) {
+      return { matched: false, reason: 'unsafe_search_result' };
+    }
     const current = await this.runJson(this.helperPath, ['window-info']);
     return {
       matched: true,
-      proof: { windowId: Number(current.windowId), conversationTitle: row.title },
+      proof: {
+        windowId: Number(current.windowId),
+        conversationTitle: title,
+        conversationKind: event?.conversationKind === 'group' ? 'group' : 'direct',
+        itemType: Number(selection.itemType),
+        moduleType: Number(selection.moduleType),
+        selectedAt: Number(selection.clickedAt || Date.now()),
+        telemetryCursor: Number(selection.cursor || afterCursor),
+      },
     };
   }
 
   async verifyTarget(proof) {
     const current = await this.runJson(this.helperPath, ['window-info']);
     return current?.ok === true && Number(current.windowId) === Number(proof?.windowId)
-      && Boolean(String(proof?.conversationTitle || '').trim());
+      && Boolean(String(proof?.conversationTitle || '').trim())
+      && Number(proof?.itemType) === 3
+      && Number(proof?.moduleType) === 2
+      && Date.now() - Number(proof?.selectedAt || 0) <= 8_000;
   }
 
   insertText(proof, text) {
@@ -211,7 +233,19 @@ export class MacOsWeChatUiAdapter {
 
   async send(proof) {
     assertNoCoordinates(proof);
-    return this.run('send', { targetProof: proof });
+    const afterCursor = typeof this.telemetry.refreshCursor === 'function'
+      ? await this.telemetry.refreshCursor()
+      : this.telemetry.cursor();
+    const result = await this.run('send', { targetProof: proof });
+    if (result?.sent !== true) return { sent: false, uncertain: true, error: result?.reason || 'send_action_failed' };
+    const receipt = await this.telemetry.waitForSendReceipt({ afterCursor });
+    if (!receipt) return { sent: false, uncertain: true, error: 'send_receipt_timeout' };
+    const isGroup = String(receipt.chatName || '').endsWith('@chatroom');
+    const expectedGroup = proof?.conversationKind === 'group';
+    if (isGroup !== expectedGroup) {
+      return { sent: false, uncertain: true, error: 'send_destination_kind_mismatch', receipt };
+    }
+    return { sent: true, uncertain: false, receipt };
   }
 
   verifySent(proof, textHash) {

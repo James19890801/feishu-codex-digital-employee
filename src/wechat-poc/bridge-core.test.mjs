@@ -86,14 +86,11 @@ const bridge = new WeChatPocBridge({
 });
 
 try {
-  await bridge.initialize();
-  assert.equal((await controlStore.read()).enabled, false);
+  const initialized = await bridge.initialize();
+  assert.equal(initialized.enabled, true, 'first launch should connect by default');
+  assert.equal(initialized.reason, 'auto_enabled');
 
   ui.observations = [observation(1)];
-  await bridge.tick();
-  assert.equal(ui.sent.length, 0, 'disabled bridge must not send');
-
-  await controlStore.setEnabled(true, { reason: 'operator' });
   await bridge.tick();
   assert.equal(ui.sent.length, 1);
   await bridge.tick();
@@ -132,19 +129,22 @@ try {
   ui.observations = [observation(6)];
   await bridge.tick();
   assert.equal(state.statusCounts().uncertain, 1);
+  assert.equal((await controlStore.read()).enabled, false, 'uncertain send must trip the safety fuse');
   await bridge.tick();
   assert.equal(state.statusCounts().uncertain, 1, 'uncertain send must not retry');
   ui.uncertain = false;
+  await controlStore.setEnabled(true, { reason: 'operator' });
 
   ui.available = false;
   ui.reason = 'screen_locked';
   ui.observations = [observation(7)];
-  await bridge.tick();
-  assert.equal((await controlStore.read()).enabled, false);
-  assert.equal((await controlStore.read()).reason, 'ui_screen_locked');
+  const sentBeforePause = ui.sent.length;
+  const paused = await bridge.tick();
+  assert.equal((await controlStore.read()).enabled, true);
+  assert.equal(paused.degraded, 'ui_screen_locked');
+  assert.equal(ui.sent.length, sentBeforePause, 'paused UI must not send');
   ui.available = true;
 
-  await controlStore.setEnabled(true, { reason: 'operator' });
   ui.observations = Array.from({ length: 8 }, (_, index) => observation(20 + index));
   const sentBeforeFlood = ui.sent.length;
   await bridge.tick();

@@ -66,10 +66,10 @@ export class DingTalkChannel {
     return true;
   }
 
-  async send(target, text, uuid = '') {
+  async send(target, text, uuid = '', options = {}) {
     const args = [
       ...(this.profile ? ['--profile', this.profile] : []),
-      ...buildDingTalkSendArgs(target, text, uuid),
+      ...buildDingTalkSendArgs(target, text, uuid, options),
     ];
     const result = await this.run(this.bin, args);
     let payload;

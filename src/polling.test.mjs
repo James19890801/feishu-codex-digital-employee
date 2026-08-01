@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {
   buildPollingSearchArgs,
+  buildSelfChatPollingArgs,
+  markSelfChatMessages,
   normalizeSearchMessage,
   pollFailureDelayMs,
   retryDelayMs,
@@ -32,18 +34,34 @@ const directMessage = {
   sender: { id: 'ou_friend', sender_type: 'user' },
 };
 
+const selfDirectMessage = {
+  ...directMessage,
+  message_id: 'om_self_chat',
+  chat_id: 'oc_self',
+  create_time: '2026-07-29 22:36',
+  sender: { id: ownerOpenId, sender_type: 'user' },
+  self_chat: true,
+};
+
 {
   const selected = selectInboundMessages([
     directMessage,
     groupMention,
     { ...groupMention, message_id: 'om_other_at', mentions: [{ id: 'ou_other' }] },
     { ...directMessage, message_id: 'om_self', sender: { id: ownerOpenId, sender_type: 'user' } },
+    selfDirectMessage,
+    { ...groupMention, message_id: 'om_owner_group', self_chat: true,
+      sender: { id: ownerOpenId, sender_type: 'user' } },
     { ...directMessage, message_id: 'om_app', sender: { id: 'cli_app', sender_type: 'app' } },
     { ...directMessage, message_id: 'om_deleted', deleted: true },
     groupMention,
   ], ownerOpenId);
 
-  assert.deepEqual(selected.map(item => item.message_id), ['om_group', 'om_direct']);
+  assert.deepEqual(selected.map(item => item.message_id), [
+    'om_group',
+    'om_direct',
+    'om_self_chat',
+  ]);
 }
 
 {
@@ -55,6 +73,25 @@ const directMessage = {
   assert.equal(message.mentions[0].id, ownerOpenId);
   assert.equal(sender.sender_id.open_id, 'ou_colleague');
   assert.equal(sender.sender_type, 'user');
+}
+
+{
+  const selfMessages = markSelfChatMessages({
+    data: {
+      messages: [{
+        message_id: 'om_self_1',
+        chat_id: 'oc_self',
+        msg_type: 'text',
+        content: '测试一下',
+        create_time: '1785335760000',
+        sender: { id: ownerOpenId, sender_type: 'user' },
+      }],
+    },
+  });
+  assert.equal(selfMessages.length, 1);
+  assert.equal(selfMessages[0].chat_type, 'p2p');
+  assert.equal(selfMessages[0].self_chat, true);
+  assert.equal(normalizeSearchMessage(selfMessages[0]).metadata.selfChat, true);
 }
 
 {
@@ -80,6 +117,16 @@ const directMessage = {
   );
   assert.equal(p2pArgs.includes('--is-at-me'), false);
   assert.equal(p2pArgs.includes('--sender-type'), true);
+
+  const selfArgs = buildSelfChatPollingArgs(
+    ownerOpenId,
+    '2026-07-29T22:30:00+08:00',
+    '2026-07-29T22:35:00+08:00',
+  );
+  assert.deepEqual(selfArgs.slice(0, 6), [
+    'im', '+chat-messages-list', '--as', 'user', '--user-id', ownerOpenId,
+  ]);
+  assert.ok(selfArgs.includes('--no-reactions'));
 }
 
 {

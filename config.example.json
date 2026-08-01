@@ -35,6 +35,7 @@
   "geweMentionNames": [],
   "multicaEnabled": false,
   "multicaProfile": "desktop-api.multica.ai",
+  "multicaAppUrl": "https://multica.ai",
   "multicaDefaultWorkspaceId": "",
   "multicaSyncIntervalMs": 10000,
   "multicaMaxIssues": 5000,

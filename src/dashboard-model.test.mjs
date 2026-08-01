@@ -212,6 +212,32 @@ const base = {
 {
   const view = buildOperatorView({
     ...base,
+    selfChatCircuitLast: {
+      chatId: 'oc_self',
+      openUntilMs: base.nowMs + 60_000,
+      trippedAt: '2026-07-30T00:59:30.000Z',
+    },
+  });
+  assert.equal(view.state, 'degraded');
+  assert.equal(view.issues.includes('self_chat_circuit_open'), true);
+  assert.equal(view.maintenance.selfChatCircuitOpen, true);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    selfChatCircuitLast: {
+      chatId: 'oc_self',
+      openUntilMs: base.nowMs - 1,
+      trippedAt: '2026-07-30T00:57:00.000Z',
+    },
+  });
+  assert.equal(view.issues.includes('self_chat_circuit_open'), false);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
     multicaEnabled: true,
     lastMulticaSyncAt: '2026-07-30T00:59:55.000Z',
     maxMulticaSyncAgeMs: 60_000,

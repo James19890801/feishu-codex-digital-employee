@@ -33,10 +33,10 @@ export class WeChatPocBridge {
   }
 
   async initialize() {
-    const control = await this.controlStore.failClosed('worker_start');
+    const control = await this.controlStore.initialize({ enabledByDefault: true });
     this.state.cancelBeforeGeneration(control.generation, 'worker_start');
     this.state.audit('wechat_poc_worker_started', {
-      detail: { enabled: false, generation: control.generation },
+      detail: { enabled: control.enabled, generation: control.generation },
     });
     this.initialized = true;
     return control;
@@ -90,6 +90,7 @@ export class WeChatPocBridge {
           messageId: event.messageId,
           detail: { generation },
         });
+        await this.failClosed('send_uncertain');
         return { status: 'uncertain' };
       }
 
@@ -156,12 +157,14 @@ export class WeChatPocBridge {
     try {
       probe = await this.ui.probe();
     } catch (error) {
-      await this.failClosed('ui_probe_failed');
-      return { scanned: 0, accepted: 0, results: [], error: errorSummary(error), probe: null };
+      this.state.audit('wechat_poc_ui_paused', {
+        detail: { reason: 'ui_probe_failed', error: errorSummary(error) },
+      });
+      return { scanned: 0, accepted: 0, results: [], degraded: 'ui_probe_failed', probe: null };
     }
     if (probe?.available !== true) {
       const reason = `ui_${String(probe?.reason || 'unavailable').slice(0, 80)}`;
-      await this.failClosed(reason);
+      this.state.audit('wechat_poc_ui_paused', { detail: { reason } });
       return { scanned: 0, accepted: 0, results: [], degraded: reason, probe };
     }
 
@@ -169,8 +172,10 @@ export class WeChatPocBridge {
     try {
       observations = await this.ui.scan({ boundaryAt: control.boundaryAt });
     } catch (error) {
-      await this.failClosed('ui_scan_failed');
-      return { scanned: 0, accepted: 0, results: [], error: errorSummary(error), probe };
+      this.state.audit('wechat_poc_ui_paused', {
+        detail: { reason: 'ui_scan_failed', error: errorSummary(error) },
+      });
+      return { scanned: 0, accepted: 0, results: [], degraded: 'ui_scan_failed', probe };
     }
     if (!Array.isArray(observations)) observations = [];
     let accepted = 0;

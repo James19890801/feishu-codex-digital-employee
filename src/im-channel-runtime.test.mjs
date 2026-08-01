@@ -48,6 +48,17 @@ import {
     '--profile', 'corp:user', 'chat', 'message', 'send',
   ]);
   assert.ok(calls[0].args.includes('--ai-tag=false'));
+
+  await channel.send(
+    { channel: 'dingtalk', kind: 'group', id: 'group-1' },
+    '<@user-1>\nIssue 已更新',
+    'uuid-mention',
+    { atOpenDingTalkIds: ['user-1'] },
+  );
+  assert.equal(
+    calls[1].args[calls[1].args.indexOf('--at-open-dingtalk-ids') + 1],
+    'user-1',
+  );
 }
 
 {

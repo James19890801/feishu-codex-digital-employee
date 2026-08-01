@@ -18,6 +18,7 @@ const ISSUE_LABELS = {
   dingtalk_channel_unavailable: '钉钉通道已启用但未连接',
   wecom_channel_unavailable: '企业微信通道已启用但未连接',
   wechat_channel_unavailable: '个人微信通道已启用但未连接',
+  self_chat_circuit_open: '自聊防循环熔断器已开启，当前正在静默冷却',
 };
 
 export function isCredentialAccessBlocked(lastPollError) {
@@ -55,6 +56,8 @@ export function buildOperatorView(input) {
     issues.push('ai_runtime_last_call_failed');
   }
   if (input.credentialBlocked) issues.push('credential_access_blocked');
+  const selfChatCircuitOpen = Number(input.selfChatCircuitLast?.openUntilMs || 0) > input.nowMs;
+  if (selfChatCircuitOpen) issues.push('self_chat_circuit_open');
   if (input.multicaEnabled
     && (multicaSyncAgeMs === null || !Number.isFinite(multicaSyncAgeMs)
       || multicaSyncAgeMs > input.maxMulticaSyncAgeMs)) {
@@ -217,6 +220,8 @@ export function buildOperatorView(input) {
     configuration: input.configuration || {},
     maintenance: {
       credentialBlocked: Boolean(input.credentialBlocked),
+      selfChatCircuitOpen,
+      selfChatCircuitLast: input.selfChatCircuitLast || null,
     },
   };
 }
