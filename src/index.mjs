@@ -236,6 +236,7 @@ const MULTICA_FEEDBACK_WORKFLOW = MULTICA_CLIENT
       workspaceId: config.multicaDefaultWorkspaceId,
       ownerSquad: config.multicaOwnerSquad,
       appUrl: config.multicaAppUrl,
+      authorizeOwner: authorizeMulticaWrite,
       audit: (event, detail) => state.audit(event, { detail }),
     })
   : null;
@@ -1106,7 +1107,6 @@ async function startMulticaFeedback(message, senderOpenId, cleanText, metadata =
     text: cleanText,
     sourceMessageId: message.message_id,
     context,
-    ownerAuthorized: context.ownerAuthorized,
   });
   pendingActions.set(
     'multica_feedback',
@@ -1156,7 +1156,7 @@ async function applyPendingMultica(message, senderOpenId, cleanText, metadata = 
     await sendText(
       null,
       message.chat_id,
-      '只有经过验证的 Owner 才能确认 Multica 写入；本次操作未执行。',
+      '只有经过验证的 Owner 在飞书或钉钉 self-chat 中才能确认 Multica 写入；本次操作未执行。',
       `multica-owner-required-${message.message_id}`,
     );
     audit('multica_write_denied', message, senderOpenId, {
@@ -1239,7 +1239,7 @@ async function handleMulticaRequest(message, senderOpenId, cleanText, metadata =
     await sendText(
       null,
       message.chat_id,
-      '只有经过验证的 Owner 才能创建、更新、评论或派发 Multica Issue。你可以反馈 AIPRO 的 Bug、整改意见或功能需求，我会先追问并登记为未指派 backlog。',
+      '只有经过验证的 Owner 在飞书或钉钉 self-chat 中才能创建、更新、评论或派发 Multica Issue。当前会话仍可查询，或反馈 AIPRO 的 Bug、整改意见和功能需求；反馈会先追问并仅登记为未指派 backlog。',
       `multica-owner-required-${message.message_id}`,
     );
     audit('multica_write_denied', message, senderOpenId, {
@@ -1287,7 +1287,7 @@ async function handleMulticaWorkRequest(message, senderOpenId, request, decision
     await sendText(
       null,
       message.chat_id,
-      '只有经过验证的 Owner 才能执行 Multica Issue；本次没有修改状态或启动任务。',
+      '只有经过验证的 Owner 在飞书或钉钉 self-chat 中才能执行 Multica Issue；本次没有修改状态或启动任务。',
       `multica-work-owner-required-${message.message_id}`,
     );
     audit('multica_work_denied', message, senderOpenId, { issue: request.issue });

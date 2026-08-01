@@ -10,11 +10,11 @@
 
 ## 架构
 
-1. `multica-access.mjs` 统一判断 Owner。飞书要求发送者等于 `ownerOpenId`；钉钉要求内部标记为 self-chat，且发送者等于配置的 `dingtalkOwnerOpenId`。任何普通联系人、伪造确认或不同会话确认均不是 Owner。
+1. `multica-access.mjs` 统一执行双条件授权：先验证发送者为已确认的 Owner（Multica 账号 `494161546@qq.com`；飞书映射为 `ownerOpenId`，钉钉映射为 `dingtalkOwnerOpenId`），再要求会话为 `p2p` 且带可信 `selfChat` 标记。渠道未知、Owner 群聊、Owner 普通 p2p、普通联系人、伪造 self-chat 元数据或不同会话确认一律 fail closed。
 2. `MulticaCapability` 在创建、更新、评论的预览和执行阶段都校验 Owner；`MulticaWorkLifecycle` 在开始执行前再次校验。`index.mjs` 在路由层提前返回明确的只读提示，形成入口与能力层双重防护。
 3. `MulticaFeedbackWorkflow` 是非 Owner 唯一可触发的受控写服务。它识别 Bug、整改、意见或功能需求，先保存原始请求并只追问一个验收问题；取消时清理待处理状态且不写 Multica。
 4. 澄清后，工作流用固定字段创建 `backlog` Issue：无负责人，描述包含来源渠道、原会话、来源消息、原始需求、补充说明、验收标准和不可直接执行标记。创建完成后立即缓存并订阅原会话。
-5. Owner 的 Issue 创建成功后写入持久化派发 outbox，再尝试把负责人和状态一次更新为“詹老师的开发团伙”与 `todo`。非 Owner 不创建派发记录。
+5. 仅当原始请求与澄清回复两个时点都重新通过 Owner self-chat 授权，Issue 创建成功后才写入持久化派发 outbox，再尝试把负责人和状态一次更新为“詹老师的开发团伙”与 `todo`。Owner 群聊、Owner 普通 p2p 与非 Owner 均不创建派发记录。
 
 ## 幂等、失败与审计
 
@@ -36,7 +36,7 @@
 
 ## 测试与验收
 
-- 身份测试：飞书 Owner、钉钉 self-chat Owner、普通联系人、伪造元数据和错误发送者。
+- 身份测试：Owner 群聊拒绝、Owner 普通 p2p 拒绝、Owner self-chat 允许、伪造 self-chat 但身份不匹配拒绝、未知渠道 fail closed。
 - 权限测试：非 Owner 无法预览或执行创建、更新、评论、指派；无法进入“处理 ISSUE”；Owner 可走既有写链路。
 - 反馈测试：必须先追问；取消不创建；非 Owner 只建未指派 backlog；Owner 创建后派发 Squad；来源与验收信息完整；重复消费不重复创建。
 - 故障测试：创建成功但派发失败时保持 backlog、订阅成功并留下重试；后续重试成功；达到上限进入 dead。

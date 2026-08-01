@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { MulticaCapability } from './multica-capability.mjs';
+import { isAuthorizedMulticaOwner } from './multica-access.mjs';
 
 const subscriptions = [];
 const globalSubscriptions = [];
@@ -85,13 +86,16 @@ const client = {
 const capability = new MulticaCapability({
   client,
   state,
-  authorizeWrite: candidate => candidate.ownerAuthorized === true,
+  authorizeWrite: candidate => isAuthorizedMulticaOwner(candidate, {
+    ownerOpenId: 'ou_owner',
+    dingtalkOwnerOpenId: 'dt_owner',
+  }),
 });
 const context = {
   chatId: 'chat-1',
-  senderId: 'user-1',
-  chatType: 'group',
-  ownerAuthorized: true,
+  senderId: 'ou_owner',
+  chatType: 'p2p',
+  metadata: { channel: 'feishu', selfChat: true },
 };
 
 const getResult = await capability.execute({
@@ -107,8 +111,8 @@ assert.doesNotMatch(getResult.text, /Prepare the launch\./);
 assert.deepEqual(subscriptions[0], {
   issueId: 'issue-1',
   chatId: 'chat-1',
-  senderId: 'user-1',
-  options: { chatType: 'group' },
+  senderId: 'ou_owner',
+  options: { chatType: 'p2p' },
 });
 
 const searchResult = await capability.execute({
@@ -127,8 +131,8 @@ const syncResult = await capability.execute({
 assert.match(syncResult.text, /同步/);
 assert.deepEqual(globalSubscriptions[0], {
   chatId: 'chat-1',
-  senderId: 'user-1',
-  chatType: 'group',
+  senderId: 'ou_owner',
+  chatType: 'p2p',
 });
 
 const createPreview = await capability.prepareMutation({
@@ -153,6 +157,12 @@ assert.match(createResult.text, /https:\/\/multica\.ai\/my-space\/issues\/MYS-2/
 assert.equal(cached.some(item => item.identifier === 'MYS-2'), true);
 assert.equal(subscriptions.some(item => item.issueId === 'issue-new'), true);
 
+const unauthorizedContext = {
+  ...context,
+  chatType: 'group',
+  metadata: { channel: 'feishu', selfChat: true },
+};
+
 for (const unauthorizedPlan of [{
     summary: 'Unauthorized create',
     action: 'create',
@@ -173,7 +183,7 @@ for (const unauthorizedPlan of [{
     content: 'Must not be written',
   }]) {
   await assert.rejects(
-    capability.prepareMutation(unauthorizedPlan, { ...context, ownerAuthorized: false }),
+    capability.prepareMutation(unauthorizedPlan, unauthorizedContext),
     error => error?.code === 'MULTICA_OWNER_REQUIRED',
   );
 }
@@ -181,7 +191,7 @@ for (const unauthorizedPlan of [{
 await assert.rejects(
   capability.applyMutation(createPreview.pending, {
     ...context,
-    ownerAuthorized: false,
+    metadata: { channel: 'feishu' },
   }),
   error => error?.code === 'MULTICA_OWNER_REQUIRED',
 );

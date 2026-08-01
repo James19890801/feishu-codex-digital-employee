@@ -94,9 +94,11 @@ export function normalizeSearchMessage(item) {
       sender_type: item.sender?.sender_type || 'user',
       sender_id: { open_id: item.sender?.id || '' },
     },
+    metadata: { channel: 'feishu' },
   };
   if (item.self_chat === true || item.operator_control === true || item.owner_activity === true) {
     payload.metadata = {
+      channel: 'feishu',
       ...(item.self_chat === true ? { selfChat: true } : {}),
       ...(item.operator_control === true ? { operatorControl: true } : {}),
       ...(item.owner_activity === true ? { ownerActivity: true } : {}),
