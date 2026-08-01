@@ -8,6 +8,7 @@ import {
   rollbackConfirmation,
   runtimeCanSelect,
   runtimeStatusLabel,
+  wechatPocRequestHeaders,
 } from './config-ui.js';
 
 const $ = id => document.getElementById(id);
@@ -53,6 +54,7 @@ let latestRuntimeState = null;
 let latestChannelConfigurations = {};
 let selectedChannel = '';
 let channelBusy = false;
+let wechatPocBusy = false;
 
 const channelCopy = {
   feishu: {
@@ -122,6 +124,35 @@ function renderChannel(prefix, channel, fallbackMeta) {
   dot.className = channel.authenticated ? 'warn' : 'bad';
 }
 
+function renderWeChatPoc(channel) {
+  if (!channel) return;
+  const labels = {
+    not_installed: '服务未安装',
+    offline: '服务离线',
+    disabled: '已关闭',
+    starting: '启动中',
+    online: '运行中',
+    degraded: '等待处理',
+    uncertain: '发送状态不确定',
+  };
+  $('wechatPocStatus').textContent = labels[channel.state] || '检测中';
+  $('wechatPocToggle').checked = channel.control?.enabled === true;
+  $('wechatPocToggle').disabled = wechatPocBusy || !channel.processAlive;
+  $('wechatPocOpenClient').disabled = wechatPocBusy;
+  $('wechatPocEmergencyStop').disabled = wechatPocBusy || !channel.processAlive;
+  const dot = $('wechatPocDot');
+  dot.className = channel.state === 'online'
+    ? 'good'
+    : ['degraded', 'starting', 'uncertain'].includes(channel.state) ? 'warn' : channel.state === 'offline' ? 'bad' : '';
+  const permission = channel.permissionState === 'granted'
+    ? '辅助功能已授权'
+    : channel.permissionState === 'missing' ? '需要辅助功能授权' : '权限待检测';
+  $('wechatPocMeta').textContent = `${channel.clientRunning ? '微信已打开' : '微信未打开'} · ${permission} · 待处理 ${channel.pending || 0}`;
+  $('wechatPocDetail').textContent = channel.lastError?.error
+    ? `最近异常：${String(channel.lastError.error).slice(0, 130)}`
+    : `最近动作：${channel.lastAction || '等待'} · 收到 ${formatDate(channel.lastReceiveAt, true)} · 回复 ${formatDate(channel.lastReplyAt, true)}`;
+}
+
 function renderEvents(events) {
   if (!events?.length) {
     $('timeline').innerHTML = '<p class="empty">暂时没有审计事件。</p>';
@@ -181,8 +212,9 @@ function render(data) {
   renderChannel(
     'Wechat',
     data.channels?.wechat,
-    '个人微信身份 · GeWe 第三方 REST + Webhook',
+    'GeWe 兼容配置（非当前方案）',
   );
+  renderWeChatPoc(data.wechatPoc || data.channels?.wechatPoc);
 
   $('processValue').textContent = data.process.alive ? '运行中' : '已停止';
   $('processMeta').textContent = data.process.alive
@@ -319,6 +351,61 @@ async function restart() {
     showToast(`重启失败：${error.message}`);
   } finally {
     setTimeout(() => { $('restartButton').disabled = false; }, 2500);
+  }
+}
+
+async function ensureDashboardSession() {
+  if (!configSessionToken) await loadConfigurationAssistant();
+  if (!configSessionToken) throw new Error('控制会话尚未就绪，请刷新页面');
+}
+
+async function postWeChatPoc(path, action, body = {}) {
+  await ensureDashboardSession();
+  wechatPocBusy = true;
+  for (const id of ['wechatPocToggle', 'wechatPocOpenClient', 'wechatPocEmergencyStop']) $(id).disabled = true;
+  try {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: wechatPocRequestHeaders(action, configSessionToken),
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) throw new Error(payload.error || `HTTP ${response.status}`);
+    showToast(payload.message || '个人微信操作已完成');
+  } finally {
+    wechatPocBusy = false;
+    await refresh();
+  }
+}
+
+async function toggleWeChatPoc(event) {
+  const enabled = event.target.checked;
+  if (enabled && !window.confirm('确认启用个人微信自动回复？单聊全部回复，群聊仅明确 @，仅处理文本。该功能重启后默认关闭，可随时紧急停止。')) {
+    event.target.checked = false;
+    return;
+  }
+  try {
+    await postWeChatPoc('/api/wechat-poc/control', 'wechat-poc-control', { enabled, confirmed: true });
+  } catch (error) {
+    showToast(`个人微信切换失败：${error.message}`);
+    event.target.checked = !enabled;
+  }
+}
+
+async function emergencyStopWeChatPoc() {
+  if (!window.confirm('立即关闭个人微信自动回复并取消待发送任务？')) return;
+  try {
+    await postWeChatPoc('/api/wechat-poc/emergency-stop', 'wechat-poc-stop');
+  } catch (error) {
+    showToast(`紧急停止失败：${error.message}`);
+  }
+}
+
+async function openWeChatClient() {
+  try {
+    await postWeChatPoc('/api/wechat-poc/open-client', 'wechat-poc-open');
+  } catch (error) {
+    showToast(`微信打开失败：${error.message}`);
   }
 }
 
@@ -827,6 +914,9 @@ function tick() {
 
 $('refreshButton').addEventListener('click', refresh);
 $('restartButton').addEventListener('click', restart);
+$('wechatPocToggle').addEventListener('change', toggleWeChatPoc);
+$('wechatPocEmergencyStop').addEventListener('click', emergencyStopWeChatPoc);
+$('wechatPocOpenClient').addEventListener('click', openWeChatClient);
 $('configForm').addEventListener('submit', submitConfigRequest);
 $('applyPlanButton').addEventListener('click', applyConfigPlan);
 $('cancelPlanButton').addEventListener('click', cancelConfigPlan);

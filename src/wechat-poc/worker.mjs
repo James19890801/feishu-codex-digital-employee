@@ -49,6 +49,10 @@ export class WeChatPocWorker {
     this.lastTickAt = '';
     this.lastError = null;
     this.lastAction = 'worker_created';
+    this.clientRunning = false;
+    this.permissionState = 'unknown';
+    this.lastReceiveAt = '';
+    this.lastReplyAt = '';
   }
 
   async snapshot() {
@@ -64,6 +68,10 @@ export class WeChatPocWorker {
       lastTickAt: this.lastTickAt,
       lastError: this.lastError,
       lastAction: this.lastAction,
+      clientRunning: this.clientRunning,
+      permissionState: this.permissionState,
+      lastReceiveAt: this.lastReceiveAt,
+      lastReplyAt: this.lastReplyAt,
       updatedAt: this.now(),
     };
   }
@@ -87,7 +95,17 @@ export class WeChatPocWorker {
     try {
       const result = await this.bridge.tick();
       this.lastTickAt = this.now();
-      this.lastAction = result?.degraded || result?.error ? 'tick_degraded' : 'tick_completed';
+      if (result?.probe) {
+        this.clientRunning = result.probe.clientRunning === true;
+        this.permissionState = result.probe.permissionGranted === true
+          ? 'granted'
+          : result.probe.permissionGranted === false ? 'missing' : 'unknown';
+      }
+      if (Number(result?.accepted || 0) > 0) this.lastReceiveAt = this.lastTickAt;
+      if (result?.results?.some?.(item => item?.status === 'completed')) this.lastReplyAt = this.lastTickAt;
+      this.lastAction = result?.disabled
+        ? 'switch_disabled'
+        : result?.degraded || result?.error ? 'tick_degraded' : 'tick_completed';
       this.lastError = result?.degraded || result?.error
         ? { at: this.lastTickAt, error: String(result.degraded || result.error).slice(0, 500) }
         : null;

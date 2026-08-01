@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { config } from './config.mjs';
@@ -50,10 +50,12 @@ import {
   discoverAiRuntimes,
   selectAiRuntime,
 } from './ai-runtime.mjs';
+import { WeChatPocDashboardControl } from './wechat-poc/dashboard-control.mjs';
 
 const HOST = '127.0.0.1';
 const PORT = config.dashboardPort;
 const DATA_DIR = join(config.workdir, 'data');
+const WECHAT_POC_DIR = join(DATA_DIR, 'wechat-poc');
 const DB_PATH = join(DATA_DIR, 'agent-state.sqlite');
 const LOCK_PATH = join(DATA_DIR, 'service.lock');
 const NOTIFICATION_STATE_PATH = join(DATA_DIR, 'dashboard-notification-state.json');
@@ -75,6 +77,17 @@ let eventCache = { checkedAt: 0, processPid: null, active: false, activeConsumer
 let eventCheckInFlight = null;
 const pendingConfigurationPlans = new PendingConfigurationPlans();
 const configurationMutationQueue = new SerialKeyQueue();
+const wechatPocControl = new WeChatPocDashboardControl({
+  directory: WECHAT_POC_DIR,
+  audit: async event => {
+    await mkdir(WECHAT_POC_DIR, { recursive: true, mode: 0o700 });
+    await appendFile(
+      join(WECHAT_POC_DIR, 'control-audit.jsonl'),
+      `${JSON.stringify(event)}\n`,
+      { encoding: 'utf8', mode: 0o600 },
+    );
+  },
+});
 let lastNotificationState = await readFile(NOTIFICATION_STATE_PATH, 'utf8')
   .then(value => JSON.parse(value)?.state || '')
   .catch(() => '');
@@ -310,7 +323,7 @@ async function collectStatus() {
     };
   }
 
-  return buildOperatorView({
+  const view = buildOperatorView({
     nowMs,
     processAlive: processInfo.alive,
     processPid: processInfo.pid,
@@ -348,6 +361,20 @@ async function collectStatus() {
     },
     ...database,
   });
+  const wechatPoc = await wechatPocControl.status().catch(error => ({
+    version: 1,
+    installed: false,
+    processAlive: false,
+    state: 'offline',
+    control: { enabled: false, generation: 0, failClosed: true },
+    permissionState: 'unknown',
+    clientRunning: false,
+    lastError: { at: new Date().toISOString(), error: String(error?.message || error).slice(0, 300) },
+    pending: 0,
+  }));
+  view.wechatPoc = wechatPoc;
+  view.channels = { ...view.channels, wechatPoc };
+  return view;
 }
 
 async function notifyState(view) {
@@ -801,6 +828,47 @@ const server = createServer(async (request, response) => {
     }
     if (request.method === 'GET' && url.pathname === '/api/status') {
       sendJson(response, 200, await collectStatus());
+      return;
+    }
+    if (request.method === 'GET' && url.pathname === '/api/wechat-poc/status') {
+      sendJson(response, 200, await wechatPocControl.status());
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/wechat-poc/control') {
+      if (!allowedConfigAction(request, 'wechat-poc-control')) {
+        sendJson(response, 403, { ok: false, error: 'personal WeChat control rejected' });
+        return;
+      }
+      const body = await readDashboardJson(request);
+      const result = await wechatPocControl.setEnabled(body.enabled, {
+        confirmed: body.confirmed === true,
+      });
+      sendJson(response, 200, result);
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/wechat-poc/emergency-stop') {
+      if (!allowedConfigAction(request, 'wechat-poc-stop')) {
+        sendJson(response, 403, { ok: false, error: 'personal WeChat emergency stop rejected' });
+        return;
+      }
+      sendJson(response, 200, await wechatPocControl.emergencyStop());
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/wechat-poc/open-client') {
+      if (!allowedConfigAction(request, 'wechat-poc-open')) {
+        sendJson(response, 403, { ok: false, error: 'personal WeChat client action rejected' });
+        return;
+      }
+      await runBufferedProcess('/usr/bin/open', ['-a', 'WeChat'], {
+        timeoutMs: 8_000,
+        maxStdoutBytes: 8 * 1024,
+        maxStderrBytes: 16 * 1024,
+      });
+      sendJson(response, 200, {
+        ok: true,
+        message: 'Official WeChat client opened; scan the QR code in WeChat if login is required.',
+        status: await wechatPocControl.status(),
+      });
       return;
     }
     if (request.method === 'GET' && url.pathname === '/api/config') {

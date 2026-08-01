@@ -145,7 +145,11 @@ export class WeChatPocBridge {
     const control = await this.controlStore.read();
     if (!control.enabled) {
       this.state.cancelBeforeGeneration(control.generation, 'switch_disabled');
-      return { scanned: 0, accepted: 0, results: [] };
+      const probe = await this.ui.probe().catch(error => ({
+        available: false,
+        reason: errorSummary(error),
+      }));
+      return { scanned: 0, accepted: 0, results: [], probe, disabled: true };
     }
 
     let probe;
@@ -153,12 +157,12 @@ export class WeChatPocBridge {
       probe = await this.ui.probe();
     } catch (error) {
       await this.failClosed('ui_probe_failed');
-      return { scanned: 0, accepted: 0, results: [], error: errorSummary(error) };
+      return { scanned: 0, accepted: 0, results: [], error: errorSummary(error), probe: null };
     }
     if (probe?.available !== true) {
       const reason = `ui_${String(probe?.reason || 'unavailable').slice(0, 80)}`;
       await this.failClosed(reason);
-      return { scanned: 0, accepted: 0, results: [], degraded: reason };
+      return { scanned: 0, accepted: 0, results: [], degraded: reason, probe };
     }
 
     let observations;
@@ -166,7 +170,7 @@ export class WeChatPocBridge {
       observations = await this.ui.scan({ boundaryAt: control.boundaryAt });
     } catch (error) {
       await this.failClosed('ui_scan_failed');
-      return { scanned: 0, accepted: 0, results: [], error: errorSummary(error) };
+      return { scanned: 0, accepted: 0, results: [], error: errorSummary(error), probe };
     }
     if (!Array.isArray(observations)) observations = [];
     let accepted = 0;
@@ -199,7 +203,7 @@ export class WeChatPocBridge {
       }
     }
     const results = await this.drain();
-    return { scanned: observations.length, accepted, results };
+    return { scanned: observations.length, accepted, results, probe };
   }
 
   async stop(reason = 'worker_stop') {

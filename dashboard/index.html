@@ -64,7 +64,7 @@
         <div>
           <span>OMNICHANNEL ROUTER / ISOLATED FAILURE DOMAINS</span>
           <h3>IM 通道</h3>
-          <p>四条通道复用同一套 Codex、记忆、队列和审计；可选通道互相隔离，任何新增通道故障都不会停止飞书主链路。</p>
+          <p>多条通道复用同一套 Codex、记忆、队列和审计；个人微信 POC 独立进程、默认关闭，任何故障都不会停止飞书或钉钉。</p>
         </div>
         <b>飞书主通道优先</b>
       </div>
@@ -88,13 +88,24 @@
           <button type="button" data-channel-open="wecom">配置连接</button>
         </article>
         <article class="channel-card" data-channel="wechat">
-          <header><i id="channelWechatDot"></i><strong>微信 / WeChat</strong><span>OPTIONAL</span></header>
+          <header><i id="channelWechatDot"></i><strong>微信 API / Legacy</strong><span>LEGACY</span></header>
           <b id="channelWechatStatus">检测中</b>
-          <p id="channelWechatMeta">个人微信身份 · GeWe 第三方 REST + Webhook</p>
-          <button type="button" data-channel-open="wechat">配置连接</button>
+          <p id="channelWechatMeta">GeWe 兼容配置（非当前方案）</p>
+          <button type="button" data-channel-open="wechat">查看旧配置</button>
+        </article>
+        <article class="channel-card wechat-poc-card" data-channel="wechat-poc">
+          <header><i id="wechatPocDot"></i><strong>个人微信 POC</strong><span>ISOLATED</span></header>
+          <b id="wechatPocStatus">检测中</b>
+          <p id="wechatPocMeta">官方 macOS 微信 · 本机辅助功能桥接 · 重启默认关闭</p>
+          <div class="wechat-poc-controls">
+            <label class="wechat-poc-toggle"><input id="wechatPocToggle" type="checkbox"><span>自动回复</span></label>
+            <button id="wechatPocOpenClient" type="button">打开微信 / 扫码</button>
+            <button id="wechatPocEmergencyStop" class="danger" type="button">紧急停止</button>
+          </div>
+          <small id="wechatPocDetail">单聊全部回复；群聊仅明确 @；仅处理文本。</small>
         </article>
       </div>
-      <p class="channel-identity-note">身份说明：飞书和钉钉可按已授权真人用户身份运行；企业微信以官方机器人身份运行；个人微信由 GeWe 第三方 API 提供，非腾讯官方开放接口，存在账号风控风险。</p>
+      <p class="channel-identity-note">身份说明：飞书和钉钉保持现有真人身份链路；个人微信 POC 只控制本机官方微信客户端，独立开关、独立状态库、独立进程，可随时紧急停止。</p>
     </section>
 
     <section class="metrics-grid">

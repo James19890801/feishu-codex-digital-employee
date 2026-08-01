@@ -34,6 +34,13 @@ export function channelRequestHeaders(sessionToken) {
   return assistantRequestHeaders('channel-config', sessionToken);
 }
 
+export function wechatPocRequestHeaders(action, sessionToken) {
+  if (!['wechat-poc-control', 'wechat-poc-stop', 'wechat-poc-open'].includes(action)) {
+    throw new Error('Unsupported personal WeChat action');
+  }
+  return assistantRequestHeaders(action, sessionToken);
+}
+
 export function channelSubmitLabel(channel) {
   if (channel?.protected) return '主通道受保护';
   return channel?.enabled ? '保存并连接' : '保存配置';
