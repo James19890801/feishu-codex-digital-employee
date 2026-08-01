@@ -39,6 +39,7 @@
   "multicaProfile": "desktop-api.multica.ai",
   "multicaAppUrl": "https://multica.ai",
   "multicaDefaultWorkspaceId": "",
+  "multicaOwnerSquad": "詹老师的开发团伙",
   "multicaSyncIntervalMs": 10000,
   "multicaMaxIssues": 5000,
   "dashboardPort": 17655,

@@ -83,10 +83,18 @@ function issueListText(issues, emptyText, appUrl) {
 }
 
 export class MulticaCapability {
-  constructor({ client, state, appUrl }) {
+  constructor({ client, state, appUrl, authorizeWrite = () => false }) {
     this.client = client;
     this.state = state;
     this.appUrl = appUrl;
+    this.authorizeWrite = authorizeWrite;
+  }
+
+  assertWriteAuthorized(context) {
+    if (this.authorizeWrite(context) === true) return;
+    const error = new Error('Verified Owner authorization is required for Multica writes');
+    error.code = 'MULTICA_OWNER_REQUIRED';
+    throw error;
   }
 
   follow(issue, context) {
@@ -188,6 +196,7 @@ export class MulticaCapability {
   }
 
   async prepareMutation(plan, rawContext) {
+    this.assertWriteAuthorized(rawContext);
     const context = requireContext(rawContext);
     if (!['create', 'update', 'comment'].includes(plan.action)
       || !['single', 'double'].includes(plan.confirmationLevel)) {
@@ -240,6 +249,7 @@ export class MulticaCapability {
   }
 
   async applyMutation(pending, rawContext) {
+    this.assertWriteAuthorized(rawContext);
     const context = requireContext(rawContext);
     if (pending.chatId !== context.chatId || pending.senderId !== context.senderId) {
       throw new Error('Multica confirmation context does not match the original request');

@@ -46,7 +46,11 @@ function fixture(initialStatus = 'todo') {
     },
   };
   return {
-    lifecycle: new MulticaWorkLifecycle({ client, state }),
+    lifecycle: new MulticaWorkLifecycle({
+      client,
+      state,
+      authorizeWrite: candidate => candidate.ownerAuthorized === true,
+    }),
     updates,
     subscriptions,
     current: () => structuredClone(issue),
@@ -57,6 +61,7 @@ const context = {
   chatId: 'oc-work',
   senderId: 'ou-owner',
   chatType: 'p2p',
+  ownerAuthorized: true,
 };
 
 {
@@ -95,6 +100,16 @@ const context = {
     /terminal status/i,
   );
   assert.equal(test.updates.length, 0);
+}
+
+{
+  const test = fixture();
+  await assert.rejects(
+    test.lifecycle.begin('MYS-9', { ...context, ownerAuthorized: false }),
+    error => error?.code === 'MULTICA_OWNER_REQUIRED',
+  );
+  assert.equal(test.updates.length, 0);
+  assert.equal(test.subscriptions.length, 0);
 }
 
 {

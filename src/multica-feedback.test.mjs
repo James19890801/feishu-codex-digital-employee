@@ -106,6 +106,9 @@ const ownerContext = {
     assert.equal(started.kind, 'clarification');
     assert.equal(started.text, feedbackClarificationQuestion());
     assert.equal(test.creates.length, 0, 'the first feedback message must never create an Issue');
+    const cancelled = test.workflow.cancel(started.pending, { context: nonOwnerContext });
+    assert.match(cancelled.text, /没有创建 Multica Issue/);
+    assert.equal(test.creates.length, 0, 'cancellation must not create an Issue');
 
     const registered = await test.workflow.register(
       started.pending,
@@ -167,6 +170,15 @@ const ownerContext = {
     });
     assert.equal(test.state.multicaDispatchPendingCount(), 0);
     assert.equal(test.audits.some(item => item.event === 'multica_feedback_dispatched'), true);
+
+    const replay = await test.workflow.register(
+      started.pending,
+      '重复投递同一澄清消息。',
+      { context: ownerContext, now: new Date('2026-08-02T00:02:00.000Z') },
+    );
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.ownerDispatched, true);
+    assert.equal(test.updates.length, 1, 'successful Owner dispatch must not be repeated');
   } finally {
     test.close();
   }
@@ -201,6 +213,7 @@ const ownerContext = {
     );
     assert.equal(retried.dispatched, 1);
     assert.equal(retried.failed, 0);
+    assert.equal(retried.deadTotal, 0);
     assert.equal(test.state.multicaDispatchPendingCount(), 0);
   } finally {
     test.close();

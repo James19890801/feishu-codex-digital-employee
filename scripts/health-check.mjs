@@ -73,6 +73,7 @@ const lastWebsocketReadyAt = setting('health', 'last_websocket_ready_at', '');
 const lastMulticaSyncAt = setting('health', 'last_multica_sync_at', '');
 const lastMulticaSyncError = setting('health', 'last_multica_sync_error', null);
 const lastMulticaSyncResult = setting('health', 'last_multica_sync_result', null);
+const lastMulticaDispatchResult = setting('health', 'last_multica_dispatch_result', null);
 const lastBackupAt = setting('health', 'last_database_backup_at', '');
 const lastBackupError = setting('health', 'last_database_backup_error', null);
 const lastAiRuntimeSuccessAt = setting('health', 'last_ai_runtime_success_at', '');
@@ -123,6 +124,12 @@ if (config.multicaEnabled) {
     result.issues.push('multica_delivery_pending');
   }
   if (multicaDeadCount > 0) result.issues.push('multica_delivery_dead');
+  if (Number(lastMulticaDispatchResult?.pending || 0) > 0) {
+    result.issues.push('multica_dispatch_pending');
+  }
+  if (Number(lastMulticaDispatchResult?.deadTotal || 0) > 0) {
+    result.issues.push('multica_dispatch_dead');
+  }
 }
 result.healthy = result.issues.length === 0;
 result.metrics = {
@@ -146,6 +153,9 @@ result.metrics = {
   multicaPending: Number(lastMulticaSyncResult?.pending || 0),
   multicaFailed: Number(lastMulticaSyncResult?.failed || 0),
   multicaDead: multicaDeadCount,
+  multicaDispatchPending: Number(lastMulticaDispatchResult?.pending || 0),
+  multicaDispatchDead: Number(lastMulticaDispatchResult?.deadTotal || 0),
+  multicaDispatched: Number(lastMulticaDispatchResult?.dispatched || 0),
   lastDatabaseBackupAt: lastBackupAt,
   databaseBackupAgeMs: backupAgeMs,
   lastAiRuntimeSuccessAt,

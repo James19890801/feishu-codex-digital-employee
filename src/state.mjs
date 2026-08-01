@@ -694,8 +694,29 @@ export class AgentState {
   }
 
   completeMulticaDispatch(issueId) {
-    return this.db.prepare('DELETE FROM multica_dispatch_outbox WHERE issue_id = ?')
-      .run(String(issueId || '')).changes === 1;
+    return this.db.prepare(`UPDATE multica_dispatch_outbox
+      SET status = 'completed', last_error = '', updated_at = ?, dead_at = ''
+      WHERE issue_id = ? AND status = 'pending'`)
+      .run(new Date().toISOString(), String(issueId || '')).changes === 1;
+  }
+
+  getMulticaDispatch(issueId) {
+    const row = this.db.prepare(`SELECT issue_id, workspace_id, assignee, attempts,
+      status, available_at, last_error, created_at, updated_at, dead_at
+      FROM multica_dispatch_outbox WHERE issue_id = ?`).get(String(issueId || ''));
+    if (!row) return null;
+    return {
+      issueId: row.issue_id,
+      workspaceId: row.workspace_id,
+      assignee: row.assignee,
+      attempts: Number(row.attempts || 0),
+      status: row.status,
+      availableAt: row.available_at,
+      lastError: row.last_error,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      deadAt: row.dead_at,
+    };
   }
 
   failMulticaDispatch(issueId, error, availableAt, maxAttempts = 10) {

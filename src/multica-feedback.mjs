@@ -134,6 +134,20 @@ export class MulticaFeedbackWorkflow {
     return { kind: 'clarification', text: feedbackClarificationQuestion(), pending };
   }
 
+  cancel(pending, { context } = {}) {
+    if (!sameContext(pending?.context, context)) {
+      throw new Error('Feedback cancellation context does not match the original request');
+    }
+    this.audit('multica_feedback_cancelled', {
+      sourceMessageId: pending.sourceMessageId,
+      chatId: pending.context.chatId,
+    });
+    return {
+      kind: 'cancelled',
+      text: '好的，这次反馈登记已取消，没有创建 Multica Issue。',
+    };
+  }
+
   async workspace() {
     if (!this.workspaceId) throw new Error('Multica feedback workspace is not configured');
     const workspaces = await this.client.listWorkspaces();
@@ -200,15 +214,19 @@ export class MulticaFeedbackWorkflow {
     let dispatchPending = false;
     if (pending.ownerAuthorized) {
       if (!this.ownerSquad) throw new Error('Multica Owner Squad is not configured');
-      this.state.enqueueMulticaDispatch({
-        issueId: issue.id,
-        workspaceId: issue.workspace_id,
-        assignee: this.ownerSquad,
-        availableAt: now.toISOString(),
-      });
-      const delivery = await this.deliverDispatches(now);
-      ownerDispatched = delivery.dispatched > 0;
-      dispatchPending = !ownerDispatched;
+      const priorDispatch = this.state.getMulticaDispatch(issue.id);
+      if (priorDispatch?.status !== 'completed') {
+        this.state.enqueueMulticaDispatch({
+          issueId: issue.id,
+          workspaceId: issue.workspace_id,
+          assignee: this.ownerSquad,
+          availableAt: now.toISOString(),
+        });
+        await this.deliverDispatches(now);
+      }
+      const dispatch = this.state.getMulticaDispatch(issue.id);
+      ownerDispatched = dispatch?.status === 'completed';
+      dispatchPending = dispatch?.status === 'pending';
     }
 
     const link = multicaIssueUrl(issue, this.appUrl);
@@ -270,6 +288,7 @@ export class MulticaFeedbackWorkflow {
       failed,
       dead,
       pending: this.state.multicaDispatchPendingCount(),
+      deadTotal: this.state.multicaDispatchDeadCount(),
     };
   }
 }
