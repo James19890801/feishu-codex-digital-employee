@@ -256,6 +256,13 @@ const MULTICA_SYNCHRONIZER = MULTICA_CLIENT
       ),
       audit: (event, detail) => state.audit(event, { detail }),
       appUrl: config.multicaAppUrl,
+      ownerRecipient: config.dingtalkEnabled && config.dingtalkOwnerOpenId
+        ? {
+            chatId: `dingtalk:user:${config.dingtalkOwnerOpenId}`,
+            senderId: `dingtalk:${config.dingtalkOwnerOpenId}`,
+            chatType: 'p2p',
+          }
+        : null,
     })
   : null;
 let stopping = false;
