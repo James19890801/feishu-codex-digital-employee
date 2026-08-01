@@ -93,7 +93,6 @@ export const config = {
     name: 'dashboardPort', fallback: 17655, min: 1024, max: 65535,
   }),
   workdir,
-  artifactDir: raw.artifactDir || join(home, 'Desktop', '数字员工交付物'),
   codexBin: raw.codexBin || '/Applications/ChatGPT.app/Contents/Resources/codex',
   codexModel: raw.codexModel || 'gpt-5.6-terra',
   codexProxyUrl: raw.codexProxyUrl || '',

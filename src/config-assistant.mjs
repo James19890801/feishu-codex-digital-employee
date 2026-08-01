@@ -318,7 +318,6 @@ export const assistantSchema = {
     'keychainService',
     'actionItemDocumentToken',
     'dashboardPort',
-    'artifactDir',
     'codexBin',
     'codexProxyUrl',
     'larkCli',

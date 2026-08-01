@@ -1,6 +1,24 @@
+import { dirname } from 'node:path';
 import { matchHumanTakeoverCommand } from './human-takeover.mjs';
 
 const CHANNEL_TARGET_PATTERN = /^(dingtalk|wecom|wechat):(group|user):(.+)$/;
+const DINGTALK_SELF_FILE_PLACEHOLDER = /^(?:\[文件\]\s*)+.*\bfileId\s*:/i;
+
+export function buildDingTalkProcessEnv({
+  dingtalkBin,
+  nodeBin = '',
+  pathEnv = '',
+  baseEnv = {},
+} = {}) {
+  const executable = String(dingtalkBin || '').trim();
+  if (!executable) throw new Error('DingTalk executable path is required');
+  return {
+    ...baseEnv,
+    PATH: [dirname(executable), String(nodeBin || ''), String(pathEnv || '')]
+      .filter(Boolean)
+      .join(':'),
+  };
+}
 
 export function formatChannelChatId(channel, kind, id) {
   if (!['dingtalk', 'wecom', 'wechat'].includes(channel)) {
@@ -165,6 +183,12 @@ export function normalizeDingTalkSelfMessages(result) {
     ).trim();
     const content = String(item?.content || item?.text || '').trim();
     if (!messageId || !senderId || !content) return [];
+    // DWS represents files in a self-chat as text placeholders and does not
+    // expose whether they were sent by the human or by AIPRO. AIPRO cannot
+    // read these placeholders as files, and treating its own delivered file
+    // as a new request creates an unbounded file-reply loop. Fail closed until
+    // DWS exposes a reliable message direction or media-origin field.
+    if (DINGTALK_SELF_FILE_PLACEHOLDER.test(content)) return [];
     return [{
       message: {
         message_id: `dingtalk:${messageId}`,

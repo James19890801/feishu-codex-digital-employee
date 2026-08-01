@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import * as imChannelHelpers from './im-channels.mjs';
 import {
   buildDingTalkConversationPollingArgs,
   buildDingTalkSelfPollingArgs,
@@ -12,6 +13,23 @@ import {
   parseChannelChatId,
   prepareGroupMention,
 } from './im-channels.mjs';
+
+assert.equal(
+  typeof imChannelHelpers.buildDingTalkProcessEnv,
+  'function',
+  'DingTalk process environment must be built by a tested helper',
+);
+if (typeof imChannelHelpers.buildDingTalkProcessEnv === 'function') {
+  assert.deepEqual(imChannelHelpers.buildDingTalkProcessEnv({
+    dingtalkBin: '/opt/dws/bin/dws',
+    nodeBin: '/opt/node/bin',
+    pathEnv: '/usr/bin:/bin',
+    baseEnv: { LANG: 'zh_CN.UTF-8' },
+  }), {
+    LANG: 'zh_CN.UTF-8',
+    PATH: '/opt/dws/bin:/opt/node/bin:/usr/bin:/bin',
+  });
+}
 
 assert.equal(
   formatChannelChatId('dingtalk', 'group', 'cidABC'),
@@ -145,6 +163,12 @@ assert.deepEqual(buildDingTalkConversationPollingArgs(
         createTime: '2026-08-01 13:54:54',
         openConversationId: 'cid-self',
         openMessageId: 'msg-self-1',
+        senderOpenDingTalkId: 'open-self',
+      }, {
+        content: '[文件] 周报.pdf fileId: outbound-file-id 注意：如需下载使用dws drive download命令下载',
+        createTime: '2026-08-01 13:54:55',
+        openConversationId: 'cid-self',
+        openMessageId: 'msg-self-file',
         senderOpenDingTalkId: 'open-self',
       }],
     },

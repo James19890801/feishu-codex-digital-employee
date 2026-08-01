@@ -37,7 +37,6 @@ const documents = {
     rateLimitWindowMs: 300000,
     rateLimitMaxMessages: 10,
     dashboardPort: 17655,
-    artifactDir: '',
     codexBin: '/Applications/ChatGPT.app/Contents/Resources/codex',
     codexModel: 'gpt-5.6-terra',
     codexProxyUrl: '',

@@ -2,8 +2,6 @@ import assert from 'node:assert/strict';
 import './human-takeover.test.mjs';
 import './conversation-etiquette.test.mjs';
 import './delivery-routing.test.mjs';
-import './online-delivery.test.mjs';
-import './artifact-writer.test.mjs';
 import {
   buildOwnerControlPollingArgs,
   comparePollingItems,
