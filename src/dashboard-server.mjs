@@ -71,6 +71,7 @@ const staticFiles = new Map([
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/config-ui.js', ['config-ui.js', 'text/javascript; charset=utf-8']],
+  ['/i18n.js', ['i18n.js', 'text/javascript; charset=utf-8']],
 ]);
 
 let eventCache = { checkedAt: 0, processPid: null, active: false, activeConsumers: 0 };

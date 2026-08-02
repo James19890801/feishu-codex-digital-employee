@@ -37,9 +37,10 @@ assert.equal(ui.rollbackConfirmation('snapshot-1234'), 'ROLLBACK snapshot-1234')
 assert.equal(ui.runtimeCanSelect({ id: 'qoder', available: true }, 'codex'), true);
 assert.equal(ui.runtimeCanSelect({ id: 'qoder', available: false }, 'codex'), false);
 assert.equal(ui.runtimeCanSelect({ id: 'codex', available: true }, 'codex'), false);
-assert.equal(ui.runtimeStatusLabel({ installed: false, available: false }), '未安装');
-assert.equal(ui.runtimeStatusLabel({ installed: true, available: false }), '仅检测到应用');
-assert.equal(ui.runtimeStatusLabel({ installed: true, available: true }), '可用');
+assert.equal(ui.runtimeStatusLabel({ installed: false, available: false }), 'Not installed');
+assert.equal(ui.runtimeStatusLabel({ installed: true, available: false }), 'Application detected only');
+assert.equal(ui.runtimeStatusLabel({ installed: true, available: true }), 'Online');
+assert.equal(ui.runtimeStatusLabel({ installed: false, available: false }, 'zh'), '未安装');
 assert.deepEqual(ui.channelRequestHeaders('session-token'), {
   'Content-Type': 'application/json',
   'X-Dashboard-Action': 'channel-config',
@@ -51,9 +52,10 @@ assert.deepEqual(ui.wechatPocRequestHeaders('wechat-poc-control', 'session-token
   'X-Dashboard-Session': 'session-token',
 });
 assert.throws(() => ui.wechatPocRequestHeaders('restart', 'session-token'), /unsupported/i);
-assert.equal(ui.channelSubmitLabel({ enabled: true }), '保存并连接');
-assert.equal(ui.channelSubmitLabel({ enabled: false }), '保存配置');
-assert.equal(ui.channelSubmitLabel({ protected: true }), '主通道受保护');
+assert.equal(ui.channelSubmitLabel({ enabled: true }), 'Save & connect');
+assert.equal(ui.channelSubmitLabel({ enabled: false }), 'Save configuration');
+assert.equal(ui.channelSubmitLabel({ protected: true }), 'PRIMARY PATH PROTECTED');
+assert.equal(ui.channelSubmitLabel({ enabled: true }, 'zh'), '保存并连接');
 assert.equal(ui.channelNeedsCredential({ credentialStored: false }, ''), true);
 assert.equal(ui.channelNeedsCredential({ credentialStored: true }, ''), false);
 assert.equal(ui.channelNeedsCredential({ credentialStored: false }, 'new-secret'), false);
