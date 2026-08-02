@@ -87,9 +87,11 @@ export function buildDingTalkConversationPollingArgs(profile, target, start) {
   if (target?.channel !== 'dingtalk' || !['group', 'user'].includes(target?.kind)) {
     throw new Error('A DingTalk group or user target is required for conversation polling');
   }
+  const targetId = String(target.id || '').trim();
+  if (!targetId) throw new Error('DingTalk target ID is required for conversation polling');
   const recipient = target.kind === 'group'
-    ? ['--group', String(target.id || '')]
-    : ['--open-dingtalk-id', String(target.id || '')];
+    ? ['--group', targetId]
+    : ['--open-dingtalk-id', targetId];
   return [
     ...(profile ? ['--profile', profile] : []),
     'chat', 'message', 'list',
@@ -107,22 +109,28 @@ export function buildDingTalkSendArgs(target, text, uuid = '', {
   if (target?.channel !== 'dingtalk') {
     throw new Error('DingTalk sender received a non-DingTalk target');
   }
+  const targetId = String(target.id || '').trim();
+  if (!targetId) throw new Error('DingTalk target ID is required for sending');
   const recipient = target.kind === 'group'
-    ? ['--group', target.id]
+    ? ['--group', targetId]
     : target.kind === 'user'
-      ? ['--open-dingtalk-id', target.id]
+      ? ['--open-dingtalk-id', targetId]
       : null;
   if (!recipient) throw new Error(`Unsupported DingTalk target kind: ${target?.kind || ''}`);
+  const content = String(text || '');
   const args = [
     'chat', 'message', 'send',
     ...recipient,
-    '--text', String(text || ''),
+    '--text', content,
     '--ai-tag=false',
   ];
   const mentionIds = target.kind === 'group'
     ? [...new Set(atOpenDingTalkIds.map(value => String(value || '').trim()).filter(Boolean))]
       .slice(0, 20)
     : [];
+  if (mentionIds.some(id => !content.includes(`<@${id}>`))) {
+    throw new Error('DingTalk mention placeholder is required for every mentioned user');
+  }
   if (mentionIds.length) args.push('--at-open-dingtalk-ids', mentionIds.join(','));
   if (uuid) args.push('--uuid', String(uuid).slice(0, 128));
   args.push('--yes', '--format', 'json');

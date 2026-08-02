@@ -153,6 +153,14 @@ assert.deepEqual(buildDingTalkConversationPollingArgs(
   '--limit', '50',
   '--format', 'json',
 ]);
+assert.throws(
+  () => buildDingTalkConversationPollingArgs(
+    'corp:user',
+    { channel: 'dingtalk', kind: 'group', id: '  ' },
+    '2026-08-01 13:50:00',
+  ),
+  /target ID/i,
+);
 
 {
   const payloads = normalizeDingTalkSelfMessages({
@@ -249,6 +257,24 @@ assert.equal(normalizeDingTalkEvent({
   assert.ok(args.includes('--at-open-dingtalk-ids'));
   assert.equal(args[args.indexOf('--at-open-dingtalk-ids') + 1], 'sender-1');
 }
+
+assert.throws(
+  () => buildDingTalkSendArgs(
+    { channel: 'dingtalk', kind: 'group', id: '' },
+    '收到',
+    'invalid-target',
+  ),
+  /target ID/i,
+);
+assert.throws(
+  () => buildDingTalkSendArgs(
+    { channel: 'dingtalk', kind: 'group', id: 'cid-group' },
+    '收到，我来处理。',
+    'missing-mention-placeholder',
+    { atOpenDingTalkIds: ['sender-1'] },
+  ),
+  /mention placeholder/i,
+);
 
 {
   const args = buildDingTalkSendArgs(
