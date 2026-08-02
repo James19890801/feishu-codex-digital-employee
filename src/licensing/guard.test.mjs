@@ -85,9 +85,11 @@ const wrongDevice = await evaluateLicenseGuard({
 assert.equal(wrongDevice.allowed, false);
 assert.equal(wrongDevice.reason, 'wrong_device');
 
+const [validBody, validSignature] = validToken.split('.');
+const changedSignature = `${validSignature[0] === 'A' ? 'B' : 'A'}${validSignature.slice(1)}`;
 const tampered = await evaluateLicenseGuard({
   enforced: true,
-  store: fakeStore({ token: `${validToken.slice(0, -1)}x` }),
+  store: fakeStore({ token: `${validBody}.${changedSignature}` }),
   publicKey: authority.publicKey,
   product: 'AIPRO',
   now,

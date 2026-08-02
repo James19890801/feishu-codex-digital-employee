@@ -51,6 +51,9 @@ import {
   selectAiRuntime,
 } from './ai-runtime.mjs';
 import { WeChatPocDashboardControl } from './wechat-poc/dashboard-control.mjs';
+import { LicensingClient } from './licensing/client.mjs';
+import { LicensingDashboardApi } from './licensing/dashboard-api.mjs';
+import { LicensingStore } from './licensing/store.mjs';
 
 const HOST = '127.0.0.1';
 const PORT = config.dashboardPort;
@@ -66,6 +69,17 @@ const CONFIG_ASSISTANT_SESSION_TOKEN = randomBytes(32).toString('hex');
 const INITIAL_PUBLIC_CONFIGURATION = publicConfiguration(config);
 const SERVICE_LABEL = 'com.local.feishu-codex-digital-employee';
 const ALLOWED_HOSTS = new Set([`${HOST}:${PORT}`, `localhost:${PORT}`]);
+const licensingStore = new LicensingStore();
+const licensingClient = config.licensingServiceUrl
+  ? new LicensingClient({ serviceUrl: config.licensingServiceUrl })
+  : null;
+const licensingApi = new LicensingDashboardApi({
+  store: licensingStore,
+  client: licensingClient,
+  publicKey: config.licensingPublicKey,
+  product: config.licensingProductId,
+  enforced: config.licensingEnforced,
+});
 const staticFiles = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
@@ -831,6 +845,57 @@ const server = createServer(async (request, response) => {
     }
     if (request.method === 'GET' && url.pathname === '/api/status') {
       sendJson(response, 200, await collectStatus());
+      return;
+    }
+    if (request.method === 'GET' && url.pathname === '/api/licensing/status') {
+      sendJson(response, 200, {
+        ...await licensingApi.status(),
+        sessionToken: CONFIG_ASSISTANT_SESSION_TOKEN,
+      });
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/licensing/activate') {
+      if (!allowedConfigAction(request, 'licensing-activate')) {
+        sendJson(response, 403, { ok: false, error: 'licensing action rejected' });
+        return;
+      }
+      try {
+        const body = await readDashboardJson(request);
+        if (Object.keys(body).some(key => key !== 'code')) {
+          throw Object.assign(new Error('Activation request is invalid.'), {
+            code: 'invalid_activation_request',
+          });
+        }
+        const result = await licensingApi.activate(body);
+        sendJson(response, 200, result);
+        restartMainService().catch(error => console.error('[licensing-restart-error]', error));
+      } catch (error) {
+        sendJson(response, 400, {
+          ok: false,
+          code: String(error?.code || 'activation_failed'),
+          error: 'Invitation code could not be activated.',
+        });
+      }
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/licensing/invites') {
+      if (!allowedConfigAction(request, 'licensing-generate')) {
+        sendJson(response, 403, { ok: false, error: 'licensing action rejected' });
+        return;
+      }
+      try {
+        const body = await readDashboardJson(request);
+        sendJson(response, 201, { ok: true, batch: await licensingApi.generate(body) });
+      } catch (error) {
+        const unauthorized = error?.code === 'issuer_not_authorized';
+        sendJson(response, unauthorized ? 403 : 400, {
+          ok: false,
+          code: String(error?.code || 'invitation_generation_failed'),
+          error: unauthorized
+            ? 'Founder issuer is not authorized.'
+            : 'Invitation codes could not be generated.',
+        });
+      }
       return;
     }
     if (request.method === 'GET' && url.pathname === '/api/wechat-poc/status') {
