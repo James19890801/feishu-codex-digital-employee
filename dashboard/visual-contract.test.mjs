@@ -64,4 +64,10 @@ assert.match(css, /backdrop-filter:\s*blur/);
 assert.match(css, /@media \(max-width: 560px\)/);
 assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
 
+assert.doesNotMatch(html, /class="runtime-current"/, 'effective runtime should be expressed only by the selected card');
+assert.doesNotMatch(html, /data-card="codex"/, 'runtime must not be repeated in the summary metrics');
+assert.doesNotMatch(html, /class="runtime-contract"/, 'internal switching workflow should not repeat below the cards');
+assert.doesNotMatch(app, /id:\s*'auto'/, 'automatic discovery is an implementation policy, not a runtime card');
+assert.match(app, /runtime\.id === selectedId/);
+
 console.log('DASHBOARD_VISUAL_CONTRACT_TEST_OK');

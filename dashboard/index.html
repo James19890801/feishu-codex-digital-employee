@@ -166,18 +166,13 @@
         <strong id="websocketValue">—</strong>
         <p id="websocketMeta" data-i18n="metricWebsocketLoading">Checking WebSocket consumer</p>
       </article>
-      <article class="metric-card" data-card="codex">
-        <div class="metric-head"><span>04</span><b data-i18n="metricRuntime">AI runtime</b><i id="codexDot"></i></div>
-        <strong id="codexValue">—</strong>
-        <p id="codexMeta" data-i18n="metricRuntimeLoading">Discovering local CLIs</p>
-      </article>
       <article class="metric-card" data-card="multica">
-        <div class="metric-head"><span>05</span><b data-i18n="metricMultica">Multica workspace</b><i id="multicaDot"></i></div>
+        <div class="metric-head"><span>04</span><b data-i18n="metricMultica">Multica workspace</b><i id="multicaDot"></i></div>
         <strong id="multicaValue">—</strong>
         <p id="multicaMeta" data-i18n="metricMulticaLoading">Issue read, write, and sync</p>
       </article>
       <article class="metric-card wide" data-card="database">
-        <div class="metric-head"><span>06</span><b data-i18n="metricDatabase">State &amp; queues</b><i id="databaseDot"></i></div>
+        <div class="metric-head"><span>05</span><b data-i18n="metricDatabase">State &amp; queues</b><i id="databaseDot"></i></div>
         <div class="queue-row">
           <div><strong id="completedCount">0</strong><small data-i18n="completed">Completed</small></div>
           <div><strong id="processingCount">0</strong><small data-i18n="processing">Processing</small></div>
@@ -190,20 +185,14 @@
     <section class="runtime-console" id="runtimeConsole">
       <div class="runtime-heading">
         <div>
-          <span data-i18n="runtimeEyebrow">AI CODING RUNTIME / AUTO DISCOVERY</span>
-          <h3 data-i18n="runtimeTitle">Choose the reasoning engine</h3>
-          <p data-i18n="runtimeDescription">AIPRO discovers supported local runtimes automatically. Codex is preferred by default; only stable, non-interactive CLIs can be selected.</p>
-        </div>
-        <div class="runtime-current">
-          <span data-i18n="currentEngine">CURRENT ENGINE</span>
-          <strong id="runtimeCurrent" data-i18n="detecting">Detecting</strong>
-          <small id="runtimePolicy">AUTO / CODEX FIRST</small>
+          <span data-i18n="runtimeEyebrow">REASONING ENGINE</span>
+          <h3 data-i18n="runtimeTitle">Reasoning engine</h3>
+          <p data-i18n="runtimeDescription">Choose from the supported CLI runtimes available on this Mac.</p>
         </div>
       </div>
       <div class="runtime-grid" id="runtimeGrid" aria-live="polite">
         <p class="empty" data-i18n="scanningRuntimes">Scanning Codex, Qoder, CodeBuddy, and TRAE…</p>
       </div>
-      <p class="runtime-contract" data-i18n="runtimeContract">Runtime changes are staged first: preview → confirmation → backup → real invocation → restart → health verification.</p>
     </section>
 
     <section class="config-console" id="configConsole">

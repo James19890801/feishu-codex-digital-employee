@@ -863,7 +863,6 @@ h1 {
 .wechat-poc-card > small { margin-top: 11px; color: var(--muted); font-size: 9px; line-height: 1.45; }
 
 .channel-identity-note,
-.runtime-contract,
 .apply-contract,
 .channel-apply-contract {
   margin: 18px 0 0;
@@ -876,13 +875,13 @@ h1 {
 
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 11px;
   margin-top: 20px;
 }
 
 .metric-card { min-height: 152px; padding: 18px; }
-.metric-card.wide { grid-column: span 5; min-height: 132px; }
+.metric-card.wide { grid-column: span 4; min-height: 132px; }
 .metric-head span { color: var(--accent); font-family: var(--mono); font-size: 8px; }
 .metric-head b { font-size: 10px; font-weight: 650; }
 .metric-head i { margin-left: auto; }
@@ -917,17 +916,6 @@ h1 {
 .queue-row small { display: block; margin-top: 3px; color: var(--muted); font-size: 8px; }
 
 .runtime-heading { align-items: center; }
-.runtime-current {
-  flex: 0 0 210px;
-  padding: 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: rgba(255,255,255,.44);
-}
-
-.runtime-current span { color: var(--muted); font-family: var(--mono); font-size: 8px; letter-spacing: .08em; }
-.runtime-current strong { display: block; margin-top: 6px; font-family: var(--serif); font-size: 21px; font-weight: 400; }
-.runtime-current small { display: block; margin-top: 4px; color: var(--green); font-family: var(--mono); font-size: 8px; }
 
 .runtime-grid {
   display: grid;
@@ -937,7 +925,12 @@ h1 {
 }
 
 .runtime-card { display: flex; flex-direction: column; min-height: 180px; padding: 17px; }
-.runtime-card.selected { border-color: rgba(73,105,92,.28); background: var(--green-soft); }
+.runtime-card.selected {
+  border-color: rgba(73,105,92,.38);
+  background: linear-gradient(145deg, rgba(73,105,92,.13), rgba(255,255,255,.58));
+  box-shadow: inset 3px 0 0 var(--green), 0 12px 28px rgba(73,105,92,.08);
+}
+.runtime-card.selected p { color: var(--ink-soft); }
 .runtime-card.unavailable { opacity: .55; }
 .runtime-card h4 { margin: 0; font-size: 11px; }
 .runtime-card b { margin-top: 18px; color: var(--green); font-family: var(--mono); font-size: 8px; letter-spacing: .07em; }
@@ -1220,8 +1213,8 @@ h1 {
   .topbar { grid-template-columns: minmax(220px, .7fr) minmax(240px, 1fr) minmax(320px, auto); gap: 14px; }
   .brand-campaign { padding-inline: 18px; }
   .channel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .metric-card.wide { grid-column: span 3; }
+  .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metric-card.wide { grid-column: span 2; }
   .runtime-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .assistant-workbench { grid-template-columns: 1fr; }
   .change-inspector { min-height: 520px; }
@@ -1269,7 +1262,7 @@ h1 {
   .last-check { flex: 1 0 100%; margin: 2px 0 0; }
   .channel-console, .runtime-console, .config-console, .panel { padding: 20px 17px; }
   .channel-heading, .runtime-heading, .console-heading { display: block; }
-  .channel-heading > b, .runtime-current, .console-state { display: inline-block; margin-top: 14px; text-align: left; }
+  .channel-heading > b, .console-state { display: inline-block; margin-top: 14px; text-align: left; }
   .channel-grid, .metrics-grid, .runtime-grid { grid-template-columns: 1fr; }
   .channel-card.wechat-poc-card, .metric-card.wide { grid-column: span 1; }
   .queue-row { grid-template-columns: repeat(2, 1fr); }

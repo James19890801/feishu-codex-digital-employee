@@ -57,6 +57,10 @@ try {
   assert.equal(await page.locator('.product-footer strong').textContent(), 'Developed by Zhao Yingzhi & James Feng');
   assert.match(await page.locator('#configInput').getAttribute('placeholder'), /Describe the outcome/);
   assert.equal(await page.locator('#refreshButton').isEnabled(), true);
+  assert.equal(await page.locator('.runtime-card.selected h4').textContent(), 'Codex CLI');
+  assert.equal(await page.locator('.runtime-card.selected button').count(), 0);
+  assert.equal(await page.locator('.runtime-card h4', { hasText: 'Auto select' }).count(), 0);
+  assert.equal(await page.locator('.runtime-current').count(), 0);
 
   const cardRadius = await page.locator('.channel-card').first().evaluate(element => getComputedStyle(element).borderRadius);
   assert.equal(cardRadius, '16px');

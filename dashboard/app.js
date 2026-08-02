@@ -358,11 +358,6 @@ function render(data) {
   $('websocketMeta').textContent = tr('lastReady', { time: formatDate(data.websocket.lastReadyAt) });
   setDot('websocketDot', data.websocket.active);
 
-  $('codexValue').textContent = data.aiRuntime?.label || tr('notSelected');
-  $('codexMeta').textContent = data.aiRuntime?.configured === 'auto'
-    ? tr('automaticSelection', { runtime: data.aiRuntime?.selected || tr('noRuntime') })
-    : tr('fixedSelection', { runtime: data.aiRuntime?.selected || tr('unavailable') });
-  setDot('codexDot', data.aiRuntime?.healthy);
   renderRuntimeState(data.aiRuntime);
 
   $('multicaValue').textContent = !data.multica.enabled
@@ -390,11 +385,11 @@ function render(data) {
   tick();
 }
 
-function runtimeCard(runtime, configured) {
+function runtimeCard(runtime, selectedId, configured) {
   const card = document.createElement('article');
-  const selected = runtime.id === configured
-    || (runtime.id === 'auto' && configured === 'auto');
+  const selected = runtime.id === selectedId;
   card.className = `runtime-card ${runtime.available ? 'available' : 'unavailable'}${selected ? ' selected' : ''}`;
+  if (selected) card.setAttribute('aria-current', 'true');
 
   const header = document.createElement('header');
   const dot = document.createElement('i');
@@ -403,9 +398,7 @@ function runtimeCard(runtime, configured) {
   header.append(dot, title);
 
   const status = document.createElement('b');
-  status.textContent = runtime.id === 'auto'
-    ? 'CODEX FIRST'
-    : runtimeStatusLabel(runtime, locale).toUpperCase();
+  status.textContent = runtimeStatusLabel(runtime, locale).toUpperCase();
   const description = document.createElement('p');
   const localizedDescription = runtimeDescriptionKeys[runtime.id]
     ? tr(runtimeDescriptionKeys[runtime.id])
@@ -416,36 +409,26 @@ function runtimeCard(runtime, configured) {
       : runtime.id === 'trae' ? tr('runtimeTraeReason') : runtime.reason
     : '';
   description.textContent = localizedReason || localizedDescription;
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.dataset.runtimeId = runtime.id;
-  button.textContent = selected
-    ? tr('currentConfiguration')
-    : runtime.available ? tr('selectRuntime') : runtimeStatusLabel(runtime, locale);
-  button.disabled = !runtimeCanSelect(runtime, configured);
-  card.append(header, status, description, button);
+  card.append(header, status, description);
+  if (!selected) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.runtimeId = runtime.id;
+    button.textContent = runtime.available ? tr('selectRuntime') : runtimeStatusLabel(runtime, locale);
+    button.disabled = !runtimeCanSelect(runtime, configured);
+    card.append(button);
+  }
   return card;
 }
 
 function renderRuntimeState(state) {
   if (!state) return;
   latestRuntimeState = state;
-  $('runtimeCurrent').textContent = state.label || tr('noAvailableRuntime');
-  $('runtimePolicy').textContent = state.configured === 'auto'
-    ? `AUTO / ${(state.selected || 'NONE').toUpperCase()}`
-    : `FIXED / ${String(state.configured || '').toUpperCase()}`;
   const grid = $('runtimeGrid');
   grid.replaceChildren();
-  grid.append(runtimeCard({
-    id: 'auto',
-    label: tr('autoSelect'),
-    description: tr('autoSelectDescription'),
-    installed: true,
-    available: (state.runtimes || []).some(item => item.available),
-    reason: '',
-  }, state.configured));
+  const selectedId = String(state.selected || '').toLowerCase();
   for (const runtime of state.runtimes || []) {
-    grid.append(runtimeCard(runtime, state.configured));
+    grid.append(runtimeCard(runtime, selectedId, state.configured));
   }
 }
 
