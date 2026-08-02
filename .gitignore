@@ -8,3 +8,8 @@ data/
 *.log
 .DS_Store
 .worktrees/
+.wrangler/
+**/.wrangler/
+**/.dev.vars
+*.aipro-recovery
+*.aipro-license

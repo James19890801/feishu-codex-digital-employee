@@ -1,0 +1,13 @@
+{
+  "name": "@aipro/licensing-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node src/domain.test.mjs && node src/repository-d1.test.mjs && node src/index.test.mjs",
+    "deploy:dry": "wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

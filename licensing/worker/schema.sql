@@ -2,13 +2,14 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS issuers (
   id TEXT PRIMARY KEY,
+  holder TEXT NOT NULL,
   display_name TEXT NOT NULL,
   public_key TEXT NOT NULL UNIQUE,
   roles_json TEXT NOT NULL DEFAULT '["invite.issue","invite.revoke"]',
   status TEXT NOT NULL CHECK (status IN ('active', 'revoked')),
   created_at TEXT NOT NULL,
   revoked_at TEXT,
-  replaced_by TEXT REFERENCES issuers(id)
+  replaced_by TEXT REFERENCES issuers(id) DEFERRABLE INITIALLY DEFERRED
 );
 
 CREATE TABLE IF NOT EXISTS issuer_challenges (
@@ -46,7 +47,8 @@ CREATE TABLE IF NOT EXISTS invites (
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL,
   activated_at TEXT,
-  revoked_at TEXT
+  revoked_at TEXT,
+  activation_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_invites_issuer_status
   ON invites(issuer_id, status, created_at DESC);
@@ -76,7 +78,7 @@ CREATE TABLE IF NOT EXISTS recovery_credentials (
   status TEXT NOT NULL CHECK (status IN ('active', 'consumed', 'revoked')),
   created_at TEXT NOT NULL,
   consumed_at TEXT,
-  replaced_by TEXT REFERENCES recovery_credentials(id)
+  replaced_by TEXT REFERENCES recovery_credentials(id) DEFERRABLE INITIALLY DEFERRED
 );
 CREATE INDEX IF NOT EXISTS idx_recovery_credentials_active
   ON recovery_credentials(holder, status);

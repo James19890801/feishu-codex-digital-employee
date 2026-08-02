@@ -38,6 +38,11 @@ function iso(timestamp) {
   return new Date(timestamp).toISOString();
 }
 
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function positiveInteger(value, fallback, { min, max, label }) {
   const parsed = value === undefined ? fallback : Number(value);
   if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
@@ -238,12 +243,6 @@ export class InvitationService {
     const codeHash = await this.codeHash(code);
     const licenseId = this.randomId('license');
     const activationId = this.randomId('activation');
-    const activation = {
-      id: activationId,
-      licenseId,
-      deviceKeyHash,
-      activatedAt: iso(timestamp),
-    };
     const invitationPreview = await this.repository.inspectInvitation({ codeHash, now: timestamp });
     if (!invitationPreview) {
       await this.repository.recordActivationFailure(activationKey, timestamp);
@@ -260,6 +259,13 @@ export class InvitationService {
       expiresAt: iso(addDays(timestamp, invitationPreview.licenseDays)),
     };
     const issued = await this.issueEntitlement(license);
+    const activation = {
+      id: activationId,
+      licenseId,
+      deviceKeyHash,
+      entitlementHash: await sha256Hex(issued.token),
+      activatedAt: iso(timestamp),
+    };
     const consumed = await this.repository.consumeInvitation({ codeHash, now: timestamp, activation });
     if (!consumed) {
       await this.repository.recordActivationFailure(activationKey, timestamp);
