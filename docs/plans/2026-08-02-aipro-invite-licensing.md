@@ -4,9 +4,9 @@
 
 **Goal:** Require clean AIPRO installations to enter a one-time ten-digit invitation code while giving the current James machine recoverable Founder and invite-issuer authority.
 
-**Architecture:** A Cloudflare Worker with D1 atomically manages invitation state and signs device-bound entitlements. The local Node service stores device, issuer, and entitlement secrets only in macOS Keychain, verifies entitlements offline, leaves the loopback dashboard available for activation, and gates the core IM worker before any channels start.
+**Architecture:** A Cloudflare Worker with D1 atomically manages invitation state and signs device-bound entitlements; a private R2 object stores the rotatable James contact card outside Git history. The local Node service stores device, issuer, and entitlement secrets only in macOS Keychain, verifies entitlements offline, leaves the loopback dashboard available for activation and developer contact, and gates the core IM worker before any channels start.
 
-**Tech Stack:** Node.js ESM, Node `crypto`/Web Crypto, macOS Keychain CLI adapter, vanilla browser JavaScript, Cloudflare Workers, D1 SQLite, Wrangler, Node test scripts.
+**Tech Stack:** Node.js ESM, Node `crypto`/Web Crypto, macOS Keychain CLI adapter, vanilla browser JavaScript, Cloudflare Workers, D1 SQLite, private R2 object storage, Wrangler, Node test scripts.
 
 ---
 
@@ -254,20 +254,21 @@ git commit -m "feat: expose protected local licensing APIs"
 - Modify: `dashboard/i18n.test.mjs`
 - Modify: `dashboard/visual-contract.test.mjs`
 - Create: `dashboard/licensing-ui.test.mjs`
+- Create: `dashboard/contact-ui.test.mjs`
 - Modify: `scripts/dashboard-browser-smoke.mjs`
 
 **Step 1: Write failing contract tests**
 
-Assert a single ten-digit numeric activation field, localized activation errors, no operations console exposure while unlicensed, issuer-card absence for ordinary status, issuer-card presence only for authorized status, fixed batch size ten, code copy/CSV behavior, no secrets in DOM/localStorage, and unchanged existing control IDs/API contracts.
+Assert the approved English and Chinese identity narrative, a single ten-digit numeric activation field, localized activation errors, no operations console exposure while unlicensed, a global contact control in every license state, accessible contact dialog behavior, contact-card retry behavior, issuer-card absence for ordinary status, issuer-card presence only for authorized status, fixed batch size ten, code copy/CSV behavior, no secrets in DOM/localStorage, and unchanged existing control IDs/API contracts.
 
 **Step 2: Run tests to verify they fail**
 
-Run: `node dashboard/licensing-ui.test.mjs && node dashboard/visual-contract.test.mjs`
+Run: `node dashboard/licensing-ui.test.mjs && node dashboard/contact-ui.test.mjs && node dashboard/visual-contract.test.mjs`
 Expected: FAIL because licensing UI is absent.
 
 **Step 3: Write minimal UI**
 
-Add an accessible activation gate matching the established warm-neutral visual system. Accept digits only, normalize pasted whitespace, disable repeated submissions, and use generic invalid-code text. Add the bottom-right Invite Studio card, defaulting to exactly ten invitations with copy-all, CSV download, masked history, notes, and revoke controls. Keep all secret-bearing state in memory only.
+Add the approved bilingual product narrative and an accessible activation gate matching the established warm-neutral visual system. Accept digits only, normalize pasted whitespace, disable repeated submissions, and use generic invalid-code text. Add the global developer-contact control and modal/bottom sheet, loading the James contact card only on demand. Add the bottom-right Invite Studio card, defaulting to exactly ten invitations with copy-all, CSV download, masked history, notes, and revoke controls. Keep all secret-bearing state in memory only.
 
 **Step 4: Run browser regression**
 
@@ -287,6 +288,7 @@ git commit -m "feat: add one-step activation and Invite Studio"
 - Modify: `README`
 - Create: `docs/LICENSING.md`
 - Create: `scripts/licensing-smoke.mjs`
+- Create locally and upload without Git tracking: James contact-card asset
 - Modify: `package.json`
 
 **Step 1: Add deployment and recovery documentation**
@@ -303,7 +305,7 @@ Expected: bundle succeeds.
 
 **Step 3: Deploy without exposing secrets**
 
-Create/apply D1 migrations, set secrets through Wrangler secret input, deploy the Worker, and record only the public service URL in local configuration. Never put credentials in command arguments or logs.
+Create/apply D1 migrations, create the private R2 bucket/binding, strip metadata from the James contact card, upload it without Git tracking, set secrets through Wrangler secret input, deploy the Worker, and record only the public service URL in local configuration. Never put credentials in command arguments or logs.
 
 **Step 4: Bootstrap before enforcement**
 
@@ -312,7 +314,7 @@ Generate and securely save separate James and Zhao Founder Recovery Kits. Enroll
 **Step 5: Run live acceptance**
 
 Run: `npm run licensing-smoke`
-Expected: ten unique codes; first activation succeeds; duplicate/wrong-device/invalid/rate-limited cases fail; issuer replacement recovery succeeds; old issuer fails afterward.
+Expected: contact-card endpoint returns only the expected image with safe headers; ten unique codes; first activation succeeds; duplicate/wrong-device/invalid/rate-limited cases fail; issuer replacement recovery succeeds; old issuer fails afterward.
 
 Run: `npm run health && npm run event-health && npm run backup-smoke && npm run multica-smoke`
 Expected: the current licensed installation is healthy; Feishu, DingTalk, Multica, SQLite, event stream, and backups remain healthy.
@@ -345,4 +347,3 @@ Merge the tested feature branch into `agent/aipro-commercial-platform-upgrade`, 
 **Step 4: Push and verify remote**
 
 Push the integration branch through the configured system proxy if required. Verify local HEAD equals upstream HEAD and rerun health plus one non-mutating browser smoke test.
-
