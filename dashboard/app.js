@@ -166,7 +166,7 @@ function applyStaticTranslations() {
   }
   $('languageCode').textContent = locale === 'zh' ? '中' : 'EN';
   if (latestLicensingStatus) {
-    $('contactDeveloperButton').textContent = tr(
+    $('contactDeveloperLabel').textContent = tr(
       latestLicensingStatus.activated ? 'contactDeveloper' : 'getInvitation',
     );
   }
@@ -464,7 +464,7 @@ function renderLicensingStatus(status) {
   $('activationGate').classList.toggle('hidden', activated);
   $('operationsConsole').classList.toggle('hidden', !activated);
   $('inviteStudio').classList.toggle('hidden', !canShowInviteStudio(status));
-  $('contactDeveloperButton').textContent = tr(activated ? 'contactDeveloper' : 'getInvitation');
+  $('contactDeveloperLabel').textContent = tr(activated ? 'contactDeveloper' : 'getInvitation');
   if (activated && !operationsStarted) startOperationsConsole();
 }
 

@@ -81,9 +81,10 @@ textarea:focus-visible {
   position: sticky;
   top: 12px;
   z-index: 20;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(260px, .72fr) minmax(280px, 1fr) minmax(360px, .9fr);
   align-items: center;
-  justify-content: space-between;
+  gap: 24px;
   min-height: 72px;
   padding: 10px 14px 10px 12px;
   border: 1px solid rgba(255, 255, 255, .7);
@@ -100,6 +101,8 @@ textarea:focus-visible {
   gap: 13px;
   min-width: 0;
 }
+
+.brand-lockup { min-width: 0; }
 
 .brand-mark {
   display: grid;
@@ -170,30 +173,70 @@ h1 {
   letter-spacing: -.025em;
 }
 
-.brand-subtitle {
-  max-width: min(50vw, 480px);
-  margin: 5px 0 0;
+.brand-campaign {
+  position: relative;
+  min-width: 0;
+  padding: 2px 34px;
+  text-align: center;
+}
+
+.brand-campaign::before,
+.brand-campaign::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, var(--line-strong), transparent);
+}
+
+.brand-campaign::before { left: 0; }
+.brand-campaign::after { right: 0; }
+
+.brand-campaign span,
+.brand-campaign small {
+  display: block;
   overflow: hidden;
-  color: var(--ink-soft);
-  font-size: 10px;
-  font-weight: 570;
-  letter-spacing: .025em;
+  font-family: var(--mono);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.brand-campaign span {
+  color: var(--accent);
+  font-size: 7px;
+  font-weight: 720;
+  letter-spacing: .15em;
+}
+
+.brand-campaign strong {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  font-family: var(--serif);
+  font-size: clamp(15px, 1.25vw, 19px);
+  font-weight: 480;
+  letter-spacing: -.018em;
+  line-height: 1.15;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.brand-credit {
-  margin: 3px 0 0;
-  color: var(--accent-strong);
-  font-size: 9px;
-  font-weight: 620;
-  letter-spacing: .025em;
+.brand-campaign small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 6.5px;
+  font-weight: 650;
+  letter-spacing: .09em;
 }
 
 .topbar-tools {
   display: flex;
   align-items: center;
   gap: 10px;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .language-toggle {
@@ -234,18 +277,39 @@ h1 {
 }
 
 .contact-developer-button {
-  height: 32px;
-  padding: 0 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 42px;
+  padding: 0 13px 0 8px;
   border: 1px solid rgba(154, 91, 77, .24);
   border-radius: 99px;
   color: var(--accent-strong);
   background: var(--accent-soft);
-  font-size: 9px;
-  font-weight: 680;
-  letter-spacing: .02em;
+  text-align: left;
   cursor: pointer;
   transition: transform .18s ease, border-color .18s ease, background .18s ease;
 }
+
+.contact-developer-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: var(--paper-solid);
+  background: var(--accent-strong);
+  box-shadow: 0 5px 14px rgba(119,70,60,.18);
+}
+
+.contact-developer-icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.contact-developer-icon circle { fill: currentColor; stroke: none; }
+.contact-developer-copy { display: block; min-width: 0; }
+.contact-developer-copy strong,
+.contact-developer-copy small { display: block; white-space: nowrap; }
+.contact-developer-copy strong { font-size: 8.5px; font-weight: 720; letter-spacing: .02em; }
+.contact-developer-copy small { margin-top: 2px; color: var(--muted); font-family: var(--mono); font-size: 6.5px; letter-spacing: .04em; }
 
 .contact-developer-button:hover {
   border-color: rgba(154, 91, 77, .48);
@@ -1153,6 +1217,8 @@ h1 {
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 
 @media (max-width: 1180px) {
+  .topbar { grid-template-columns: minmax(220px, .7fr) minmax(240px, 1fr) minmax(320px, auto); gap: 14px; }
+  .brand-campaign { padding-inline: 18px; }
   .channel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .metric-card.wide { grid-column: span 3; }
@@ -1164,7 +1230,8 @@ h1 {
 @media (max-width: 820px) {
   .shell { width: min(100% - 28px, 720px); }
   .topbar { top: 7px; }
-  .brand-subtitle { max-width: 45vw; }
+  .topbar { grid-template-columns: minmax(170px, 1fr) auto; }
+  .brand-campaign { display: none; }
   .hero { grid-template-columns: 100px 1fr; gap: 24px; min-height: 290px; padding: 34px 28px; }
   .hero-index { position: absolute; top: 25px; right: 28px; }
   .signal { width: 94px; height: 94px; }
@@ -1182,11 +1249,14 @@ h1 {
   .shell { width: min(100% - 18px, 520px); padding-top: 9px; }
   .topbar { position: static; min-height: 62px; padding: 8px; border-radius: 18px; }
   .brand-mark { flex-basis: 42px; width: 42px; height: 42px; border-radius: 12px; }
-  .eyebrow, .brand-subtitle, .clock-block { display: none; }
-  .brand-credit { display: block; max-width: 190px; margin-top: 4px; font-size: 7px; white-space: nowrap; }
+  .brand-lockup .eyebrow, .clock-block { display: none; }
   h1 { font-size: 18px; }
   .language-toggle { height: 30px; }
-  .contact-developer-button { max-width: 108px; height: 30px; padding: 0 9px; overflow: hidden; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-tools { gap: 6px; }
+  .contact-developer-button { height: 36px; padding: 0 8px 0 6px; }
+  .contact-developer-icon { flex-basis: 24px; width: 24px; height: 24px; }
+  .contact-developer-copy small { display: none; }
+  .contact-developer-copy strong { max-width: 78px; overflow: hidden; font-size: 7px; text-overflow: ellipsis; }
   .hero { grid-template-columns: 1fr; margin-top: 14px; padding: 28px 22px; border-radius: 22px; }
   .signal-wrap { align-items: flex-start; }
   .signal { width: 68px; height: 68px; }

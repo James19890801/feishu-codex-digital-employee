@@ -7,6 +7,8 @@ const server = readFileSync(new URL('../src/dashboard-server.mjs', import.meta.u
 
 for (const id of [
   'contactDeveloperButton',
+  'contactDeveloperLabel',
+  'contactDeveloperMeta',
   'contactDialog',
   'contactDialogClose',
   'contactCardImage',
@@ -15,6 +17,9 @@ for (const id of [
 ]) {
   assert.match(html, new RegExp(`id="${id}"`));
 }
+assert.match(html, /class="brand-campaign"/);
+assert.match(html, /data-i18n="brandCampaignTitle"/);
+assert.match(html, /data-i18n="brandCampaignMeta"/);
 assert.match(html, /aria-labelledby="contactDialogTitle"/);
 assert.match(app, /\/api\/licensing\/contact-card/);
 assert.match(server, /\/api\/licensing\/contact-card/);

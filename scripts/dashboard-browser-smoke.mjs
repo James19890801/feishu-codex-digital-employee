@@ -50,8 +50,10 @@ try {
   assert.match(await page.title(), /Your identity, intelligently present/);
   assert.equal(await page.locator('#languageCode').textContent(), 'EN');
   assert.match(await page.locator('.channel-heading h3').textContent(), /Messaging channels/);
-  assert.equal(await page.locator('.brand-credit').textContent(), 'Developed by Zhao Yingzhi & James Feng');
-  assert.equal(await page.locator('.brand-subtitle').textContent(), 'Your identity, intelligently present.');
+  assert.equal(await page.locator('.brand-campaign strong').textContent(), 'Your identity, intelligently present.');
+  assert.equal(await page.locator('.brand-campaign small').textContent(), 'Zhao Yingzhi × James Feng');
+  assert.equal(await page.locator('#contactDeveloperButton').isVisible(), true);
+  assert.equal(await page.locator('#contactDeveloperLabel').textContent(), 'Contact developer');
   assert.equal(await page.locator('.product-footer strong').textContent(), 'Developed by Zhao Yingzhi & James Feng');
   assert.match(await page.locator('#configInput').getAttribute('placeholder'), /Describe the outcome/);
   assert.equal(await page.locator('#refreshButton').isEnabled(), true);
@@ -68,6 +70,7 @@ try {
   assert.equal(await page.locator('#languageCode').textContent(), '中');
   assert.match(await page.locator('.channel-heading h3').textContent(), /IM 通道/);
   assert.match(await page.locator('.product-footer strong').textContent(), /赵颖知.*James Feng/);
+  assert.equal(await page.locator('#contactDeveloperLabel').textContent(), '联系开发者');
 
   await page.locator('#languageToggle').click();
   assert.equal(await page.locator('html').getAttribute('lang'), 'en');
