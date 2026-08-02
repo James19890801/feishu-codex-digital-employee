@@ -56,11 +56,11 @@ The dialog supports keyboard focus management, `Escape`, a visible close control
 
 ## Contact-card delivery
 
-James's WeChat contact card is not committed to the public Git repository. The image is stripped of metadata and stored in a private Cloudflare R2 bucket. The activation Worker exposes a same-origin public read endpoint that streams only the configured contact-card object with a fixed media type, conservative cache policy, `nosniff`, and no bucket listing capability.
+James's WeChat contact card is not committed to the public Git repository. The image is stripped of metadata and stored as a private Cloudflare object. The current deployment uses Workers KV because R2 is not enabled on the Cloudflare account; the storage adapter can migrate to R2 later without changing the public endpoint. The activation Worker exposes a same-origin public read endpoint that streams only the configured contact-card object with a fixed media type, conservative cache policy, `nosniff`, and no namespace listing capability.
 
 The dashboard requests the image only when the dialog opens. Failure to retrieve the image affects only the contact dialog. It must not affect activation status, the operations console, Feishu, DingTalk, personal WeChat, Multica, Codex, memory, queues, or audit.
 
-The R2 object can be replaced without publishing a new desktop build. The public route is intentionally readable because prospective users need it before activation, but keeping the object outside Git prevents permanent exposure in repository history and permits rotation.
+The remote object can be replaced without publishing a new desktop build. The public route is intentionally readable because prospective users need it before activation, but keeping the object outside Git prevents permanent exposure in repository history and permits rotation.
 
 ## Activation and Founder separation
 

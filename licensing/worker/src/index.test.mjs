@@ -83,14 +83,12 @@ const env = {
   RECOVERY_HASH_PEPPER: 'recovery-test-pepper-at-least-32-bytes',
   LICENSE_SIGNING_PRIVATE_KEY: licenseKeys.privateKey,
   CONTACT_CARD_KEY: 'james-wechat.jpg',
-  CONTACT_CARDS: {
-    async get(key) {
+  CONTACT_CARD_CONTENT_TYPE: 'image/jpeg',
+  CONTACT_CARD_KV: {
+    async get(key, options) {
       if (key !== 'james-wechat.jpg') return null;
-      return {
-        body: new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])]).stream(),
-        size: 4,
-        httpMetadata: { contentType: 'image/jpeg' },
-      };
+      assert.equal(options.type, 'arrayBuffer');
+      return new Uint8Array([0xff, 0xd8, 0xff, 0xd9]).buffer;
     },
   },
 };

@@ -5,15 +5,16 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 CONTACT_CARD_KEY = "james-wechat.jpg"
+CONTACT_CARD_CONTENT_TYPE = "image/jpeg"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "aipro-licensing"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "fa256eee-d5e9-4395-a561-44af64bb6290"
 
-[[r2_buckets]]
-binding = "CONTACT_CARDS"
-bucket_name = "aipro-contact-cards"
+[[kv_namespaces]]
+binding = "CONTACT_CARD_KV"
+id = "029e76f1b0264a2a8fdd0b4fa2ea5653"
 
 # Secrets are provisioned with `wrangler secret put`; values never belong here:
 # INVITATION_HASH_PEPPER

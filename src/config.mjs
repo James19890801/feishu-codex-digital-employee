@@ -94,6 +94,7 @@ export const config = {
   }),
   licensingEnforced: raw.licensingEnforced === true,
   licensingServiceUrl: String(raw.licensingServiceUrl || '').trim(),
+  licensingProxyUrl: String(raw.licensingProxyUrl || raw.codexProxyUrl || '').trim(),
   licensingPublicKey: String(raw.licensingPublicKey || '').trim(),
   licensingProductId: String(raw.licensingProductId || 'AIPRO').trim(),
   workdir,
@@ -141,6 +142,17 @@ if (config.licensingServiceUrl) {
     || licensingUrl.search
     || licensingUrl.hash) {
     throw new Error('licensingServiceUrl 必须是不含凭据、查询或锚点的 HTTPS 地址');
+  }
+}
+if (config.licensingProxyUrl) {
+  const proxy = new URL(config.licensingProxyUrl);
+  if (!['http:', 'https:'].includes(proxy.protocol)
+    || proxy.username
+    || proxy.password
+    || proxy.search
+    || proxy.hash
+    || !['', '/'].includes(proxy.pathname)) {
+    throw new Error('licensingProxyUrl 必须是不含凭据、查询、路径或锚点的 http/https 地址');
   }
 }
 if (config.licensingEnforced) {

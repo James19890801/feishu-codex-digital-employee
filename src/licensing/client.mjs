@@ -1,3 +1,5 @@
+import { ProxyAgent } from 'undici';
+
 const DEVICE_KEY_HASH = /^sha256:[a-f0-9]{64}$/;
 const INVITATION_CODE = /^\d{10}$/;
 const INSTALL_ID = /^[A-Za-z0-9_-]{8,128}$/;
@@ -29,6 +31,41 @@ function checkedServiceUrl(value, allowInsecureLoopback) {
   return url;
 }
 
+function checkedProxyUrl(value) {
+  if (!value) return null;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new LicensingClientError('Licensing proxy URL is invalid.', 'invalid_licensing_proxy_url');
+  }
+  if (!['http:', 'https:'].includes(url.protocol)
+    || url.username
+    || url.password
+    || url.search
+    || url.hash
+    || !['', '/'].includes(url.pathname)) {
+    throw new LicensingClientError('Licensing proxy URL is invalid.', 'invalid_licensing_proxy_url');
+  }
+  return url;
+}
+
+export function createLicensingFetch({
+  proxyUrl = '',
+  fetchImpl = fetch,
+  proxyAgentFactory = url => new ProxyAgent(url),
+} = {}) {
+  if (typeof fetchImpl !== 'function' || typeof proxyAgentFactory !== 'function') {
+    throw new LicensingClientError('Licensing transport is invalid.', 'invalid_licensing_transport');
+  }
+  const proxy = checkedProxyUrl(proxyUrl);
+  const dispatcher = proxy ? proxyAgentFactory(proxy.href) : null;
+  return (url, options = {}) => fetchImpl(url, {
+    ...options,
+    ...(dispatcher ? { dispatcher } : {}),
+  });
+}
+
 function publicMessage(code) {
   if (code === 'invalid_invitation') return 'Invitation code cannot be used.';
   if (code === 'rate_limited') return 'Try again later.';
@@ -40,13 +77,15 @@ function publicMessage(code) {
 export class LicensingClient {
   constructor({
     serviceUrl,
-    fetchImpl = fetch,
+    fetchImpl,
+    proxyUrl = '',
+    proxyAgentFactory,
     timeoutMs = 15_000,
     maxResponseBytes = 64 * 1024,
     allowInsecureLoopback = false,
   } = {}) {
     this.serviceUrl = checkedServiceUrl(serviceUrl, allowInsecureLoopback);
-    this.fetchImpl = fetchImpl;
+    this.fetchImpl = createLicensingFetch({ fetchImpl, proxyUrl, proxyAgentFactory });
     this.timeoutMs = Math.min(Math.max(Number(timeoutMs) || 15_000, 1), 60_000);
     this.maxResponseBytes = Math.min(
       Math.max(Number(maxResponseBytes) || 64 * 1024, 128),

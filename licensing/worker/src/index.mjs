@@ -181,23 +181,24 @@ export function createWorker({
 
         if (url.pathname === '/v1/contact-card') {
           if (request.method !== 'GET') return methodNotAllowed('GET', requestId);
-          const object = await env.CONTACT_CARDS?.get(
+          const content = await env.CONTACT_CARD_KV?.get(
             String(env.CONTACT_CARD_KEY || 'james-wechat.jpg'),
+            { type: 'arrayBuffer' },
           );
-          const contentType = String(object?.httpMetadata?.contentType || '');
-          if (!object
-            || Number(object.size || 0) > 2 * 1024 * 1024
+          const contentType = String(env.CONTACT_CARD_CONTENT_TYPE || 'image/jpeg');
+          if (!content
+            || content.byteLength > 2 * 1024 * 1024
             || !['image/jpeg', 'image/png', 'image/webp'].includes(contentType)) {
             return jsonResponse(404, {
               ok: false,
               error: { code: 'not_found', message: 'Not found.' },
             }, requestId);
           }
-          return new Response(object.body, {
+          return new Response(content, {
             status: 200,
             headers: {
               'content-type': contentType,
-              'content-length': String(object.size),
+              'content-length': String(content.byteLength),
               'cache-control': 'public, max-age=3600',
               'x-content-type-options': 'nosniff',
               'referrer-policy': 'no-referrer',

@@ -51,7 +51,7 @@ import {
   selectAiRuntime,
 } from './ai-runtime.mjs';
 import { WeChatPocDashboardControl } from './wechat-poc/dashboard-control.mjs';
-import { LicensingClient } from './licensing/client.mjs';
+import { createLicensingFetch, LicensingClient } from './licensing/client.mjs';
 import { LicensingDashboardApi } from './licensing/dashboard-api.mjs';
 import { LicensingStore } from './licensing/store.mjs';
 
@@ -70,8 +70,9 @@ const INITIAL_PUBLIC_CONFIGURATION = publicConfiguration(config);
 const SERVICE_LABEL = 'com.local.feishu-codex-digital-employee';
 const ALLOWED_HOSTS = new Set([`${HOST}:${PORT}`, `localhost:${PORT}`]);
 const licensingStore = new LicensingStore();
+const licensingFetch = createLicensingFetch({ proxyUrl: config.licensingProxyUrl });
 const licensingClient = config.licensingServiceUrl
-  ? new LicensingClient({ serviceUrl: config.licensingServiceUrl })
+  ? new LicensingClient({ serviceUrl: config.licensingServiceUrl, fetchImpl: licensingFetch })
   : null;
 const licensingApi = new LicensingDashboardApi({
   store: licensingStore,
@@ -860,7 +861,7 @@ const server = createServer(async (request, response) => {
         sendJson(response, 503, { ok: false, error: 'contact card unavailable' });
         return;
       }
-      const remote = await fetch(new URL('/v1/contact-card', config.licensingServiceUrl), {
+      const remote = await licensingFetch(new URL('/v1/contact-card', config.licensingServiceUrl), {
         headers: { accept: 'image/jpeg,image/png,image/webp' },
         signal: AbortSignal.timeout(8_000),
       });

@@ -1,6 +1,30 @@
 import assert from 'node:assert/strict';
 
-import { LicensingClient } from './client.mjs';
+import { createLicensingFetch, LicensingClient } from './client.mjs';
+
+const proxyDispatcher = { name: 'test-proxy-dispatcher' };
+const proxyRequests = [];
+const proxyFetch = createLicensingFetch({
+  proxyUrl: 'http://127.0.0.1:7890',
+  proxyAgentFactory: url => {
+    assert.equal(url, 'http://127.0.0.1:7890/');
+    return proxyDispatcher;
+  },
+  fetchImpl: async (url, options) => {
+    proxyRequests.push({ url: String(url), options });
+    return new Response('{}');
+  },
+});
+await proxyFetch('https://licensing.example.test/health', { method: 'GET' });
+assert.equal(proxyRequests[0].options.dispatcher, proxyDispatcher);
+assert.throws(
+  () => createLicensingFetch({ proxyUrl: 'socks5://127.0.0.1:1080' }),
+  error => error.code === 'invalid_licensing_proxy_url',
+);
+assert.throws(
+  () => createLicensingFetch({ proxyUrl: 'http://user:secret@127.0.0.1:7890' }),
+  error => error.code === 'invalid_licensing_proxy_url',
+);
 
 const requests = [];
 const client = new LicensingClient({

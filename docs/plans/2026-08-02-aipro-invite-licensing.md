@@ -4,9 +4,9 @@
 
 **Goal:** Require clean AIPRO installations to enter a one-time ten-digit invitation code while giving the current James machine recoverable Founder and invite-issuer authority.
 
-**Architecture:** A Cloudflare Worker with D1 atomically manages invitation state and signs device-bound entitlements; a private R2 object stores the rotatable James contact card outside Git history. The local Node service stores device, issuer, and entitlement secrets only in macOS Keychain, verifies entitlements offline, leaves the loopback dashboard available for activation and developer contact, and gates the core IM worker before any channels start.
+**Architecture:** A Cloudflare Worker with D1 atomically manages invitation state and signs device-bound entitlements; a private Cloudflare KV object stores the rotatable James contact card outside Git history. The local Node service stores device, issuer, and entitlement secrets only in macOS Keychain, verifies entitlements offline, leaves the loopback dashboard available for activation and developer contact, and gates the core IM worker before any channels start.
 
-**Tech Stack:** Node.js ESM, Node `crypto`/Web Crypto, macOS Keychain CLI adapter, vanilla browser JavaScript, Cloudflare Workers, D1 SQLite, private R2 object storage, Wrangler, Node test scripts.
+**Tech Stack:** Node.js ESM, Node `crypto`/Web Crypto, macOS Keychain CLI adapter, vanilla browser JavaScript, Cloudflare Workers, D1 SQLite, private Workers KV object storage, Wrangler, Node test scripts.
 
 ---
 
@@ -305,7 +305,7 @@ Expected: bundle succeeds.
 
 **Step 3: Deploy without exposing secrets**
 
-Create/apply D1 migrations, create the private R2 bucket/binding, strip metadata from the James contact card, upload it without Git tracking, set secrets through Wrangler secret input, deploy the Worker, and record only the public service URL in local configuration. Never put credentials in command arguments or logs.
+Create/apply D1 migrations, create the private KV namespace/binding, strip metadata from the James contact card, upload it without Git tracking, set secrets through Wrangler secret input, deploy the Worker, and record only the public service URL in local configuration. Never put credentials in command arguments or logs.
 
 **Step 4: Bootstrap before enforcement**
 
