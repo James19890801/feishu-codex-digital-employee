@@ -13,3 +13,5 @@ data/
 **/.dev.vars
 *.aipro-recovery
 *.aipro-license
+*.founder-recovery.json
+aipro-founder-recovery-*.json
