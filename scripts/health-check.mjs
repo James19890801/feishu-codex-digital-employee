@@ -5,9 +5,28 @@ import { createConnection } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { evaluateHealth } from '../src/reliability.mjs';
 import { discoverAiRuntimes, selectAiRuntime } from '../src/ai-runtime.mjs';
+import { evaluateLicenseGuard } from '../src/licensing/guard.mjs';
+import { LicensingStore } from '../src/licensing/store.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const config = JSON.parse(readFileSync(join(root, 'config.local.json'), 'utf8'));
+if (config.licensingEnforced === true) {
+  const license = await evaluateLicenseGuard({
+    enforced: true,
+    store: new LicensingStore(),
+    publicKey: String(config.licensingPublicKey || ''),
+    product: String(config.licensingProductId || 'AIPRO'),
+  });
+  if (!license.allowed) {
+    console.log(JSON.stringify({
+      healthy: false,
+      state: 'activation_required',
+      issues: ['licensing_activation_required'],
+      metrics: { licensing: { enforced: true, reason: license.reason } },
+    }, null, 2));
+    process.exit(2);
+  }
+}
 const db = new DatabaseSync(join(root, 'data', 'agent-state.sqlite'), { readOnly: true });
 const nowMs = Date.now();
 const tcpReachable = url => new Promise(resolve => {

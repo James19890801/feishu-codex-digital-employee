@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>AIPRO · Human-Identity AI Operations</title>
+  <title>AIPRO · Your identity, intelligently present.</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cg fill='none' stroke='%239a5b4d' stroke-linecap='round'%3E%3Cpath d='M11 51V31C11 18 19 10 32 10s21 8 21 21v20' stroke-width='8'/%3E%3Cpath d='M23 51V33c0-6 3-10 9-10s9 4 9 10v18' stroke-width='7' opacity='.7'/%3E%3Cpath d='M12 42h40' stroke-width='5' opacity='.4'/%3E%3C/g%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
 </head>
@@ -21,13 +21,14 @@
           </svg>
         </span>
         <div>
-          <p class="eyebrow">AI PERSONA / OPERATIONS</p>
+          <p class="eyebrow">AUTHORIZED IDENTITY / INTELLIGENT PRESENCE</p>
           <h1>AIPRO</h1>
-          <p class="brand-subtitle" data-i18n="brandSubtitle">AI operations powered by a real human identity</p>
+          <p class="brand-subtitle" data-i18n="brandSubtitle">Your identity, intelligently present.</p>
           <p class="brand-credit" data-i18n="brandCredit">Developed by Zhao Yingzhi &amp; James Feng</p>
         </div>
       </div>
       <div class="topbar-tools">
+        <button class="contact-developer-button" id="contactDeveloperButton" type="button" data-i18n="contactDeveloper">Contact developer</button>
         <button class="language-toggle" id="languageToggle" type="button" aria-label="Switch interface language" title="Switch interface language" data-i18n-aria="languageControl" data-i18n-title="languageControl">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.8 12h16.4M12 3.5c2.2 2.3 3.3 5.1 3.3 8.5S14.2 18.2 12 20.5C9.8 18.2 8.7 15.4 8.7 12S9.8 5.8 12 3.5Z"></path></svg>
           <span id="languageCode">EN</span>
@@ -38,6 +39,24 @@
         </div>
       </div>
     </header>
+
+    <section class="activation-gate hidden" id="activationGate" aria-labelledby="activationTitle">
+      <div class="activation-statement">
+        <span data-i18n="activationEyebrow">AUTHORIZED ACCESS / ONE STEP</span>
+        <h2 id="activationTitle" data-i18n="activationTitle">Activate your AIPRO</h2>
+        <p class="activation-lead" data-i18n="activationLead">An AI agent platform that works through your authorized social identity.</p>
+        <p data-i18n="activationTrust">Your identity remains yours. Important decisions remain yours. AIPRO acts only within the boundaries you authorize.</p>
+      </div>
+      <form class="activation-form" id="activationForm">
+        <label for="activationCode" data-i18n="invitationCode">10-digit invitation code</label>
+        <input id="activationCode" name="invitationCode" inputmode="numeric" autocomplete="one-time-code" maxlength="10" pattern="[0-9]{10}" placeholder="0000000000" aria-describedby="activationHint activationMessage">
+        <p id="activationHint" data-i18n="activationHint">Enter the code issued by an authorized AIPRO developer.</p>
+        <button class="button primary" id="activationSubmit" type="submit" data-i18n="activateAipro">Activate AIPRO</button>
+        <p class="activation-message" id="activationMessage" role="status"></p>
+      </form>
+    </section>
+
+    <div id="operationsConsole">
 
     <section class="hero" id="hero" data-state="loading">
       <div class="signal-wrap">
@@ -307,6 +326,30 @@
       </aside>
     </section>
 
+    <section class="invite-studio hidden" id="inviteStudio" aria-labelledby="inviteStudioTitle">
+      <div class="invite-studio-copy">
+        <span data-i18n="inviteStudioEyebrow">FOUNDER CONTROL / INVITE STUDIO</span>
+        <h3 id="inviteStudioTitle" data-i18n="inviteStudioTitle">Issue ten invitations</h3>
+        <p data-i18n="inviteStudioDescription">Each code is unique, numeric, and shown in full only in the newly generated batch.</p>
+        <label for="invitationNote" data-i18n="invitationNote">Customer note (optional)</label>
+        <input id="invitationNote" maxlength="200" data-i18n-placeholder="invitationNotePlaceholder" placeholder="Customer or deployment name">
+        <button class="button primary" id="generateInvitesButton" type="button" data-i18n="generateTenInvites">Generate 10 codes</button>
+        <p id="inviteStudioMessage" role="status"></p>
+      </div>
+      <div class="invitation-batch">
+        <div class="invitation-batch-head">
+          <div><span data-i18n="latestBatch">LATEST BATCH</span><strong id="invitationBatchId">—</strong></div>
+          <div class="invitation-actions">
+            <button id="copyInvitesButton" type="button" disabled data-i18n="copyAll">Copy all</button>
+            <button id="downloadInvitesButton" type="button" disabled>CSV</button>
+          </div>
+        </div>
+        <ol id="invitationCodes" aria-live="polite"><li data-i18n="noInvitationsGenerated">No invitations generated in this session.</li></ol>
+      </div>
+    </section>
+
+    </div>
+
     <footer class="product-footer">
       <span>AIPRO · OPEN SOURCE</span>
       <strong data-i18n="openSourceCredit">Developed by Zhao Yingzhi &amp; James Feng</strong>
@@ -373,6 +416,28 @@
         </div>
         <p class="channel-apply-contract" data-i18n="saveContract">Save flow: validate → Keychain → backup → restart → connection test → automatic rollback on failure</p>
       </form>
+    </div>
+  </dialog>
+
+  <dialog class="contact-dialog" id="contactDialog" aria-labelledby="contactDialogTitle">
+    <div class="contact-dialog-shell">
+      <button type="button" class="contact-dialog-close" id="contactDialogClose" aria-label="Close" data-i18n-aria="close">×</button>
+      <div class="contact-dialog-copy">
+        <span data-i18n="contactEyebrow">AUTHORIZED INVITATION ISSUER</span>
+        <h2 id="contactDialogTitle" data-i18n="contactTitle">Get your AIPRO invitation</h2>
+        <h3>James Feng <small data-i18n="jamesChineseName">James</small></h3>
+        <p data-i18n="contactRole">Co-developer · Authorized invitation issuer</p>
+        <p data-i18n="contactInstructions">Scan with WeChat, add James, and send “AIPRO invitation”.</p>
+        <p class="contact-security" data-i18n="contactSecurity">James will never ask for your account password, verification code, device private key, or recovery key.</p>
+      </div>
+      <div class="contact-card-frame">
+        <div class="contact-card-loading" id="contactCardLoading" data-i18n="contactLoading">Loading secure contact card…</div>
+        <img class="hidden" id="contactCardImage" alt="James Feng WeChat contact card" data-i18n-alt="contactCardAlt">
+        <div class="contact-card-error hidden" id="contactCardError">
+          <p data-i18n="contactLoadFailed">The contact card could not be loaded.</p>
+          <button id="contactCardRetry" type="button" data-i18n="retry">Retry</button>
+        </div>
+      </div>
     </div>
   </dialog>
 

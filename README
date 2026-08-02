@@ -57,6 +57,33 @@ The platform combines:
     macOS process supervision and recovery
 
 
+ACTIVATION AND INVITATION CONTROL
+
+A clean AIPRO installation opens the local dashboard but does not start any IM
+listener, polling loop, AI runtime, or business-system bridge until a valid
+ten-digit invitation code has been activated. Each invitation is numeric,
+one-time, expires, and is atomically bound to the new installation's device
+key. Private device and issuer keys never leave macOS Keychain.
+
+The current James Founder device has an additional Invite Studio in the lower
+right of the dashboard. One click issues exactly ten unique ten-digit codes.
+Ordinary licensed devices never receive or render that control. Authority is
+verified from a signed Founder entitlement plus the local issuer key; it is not
+granted by a visible name, browser storage, or a hidden UI flag.
+
+Activation and invitation state is managed by a Cloudflare Worker with D1.
+The rotatable James contact card is stored privately in Cloudflare KV and is
+proxied through the loopback-only dashboard, so the image and private contact
+material are not committed to Git. Existing licensed installations validate
+their entitlement locally and continue operating if the activation service is
+temporarily unavailable.
+
+Founder access survives a lost or replaced computer through a one-time,
+rotating recovery kit. The kit is separate from the source tree and must be
+kept in an encrypted password manager plus one offline copy. Full operations,
+recovery, deployment, and security guidance is in docs/LICENSING.md.
+
+
 SUPPORTED IM CHANNELS
 
 Feishu / Lark

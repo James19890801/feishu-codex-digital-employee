@@ -1,3 +1,8 @@
+packages:
+  - 'licensing/worker'
+
 allowBuilds:
+  esbuild: true
   keytar: true
   protobufjs: false
+  workerd: true
