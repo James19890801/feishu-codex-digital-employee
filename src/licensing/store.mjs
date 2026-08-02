@@ -17,6 +17,7 @@ export const LICENSING_ACCOUNTS = Object.freeze({
   issuerMetadata: 'issuer-metadata',
   recoveryState: 'recovery-state',
   founderMarker: 'founder-marker',
+  clockState: 'clock-state',
 });
 
 class LicensingStoreError extends Error {
@@ -164,6 +165,20 @@ export class LicensingStore {
     return parseRecord(
       await this.secrets.get(LICENSING_ACCOUNTS.founderMarker),
       'corrupt_founder_marker',
+    );
+  }
+
+  async saveClockState(clockState) {
+    if (!clockState || !Number.isFinite(Date.parse(clockState.lastSeenAt))) {
+      throw new LicensingStoreError('Licensing clock state is invalid.', 'invalid_clock_state');
+    }
+    await this.secrets.put(LICENSING_ACCOUNTS.clockState, canonicalJson(clockState));
+  }
+
+  async loadClockState() {
+    return parseRecord(
+      await this.secrets.get(LICENSING_ACCOUNTS.clockState),
+      'corrupt_clock_state',
     );
   }
 }

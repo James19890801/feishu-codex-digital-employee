@@ -13,7 +13,9 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
-import { config } from './config.mjs';
+import { config, validateCoreConfiguration } from './config.mjs';
+import { evaluateLicenseGuard, waitForTerminationSignals } from './licensing/guard.mjs';
+import { LicensingStore } from './licensing/store.mjs';
 import {
   canReadDocument,
   extractKnowledgeQuery,
@@ -138,6 +140,19 @@ import {
   GeWeWebhookServer,
   WeComChannel,
 } from './im-channel-runtime.mjs';
+
+const CORE_LICENSE_GUARD = await evaluateLicenseGuard({
+  enforced: config.licensingEnforced,
+  store: new LicensingStore(),
+  publicKey: config.licensingPublicKey,
+  product: config.licensingProductId,
+});
+if (!CORE_LICENSE_GUARD.allowed) {
+  console.warn(`[licensing] core held in dashboard-only mode (${CORE_LICENSE_GUARD.reason})`);
+  await waitForTerminationSignals();
+  process.exit(0);
+}
+validateCoreConfiguration(config);
 
 const APP_ID = config.feishuAppId;
 const OWNER_OPEN_ID = config.ownerOpenId;

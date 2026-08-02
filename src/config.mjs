@@ -92,6 +92,10 @@ export const config = {
   dashboardPort: boundedInteger(raw.dashboardPort, {
     name: 'dashboardPort', fallback: 17655, min: 1024, max: 65535,
   }),
+  licensingEnforced: raw.licensingEnforced === true,
+  licensingServiceUrl: String(raw.licensingServiceUrl || '').trim(),
+  licensingPublicKey: String(raw.licensingPublicKey || '').trim(),
+  licensingProductId: String(raw.licensingProductId || 'AIPRO').trim(),
   workdir,
   codexBin: raw.codexBin || '/Applications/ChatGPT.app/Contents/Resources/codex',
   codexModel: raw.codexModel || 'gpt-5.6-terra',
@@ -103,15 +107,22 @@ export const config = {
     || '/Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/multica',
 };
 
-for (const key of ['feishuAppId', 'ownerOpenId']) {
-  if (!config[key]) throw new Error(`config.local.json 缺少 ${key}`);
+export function validateCoreConfiguration(value = config) {
+  for (const key of ['feishuAppId', 'ownerOpenId']) {
+    if (!value[key]) throw new Error(`config.local.json 缺少 ${key}`);
+  }
+  if (!/^cli_[0-9a-fA-F]{16}$/.test(value.feishuAppId)) {
+    throw new Error('feishuAppId 格式无效');
+  }
+  if (!/^ou_[A-Za-z0-9]+$/.test(value.ownerOpenId)) {
+    throw new Error('ownerOpenId 格式无效');
+  }
+  if (!value.allowAllChats && !value.authorizedChatIds.length) {
+    throw new Error('未启用 allowAllChats 时，config.local.json 至少需要一个 authorizedChatIds');
+  }
 }
-if (!/^cli_[0-9a-fA-F]{16}$/.test(config.feishuAppId)) {
-  throw new Error('feishuAppId 格式无效');
-}
-if (!/^ou_[A-Za-z0-9]+$/.test(config.ownerOpenId)) {
-  throw new Error('ownerOpenId 格式无效');
-}
+
+if (!config.licensingEnforced) validateCoreConfiguration(config);
 if (config.ownerContactPhone
   && !/^\+?[0-9][0-9 ()-]{5,28}[0-9]$/.test(config.ownerContactPhone)) {
   throw new Error('ownerContactPhone 格式无效');
@@ -120,6 +131,25 @@ if (config.codexProxyUrl) {
   const proxy = new URL(config.codexProxyUrl);
   if (!['http:', 'https:'].includes(proxy.protocol)) {
     throw new Error('codexProxyUrl 只能使用 http 或 https');
+  }
+}
+if (config.licensingServiceUrl) {
+  const licensingUrl = new URL(config.licensingServiceUrl);
+  if (licensingUrl.protocol !== 'https:'
+    || licensingUrl.username
+    || licensingUrl.password
+    || licensingUrl.search
+    || licensingUrl.hash) {
+    throw new Error('licensingServiceUrl 必须是不含凭据、查询或锚点的 HTTPS 地址');
+  }
+}
+if (config.licensingEnforced) {
+  if (!config.licensingServiceUrl) throw new Error('启用 licensingEnforced 时必须填写 licensingServiceUrl');
+  if (!/^[A-Za-z0-9_-]{40,256}$/.test(config.licensingPublicKey)) {
+    throw new Error('启用 licensingEnforced 时必须填写有效的 licensingPublicKey');
+  }
+  if (config.licensingProductId !== 'AIPRO') {
+    throw new Error('licensingProductId 必须是 AIPRO');
   }
 }
 {
@@ -162,7 +192,4 @@ if (config.multicaDefaultWorkspaceId
   && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     .test(config.multicaDefaultWorkspaceId)) {
   throw new Error('multicaDefaultWorkspaceId 必须是 UUID');
-}
-if (!config.allowAllChats && !config.authorizedChatIds.length) {
-  throw new Error('未启用 allowAllChats 时，config.local.json 至少需要一个 authorizedChatIds');
 }

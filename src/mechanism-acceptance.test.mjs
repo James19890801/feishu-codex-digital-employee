@@ -31,6 +31,7 @@ import {
   stripSelfChatOutboundMarker,
 } from './self-chat-guard.mjs';
 import { AgentState } from './state.mjs';
+import { evaluateLicenseGuard } from './licensing/guard.mjs';
 
 const cases = [];
 
@@ -53,6 +54,26 @@ const identities = {
   ownerOpenId: 'ou_owner',
   dingtalkOwnerOpenId: 'dt_owner',
 };
+
+contract('licensing', 'Does development mode preserve the existing service path?', async () => {
+  const result = await evaluateLicenseGuard({ enforced: false });
+  assert.equal(result.allowed, true);
+  assert.equal(result.edition, 'Development');
+});
+
+contract('licensing', 'Does a clean enforced installation stay dashboard-only?', async () => {
+  const result = await evaluateLicenseGuard({
+    enforced: true,
+    publicKey: 'invalid',
+    store: {
+      async ensureDeviceIdentity() { return { keyHash: `sha256:${'a'.repeat(64)}` }; },
+      async loadEntitlement() { return null; },
+      async loadClockState() { return null; },
+    },
+  });
+  assert.equal(result.allowed, false);
+  assert.equal(result.reason, 'activation_required');
+});
 
 for (const channel of ['feishu', 'dingtalk', 'unknown']) {
   for (const chatType of ['p2p', 'group']) {
