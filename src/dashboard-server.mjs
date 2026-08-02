@@ -86,6 +86,7 @@ const staticFiles = new Map([
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/config-ui.js', ['config-ui.js', 'text/javascript; charset=utf-8']],
   ['/i18n.js', ['i18n.js', 'text/javascript; charset=utf-8']],
+  ['/licensing-ui.js', ['licensing-ui.js', 'text/javascript; charset=utf-8']],
 ]);
 
 let eventCache = { checkedAt: 0, processPid: null, active: false, activeConsumers: 0 };
@@ -852,6 +853,35 @@ const server = createServer(async (request, response) => {
         ...await licensingApi.status(),
         sessionToken: CONFIG_ASSISTANT_SESSION_TOKEN,
       });
+      return;
+    }
+    if (request.method === 'GET' && url.pathname === '/api/licensing/contact-card') {
+      if (!config.licensingServiceUrl) {
+        sendJson(response, 503, { ok: false, error: 'contact card unavailable' });
+        return;
+      }
+      const remote = await fetch(new URL('/v1/contact-card', config.licensingServiceUrl), {
+        headers: { accept: 'image/jpeg,image/png,image/webp' },
+        signal: AbortSignal.timeout(8_000),
+      });
+      const contentType = String(remote.headers.get('content-type') || '').split(';')[0];
+      const declared = Number(remote.headers.get('content-length') || 0);
+      if (!remote.ok
+        || !['image/jpeg', 'image/png', 'image/webp'].includes(contentType)
+        || declared > 2 * 1024 * 1024) {
+        sendJson(response, 502, { ok: false, error: 'contact card unavailable' });
+        return;
+      }
+      const content = Buffer.from(await remote.arrayBuffer());
+      if (content.length > 2 * 1024 * 1024) {
+        sendJson(response, 502, { ok: false, error: 'contact card unavailable' });
+        return;
+      }
+      response.writeHead(200, {
+        ...securityHeaders(contentType),
+        'Content-Length': String(content.length),
+      });
+      response.end(content);
       return;
     }
     if (request.method === 'POST' && url.pathname === '/api/licensing/activate') {

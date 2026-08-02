@@ -82,8 +82,30 @@ const env = {
   INVITATION_HASH_PEPPER: 'invite-test-pepper-at-least-32-bytes',
   RECOVERY_HASH_PEPPER: 'recovery-test-pepper-at-least-32-bytes',
   LICENSE_SIGNING_PRIVATE_KEY: licenseKeys.privateKey,
+  CONTACT_CARD_KEY: 'james-wechat.jpg',
+  CONTACT_CARDS: {
+    async get(key) {
+      if (key !== 'james-wechat.jpg') return null;
+      return {
+        body: new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])]).stream(),
+        size: 4,
+        httpMetadata: { contentType: 'image/jpeg' },
+      };
+    },
+  },
 };
 const worker = createWorker({ repository });
+
+const contactResponse = await worker.fetch(
+  new Request('https://license.aipro.test/v1/contact-card'),
+  env,
+  {},
+);
+assert.equal(contactResponse.status, 200);
+assert.equal(contactResponse.headers.get('content-type'), 'image/jpeg');
+assert.equal(contactResponse.headers.get('x-content-type-options'), 'nosniff');
+assert.equal(contactResponse.headers.has('access-control-allow-origin'), false);
+assert.deepEqual([...new Uint8Array(await contactResponse.arrayBuffer())], [0xff, 0xd8, 0xff, 0xd9]);
 
 async function call(path, { method = 'GET', body, headers = {} } = {}) {
   const request = new Request(`https://license.aipro.test${path}`, {

@@ -11,6 +11,12 @@ import {
   wechatPocRequestHeaders,
 } from './config-ui.js';
 import { normalizeLocale, translate } from './i18n.js';
+import {
+  canShowInviteStudio,
+  invitationCsv,
+  licensingRequestHeaders,
+  normalizeInvitationCode,
+} from './licensing-ui.js';
 
 const $ = id => document.getElementById(id);
 const stateLabelKeys = {
@@ -109,6 +115,10 @@ let wechatPocBusy = false;
 let locale = normalizeLocale(localStorage.getItem('aipro.locale'));
 let latestStatusData = null;
 let latestConfigPayload = null;
+let licensingSessionToken = '';
+let latestLicensingStatus = null;
+let operationsStarted = false;
+let activeInvitationCodes = [];
 
 const channelCopyKeys = {
   feishu: {
@@ -148,10 +158,18 @@ function applyStaticTranslations() {
   for (const element of document.querySelectorAll('[data-i18n-title]')) {
     element.title = tr(element.dataset.i18nTitle);
   }
+  for (const element of document.querySelectorAll('[data-i18n-alt]')) {
+    element.alt = tr(element.dataset.i18nAlt);
+  }
   for (const element of document.querySelectorAll('[data-i18n-prompt]')) {
     element.dataset.configPrompt = tr(element.dataset.i18nPrompt);
   }
   $('languageCode').textContent = locale === 'zh' ? '中' : 'EN';
+  if (latestLicensingStatus) {
+    $('contactDeveloperButton').textContent = tr(
+      latestLicensingStatus.activated ? 'contactDeveloper' : 'getInvitation',
+    );
+  }
 }
 
 function setLocale(value, { persist = true } = {}) {
@@ -437,6 +455,138 @@ function renderError() {
   $('statusKicker').textContent = tr(stateLabelKeys.error.kicker);
   $('statusCode').textContent = stateLabelKeys.error.code;
   $('statusSummary').textContent = tr('dashboardApiError');
+}
+
+function renderLicensingStatus(status) {
+  latestLicensingStatus = status;
+  licensingSessionToken = status.sessionToken || licensingSessionToken;
+  const activated = status.activated === true;
+  $('activationGate').classList.toggle('hidden', activated);
+  $('operationsConsole').classList.toggle('hidden', !activated);
+  $('inviteStudio').classList.toggle('hidden', !canShowInviteStudio(status));
+  $('contactDeveloperButton').textContent = tr(activated ? 'contactDeveloper' : 'getInvitation');
+  if (activated && !operationsStarted) startOperationsConsole();
+}
+
+async function loadLicensingStatus() {
+  try {
+    const response = await fetch('/api/licensing/status', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const status = await response.json();
+    renderLicensingStatus(status);
+    return status;
+  } catch (error) {
+    $('activationGate').classList.remove('hidden');
+    $('operationsConsole').classList.add('hidden');
+    $('activationMessage').textContent = `${tr('activationFailed')} ${error.message}`;
+    return null;
+  }
+}
+
+function startOperationsConsole() {
+  if (operationsStarted) return;
+  operationsStarted = true;
+  refresh();
+  loadConfigurationAssistant();
+  refreshTimer = setInterval(refresh, 5000);
+}
+
+async function activateAipro(event) {
+  event.preventDefault();
+  const code = normalizeInvitationCode($('activationCode').value);
+  if (code.length !== 10) {
+    $('activationMessage').textContent = tr('activationFailed');
+    $('activationCode').focus();
+    return;
+  }
+  $('activationSubmit').disabled = true;
+  $('activationMessage').textContent = tr('activating');
+  try {
+    const status = await responseJson(await fetch('/api/licensing/activate', {
+      method: 'POST',
+      headers: licensingRequestHeaders('licensing-activate', licensingSessionToken),
+      body: JSON.stringify({ code }),
+    }));
+    $('activationMessage').textContent = tr('activationComplete');
+    $('activationCode').value = '';
+    renderLicensingStatus({ ...status, sessionToken: licensingSessionToken });
+    setTimeout(refresh, 1800);
+  } catch {
+    $('activationMessage').textContent = tr('activationFailed');
+  } finally {
+    $('activationSubmit').disabled = false;
+  }
+}
+
+function renderInvitationBatch(batch) {
+  activeInvitationCodes = [...batch.codes];
+  $('invitationBatchId').textContent = batch.id || '—';
+  $('invitationCodes').replaceChildren(...activeInvitationCodes.map(code => {
+    const item = document.createElement('li');
+    item.textContent = code;
+    return item;
+  }));
+  $('copyInvitesButton').disabled = false;
+  $('downloadInvitesButton').disabled = false;
+}
+
+async function generateInvitations() {
+  if (!latestLicensingStatus?.issuer?.authorized) return;
+  $('generateInvitesButton').disabled = true;
+  $('inviteStudioMessage').textContent = tr('generatingInvites');
+  try {
+    const payload = await responseJson(await fetch('/api/licensing/invites', {
+      method: 'POST',
+      headers: licensingRequestHeaders('licensing-generate', licensingSessionToken),
+      body: JSON.stringify({ customerNote: $('invitationNote').value.trim() }),
+    }));
+    renderInvitationBatch(payload.batch);
+    $('inviteStudioMessage').textContent = tr('invitationsReady');
+  } catch {
+    $('inviteStudioMessage').textContent = tr('invitationGenerationFailed');
+  } finally {
+    $('generateInvitesButton').disabled = false;
+  }
+}
+
+async function copyInvitations() {
+  if (!activeInvitationCodes.length) return;
+  await navigator.clipboard.writeText(activeInvitationCodes.join('\n'));
+  showToast(tr('copied'));
+}
+
+function downloadInvitations() {
+  if (!activeInvitationCodes.length) return;
+  const blob = new Blob([invitationCsv(activeInvitationCodes)], { type: 'text/csv;charset=utf-8' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `aipro-invitations-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 0);
+}
+
+function loadContactCard({ force = false } = {}) {
+  const image = $('contactCardImage');
+  if (image.src && !force && !image.classList.contains('hidden')) return;
+  $('contactCardLoading').classList.remove('hidden');
+  $('contactCardError').classList.add('hidden');
+  image.classList.add('hidden');
+  image.onload = () => {
+    $('contactCardLoading').classList.add('hidden');
+    $('contactCardError').classList.add('hidden');
+    image.classList.remove('hidden');
+  };
+  image.onerror = () => {
+    $('contactCardLoading').classList.add('hidden');
+    $('contactCardError').classList.remove('hidden');
+    image.classList.add('hidden');
+  };
+  image.src = `/api/licensing/contact-card${force ? `?retry=${Date.now()}` : ''}`;
+}
+
+function openContactDialog() {
+  $('contactDialog').showModal();
+  loadContactCard();
 }
 
 async function refresh() {
@@ -1068,6 +1218,19 @@ function tick() {
 }
 
 $('languageToggle').addEventListener('click', () => setLocale(locale === 'en' ? 'zh' : 'en'));
+$('contactDeveloperButton').addEventListener('click', openContactDialog);
+$('contactDialogClose').addEventListener('click', () => $('contactDialog').close());
+$('contactCardRetry').addEventListener('click', () => loadContactCard({ force: true }));
+$('activationForm').addEventListener('submit', activateAipro);
+$('activationCode').addEventListener('input', event => {
+  const normalized = normalizeInvitationCode(event.target.value);
+  if (normalized || event.target.value === '') event.target.value = normalized;
+});
+$('generateInvitesButton').addEventListener('click', generateInvitations);
+$('copyInvitesButton').addEventListener('click', () => {
+  copyInvitations().catch(() => showToast(tr('invitationGenerationFailed')));
+});
+$('downloadInvitesButton').addEventListener('click', downloadInvitations);
 $('refreshButton').addEventListener('click', refresh);
 $('restartButton').addEventListener('click', restart);
 $('wechatPocToggle').addEventListener('change', toggleWeChatPoc);
@@ -1109,8 +1272,8 @@ for (const chip of document.querySelectorAll('[data-config-prompt]')) {
   });
 }
 setInterval(tick, 1000);
-refreshTimer = setInterval(refresh, 5000);
-window.addEventListener('beforeunload', () => clearInterval(refreshTimer));
+window.addEventListener('beforeunload', () => {
+  if (refreshTimer) clearInterval(refreshTimer);
+});
 setLocale(locale, { persist: false });
-refresh();
-loadConfigurationAssistant();
+loadLicensingStatus();

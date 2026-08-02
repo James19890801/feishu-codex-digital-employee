@@ -179,6 +179,33 @@ export function createWorker({
         const url = new URL(request.url);
         const timestamp = now();
 
+        if (url.pathname === '/v1/contact-card') {
+          if (request.method !== 'GET') return methodNotAllowed('GET', requestId);
+          const object = await env.CONTACT_CARDS?.get(
+            String(env.CONTACT_CARD_KEY || 'james-wechat.jpg'),
+          );
+          const contentType = String(object?.httpMetadata?.contentType || '');
+          if (!object
+            || Number(object.size || 0) > 2 * 1024 * 1024
+            || !['image/jpeg', 'image/png', 'image/webp'].includes(contentType)) {
+            return jsonResponse(404, {
+              ok: false,
+              error: { code: 'not_found', message: 'Not found.' },
+            }, requestId);
+          }
+          return new Response(object.body, {
+            status: 200,
+            headers: {
+              'content-type': contentType,
+              'content-length': String(object.size),
+              'cache-control': 'public, max-age=3600',
+              'x-content-type-options': 'nosniff',
+              'referrer-policy': 'no-referrer',
+              'x-request-id': requestId,
+            },
+          });
+        }
+
         if (url.pathname === '/v1/health') {
           if (request.method !== 'GET') return methodNotAllowed('GET', requestId);
           return jsonResponse(200, { ok: true, service: 'aipro-licensing' }, requestId);

@@ -3,10 +3,17 @@ main = "src/index.mjs"
 compatibility_date = "2026-08-02"
 compatibility_flags = ["nodejs_compat"]
 
+[vars]
+CONTACT_CARD_KEY = "james-wechat.jpg"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "aipro-licensing"
 database_id = "00000000-0000-0000-0000-000000000000"
+
+[[r2_buckets]]
+binding = "CONTACT_CARDS"
+bucket_name = "aipro-contact-cards"
 
 # Secrets are provisioned with `wrangler secret put`; values never belong here:
 # INVITATION_HASH_PEPPER

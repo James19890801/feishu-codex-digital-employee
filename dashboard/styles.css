@@ -233,6 +233,136 @@ h1 {
   letter-spacing: .06em;
 }
 
+.contact-developer-button {
+  height: 32px;
+  padding: 0 13px;
+  border: 1px solid rgba(154, 91, 77, .24);
+  border-radius: 99px;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  font-size: 9px;
+  font-weight: 680;
+  letter-spacing: .02em;
+  cursor: pointer;
+  transition: transform .18s ease, border-color .18s ease, background .18s ease;
+}
+
+.contact-developer-button:hover {
+  border-color: rgba(154, 91, 77, .48);
+  background: rgba(154, 91, 77, .14);
+  transform: translateY(-1px);
+}
+
+.activation-gate {
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(320px, .82fr);
+  gap: clamp(36px, 7vw, 110px);
+  align-items: center;
+  min-height: min(720px, calc(100vh - 150px));
+  margin-top: 18px;
+  padding: clamp(42px, 8vw, 112px);
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.72);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 12% 12%, rgba(154,91,77,.11), transparent 35%),
+    linear-gradient(145deg, rgba(251,248,242,.95), rgba(236,228,217,.78));
+  box-shadow: var(--shadow-lg);
+}
+
+.activation-statement span,
+.invite-studio-copy > span,
+.contact-dialog-copy > span,
+.invitation-batch-head span {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .15em;
+}
+
+.activation-statement h2 {
+  max-width: 720px;
+  margin: 22px 0 24px;
+  font-family: var(--serif);
+  font-size: clamp(50px, 7vw, 104px);
+  font-weight: 420;
+  line-height: .94;
+  letter-spacing: -.055em;
+}
+
+.activation-statement p { max-width: 660px; color: var(--ink-soft); font-size: 13px; line-height: 1.75; }
+.activation-statement .activation-lead { color: var(--ink); font-size: clamp(17px, 2vw, 24px); line-height: 1.42; }
+
+.activation-form {
+  padding: clamp(26px, 4vw, 44px);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: rgba(255,255,255,.58);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(18px);
+}
+
+.activation-form label,
+.invite-studio-copy label { display: block; margin-bottom: 9px; color: var(--ink-soft); font-size: 10px; font-weight: 680; }
+.activation-form input {
+  width: 100%;
+  padding: 15px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  color: var(--ink);
+  background: rgba(251,248,242,.92);
+  font-family: var(--mono);
+  font-size: clamp(22px, 3vw, 32px);
+  font-weight: 620;
+  letter-spacing: .2em;
+  text-align: center;
+}
+.activation-form > p { min-height: 18px; margin: 10px 0 18px; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.activation-form .activation-message { margin-bottom: 0; color: var(--accent-strong); }
+.activation-form .button { width: 100%; min-height: 44px; }
+
+.invite-studio {
+  display: grid;
+  grid-template-columns: minmax(260px, .7fr) minmax(360px, 1.3fr);
+  gap: clamp(28px, 5vw, 70px);
+  margin-top: 18px;
+  padding: clamp(28px, 5vw, 64px);
+  border: 1px solid rgba(154,91,77,.18);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(240,231,221,.92), rgba(251,248,242,.9));
+  box-shadow: var(--shadow-sm);
+}
+.invite-studio h3 { margin: 15px 0 12px; font-family: var(--serif); font-size: clamp(32px, 4vw, 54px); font-weight: 430; letter-spacing: -.04em; }
+.invite-studio-copy p { color: var(--ink-soft); font-size: 11px; line-height: 1.65; }
+.invite-studio-copy label { margin-top: 24px; }
+.invite-studio-copy input { width: 100%; min-height: 42px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.62); }
+.invite-studio-copy .button { margin-top: 12px; }
+#inviteStudioMessage { min-height: 16px; color: var(--accent-strong); font-size: 9px; }
+.invitation-batch { padding: 22px; border: 1px solid var(--line); border-radius: 20px; background: rgba(255,255,255,.58); }
+.invitation-batch-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.invitation-batch-head strong { display: block; margin-top: 4px; font-family: var(--mono); font-size: 10px; }
+.invitation-actions { display: flex; gap: 7px; }
+.invitation-actions button,
+.contact-card-error button { padding: 7px 10px; border: 1px solid var(--line); border-radius: 99px; background: rgba(255,255,255,.72); font-size: 8px; cursor: pointer; }
+.invitation-actions button:disabled { opacity: .38; cursor: default; }
+#invitationCodes { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; margin: 20px 0 0; padding: 0; list-style: none; }
+#invitationCodes li { padding: 12px; border: 1px solid var(--line); border-radius: 10px; font-family: var(--mono); font-size: 13px; letter-spacing: .09em; text-align: center; background: rgba(251,248,242,.72); }
+
+.contact-dialog { width: min(880px, calc(100% - 28px)); padding: 0; overflow: visible; border: 0; border-radius: 28px; color: var(--ink); background: transparent; }
+.contact-dialog::backdrop { background: rgba(47,40,34,.36); backdrop-filter: blur(9px); }
+.contact-dialog-shell { position: relative; display: grid; grid-template-columns: .9fr 1.1fr; gap: 34px; padding: clamp(28px, 5vw, 54px); border: 1px solid rgba(255,255,255,.72); border-radius: 28px; background: var(--paper-solid); box-shadow: var(--shadow-lg); }
+.contact-dialog-close { position: absolute; top: 14px; right: 14px; display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 50%; background: rgba(255,255,255,.7); cursor: pointer; }
+.contact-dialog-copy h2 { margin: 18px 0 28px; font-family: var(--serif); font-size: clamp(36px, 5vw, 58px); font-weight: 430; line-height: 1; letter-spacing: -.045em; }
+.contact-dialog-copy h3 { margin: 0; font-size: 18px; }
+.contact-dialog-copy h3 small { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; font-weight: 560; }
+.contact-dialog-copy p { color: var(--ink-soft); font-size: 10px; line-height: 1.65; }
+.contact-dialog-copy .contact-security { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 8px; }
+.contact-card-frame { display: grid; min-height: 420px; place-items: center; overflow: hidden; border: 1px solid var(--line); border-radius: 20px; background: #fff; }
+.contact-card-frame img { display: block; width: 100%; max-height: 590px; object-fit: contain; }
+.contact-card-loading,
+.contact-card-error { padding: 24px; color: var(--muted); font-size: 10px; text-align: center; }
+
 .clock-block {
   min-width: 82px;
   text-align: right;
@@ -1044,6 +1174,8 @@ h1 {
   .config-overview { grid-template-columns: repeat(2, 1fr); }
   .lower-grid { grid-template-columns: 1fr; }
   .event { grid-template-columns: 8px minmax(100px,.45fr) minmax(120px,1fr) auto; }
+  .activation-gate { grid-template-columns: 1fr; min-height: auto; padding: 56px 42px; }
+  .invite-studio { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 560px) {
@@ -1054,6 +1186,7 @@ h1 {
   .brand-credit { display: block; max-width: 190px; margin-top: 4px; font-size: 7px; white-space: nowrap; }
   h1 { font-size: 18px; }
   .language-toggle { height: 30px; }
+  .contact-developer-button { max-width: 108px; height: 30px; padding: 0 9px; overflow: hidden; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
   .hero { grid-template-columns: 1fr; margin-top: 14px; padding: 28px 22px; border-radius: 22px; }
   .signal-wrap { align-items: flex-start; }
   .signal { width: 68px; height: 68px; }
@@ -1088,6 +1221,15 @@ h1 {
   .channel-check { grid-template-columns: 8px 1fr; }
   .channel-check small { grid-column: 2; }
   .product-footer { align-items: flex-start; flex-direction: column; gap: 6px; padding: 15px 4px 0; }
+  .activation-gate { margin-top: 10px; padding: 38px 20px 22px; border-radius: 22px; }
+  .activation-statement h2 { font-size: 49px; }
+  .activation-form { padding: 20px; }
+  .invite-studio { padding: 24px 18px; border-radius: 22px; }
+  #invitationCodes { grid-template-columns: 1fr; }
+  .contact-dialog { width: 100%; max-width: none; margin: auto 0 0; }
+  .contact-dialog-shell { grid-template-columns: 1fr; gap: 20px; padding: 32px 18px 18px; border-radius: 24px 24px 0 0; }
+  .contact-dialog-copy h2 { margin-bottom: 18px; font-size: 38px; }
+  .contact-card-frame { min-height: 320px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
