@@ -145,6 +145,14 @@ import {
 } from './im-channel-runtime.mjs';
 import { fetchDingTalkWukongWindow } from './dingtalk-wukong-poller.mjs';
 import { buildIdentityInstruction } from './identity-policy.mjs';
+import { A1Client } from './a1-client.mjs';
+import { A1RequirementWorkflow } from './a1-workflow.mjs';
+import { A1Synchronizer } from './a1-sync.mjs';
+import {
+  buildA1SpecPrompt,
+  extractRepositoryPaths,
+  parseA1RequirementSpec,
+} from './a1-spec-planner.mjs';
 
 const CORE_LICENSE_GUARD = await evaluateLicenseGuard({
   enforced: config.licensingEnforced,
@@ -214,6 +222,38 @@ const POLL_MAX_CATCHUP_MS = config.pollMaxCatchupMs;
 const POLL_WINDOW_MS = config.pollWindowMs;
 const MAX_CONCURRENT_REPLIES = config.maxConcurrentReplies;
 const DASHBOARD_URL = `http://127.0.0.1:${config.dashboardPort}`;
+const A1_CLIENT = config.a1Enabled
+  ? new A1Client({
+      bin: config.a1Bin,
+      timeoutMs: config.helperTimeoutMs,
+      allowedProjectIds: [config.a1WebAgentProjectId, config.a1AiCollaborationProjectId],
+    })
+  : null;
+const A1_WORKFLOW = A1_CLIENT
+  ? new A1RequirementWorkflow({
+      client: A1_CLIENT,
+      pendingStore: pendingActions,
+      prepareRequirement: input => prepareA1Requirement(input),
+      subscribe: input => state.registerA1Subscription(input),
+    })
+  : null;
+const A1_SYNCHRONIZER = A1_CLIENT
+  ? new A1Synchronizer({
+      client: A1_CLIENT,
+      state,
+      notify: (chatId, text, idempotencyKey, recipient) => sendText(
+        null,
+        chatId,
+        text,
+        idempotencyKey,
+        {
+          mentionSenderId: recipient?.senderId || '',
+          chatType: recipient?.chatType || '',
+        },
+      ),
+      audit: (event, detail) => state.audit(event, { detail }),
+    })
+  : null;
 const MULTICA_CLIENT = config.multicaEnabled
   ? new MulticaClient({
       bin: config.multicaBin,
@@ -288,6 +328,7 @@ let activeDingTalkChild = null;
 let activeSdkWsClient = null;
 let drainPromise = null;
 let multicaSyncPromise = null;
+let a1SyncPromise = null;
 let dingTalkSupervisorPromise = null;
 let dingTalkSelfPollingPromise = null;
 let geWeMonitorPromise = null;
@@ -875,6 +916,64 @@ ${task}
     maxStderrBytes: 1024 * 1024,
   });
   return enforceReplyLength(text, task);
+}
+
+async function planA1Requirement(input) {
+  const { text } = await runAiRuntime(buildA1SpecPrompt(input), {
+    cwd: CODEX_RUNTIME_DIR,
+    model: SELECTED_AI_RUNTIME.id === 'codex' ? config.codexModel : '',
+    timeoutMs: config.codexTimeoutMs,
+    maxStdoutBytes: 512 * 1024,
+    maxStderrBytes: 1024 * 1024,
+  });
+  return parseA1RequirementSpec(text);
+}
+
+async function prepareA1Requirement({ request, route, clarification = '', existingBody = '' }) {
+  const initial = await planA1Requirement({
+    request,
+    route,
+    clarification,
+    existingBody,
+    repositoryEvidence: '',
+  });
+  if (!route.inspectRepository) return { ...initial, codeEvidence: [] };
+
+  const searchTerm = initial.codeSearchTerms[0] || initial.title;
+  const repository = await A1_CLIENT.searchRepository({
+    repo: route.repo,
+    keyword: searchTerm,
+    branch: route.branch,
+  });
+  const paths = extractRepositoryPaths(repository.search).length
+    ? extractRepositoryPaths(repository.search)
+    : extractRepositoryPaths(repository.tree);
+  if (!paths.length) {
+    throw new Error(`已读取 ${route.repo}，但没有定位到与“${searchTerm}”相关的可读代码文件；需要补充功能入口或页面名称后再建需求`);
+  }
+  const inspected = [];
+  for (const path of paths.slice(0, 3)) {
+    const content = await A1_CLIENT.viewRepositoryFile({
+      repo: route.repo,
+      path,
+      branch: route.branch,
+      startLine: 1,
+      endLine: 240,
+    });
+    inspected.push({ path, content });
+  }
+  const repositoryEvidence = JSON.stringify({
+    repository: route.repo,
+    branch: route.branch || 'default',
+    files: inspected,
+  }).slice(0, 60_000);
+  return planA1Requirement({
+    request,
+    route,
+    clarification,
+    existingBody,
+    repositoryEvidence,
+  });
 }
 
 async function runCodexActionItems(documentText) {
@@ -1589,6 +1688,39 @@ async function processIncoming(client, message, sender, metadata = {}) {
       fileRef = await findRecentFileRef(client, message, senderOpenId);
     } catch (error) {
       console.error(`[file-context-error] ${message.message_id}:`, error);
+    }
+  }
+  if (A1_WORKFLOW) {
+    try {
+      const result = await A1_WORKFLOW.handle({
+        chatId: message.chat_id,
+        senderId: senderOpenId,
+        chatType: message.chat_type,
+        messageId: message.message_id,
+        text: cleanText,
+      });
+      if (result.handled) {
+        remember(message.chat_id, senderOpenId, 'user', cleanText);
+        remember(message.chat_id, senderOpenId, 'assistant', result.text);
+        await sendText(client, message.chat_id, result.text, `a1-requirement-${message.message_id}`);
+        audit('a1_requirement_handled', message, senderOpenId, {
+          workitemId: result.item?.id || '',
+          url: result.item?.url || '',
+        });
+        return;
+      }
+    } catch (error) {
+      console.error(`[a1-requirement-error] ${message.message_id}:`, error);
+      await sendText(
+        client,
+        message.chat_id,
+        `1A 需求没有处理完成：${processFailureSummary(error)}`,
+        `a1-requirement-error-${message.message_id}`,
+      );
+      audit('a1_requirement_failed', message, senderOpenId, {
+        error: String(error?.message || error).slice(0, 1000),
+      });
+      return;
     }
   }
   if (await applyPendingMultica(message, senderOpenId, cleanText, metadata)) return;
@@ -2493,6 +2625,37 @@ async function runMulticaSyncLoop() {
   }
 }
 
+async function runA1SyncLoop() {
+  if (!A1_SYNCHRONIZER) return;
+  let failures = 0;
+  while (!stopping) {
+    const startedAt = Date.now();
+    try {
+      const result = await A1_SYNCHRONIZER.syncOnce();
+      failures = 0;
+      state.set('health', 'last_a1_sync_at', new Date().toISOString());
+      state.set('health', 'last_a1_sync_result', result);
+      state.unset('health', 'last_a1_sync_error');
+      if (result.changed || result.delivered || result.failed) {
+        console.log(`[a1-sync] changed=${result.changed} delivered=${result.delivered} failed=${result.failed}`);
+      }
+    } catch (error) {
+      if (stopping) break;
+      failures += 1;
+      const delayMs = Math.min(5 * 60_000, 1_000 * (2 ** Math.min(failures, 9)));
+      const summary = processFailureSummary(error);
+      state.set('health', 'last_a1_sync_error', {
+        at: new Date().toISOString(), failures, error: summary,
+      });
+      state.audit('a1_sync_error', { detail: { failures, delayMs, error: summary } });
+      console.error(`[a1-sync-error] retry in ${delayMs}ms:`, error);
+      await wait(delayMs);
+      continue;
+    }
+    await wait(Math.max(250, config.a1SyncIntervalMs - (Date.now() - startedAt)));
+  }
+}
+
 async function createBusinessClient() {
   try {
     const appSecret = await getSecret();
@@ -3032,6 +3195,11 @@ async function main() {
         .catch(error => console.error('[multica-sync-fatal]', error));
       console.log(`[multica-sync] active every ${config.multicaSyncIntervalMs}ms across all workspaces`);
     }
+    if (A1_SYNCHRONIZER) {
+      a1SyncPromise = runA1SyncLoop()
+        .catch(error => console.error('[a1-sync-fatal]', error));
+      console.log(`[a1-sync] active every ${config.a1SyncIntervalMs}ms`);
+    }
 
     if (RUNTIME_MODE.feishuEnabled) {
       if (config.eventTransport === 'sdk') {
@@ -3050,6 +3218,7 @@ async function main() {
     }
     if (drainPromise) await drainPromise.catch(() => {});
     if (multicaSyncPromise) await multicaSyncPromise.catch(() => {});
+    if (a1SyncPromise) await a1SyncPromise.catch(() => {});
     if (dingTalkSupervisorPromise) await dingTalkSupervisorPromise.catch(() => {});
     if (dingTalkSelfPollingPromise) await dingTalkSelfPollingPromise.catch(() => {});
     if (geWeMonitorPromise) await geWeMonitorPromise.catch(() => {});

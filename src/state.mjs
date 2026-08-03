@@ -107,6 +107,39 @@ export class AgentState {
         ON outbound_echo(chat_id, content_hash, expires_at);
       CREATE INDEX IF NOT EXISTS outbound_echo_message
         ON outbound_echo(message_id, expires_at);
+      CREATE TABLE IF NOT EXISTS a1_workitem_cache (
+        workitem_id TEXT PRIMARY KEY,
+        snapshot TEXT NOT NULL,
+        seen_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS a1_workitem_subscription (
+        workitem_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        chat_type TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        PRIMARY KEY(workitem_id, chat_id, sender_id)
+      );
+      CREATE INDEX IF NOT EXISTS a1_subscription_workitem
+        ON a1_workitem_subscription(workitem_id, created_at);
+      CREATE TABLE IF NOT EXISTS a1_notification_outbox (
+        notification_key TEXT PRIMARY KEY,
+        workitem_id TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        chat_type TEXT NOT NULL DEFAULT '',
+        content TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        available_at TEXT NOT NULL,
+        last_error TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        dead_at TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS a1_notification_due
+        ON a1_notification_outbox(status, available_at, created_at);
       CREATE TABLE IF NOT EXISTS multica_issue_cache (
         issue_id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL,
@@ -250,6 +283,111 @@ export class AgentState {
 
   unset(scope, key) {
     this.db.prepare('DELETE FROM settings WHERE scope = ? AND key = ?').run(scope, key);
+  }
+
+  registerA1Subscription({
+    workitemId, projectId, chatId, senderId = '', chatType = '', snapshot = null,
+  }) {
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT INTO a1_workitem_subscription
+      (workitem_id, project_id, chat_id, sender_id, chat_type, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(workitem_id, chat_id, sender_id) DO UPDATE SET
+        project_id=excluded.project_id, chat_type=excluded.chat_type`)
+      .run(String(workitemId), String(projectId), String(chatId), String(senderId), String(chatType), now);
+    if (snapshot) this.cacheA1Workitem(snapshot);
+  }
+
+  a1WorkitemIds() {
+    return this.db.prepare(`SELECT DISTINCT workitem_id
+      FROM a1_workitem_subscription ORDER BY workitem_id`).all().map(row => row.workitem_id);
+  }
+
+  a1Subscribers(workitemId) {
+    return this.db.prepare(`SELECT chat_id, sender_id, chat_type
+      FROM a1_workitem_subscription WHERE workitem_id = ? ORDER BY created_at, chat_id`)
+      .all(String(workitemId)).map(row => ({
+        chatId: row.chat_id,
+        senderId: row.sender_id,
+        chatType: row.chat_type,
+      }));
+  }
+
+  getA1WorkitemSnapshot(workitemId) {
+    const row = this.db.prepare('SELECT snapshot FROM a1_workitem_cache WHERE workitem_id = ?')
+      .get(String(workitemId));
+    if (!row) return null;
+    try { return JSON.parse(row.snapshot); } catch { return null; }
+  }
+
+  cacheA1Workitem(snapshot) {
+    const workitemId = String(snapshot?.id || '');
+    if (!workitemId) throw new Error('A1 workitem snapshot id is required');
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT INTO a1_workitem_cache(workitem_id, snapshot, seen_at)
+      VALUES (?, ?, ?) ON CONFLICT(workitem_id) DO UPDATE SET
+        snapshot=excluded.snapshot, seen_at=excluded.seen_at`)
+      .run(workitemId, JSON.stringify(snapshot), now);
+  }
+
+  enqueueA1Notification({
+    notificationKey, workitemId, chatId, senderId = '', chatType = '', content,
+    availableAt = new Date().toISOString(),
+  }) {
+    const now = new Date().toISOString();
+    return this.db.prepare(`INSERT OR IGNORE INTO a1_notification_outbox
+      (notification_key, workitem_id, chat_id, sender_id, chat_type, content,
+       attempts, status, available_at, last_error, created_at, updated_at, dead_at)
+      VALUES (?, ?, ?, ?, ?, ?, 0, 'pending', ?, '', ?, ?, '')`)
+      .run(notificationKey, String(workitemId), String(chatId), String(senderId),
+        String(chatType), String(content), availableAt, now, now).changes === 1;
+  }
+
+  listDueA1Notifications(now = new Date().toISOString(), limit = 200) {
+    return this.db.prepare(`SELECT notification_key, workitem_id, chat_id, sender_id,
+      chat_type, content, attempts, available_at, last_error
+      FROM a1_notification_outbox WHERE status = 'pending' AND available_at <= ?
+      ORDER BY available_at, created_at LIMIT ?`)
+      .all(now, Math.max(1, Math.min(1000, Number(limit) || 200)))
+      .map(row => ({
+        notificationKey: row.notification_key,
+        workitemId: row.workitem_id,
+        chatId: row.chat_id,
+        senderId: row.sender_id,
+        chatType: row.chat_type,
+        content: row.content,
+        attempts: Number(row.attempts || 0),
+        availableAt: row.available_at,
+        lastError: row.last_error,
+      }));
+  }
+
+  completeA1Notification(notificationKey) {
+    return this.db.prepare('DELETE FROM a1_notification_outbox WHERE notification_key = ?')
+      .run(String(notificationKey)).changes === 1;
+  }
+
+  failA1Notification(notificationKey, error, availableAt, maxAttempts = 10) {
+    const row = this.db.prepare(`SELECT attempts, status FROM a1_notification_outbox
+      WHERE notification_key = ?`).get(String(notificationKey));
+    if (!row || row.status !== 'pending') {
+      return { updated: false, deadLettered: row?.status === 'dead', attempts: Number(row?.attempts || 0) };
+    }
+    const attempts = Number(row.attempts || 0) + 1;
+    const deadLettered = attempts >= Math.max(1, Number(maxAttempts) || 10);
+    const now = new Date().toISOString();
+    const updated = this.db.prepare(`UPDATE a1_notification_outbox SET
+      attempts = ?, status = ?, available_at = ?, last_error = ?, updated_at = ?, dead_at = ?
+      WHERE notification_key = ? AND status = 'pending'`)
+      .run(attempts, deadLettered ? 'dead' : 'pending', String(availableAt),
+        String(error || '').slice(0, 1000), now, deadLettered ? now : '',
+        String(notificationKey)).changes === 1;
+    return { updated, deadLettered: updated && deadLettered, attempts };
+  }
+
+  a1NotificationCount(status = 'pending') {
+    return Number(this.db.prepare(`SELECT COUNT(*) AS count FROM a1_notification_outbox
+      WHERE status = ?`).get(String(status))?.count || 0);
   }
 
   upsertMemoryItem(candidate) {

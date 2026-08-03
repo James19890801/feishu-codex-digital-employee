@@ -309,6 +309,34 @@ try {
     0,
   );
 
+  state.registerA1Subscription({
+    workitemId: '90000001',
+    projectId: '2165415',
+    chatId: 'dingtalk:user:requester',
+    senderId: 'dingtalk:requester',
+    chatType: 'p2p',
+    snapshot: { id: '90000001', status: '待处理', title: '支付流程', url: 'https://project.aone/90000001' },
+  });
+  assert.deepEqual(state.a1WorkitemIds(), ['90000001']);
+  assert.deepEqual(state.a1Subscribers('90000001'), [{
+    chatId: 'dingtalk:user:requester', senderId: 'dingtalk:requester', chatType: 'p2p',
+  }]);
+  assert.equal(state.getA1WorkitemSnapshot('90000001').status, '待处理');
+  state.cacheA1Workitem({ id: '90000001', status: '开发中', title: '支付流程', url: 'https://project.aone/90000001' });
+  assert.equal(state.getA1WorkitemSnapshot('90000001').status, '开发中');
+  assert.equal(state.enqueueA1Notification({
+    notificationKey: 'a1:90000001:status:dev',
+    workitemId: '90000001',
+    chatId: 'dingtalk:user:requester',
+    senderId: 'dingtalk:requester',
+    chatType: 'p2p',
+    content: '状态已变更',
+    availableAt: now,
+  }), true);
+  assert.equal(state.listDueA1Notifications(now, 10).length, 1);
+  assert.equal(state.completeA1Notification('a1:90000001:status:dev'), true);
+  assert.equal(state.a1NotificationCount(), 0);
+
   state.db.prepare(`INSERT INTO inbound_message
     (message_id, source, payload, status, attempts, available_at, first_seen_at, updated_at)
     VALUES (?, 'test', ?, 'pending', 0, ?, ?, ?)`)

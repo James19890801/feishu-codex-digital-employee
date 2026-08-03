@@ -1,4 +1,6 @@
-const KINDS = new Set(['task', 'calendar', 'task_batch', 'multica', 'multica_feedback']);
+const KINDS = new Set([
+  'task', 'calendar', 'task_batch', 'multica', 'multica_feedback', 'a1_requirement',
+]);
 
 function revive(kind, value) {
   if (!value) return value;

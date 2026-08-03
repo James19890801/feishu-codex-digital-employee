@@ -16,17 +16,14 @@ const L2_PATTERNS = [
   /(?:发给|发送给|转发给|回复给).{0,30}(?:老师|领导|客户|同事|群|邮箱)/,
   /(?:发布|投稿|提交|报名|申请|答复邀约)/,
   /(?:创建|新建|修改|取消).{0,8}(?:待办|任务|日程|会议|群聊|权限)/,
-  /(?:创建|新建).{0,20}(?:multica|issue|问题单)/i,
-  /(?:更新|修改|评论|备注|跟进|取消).{0,12}(?:[A-Z][A-Z0-9]{0,15}-\d+|multica|issue|问题单)/i,
-  /(?:[A-Z][A-Z0-9]{0,15}-\d+).{0,12}(?:更新|修改|评论|备注|跟进|取消)/i,
   /(?:代表我|以我的名义|替我承诺)/,
 ];
 
 export function classifyIntent(text = '', context = {}) {
   if (context.hasImages) return 'image_understanding';
   if (context.hasFile) return 'file_understanding';
-  if (/\bmultica\b|\bissue\b|[A-Za-z][A-Za-z0-9]{0,15}-\d+\b|问题单/i.test(text)) {
-    return 'multica_issue';
+  if (/(?:需求|工作项|需求池).{0,20}(?:创建|新建|更新|修改|补充|进展|进度|状态|查询|查看)|(?:创建|新建|更新|修改|补充|查询|查看).{0,20}(?:需求|工作项|需求池)|\b\d{6,12}\b.{0,20}(?:需求|工作项|进展|进度|状态)/i.test(text)) {
+    return 'a1_requirement';
   }
   if (/(待办|任务|提醒)/.test(text)) return 'task';
   if (/(日程|日历|安排|会议时间)/.test(text)) return 'calendar';
