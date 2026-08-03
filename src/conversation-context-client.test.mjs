@@ -2,8 +2,16 @@ import assert from 'node:assert/strict';
 import {
   ConversationContextClient,
   ConversationHistoryError,
-  ORIGINAL_DWS_BIN,
+  isSupportedDwsExecutable,
 } from './conversation-context-client.mjs';
+
+const PORTABLE_DWS_BIN = '/opt/homebrew/bin/dws';
+
+assert.equal(isSupportedDwsExecutable(PORTABLE_DWS_BIN), true);
+assert.equal(isSupportedDwsExecutable('/usr/local/bin/dws'), true);
+assert.equal(isSupportedDwsExecutable('dws'), false);
+assert.equal(isSupportedDwsExecutable('/opt/wukong/bin/dws'), false);
+assert.equal(isSupportedDwsExecutable('/tmp/.real/.bin/dws/bin/dws'), false);
 
 const successPayload = {
   success: true,
@@ -23,7 +31,7 @@ const successPayload = {
 
 const audits = [];
 const client = new ConversationContextClient({
-  bin: ORIGINAL_DWS_BIN,
+  bin: PORTABLE_DWS_BIN,
   profile: 'corp:user',
   transport: 'event-stream',
   env: { DWS_CHANNEL: 'channel-1' },
@@ -54,7 +62,7 @@ assert.doesNotMatch(JSON.stringify(audits), /最后一句/);
 
 async function expectHistoryError(overrides, pattern, code = 'CONVERSATION_HISTORY_UNAVAILABLE') {
   const instance = new ConversationContextClient({
-    bin: ORIGINAL_DWS_BIN,
+    bin: PORTABLE_DWS_BIN,
     profile: 'corp:user',
     transport: 'event-stream',
     env: {},
@@ -80,7 +88,7 @@ async function expectHistoryError(overrides, pattern, code = 'CONVERSATION_HISTO
 }
 
 await expectHistoryError(
-  { bin: '/Users/fengzhouchong.fzc/.real/.bin/dws/bin/dws' },
+  { bin: '/tmp/.real/.bin/dws/bin/dws' },
   /original DWS/i,
   'DWS_PATH_REJECTED',
 );
@@ -107,7 +115,7 @@ await expectHistoryError(
 );
 
 const emptyClient = new ConversationContextClient({
-  bin: ORIGINAL_DWS_BIN,
+  bin: PORTABLE_DWS_BIN,
   profile: 'corp:user',
   transport: 'event-stream',
   env: {},
@@ -127,7 +135,7 @@ assert.equal(firstConversation.messages.length, 1);
 assert.equal(firstConversation.latestCounterpartyMessage.content, '第一次说话');
 
 const verifiedDisplayNameClient = new ConversationContextClient({
-  bin: ORIGINAL_DWS_BIN,
+  bin: PORTABLE_DWS_BIN,
   profile: 'corp:user',
   transport: 'event-stream',
   env: {},

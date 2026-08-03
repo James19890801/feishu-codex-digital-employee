@@ -2,8 +2,17 @@ import {
   buildDingTalkHistoryArgs,
   normalizeConversationHistory,
 } from './conversation-context.mjs';
+import { basename, isAbsolute } from 'node:path';
 
-export const ORIGINAL_DWS_BIN = '/Users/fengzhouchong.fzc/.npm-global/bin/dws';
+export function isSupportedDwsExecutable(value) {
+  const executable = String(value || '').trim();
+  if (!isAbsolute(executable) || basename(executable) !== 'dws') return false;
+  const normalized = executable.replaceAll('\\', '/').toLowerCase();
+  if (normalized.includes('wukong')) return false;
+  if (/(?:^|\/)\.real(?:\/|$)/u.test(normalized)) return false;
+  if (/\/\.bin\/dws\/bin\/dws$/u.test(normalized)) return false;
+  return true;
+}
 
 export class ConversationHistoryError extends Error {
   constructor(message, code = 'CONVERSATION_HISTORY_UNAVAILABLE', options = {}) {
@@ -59,7 +68,7 @@ export class ConversationContextClient {
   async fetch(context = {}) {
     const startedAt = Date.now();
     try {
-      if (this.bin !== ORIGINAL_DWS_BIN) {
+      if (!isSupportedDwsExecutable(this.bin)) {
         throw new ConversationHistoryError(
           'Conversation history must use the original DWS installation',
           'DWS_PATH_REJECTED',
