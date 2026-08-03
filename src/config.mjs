@@ -6,6 +6,7 @@ import {
   validateDingTalkConfiguration,
   validateFeishuConfiguration,
 } from './runtime-mode.mjs';
+import { normalizeOperatorProfile } from './operator-profile.mjs';
 
 const srcDir = dirname(fileURLToPath(import.meta.url));
 const workdir = resolve(srcDir, '..');
@@ -15,11 +16,21 @@ if (!existsSync(configPath)) {
 }
 const raw = JSON.parse(readFileSync(configPath, 'utf8'));
 const home = process.env.HOME || '';
+const operatorProfile = normalizeOperatorProfile({
+  displayName: raw.ownerDisplayName,
+  role: raw.ownerRole,
+  aliases: raw.ownerAliases,
+  brandName: raw.digitalHumanBrand,
+});
 if (!Array.isArray(raw.authorizedChatIds || [])) {
   throw new Error('config.local.json 的 authorizedChatIds 必须是数组');
 }
 
 export const config = {
+  ownerDisplayName: operatorProfile.displayName,
+  ownerRole: operatorProfile.role,
+  ownerAliases: operatorProfile.aliases,
+  digitalHumanBrand: operatorProfile.brandName,
   feishuEnabled: raw.feishuEnabled !== false,
   feishuAppId: raw.feishuAppId || '',
   ownerOpenId: raw.ownerOpenId || '',

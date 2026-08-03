@@ -1,4 +1,8 @@
 {
+  "ownerDisplayName": "",
+  "ownerRole": "",
+  "ownerAliases": [],
+  "digitalHumanBrand": "Personal Digital Human",
   "feishuEnabled": true,
   "feishuAppId": "cli_xxxxxxxxxxxxxxxx",
   "ownerOpenId": "ou_xxxxxxxxxxxxxxxx",
