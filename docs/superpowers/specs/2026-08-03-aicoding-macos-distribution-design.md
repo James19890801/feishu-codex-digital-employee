@@ -14,10 +14,10 @@ zsh ./install.command
 
 ## 2. 交付形态
 
-产物目录为 `dist/achong-digital-human-macos-<version>/`，并生成同名 ZIP：
+产物目录为 `dist/personal-digital-human-macos-<version>/`，并生成同名 ZIP：
 
 ```text
-achong-digital-human-macos-<version>/
+personal-digital-human-macos-<version>/
 ├── install.command
 ├── AI_CODING_INSTALL.md
 ├── release-manifest.json
@@ -26,8 +26,6 @@ achong-digital-human-macos-<version>/
     ├── src/
     ├── dashboard/
     ├── scripts/
-    ├── licensing/
-    ├── macos/
     ├── templates/
     ├── config.distribution.json
     ├── package.json
@@ -37,6 +35,8 @@ achong-digital-human-macos-<version>/
 ```
 
 ZIP 只是便携容器，不把源码伪装成签名 `.pkg`。本轮不引入 Apple 开发者证书、公证或自动更新服务。
+
+最终实现只打包本机运行时实际需要的 `src`、Dashboard、安装/健康脚本和空模板；云端许可 Worker、macOS App 构建源码及其测试不进入面向最终用户的 ZIP。
 
 ## 3. 安装流程
 
