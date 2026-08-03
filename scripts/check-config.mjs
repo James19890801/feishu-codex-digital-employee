@@ -5,7 +5,9 @@ import { config } from '../src/config.mjs';
 import { discoverAiRuntimes, selectAiRuntime } from '../src/ai-runtime.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const requiredFiles = ['config.local.json', 'PERSONA.md', 'BIBLE.md', 'knowledge-catalog.json'];
+const configuredPath = process.env.DIGITAL_EMPLOYEE_CONFIG || join(root, 'config.local.json');
+if (!existsSync(configuredPath)) throw new Error(`缺少配置文件：${configuredPath}`);
+const requiredFiles = ['PERSONA.md', 'BIBLE.md', 'knowledge-catalog.json'];
 for (const file of requiredFiles) {
   if (!existsSync(join(root, file))) throw new Error(`缺少 ${file}`);
 }
