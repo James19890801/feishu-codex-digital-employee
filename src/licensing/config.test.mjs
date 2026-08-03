@@ -9,6 +9,7 @@ assert.equal(typeof config.licensingPublicKey, 'string');
 assert.throws(
   () => validateCoreConfiguration({
     ...config,
+    feishuEnabled: true,
     feishuAppId: '',
     ownerOpenId: '',
     allowAllChats: true,
@@ -17,8 +18,16 @@ assert.throws(
 );
 assert.doesNotThrow(() => validateCoreConfiguration({
   ...config,
+  feishuEnabled: true,
   feishuAppId: 'cli_0123456789abcdef',
   ownerOpenId: 'ou_owner123',
+  allowAllChats: true,
+}));
+assert.doesNotThrow(() => validateCoreConfiguration({
+  ...config,
+  feishuEnabled: false,
+  feishuAppId: '',
+  ownerOpenId: '',
   allowAllChats: true,
 }));
 
