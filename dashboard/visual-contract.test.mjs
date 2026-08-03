@@ -76,5 +76,6 @@ assert.doesNotMatch(html, /Lark or DingTalk/);
 assert.doesNotMatch(html, /Identity boundary: Lark and DingTalk/);
 assert.match(app, /data\.polling\.applicable/);
 assert.match(app, /data\.primaryChannel/);
+assert.doesNotMatch(html, /Maintenance required/);
 
 console.log('DASHBOARD_VISUAL_CONTRACT_TEST_OK');
