@@ -58,6 +58,64 @@ try {
   assert.equal(state.consumeRateLimit('sender:1', 3_000, 60_000, 2), false);
   assert.equal(state.consumeRateLimit('sender:1', 61_001, 60_000, 2), true);
 
+  state.markSelfChat('oc_self');
+  assert.equal(state.isSelfChat('oc_self'), true);
+  assert.equal(state.isSelfChat('oc_normal'), false);
+  const guardOptions = { windowMs: 60_000, limit: 3, cooldownMs: 120_000 };
+  assert.equal(state.claimSelfChatOutbound('oc_self', 1_000, guardOptions).allowed, true);
+  assert.equal(state.claimSelfChatOutbound('oc_self', 2_000, guardOptions).allowed, true);
+  assert.equal(state.claimSelfChatOutbound('oc_self', 3_000, guardOptions).allowed, true);
+  const tripped = state.claimSelfChatOutbound('oc_self', 4_000, guardOptions);
+  assert.equal(tripped.allowed, false);
+  assert.equal(tripped.tripped, true);
+  assert.equal(tripped.openUntilMs, 124_000);
+  assert.equal(
+    state.claimSelfChatOutbound('oc_self', 60_001, guardOptions).allowed,
+    false,
+    'an open circuit must stay silent even after the rate window changes',
+  );
+  assert.equal(state.claimSelfChatOutbound('oc_self', 124_001, guardOptions).allowed, true);
+  assert.equal(state.claimSelfChatOutbound('oc_other_self', 4_000, guardOptions).allowed, true);
+
+  const echoId = state.recordOutboundEcho('oc_self', '平台回复', {
+    now,
+    ttlMs: 120_000,
+  });
+  assert.equal(Number.isInteger(echoId), true);
+  assert.equal(state.consumeOutboundEcho('oc_self', '别的问题', {
+    now: '2026-07-29T14:00:01.000Z',
+  }), false);
+  assert.equal(state.consumeOutboundEcho('oc_self', '平台回复', {
+    now: '2026-07-29T14:00:01.000Z',
+  }), true);
+  assert.equal(state.consumeOutboundEcho('oc_self', '平台回复', {
+    now: '2026-07-29T14:00:02.000Z',
+  }), false);
+
+  const messageEchoId = state.recordOutboundEcho('dingtalk:user:self', '钉钉回复', {
+    now,
+    ttlMs: 120_000,
+  });
+  state.attachOutboundMessageId(messageEchoId, 'dingtalk-message-1');
+  assert.equal(state.hasOutboundEcho('dingtalk:user:self', '内容可能被平台重写', {
+    messageId: 'dingtalk-message-1',
+    now: '2026-07-29T14:00:01.000Z',
+  }), true);
+  assert.equal(state.consumeOutboundEcho('dingtalk:user:self', '内容可能被平台重写', {
+    messageId: 'dingtalk-message-1',
+    now: '2026-07-29T14:00:01.000Z',
+  }), true);
+  assert.equal(state.hasOutboundEcho('dingtalk:user:self', '钉钉回复', {
+    messageId: 'dingtalk-message-1',
+    now: '2026-07-29T14:00:02.000Z',
+  }), false);
+
+  const cancelledEchoId = state.recordOutboundEcho('oc_self', '发送失败', { now });
+  assert.equal(state.cancelOutboundEcho(cancelledEchoId), true);
+  assert.equal(state.consumeOutboundEcho('oc_self', '发送失败', {
+    now: '2026-07-29T14:00:01.000Z',
+  }), false);
+
   const issue = {
     id: 'issue-1',
     workspace_id: 'ws-1',
@@ -84,11 +142,18 @@ try {
   assert.equal(changedIssue.before.status, 'todo');
   assert.equal(changedIssue.after.status, 'in_progress');
 
-  state.subscribeMulticaIssue(issue.id, 'chat-1', 'user-1', now);
-  state.subscribeMulticaIssue(issue.id, 'chat-1', 'user-1', now);
+  state.subscribeMulticaIssue(issue.id, 'chat-1', 'user-1', {
+    chatType: 'group',
+    createdAt: now,
+  });
+  state.subscribeMulticaIssue(issue.id, 'chat-1', 'user-1', {
+    chatType: 'group',
+    createdAt: now,
+  });
   assert.deepEqual(state.multicaIssueSubscribers(issue.id), [{
     chatId: 'chat-1',
     senderId: 'user-1',
+    chatType: 'group',
   }]);
   state.unsubscribeMulticaIssue(issue.id, 'chat-1', 'user-1');
   assert.deepEqual(state.multicaIssueSubscribers(issue.id), []);
@@ -98,15 +163,81 @@ try {
   assert.deepEqual(state.multicaGlobalSubscribers(), [{
     chatId: 'chat-2',
     senderId: 'user-2',
+    chatType: '',
   }]);
   state.unsubscribeMulticaGlobal('chat-2', 'user-2');
   assert.deepEqual(state.multicaGlobalSubscribers(), []);
+
+  assert.equal(state.bindMulticaFeedbackRegistration({
+    registrationKey: 'feedback-key-1',
+    issue,
+    createdAt: now,
+  }), true);
+  assert.equal(state.bindMulticaFeedbackRegistration({
+    registrationKey: 'feedback-key-1',
+    issue: { ...issue, id: 'issue-duplicate', identifier: 'MYS-999' },
+    createdAt: now,
+  }), false);
+  assert.deepEqual(state.getMulticaFeedbackRegistration('feedback-key-1'), {
+    registrationKey: 'feedback-key-1',
+    issue,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  assert.equal(state.enqueueMulticaDispatch({
+    issueId: issue.id,
+    workspaceId: issue.workspace_id,
+    assignee: '詹老师的开发团伙',
+    availableAt: now,
+  }), true);
+  assert.equal(state.enqueueMulticaDispatch({
+    issueId: issue.id,
+    workspaceId: issue.workspace_id,
+    assignee: '另一个 Squad',
+    availableAt: now,
+  }), false);
+  assert.deepEqual(state.listDueMulticaDispatches(now, 10)[0], {
+    issueId: issue.id,
+    workspaceId: issue.workspace_id,
+    assignee: '詹老师的开发团伙',
+    attempts: 0,
+    availableAt: now,
+    lastError: '',
+  });
+  assert.deepEqual(state.failMulticaDispatch(
+    issue.id,
+    'temporary dispatch failure',
+    '2026-07-29T14:00:05.000Z',
+    2,
+  ), { updated: true, deadLettered: false, attempts: 1 });
+  assert.equal(state.multicaDispatchPendingCount(), 1);
+  assert.equal(state.listDueMulticaDispatches(now, 10).length, 0);
+  assert.deepEqual(state.failMulticaDispatch(
+    issue.id,
+    'permanent dispatch failure',
+    '2026-07-29T14:00:06.000Z',
+    2,
+  ), { updated: true, deadLettered: true, attempts: 2 });
+  assert.equal(state.multicaDispatchPendingCount(), 0);
+  assert.equal(state.multicaDispatchDeadCount(), 1);
+
+  assert.equal(state.enqueueMulticaDispatch({
+    issueId: 'issue-2',
+    workspaceId: 'ws-1',
+    assignee: '詹老师的开发团伙',
+    availableAt: now,
+  }), true);
+  assert.equal(state.completeMulticaDispatch('issue-2'), true);
+  assert.equal(state.multicaDispatchPendingCount(), 0);
+  assert.equal(state.getMulticaDispatch('issue-2').status, 'completed');
 
   assert.equal(state.enqueueMulticaNotification({
     notificationKey: 'multica-sync-test',
     issueId: issue.id,
     chatId: 'chat-1',
     senderId: 'user-1',
+    chatType: 'group',
     content: 'Issue changed',
     availableAt: now,
   }), true);
@@ -119,7 +250,20 @@ try {
     availableAt: now,
   }), false);
   assert.equal(state.multicaNotificationCount(), 1);
-  assert.equal(state.listDueMulticaNotifications(now, 10)[0].notificationKey, 'multica-sync-test');
+  assert.deepEqual(
+    state.listDueMulticaNotifications(now, 10)[0],
+    {
+      notificationKey: 'multica-sync-test',
+      issueId: issue.id,
+      chatId: 'chat-1',
+      senderId: 'user-1',
+      chatType: 'group',
+      content: 'Issue changed',
+      attempts: 0,
+      availableAt: now,
+      lastError: '',
+    },
+  );
   state.failMulticaNotification(
     'multica-sync-test',
     'temporary error',

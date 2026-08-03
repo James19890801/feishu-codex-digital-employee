@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 
 const CONFIG_RULES = {
   allowAllChats: { type: 'boolean', risk: 'double' },
+  ownerContactPhone: { type: 'phone', risk: 'double' },
   authorizedChatIds: { type: 'chatIds', risk: 'double' },
   digitalTwinLabel: { type: 'string', maxLength: 100, risk: 'single' },
   eventTransport: { type: 'enum', values: ['lark-cli', 'sdk'], risk: 'double' },
@@ -71,6 +72,13 @@ function normalizeConfigValue(key, value) {
     }
     assertNoCredentials(value);
     return value;
+  }
+  if (rule.type === 'phone') {
+    if (typeof value !== 'string'
+      || !/^\+?[0-9][0-9 ()-]{5,28}[0-9]$/.test(value.trim())) {
+      throw new Error(`${key} must be a valid contact phone number`);
+    }
+    return value.trim();
   }
   if (rule.type === 'enum') {
     if (!rule.values.includes(value)) {
@@ -310,11 +318,11 @@ export const assistantSchema = {
     'keychainService',
     'actionItemDocumentToken',
     'dashboardPort',
-    'artifactDir',
     'codexBin',
     'codexProxyUrl',
     'larkCli',
     'dingtalkBin',
+    'dingtalkOwnerOpenId',
     'wecomKeychainService',
     'wecomWebsocketUrl',
     'geweKeychainService',

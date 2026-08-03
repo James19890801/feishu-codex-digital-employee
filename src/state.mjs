@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -8,6 +9,10 @@ function parseStoredPayload(value) {
   } catch {
     return { payload: null, payloadParseError: true };
   }
+}
+
+function outboundContentHash(content) {
+  return createHash('sha256').update(String(content || '')).digest('hex');
 }
 
 export class AgentState {
@@ -53,6 +58,18 @@ export class AgentState {
         count INTEGER NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS outbound_echo (
+        id INTEGER PRIMARY KEY,
+        chat_id TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        message_id TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS outbound_echo_lookup
+        ON outbound_echo(chat_id, content_hash, expires_at);
+      CREATE INDEX IF NOT EXISTS outbound_echo_message
+        ON outbound_echo(message_id, expires_at);
       CREATE TABLE IF NOT EXISTS multica_issue_cache (
         issue_id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL,
@@ -67,12 +84,14 @@ export class AgentState {
         issue_id TEXT NOT NULL,
         chat_id TEXT NOT NULL,
         sender_id TEXT NOT NULL,
+        chat_type TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         PRIMARY KEY(issue_id, chat_id, sender_id)
       );
       CREATE TABLE IF NOT EXISTS multica_global_subscription (
         chat_id TEXT NOT NULL,
         sender_id TEXT NOT NULL,
+        chat_type TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         PRIMARY KEY(chat_id, sender_id)
       );
@@ -81,6 +100,7 @@ export class AgentState {
         issue_id TEXT NOT NULL,
         chat_id TEXT NOT NULL,
         sender_id TEXT NOT NULL,
+        chat_type TEXT NOT NULL DEFAULT '',
         content TEXT NOT NULL,
         attempts INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'pending',
@@ -92,6 +112,29 @@ export class AgentState {
       );
       CREATE INDEX IF NOT EXISTS multica_notification_due
         ON multica_notification_outbox(available_at, created_at);
+      CREATE TABLE IF NOT EXISTS multica_feedback_registration (
+        registration_key TEXT PRIMARY KEY,
+        issue_id TEXT NOT NULL,
+        issue_snapshot TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS multica_feedback_issue
+        ON multica_feedback_registration(issue_id);
+      CREATE TABLE IF NOT EXISTS multica_dispatch_outbox (
+        issue_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        assignee TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        available_at TEXT NOT NULL,
+        last_error TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        dead_at TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS multica_dispatch_due
+        ON multica_dispatch_outbox(status, available_at, created_at);
       CREATE TABLE IF NOT EXISTS mutation_execution (
         execution_key TEXT PRIMARY KEY,
         kind TEXT NOT NULL,
@@ -116,6 +159,28 @@ export class AgentState {
     if (!notificationColumns.has('dead_at')) {
       this.db.exec(`ALTER TABLE multica_notification_outbox
         ADD COLUMN dead_at TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!notificationColumns.has('chat_type')) {
+      this.db.exec(`ALTER TABLE multica_notification_outbox
+        ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''`);
+    }
+    const issueSubscriptionColumns = new Set(
+      this.db.prepare('PRAGMA table_info(multica_issue_subscription)')
+        .all()
+        .map(row => row.name),
+    );
+    if (!issueSubscriptionColumns.has('chat_type')) {
+      this.db.exec(`ALTER TABLE multica_issue_subscription
+        ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''`);
+    }
+    const globalSubscriptionColumns = new Set(
+      this.db.prepare('PRAGMA table_info(multica_global_subscription)')
+        .all()
+        .map(row => row.name),
+    );
+    if (!globalSubscriptionColumns.has('chat_type')) {
+      this.db.exec(`ALTER TABLE multica_global_subscription
+        ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''`);
     }
   }
 
@@ -280,6 +345,109 @@ export class AgentState {
     return result.changes === 1;
   }
 
+  markSelfChat(chatId) {
+    const normalized = String(chatId || '').trim();
+    if (!normalized) return false;
+    this.set('self_chat', normalized, true);
+    return true;
+  }
+
+  isSelfChat(chatId) {
+    const normalized = String(chatId || '').trim();
+    return normalized ? this.get('self_chat', normalized, false) === true : false;
+  }
+
+  claimSelfChatOutbound(chatId, nowMs = Date.now(), {
+    windowMs = 60_000,
+    limit = 3,
+    cooldownMs = 120_000,
+  } = {}) {
+    const normalized = String(chatId || '').trim();
+    if (!normalized) return { allowed: false, tripped: false, openUntilMs: 0 };
+    const circuit = this.get('self_chat_circuit', normalized, null);
+    const openUntilMs = Number(circuit?.openUntilMs || 0);
+    if (openUntilMs > nowMs) {
+      return { allowed: false, tripped: false, openUntilMs };
+    }
+    if (openUntilMs) this.unset('self_chat_circuit', normalized);
+    const allowed = this.consumeRateLimit(
+      `self-chat-outbound:${normalized}`,
+      nowMs,
+      Math.max(1_000, Number(windowMs) || 60_000),
+      Math.max(1, Number(limit) || 3),
+    );
+    if (allowed) return { allowed: true, tripped: false, openUntilMs: 0 };
+    const nextOpenUntilMs = nowMs + Math.max(10_000, Number(cooldownMs) || 120_000);
+    this.set('self_chat_circuit', normalized, {
+      openUntilMs: nextOpenUntilMs,
+      trippedAt: new Date(nowMs).toISOString(),
+    });
+    return { allowed: false, tripped: true, openUntilMs: nextOpenUntilMs };
+  }
+
+  recordOutboundEcho(chatId, content, {
+    messageId = '',
+    now = new Date().toISOString(),
+    ttlMs = 10 * 60_000,
+  } = {}) {
+    const expiresAt = new Date(new Date(now).getTime() + Math.max(5_000, Number(ttlMs) || 120_000))
+      .toISOString();
+    const result = this.db.prepare(`INSERT INTO outbound_echo
+      (chat_id, content_hash, message_id, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?)`).run(
+      String(chatId || ''),
+      outboundContentHash(content),
+      String(messageId || ''),
+      now,
+      expiresAt,
+    );
+    return Number(result.lastInsertRowid);
+  }
+
+  attachOutboundMessageId(id, messageId) {
+    if (!messageId) return false;
+    return this.db.prepare('UPDATE outbound_echo SET message_id = ? WHERE id = ?')
+      .run(String(messageId), Number(id)).changes === 1;
+  }
+
+  cancelOutboundEcho(id) {
+    return this.db.prepare('DELETE FROM outbound_echo WHERE id = ?')
+      .run(Number(id)).changes === 1;
+  }
+
+  hasOutboundEcho(chatId, content, {
+    messageId = '',
+    now = new Date().toISOString(),
+  } = {}) {
+    this.db.prepare('DELETE FROM outbound_echo WHERE expires_at < ?').run(now);
+    const row = messageId
+      ? this.db.prepare(`SELECT id FROM outbound_echo
+          WHERE message_id = ? AND expires_at >= ? ORDER BY id LIMIT 1`)
+        .get(String(messageId), now)
+      : null;
+    return Boolean(row || this.db.prepare(`SELECT id FROM outbound_echo
+      WHERE chat_id = ? AND content_hash = ? AND expires_at >= ?
+      ORDER BY id LIMIT 1`).get(String(chatId || ''), outboundContentHash(content), now));
+  }
+
+  consumeOutboundEcho(chatId, content, {
+    messageId = '',
+    now = new Date().toISOString(),
+  } = {}) {
+    this.db.prepare('DELETE FROM outbound_echo WHERE expires_at < ?').run(now);
+    const row = messageId
+      ? this.db.prepare(`SELECT id FROM outbound_echo
+          WHERE message_id = ? AND expires_at >= ? ORDER BY id LIMIT 1`)
+        .get(String(messageId), now)
+      : null;
+    const matched = row || this.db.prepare(`SELECT id FROM outbound_echo
+      WHERE chat_id = ? AND content_hash = ? AND expires_at >= ?
+      ORDER BY id LIMIT 1`).get(String(chatId || ''), outboundContentHash(content), now);
+    if (!matched) return false;
+    return this.db.prepare('DELETE FROM outbound_echo WHERE id = ?')
+      .run(matched.id).changes === 1;
+  }
+
   beginMutationExecution(executionKey, kind, now = new Date().toISOString()) {
     const inserted = this.db.prepare(`INSERT OR IGNORE INTO mutation_execution
       (execution_key, kind, status, result, last_error, created_at, updated_at)
@@ -398,10 +566,15 @@ export class AgentState {
     try { return JSON.parse(row.snapshot); } catch { return null; }
   }
 
-  subscribeMulticaIssue(issueId, chatId, senderId, createdAt = new Date().toISOString()) {
-    this.db.prepare(`INSERT OR IGNORE INTO multica_issue_subscription
-      (issue_id, chat_id, sender_id, created_at) VALUES (?, ?, ?, ?)`)
-      .run(issueId, chatId, senderId || '', createdAt);
+  subscribeMulticaIssue(issueId, chatId, senderId, options = {}) {
+    const legacyCreatedAt = typeof options === 'string' ? options : '';
+    const chatType = typeof options === 'object' ? String(options.chatType || '') : '';
+    const createdAt = legacyCreatedAt || options.createdAt || new Date().toISOString();
+    this.db.prepare(`INSERT INTO multica_issue_subscription
+      (issue_id, chat_id, sender_id, chat_type, created_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(issue_id, chat_id, sender_id) DO UPDATE SET
+        chat_type=CASE WHEN excluded.chat_type <> '' THEN excluded.chat_type ELSE chat_type END`)
+      .run(issueId, chatId, senderId || '', chatType, createdAt);
   }
 
   unsubscribeMulticaIssue(issueId, chatId, senderId) {
@@ -411,16 +584,25 @@ export class AgentState {
   }
 
   multicaIssueSubscribers(issueId) {
-    return this.db.prepare(`SELECT chat_id, sender_id
+    return this.db.prepare(`SELECT chat_id, sender_id, chat_type
       FROM multica_issue_subscription WHERE issue_id = ? ORDER BY created_at, chat_id`)
       .all(issueId)
-      .map(row => ({ chatId: row.chat_id, senderId: row.sender_id }));
+      .map(row => ({
+        chatId: row.chat_id,
+        senderId: row.sender_id,
+        chatType: row.chat_type,
+      }));
   }
 
-  subscribeMulticaGlobal(chatId, senderId, createdAt = new Date().toISOString()) {
-    this.db.prepare(`INSERT OR IGNORE INTO multica_global_subscription
-      (chat_id, sender_id, created_at) VALUES (?, ?, ?)`)
-      .run(chatId, senderId || '', createdAt);
+  subscribeMulticaGlobal(chatId, senderId, options = {}) {
+    const legacyCreatedAt = typeof options === 'string' ? options : '';
+    const chatType = typeof options === 'object' ? String(options.chatType || '') : '';
+    const createdAt = legacyCreatedAt || options.createdAt || new Date().toISOString();
+    this.db.prepare(`INSERT INTO multica_global_subscription
+      (chat_id, sender_id, chat_type, created_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(chat_id, sender_id) DO UPDATE SET
+        chat_type=CASE WHEN excluded.chat_type <> '' THEN excluded.chat_type ELSE chat_type END`)
+      .run(chatId, senderId || '', chatType, createdAt);
   }
 
   unsubscribeMulticaGlobal(chatId, senderId) {
@@ -429,10 +611,150 @@ export class AgentState {
   }
 
   multicaGlobalSubscribers() {
-    return this.db.prepare(`SELECT chat_id, sender_id
+    return this.db.prepare(`SELECT chat_id, sender_id, chat_type
       FROM multica_global_subscription ORDER BY created_at, chat_id`)
       .all()
-      .map(row => ({ chatId: row.chat_id, senderId: row.sender_id }));
+      .map(row => ({
+        chatId: row.chat_id,
+        senderId: row.sender_id,
+        chatType: row.chat_type,
+      }));
+  }
+
+  bindMulticaFeedbackRegistration({
+    registrationKey,
+    issue,
+    createdAt = new Date().toISOString(),
+  }) {
+    if (!registrationKey || !issue?.id || !issue?.workspace_id || !issue?.identifier) {
+      throw new Error('Multica feedback registration requires a key and complete issue');
+    }
+    const result = this.db.prepare(`INSERT OR IGNORE INTO multica_feedback_registration
+      (registration_key, issue_id, issue_snapshot, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)`).run(
+      String(registrationKey),
+      String(issue.id),
+      JSON.stringify(structuredClone(issue)),
+      createdAt,
+      createdAt,
+    );
+    return result.changes === 1;
+  }
+
+  getMulticaFeedbackRegistration(registrationKey) {
+    const row = this.db.prepare(`SELECT registration_key, issue_snapshot, created_at, updated_at
+      FROM multica_feedback_registration WHERE registration_key = ?`)
+      .get(String(registrationKey || ''));
+    if (!row) return null;
+    let issue = null;
+    try { issue = JSON.parse(row.issue_snapshot); } catch { return null; }
+    return {
+      registrationKey: row.registration_key,
+      issue,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  enqueueMulticaDispatch({
+    issueId,
+    workspaceId,
+    assignee,
+    availableAt = new Date().toISOString(),
+  }) {
+    const now = new Date().toISOString();
+    const result = this.db.prepare(`INSERT OR IGNORE INTO multica_dispatch_outbox
+      (issue_id, workspace_id, assignee, attempts, status, available_at,
+       last_error, created_at, updated_at, dead_at)
+      VALUES (?, ?, ?, 0, 'pending', ?, '', ?, ?, '')`).run(
+      String(issueId || ''),
+      String(workspaceId || ''),
+      String(assignee || ''),
+      availableAt,
+      now,
+      now,
+    );
+    return result.changes === 1;
+  }
+
+  listDueMulticaDispatches(now = new Date().toISOString(), limit = 100) {
+    return this.db.prepare(`SELECT issue_id, workspace_id, assignee, attempts,
+      available_at, last_error FROM multica_dispatch_outbox
+      WHERE status = 'pending' AND available_at <= ?
+      ORDER BY available_at, created_at LIMIT ?`)
+      .all(now, Math.max(1, Math.min(1000, Number(limit) || 100)))
+      .map(row => ({
+        issueId: row.issue_id,
+        workspaceId: row.workspace_id,
+        assignee: row.assignee,
+        attempts: Number(row.attempts || 0),
+        availableAt: row.available_at,
+        lastError: row.last_error,
+      }));
+  }
+
+  completeMulticaDispatch(issueId) {
+    return this.db.prepare(`UPDATE multica_dispatch_outbox
+      SET status = 'completed', last_error = '', updated_at = ?, dead_at = ''
+      WHERE issue_id = ? AND status = 'pending'`)
+      .run(new Date().toISOString(), String(issueId || '')).changes === 1;
+  }
+
+  getMulticaDispatch(issueId) {
+    const row = this.db.prepare(`SELECT issue_id, workspace_id, assignee, attempts,
+      status, available_at, last_error, created_at, updated_at, dead_at
+      FROM multica_dispatch_outbox WHERE issue_id = ?`).get(String(issueId || ''));
+    if (!row) return null;
+    return {
+      issueId: row.issue_id,
+      workspaceId: row.workspace_id,
+      assignee: row.assignee,
+      attempts: Number(row.attempts || 0),
+      status: row.status,
+      availableAt: row.available_at,
+      lastError: row.last_error,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      deadAt: row.dead_at,
+    };
+  }
+
+  failMulticaDispatch(issueId, error, availableAt, maxAttempts = 10) {
+    const row = this.db.prepare(`SELECT attempts, status FROM multica_dispatch_outbox
+      WHERE issue_id = ?`).get(String(issueId || ''));
+    if (!row || row.status !== 'pending') {
+      return {
+        updated: false,
+        deadLettered: row?.status === 'dead',
+        attempts: Number(row?.attempts || 0),
+      };
+    }
+    const attempts = Number(row.attempts || 0) + 1;
+    const deadLettered = attempts >= Math.max(1, Number(maxAttempts) || 10);
+    const updatedAt = new Date().toISOString();
+    const updated = this.db.prepare(`UPDATE multica_dispatch_outbox
+      SET attempts = ?, status = ?, available_at = ?, last_error = ?,
+          updated_at = ?, dead_at = ?
+      WHERE issue_id = ? AND status = 'pending'`).run(
+      attempts,
+      deadLettered ? 'dead' : 'pending',
+      availableAt,
+      String(error || '').slice(0, 1000),
+      updatedAt,
+      deadLettered ? updatedAt : '',
+      String(issueId || ''),
+    ).changes === 1;
+    return { updated, deadLettered: updated && deadLettered, attempts };
+  }
+
+  multicaDispatchPendingCount() {
+    return Number(this.db.prepare(`SELECT COUNT(*) AS count FROM multica_dispatch_outbox
+      WHERE status = 'pending'`).get()?.count || 0);
+  }
+
+  multicaDispatchDeadCount() {
+    return Number(this.db.prepare(`SELECT COUNT(*) AS count FROM multica_dispatch_outbox
+      WHERE status = 'dead'`).get()?.count || 0);
   }
 
   enqueueMulticaNotification({
@@ -440,20 +762,21 @@ export class AgentState {
     issueId,
     chatId,
     senderId = '',
+    chatType = '',
     content,
     availableAt = new Date().toISOString(),
   }) {
     const now = new Date().toISOString();
     const result = this.db.prepare(`INSERT OR IGNORE INTO multica_notification_outbox
-      (notification_key, issue_id, chat_id, sender_id, content, attempts,
+      (notification_key, issue_id, chat_id, sender_id, chat_type, content, attempts,
        status, available_at, last_error, created_at, updated_at, dead_at)
-      VALUES (?, ?, ?, ?, ?, 0, 'pending', ?, '', ?, ?, '')`)
-      .run(notificationKey, issueId, chatId, senderId, content, availableAt, now, now);
+      VALUES (?, ?, ?, ?, ?, ?, 0, 'pending', ?, '', ?, ?, '')`)
+      .run(notificationKey, issueId, chatId, senderId, chatType, content, availableAt, now, now);
     return result.changes === 1;
   }
 
   listDueMulticaNotifications(now = new Date().toISOString(), limit = 200) {
-    return this.db.prepare(`SELECT notification_key, issue_id, chat_id, sender_id,
+    return this.db.prepare(`SELECT notification_key, issue_id, chat_id, sender_id, chat_type,
       content, attempts, available_at, last_error
       FROM multica_notification_outbox
       WHERE status = 'pending' AND available_at <= ?
@@ -465,6 +788,7 @@ export class AgentState {
         issueId: row.issue_id,
         chatId: row.chat_id,
         senderId: row.sender_id,
+        chatType: row.chat_type,
         content: row.content,
         attempts: Number(row.attempts || 0),
         availableAt: row.available_at,
@@ -536,6 +860,7 @@ export class AgentState {
       WHERE scope = 'pending_action'
         AND CAST(json_extract(value, '$.expiresAt') AS INTEGER) <= ?`).run(nowMs).changes;
     const rateLimit = this.db.prepare('DELETE FROM rate_limit WHERE updated_at < ?').run(auditBefore).changes;
+    const outboundEcho = this.db.prepare('DELETE FROM outbound_echo WHERE expires_at < ?').run(now).changes;
     const multicaNotification = this.db.prepare(`DELETE FROM multica_notification_outbox
       WHERE status = 'dead' AND dead_at < ?`).run(auditBefore).changes;
     const mutation = this.db.prepare(`DELETE FROM mutation_execution
@@ -548,6 +873,7 @@ export class AgentState {
       conversation: Number(conversation),
       pendingAction: Number(pendingAction),
       rateLimit: Number(rateLimit),
+      outboundEcho: Number(outboundEcho),
       multicaNotification: Number(multicaNotification),
       mutation: Number(mutation),
     };

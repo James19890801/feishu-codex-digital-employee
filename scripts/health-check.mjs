@@ -5,9 +5,28 @@ import { createConnection } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { evaluateHealth } from '../src/reliability.mjs';
 import { discoverAiRuntimes, selectAiRuntime } from '../src/ai-runtime.mjs';
+import { evaluateLicenseGuard } from '../src/licensing/guard.mjs';
+import { LicensingStore } from '../src/licensing/store.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const config = JSON.parse(readFileSync(join(root, 'config.local.json'), 'utf8'));
+if (config.licensingEnforced === true) {
+  const license = await evaluateLicenseGuard({
+    enforced: true,
+    store: new LicensingStore(),
+    publicKey: String(config.licensingPublicKey || ''),
+    product: String(config.licensingProductId || 'AIPRO'),
+  });
+  if (!license.allowed) {
+    console.log(JSON.stringify({
+      healthy: false,
+      state: 'activation_required',
+      issues: ['licensing_activation_required'],
+      metrics: { licensing: { enforced: true, reason: license.reason } },
+    }, null, 2));
+    process.exit(2);
+  }
+}
 const db = new DatabaseSync(join(root, 'data', 'agent-state.sqlite'), { readOnly: true });
 const nowMs = Date.now();
 const tcpReachable = url => new Promise(resolve => {
@@ -50,7 +69,7 @@ const multicaDeadCount = Number(db.prepare(`SELECT COUNT(*) AS count
 const proxyReachable = await tcpReachable(config.codexProxyUrl || '');
 const result = evaluateHealth({
   nowMs,
-  cursorMs,
+  cursorMs: config.feishuEnabled === false ? nowMs : cursorMs,
   maxPollAgeMs: Math.max(60_000, Number(config.pollIntervalMs || 5000) * 12),
   processingCount,
   failedCount,
@@ -73,10 +92,12 @@ const lastWebsocketReadyAt = setting('health', 'last_websocket_ready_at', '');
 const lastMulticaSyncAt = setting('health', 'last_multica_sync_at', '');
 const lastMulticaSyncError = setting('health', 'last_multica_sync_error', null);
 const lastMulticaSyncResult = setting('health', 'last_multica_sync_result', null);
+const lastMulticaDispatchResult = setting('health', 'last_multica_dispatch_result', null);
 const lastBackupAt = setting('health', 'last_database_backup_at', '');
 const lastBackupError = setting('health', 'last_database_backup_error', null);
 const lastAiRuntimeSuccessAt = setting('health', 'last_ai_runtime_success_at', '');
 const lastAiRuntimeError = setting('health', 'last_ai_runtime_error', null);
+const selfChatCircuitLast = setting('health', 'self_chat_circuit_last', null);
 const dingtalkChannel = setting('channel', 'dingtalk', {});
 const wecomChannel = setting('channel', 'wecom', {});
 const geweChannel = setting('channel', 'wechat', {});
@@ -90,9 +111,12 @@ if (lastAiRuntimeError?.at
   && (!lastAiRuntimeSuccessAt || lastAiRuntimeError.at > lastAiRuntimeSuccessAt)) {
   result.issues.push('ai_runtime_last_call_failed');
 }
-if (lastPollError?.at && (!lastPollSuccessAt || lastPollError.at > lastPollSuccessAt)) {
+if (config.feishuEnabled !== false
+  && lastPollError?.at && (!lastPollSuccessAt || lastPollError.at > lastPollSuccessAt)) {
   result.issues.push('poller_last_run_failed');
 }
+const selfChatCircuitOpen = Number(selfChatCircuitLast?.openUntilMs || 0) > nowMs;
+if (selfChatCircuitOpen) result.issues.push('self_chat_circuit_open');
 if (config.dingtalkEnabled === true && !dingtalkChannel.connected) {
   result.issues.push('dingtalk_channel_unavailable');
 }
@@ -120,6 +144,12 @@ if (config.multicaEnabled) {
     result.issues.push('multica_delivery_pending');
   }
   if (multicaDeadCount > 0) result.issues.push('multica_delivery_dead');
+  if (Number(lastMulticaDispatchResult?.pending || 0) > 0) {
+    result.issues.push('multica_dispatch_pending');
+  }
+  if (Number(lastMulticaDispatchResult?.deadTotal || 0) > 0) {
+    result.issues.push('multica_dispatch_dead');
+  }
 }
 result.healthy = result.issues.length === 0;
 result.metrics = {
@@ -143,11 +173,21 @@ result.metrics = {
   multicaPending: Number(lastMulticaSyncResult?.pending || 0),
   multicaFailed: Number(lastMulticaSyncResult?.failed || 0),
   multicaDead: multicaDeadCount,
+  multicaDispatchPending: Number(lastMulticaDispatchResult?.pending || 0),
+  multicaDispatchDead: Number(lastMulticaDispatchResult?.deadTotal || 0),
+  multicaDispatched: Number(lastMulticaDispatchResult?.dispatched || 0),
   lastDatabaseBackupAt: lastBackupAt,
   databaseBackupAgeMs: backupAgeMs,
   lastAiRuntimeSuccessAt,
+  selfChatCircuitOpen,
+  selfChatCircuitLast,
   channels: {
-    feishu: { connected: true, identityMode: 'user' },
+    feishu: {
+      enabled: config.feishuEnabled !== false,
+      connected: config.feishuEnabled !== false,
+      state: config.feishuEnabled === false ? 'disabled' : 'connected',
+      identityMode: 'user',
+    },
     dingtalk: {
       enabled: config.dingtalkEnabled === true,
       installed: Boolean(dingtalkChannel.installed),

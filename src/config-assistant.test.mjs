@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 const assistant = await import('./config-assistant.mjs').catch(() => ({}));
+const fakeApiToken = ['sk', 'abcdefghijklmnopqrstuvwxyz123456'].join('-');
 
 assert.equal(
   typeof assistant.createChangePlan,
@@ -21,6 +22,7 @@ const documents = {
     keychainService: 'codex-feishu-digital-employee',
     authorizedChatIds: [],
     allowAllChats: true,
+    ownerContactPhone: '010-0000-0000',
     digitalTwinLabel: '',
     eventTransport: 'lark-cli',
     pollIntervalMs: 5000,
@@ -35,7 +37,6 @@ const documents = {
     rateLimitWindowMs: 300000,
     rateLimitMaxMessages: 10,
     dashboardPort: 17655,
-    artifactDir: '',
     codexBin: '/Applications/ChatGPT.app/Contents/Resources/codex',
     codexModel: 'gpt-5.6-terra',
     codexProxyUrl: '',
@@ -86,6 +87,25 @@ const multicaPlan = assistant.createChangePlan({
 }, documents);
 assert.equal(multicaPlan.confirmationLevel, 'double');
 assert.equal(multicaPlan.changes[0].after, true);
+
+const contactPlan = assistant.createChangePlan({
+  summary: 'Update the owner handoff phone',
+  changes: [{
+    target: 'config',
+    key: 'ownerContactPhone',
+    value: '010-0000-0001',
+  }],
+}, documents);
+assert.equal(contactPlan.confirmationLevel, 'double');
+assert.equal(contactPlan.changes[0].after, '010-0000-0001');
+assert.throws(() => assistant.createChangePlan({
+  summary: 'Reject an invalid phone',
+  changes: [{
+    target: 'config',
+    key: 'ownerContactPhone',
+    value: 'call-me-with-javascript',
+  }],
+}, documents), /phone/i);
 
 const runtimePlan = assistant.createChangePlan({
   summary: 'Switch AI runtime',
@@ -208,7 +228,7 @@ assert.throws(() => assistant.createChangePlan({
   summary: 'Store a secret in Persona',
   changes: [{
     target: 'persona',
-    content: 'API token: sk-abcdefghijklmnopqrstuvwxyz123456',
+    content: `API token: ${fakeApiToken}`,
   }],
 }, documents), /credential/i);
 
@@ -278,7 +298,7 @@ assert.deepEqual(
 
 assert.equal(assistant.validateAssistantRequest('Make routine replies shorter.'), 'Make routine replies shorter.');
 assert.throws(
-  () => assistant.validateAssistantRequest('Use token sk-abcdefghijklmnopqrstuvwxyz123456'),
+  () => assistant.validateAssistantRequest(`Use token ${fakeApiToken}`),
   /credential/i,
 );
 assert.throws(

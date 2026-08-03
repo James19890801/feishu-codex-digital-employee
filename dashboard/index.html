@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
-  <title>AIPRO · 基于真人身份运行的AI数字人平台</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%2311120f'/%3E%3Cpath d='M13 47 28 15h8l15 32h-9l-3-7H25l-3 7zm15-15h8l-4-10z' fill='%23c7ff45'/%3E%3C/svg%3E">
+  <meta name="color-scheme" content="light dark">
+  <title>Achong's Digital Human · Powered by Codex</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cg fill='none' stroke='%239a5b4d' stroke-linecap='round'%3E%3Cpath d='M11 51V31C11 18 19 10 32 10s21 8 21 21v20' stroke-width='8'/%3E%3Cpath d='M23 51V33c0-6 3-10 9-10s9 4 9 10v18' stroke-width='7' opacity='.7'/%3E%3Cpath d='M12 42h40' stroke-width='5' opacity='.4'/%3E%3C/g%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -13,19 +13,61 @@
   <main class="shell">
     <header class="topbar">
       <div class="brand">
-        <span class="brand-mark">AI</span>
-        <div>
-          <p class="eyebrow">AI PERSONA / OPERATIONS</p>
-          <h1>AIPRO</h1>
-          <p class="brand-subtitle">基于真人身份运行的AI数字人平台</p>
-          <p class="brand-credit">开发者 · 赵颖知 &amp; 詹老师</p>
+        <span class="brand-mark" role="img" aria-label="Achong digital human emblem">
+          <svg viewBox="0 0 64 64" aria-hidden="true">
+            <path class="brand-arch-outer" d="M11 51V31C11 18 19 10 32 10s21 8 21 21v20"></path>
+            <path class="brand-arch-inner" d="M23 51V33c0-6 3-10 9-10s9 4 9 10v18"></path>
+            <path class="brand-bridge" d="M12 42h40"></path>
+          </svg>
+        </span>
+        <div class="brand-lockup">
+          <p class="eyebrow">AUTHORIZED IDENTITY</p>
+          <h1 data-i18n="brandName">Achong's Digital Human</h1>
         </div>
       </div>
-      <div class="clock-block">
-        <span id="clock">--:--:--</span>
-        <small>Asia / Shanghai</small>
+      <div class="brand-campaign" aria-label="Achong digital human product promise">
+        <span data-i18n="brandCampaignEyebrow">REAL IDENTITY · MULTI-CHANNEL AI</span>
+        <strong data-i18n="brandCampaignTitle">Your identity, intelligently present.</strong>
+        <small data-i18n="brandCampaignMeta">Zhao Yingzhi × James Feng</small>
+      </div>
+      <div class="topbar-tools">
+        <button class="contact-developer-button" id="contactDeveloperButton" type="button" aria-label="Contact developer" data-i18n-aria="contactDeveloper">
+          <span class="contact-developer-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M7.2 18.2c-2.4-1.4-4-3.8-4-6.5 0-4.2 3.9-7.6 8.8-7.6s8.8 3.4 8.8 7.6-3.9 7.6-8.8 7.6c-.9 0-1.8-.1-2.6-.3L5 20.3l2.2-2.1Z"></path><circle cx="8.6" cy="11.6" r=".9"></circle><circle cx="12" cy="11.6" r=".9"></circle><circle cx="15.4" cy="11.6" r=".9"></circle></svg>
+          </span>
+          <span class="contact-developer-copy">
+            <strong id="contactDeveloperLabel" data-i18n="contactDeveloper">Contact developer</strong>
+            <small id="contactDeveloperMeta" data-i18n="contactDeveloperMeta">Invitation &amp; support</small>
+          </span>
+        </button>
+        <button class="language-toggle" id="languageToggle" type="button" aria-label="Switch interface language" title="Switch interface language" data-i18n-aria="languageControl" data-i18n-title="languageControl">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.8 12h16.4M12 3.5c2.2 2.3 3.3 5.1 3.3 8.5S14.2 18.2 12 20.5C9.8 18.2 8.7 15.4 8.7 12S9.8 5.8 12 3.5Z"></path></svg>
+          <span id="languageCode">EN</span>
+        </button>
+        <div class="clock-block">
+          <span id="clock">--:--:--</span>
+          <small>ASIA / SHANGHAI</small>
+        </div>
       </div>
     </header>
+
+    <section class="activation-gate hidden" id="activationGate" aria-labelledby="activationTitle">
+      <div class="activation-statement">
+        <span data-i18n="activationEyebrow">AUTHORIZED ACCESS / ONE STEP</span>
+        <h2 id="activationTitle" data-i18n="activationTitle">Activate your AIPRO</h2>
+        <p class="activation-lead" data-i18n="activationLead">An AI agent platform that works through your authorized social identity.</p>
+        <p data-i18n="activationTrust">Your identity remains yours. Important decisions remain yours. AIPRO acts only within the boundaries you authorize.</p>
+      </div>
+      <form class="activation-form" id="activationForm">
+        <label for="activationCode" data-i18n="invitationCode">10-digit invitation code</label>
+        <input id="activationCode" name="invitationCode" inputmode="numeric" autocomplete="one-time-code" maxlength="10" pattern="[0-9]{10}" placeholder="0000000000" aria-describedby="activationHint activationMessage">
+        <p id="activationHint" data-i18n="activationHint">Enter the code issued by an authorized AIPRO developer.</p>
+        <button class="button primary" id="activationSubmit" type="submit" data-i18n="activateAipro">Activate AIPRO</button>
+        <p class="activation-message" id="activationMessage" role="status"></p>
+      </form>
+    </section>
+
+    <div id="operationsConsole">
 
     <section class="hero" id="hero" data-state="loading">
       <div class="signal-wrap">
@@ -34,101 +76,107 @@
           <span class="signal-core"></span>
         </div>
         <div class="signal-caption">
-          <span>LIVE SIGNAL</span>
-          <b id="refreshAge">连接中</b>
+          <span data-i18n="liveSignal">LIVE SIGNAL</span>
+          <b id="refreshAge" data-i18n="connecting">Connecting</b>
         </div>
       </div>
       <div class="hero-copy">
-        <p class="status-kicker" id="statusKicker">正在读取真实运行状态</p>
-        <h2 id="statusTitle">连接中</h2>
-        <p class="status-summary" id="statusSummary">不是看“程序有没有打开”，而是检查消息是否真的在流动。</p>
+        <p class="status-kicker" id="statusKicker" data-i18n="loadingKicker">READING LIVE OPERATIONS</p>
+        <h2 id="statusTitle" data-i18n="loadingTitle">Connecting</h2>
+        <p class="status-summary" id="statusSummary" data-i18n="loadingSummary">Checking whether messages are actually flowing—not merely whether a process is open.</p>
         <div class="hero-actions">
-          <button class="button primary" id="refreshButton">重新检测</button>
-          <button class="button danger" id="restartButton">重启主进程</button>
-          <span class="last-check">最近检测 <b id="lastCheck">—</b></span>
+          <button class="button primary" id="refreshButton" data-i18n="refresh">Run health check</button>
+          <button class="button danger" id="restartButton" data-i18n="restart">Restart service</button>
+          <span class="last-check"><span data-i18n="lastChecked">Last checked</span> <b id="lastCheck">—</b></span>
         </div>
       </div>
       <div class="hero-index">
-        <span>STATUS</span>
+        <span data-i18n="status">STATUS</span>
         <strong id="statusCode">---</strong>
       </div>
     </section>
 
     <section class="issue-strip hidden" id="issueStrip">
-      <span class="issue-label">需要处理</span>
+      <span class="issue-label" data-i18n="attentionRequired">Needs attention</span>
       <div id="issueList"></div>
     </section>
 
     <section class="channel-console">
       <div class="channel-heading">
         <div>
-          <span>OMNICHANNEL ROUTER / ISOLATED FAILURE DOMAINS</span>
-          <h3>IM 通道</h3>
-          <p>四条通道复用同一套 Codex、记忆、队列和审计；可选通道互相隔离，任何新增通道故障都不会停止飞书主链路。</p>
+          <span data-i18n="channelsEyebrow">OMNICHANNEL ROUTER / ISOLATED FAILURE DOMAINS</span>
+          <h3 data-i18n="channelsTitle">Messaging channels</h3>
+          <p data-i18n="channelsDescription">Every channel shares the same runtime, memory, queue, and audit trail. Personal WeChat runs in an isolated process, so failures cannot interrupt Lark or DingTalk.</p>
         </div>
-        <b>飞书主通道优先</b>
+        <b data-i18n="primaryProtected">PRIMARY PATH PROTECTED</b>
       </div>
       <div class="channel-grid">
         <article class="channel-card" data-channel="feishu">
-          <header><i id="channelFeishuDot"></i><strong>飞书 / Lark</strong><span>PRIMARY</span></header>
-          <b id="channelFeishuStatus">检测中</b>
-          <p id="channelFeishuMeta">真人用户身份 · 轮询 + WebSocket</p>
-          <button type="button" data-channel-open="feishu">查看与测试</button>
+          <header><i id="channelFeishuDot"></i><strong data-i18n="feishuName">Lark / Feishu</strong><span>PRIMARY</span></header>
+          <b id="channelFeishuStatus" data-i18n="checking">Checking</b>
+          <p id="channelFeishuMeta" data-i18n="feishuMeta">Human identity · polling + WebSocket</p>
+          <button type="button" data-channel-open="feishu" data-i18n="inspectTest">Inspect &amp; test</button>
         </article>
         <article class="channel-card" data-channel="dingtalk">
-          <header><i id="channelDingtalkDot"></i><strong>钉钉 / DingTalk</strong><span>OPTIONAL</span></header>
-          <b id="channelDingtalkStatus">检测中</b>
-          <p id="channelDingtalkMeta">真人用户身份 · DWS 个人事件长连接</p>
-          <button type="button" data-channel-open="dingtalk">配置连接</button>
+          <header><i id="channelDingtalkDot"></i><strong data-i18n="dingtalkName">DingTalk</strong><span>OPTIONAL</span></header>
+          <b id="channelDingtalkStatus" data-i18n="checking">Checking</b>
+          <p id="channelDingtalkMeta" data-i18n="dingtalkMeta">Human identity · DWS personal event stream</p>
+          <button type="button" data-channel-open="dingtalk" data-i18n="configure">Configure</button>
         </article>
         <article class="channel-card" data-channel="wecom">
-          <header><i id="channelWecomDot"></i><strong>企业微信 / WeCom</strong><span>OPTIONAL</span></header>
-          <b id="channelWecomStatus">检测中</b>
-          <p id="channelWecomMeta">智能机器人身份 · 官方 WebSocket SDK</p>
-          <button type="button" data-channel-open="wecom">配置连接</button>
+          <header><i id="channelWecomDot"></i><strong data-i18n="wecomName">WeCom</strong><span>OPTIONAL</span></header>
+          <b id="channelWecomStatus" data-i18n="checking">Checking</b>
+          <p id="channelWecomMeta" data-i18n="wecomMeta">Bot identity · official WebSocket SDK</p>
+          <button type="button" data-channel-open="wecom" data-i18n="configure">Configure</button>
         </article>
         <article class="channel-card" data-channel="wechat">
-          <header><i id="channelWechatDot"></i><strong>微信 / WeChat</strong><span>OPTIONAL</span></header>
-          <b id="channelWechatStatus">检测中</b>
-          <p id="channelWechatMeta">个人微信身份 · GeWe 第三方 REST + Webhook</p>
-          <button type="button" data-channel-open="wechat">配置连接</button>
+          <header><i id="channelWechatDot"></i><strong data-i18n="wechatLegacyName">WeChat API / Legacy</strong><span>LEGACY</span></header>
+          <b id="channelWechatStatus" data-i18n="checking">Checking</b>
+          <p id="channelWechatMeta" data-i18n="wechatLegacyMeta">GeWe-compatible configuration (legacy)</p>
+          <button type="button" data-channel-open="wechat" data-i18n="inspectLegacy">Inspect legacy</button>
+        </article>
+        <article class="channel-card wechat-poc-card" data-channel="wechat-poc">
+          <header><i id="wechatPocDot"></i><strong data-i18n="wechatPocName">Personal WeChat POC</strong><span>ISOLATED</span></header>
+          <b id="wechatPocStatus" data-i18n="checking">Checking</b>
+          <p id="wechatPocMeta" data-i18n="wechatPocMeta">Official macOS WeChat · local polling and delivery receipts</p>
+          <div class="wechat-poc-controls">
+            <label class="wechat-poc-toggle"><input id="wechatPocToggle" type="checkbox"><span data-i18n="autoReply">Auto reply</span></label>
+            <button id="wechatPocOpenClient" type="button" data-i18n="openWechat">Open WeChat</button>
+            <button id="wechatPocEmergencyStop" class="danger" type="button" data-i18n="emergencyStop">Emergency stop</button>
+          </div>
+          <small id="wechatPocDetail" data-i18n="wechatPocDetail">Replies to direct chats; group chats require an explicit @ mention; text only.</small>
         </article>
       </div>
-      <p class="channel-identity-note">身份说明：飞书和钉钉可按已授权真人用户身份运行；企业微信以官方机器人身份运行；个人微信由 GeWe 第三方 API 提供，非腾讯官方开放接口，存在账号风控风险。</p>
+      <p class="channel-identity-note" data-i18n="channelIdentityNote">Identity boundary: Lark and DingTalk keep their existing human-identity paths. Personal WeChat controls only the local official client, with its own switch, state database, and process.</p>
     </section>
 
     <section class="metrics-grid">
       <article class="metric-card" data-card="process">
-        <div class="metric-head"><span>01</span><b>主进程</b><i id="processDot"></i></div>
+        <div class="metric-head"><span>01</span><b data-i18n="metricProcess">Core service</b><i id="processDot"></i></div>
         <strong id="processValue">—</strong>
-        <p id="processMeta">正在检测 PID</p>
+        <p id="processMeta" data-i18n="metricProcessLoading">Detecting process ID</p>
       </article>
       <article class="metric-card" data-card="polling">
-        <div class="metric-head"><span>02</span><b>消息轮询</b><i id="pollingDot"></i></div>
+        <div class="metric-head"><span>02</span><b data-i18n="metricPolling">Message polling</b><i id="pollingDot"></i></div>
         <strong id="pollingValue">—</strong>
-        <p id="pollingMeta">检查游标推进</p>
+        <p id="pollingMeta" data-i18n="metricPollingLoading">Checking cursor progress</p>
       </article>
       <article class="metric-card" data-card="websocket">
-        <div class="metric-head"><span>03</span><b>辅助监听</b><i id="websocketDot"></i></div>
+        <div class="metric-head"><span>03</span><b data-i18n="metricWebsocket">Event stream</b><i id="websocketDot"></i></div>
         <strong id="websocketValue">—</strong>
-        <p id="websocketMeta">WebSocket 消费者</p>
-      </article>
-      <article class="metric-card" data-card="codex">
-        <div class="metric-head"><span>04</span><b>AI 运行时</b><i id="codexDot"></i></div>
-        <strong id="codexValue">—</strong>
-        <p id="codexMeta">自动探测本机 CLI</p>
+        <p id="websocketMeta" data-i18n="metricWebsocketLoading">Checking WebSocket consumer</p>
       </article>
       <article class="metric-card" data-card="multica">
-        <div class="metric-head"><span>05</span><b>Multica 业务系统</b><i id="multicaDot"></i></div>
+        <div class="metric-head"><span>04</span><b data-i18n="metricMultica">Multica workspace</b><i id="multicaDot"></i></div>
         <strong id="multicaValue">—</strong>
-        <p id="multicaMeta">Issue 读写与同步</p>
+        <p id="multicaMeta" data-i18n="metricMulticaLoading">Issue read, write, and sync</p>
       </article>
       <article class="metric-card wide" data-card="database">
-        <div class="metric-head"><span>06</span><b>状态与队列</b><i id="databaseDot"></i></div>
+        <div class="metric-head"><span>05</span><b data-i18n="metricDatabase">State &amp; queues</b><i id="databaseDot"></i></div>
         <div class="queue-row">
-          <div><strong id="completedCount">0</strong><small>已完成</small></div>
-          <div><strong id="processingCount">0</strong><small>处理中</small></div>
-          <div><strong id="failedCount">0</strong><small>失败 / 死信</small></div>
+          <div><strong id="completedCount">0</strong><small data-i18n="completed">Completed</small></div>
+          <div><strong id="processingCount">0</strong><small data-i18n="processing">Processing</small></div>
+          <div><strong id="failedCount">0</strong><small data-i18n="failedDead">Failed / dead letter</small></div>
           <div><strong id="dbIntegrity">—</strong><small>SQLite</small></div>
         </div>
       </article>
@@ -137,41 +185,35 @@
     <section class="runtime-console" id="runtimeConsole">
       <div class="runtime-heading">
         <div>
-          <span>AI CODING RUNTIME / AUTO DISCOVERY</span>
-          <h3>选择数字人的推理引擎</h3>
-          <p>安装后自动感知本机运行时。默认自动选择 Codex；只允许选择具备稳定无界面输出能力的 CLI。</p>
-        </div>
-        <div class="runtime-current">
-          <span>CURRENT ENGINE</span>
-          <strong id="runtimeCurrent">正在探测</strong>
-          <small id="runtimePolicy">AUTO / CODEX FIRST</small>
+          <span data-i18n="runtimeEyebrow">REASONING ENGINE</span>
+          <h3 data-i18n="runtimeTitle">Reasoning engine</h3>
+          <p data-i18n="runtimeDescription">Choose from the supported CLI runtimes available on this Mac.</p>
         </div>
       </div>
       <div class="runtime-grid" id="runtimeGrid" aria-live="polite">
-        <p class="empty">正在扫描 Codex、Qoder、CodeBuddy 与 TRAE…</p>
+        <p class="empty" data-i18n="scanningRuntimes">Scanning Codex, Qoder, CodeBuddy, and TRAE…</p>
       </div>
-      <p class="runtime-contract">选择运行时后不会立即切换：系统会生成变更预览，要求确认，再执行备份、真实调用、重启和健康检查。</p>
     </section>
 
     <section class="config-console" id="configConsole">
       <div class="console-heading">
         <div>
-          <span>CONFIGURATION COPILOT / SAFE MODE</span>
-          <h3>用对话调整你的数字人</h3>
-          <p>说出你想改变的效果。当前 AI 运行时只生成受限配置方案，确认后才会备份、修改、重启并验收。</p>
+          <span data-i18n="configEyebrow">CONFIGURATION COPILOT / SAFE MODE</span>
+          <h3 data-i18n="configTitle">Shape your digital operator through conversation</h3>
+          <p data-i18n="configDescription">Describe the outcome you want. The current AI runtime creates a constrained plan; nothing is written until you approve it.</p>
         </div>
         <div class="console-state">
           <i></i>
-          <span>LOCAL CONTROL</span>
-          <b id="configConnection">正在连接</b>
+          <span data-i18n="localControl">LOCAL CONTROL</span>
+          <b id="configConnection" data-i18n="configConnecting">Connecting</b>
         </div>
       </div>
 
       <div class="config-overview">
-        <div><span>消息范围</span><strong id="configScope">读取中</strong></div>
-        <div><span>主轮询</span><strong id="configPoll">—</strong></div>
-        <div><span>身份与规则</span><strong id="configProfile">—</strong></div>
-        <div><span>知识文档</span><strong id="configKnowledge">—</strong></div>
+        <div><span data-i18n="messageScope">Message scope</span><strong id="configScope" data-i18n="reading">Reading</strong></div>
+        <div><span data-i18n="primaryPolling">Primary polling</span><strong id="configPoll">—</strong></div>
+        <div><span data-i18n="identityRules">Identity &amp; rules</span><strong id="configProfile">—</strong></div>
+        <div><span data-i18n="knowledgeDocs">Knowledge docs</span><strong id="configKnowledge">—</strong></div>
       </div>
 
       <div class="assistant-workbench">
@@ -179,25 +221,25 @@
           <div class="assistant-log" id="configMessages" aria-live="polite">
             <div class="assistant-message assistant">
               <span>CONFIG COPILOT</span>
-              <p>告诉我你想怎么调整。例如：“回复更简洁”“轮询改成 3 秒”“所有发布动作都要本人确认”。</p>
+              <p data-i18n="configWelcome">Tell me what you want to change—for example, “keep replies concise,” “poll every three seconds,” or “require my confirmation before publishing.”</p>
             </div>
           </div>
 
-          <div class="prompt-chips" aria-label="常用配置指令">
-            <button type="button" data-config-prompt="以后日常回复控制在三句话以内，保持自然，不要客服腔。">回复更简洁</button>
-            <button type="button" data-config-prompt="把消息轮询间隔调整为 3 秒。">轮询改为 3 秒</button>
-            <button type="button" data-config-prompt="所有公开发布和跨会话发送都必须先由本人确认。">加强确认规则</button>
-            <button type="button" data-config-prompt="启用钉钉通道，保持所有群 @ 我才回复、所有单聊直接回复。">启用钉钉</button>
-            <button type="button" data-config-prompt="告诉我启用企业微信通道还缺少哪些配置，但不要把密钥写进配置文件。">接入企业微信</button>
-            <button type="button" data-config-prompt="告诉我接入 GeWe 个人微信还缺少哪些配置，保持默认关闭，不要把 Token 写进配置文件，不影响飞书主通道。">接入个人微信</button>
+          <div class="prompt-chips" aria-label="Suggested configuration requests" data-i18n-aria="promptAria">
+            <button type="button" data-i18n="chipConcise" data-i18n-prompt="promptConcise" data-config-prompt="Keep routine replies within three sentences. Sound natural, not like customer support.">Shorter replies</button>
+            <button type="button" data-i18n="chipPolling" data-i18n-prompt="promptPolling" data-config-prompt="Change the message polling interval to 3 seconds.">3-second polling</button>
+            <button type="button" data-i18n="chipConfirmation" data-i18n-prompt="promptConfirmation" data-config-prompt="Require my confirmation before every public post or cross-conversation send.">Stricter confirmation</button>
+            <button type="button" data-i18n="chipDingtalk" data-i18n-prompt="promptDingtalk" data-config-prompt="Enable DingTalk. Reply to all direct chats and only to group messages that mention me.">Enable DingTalk</button>
+            <button type="button" data-i18n="chipWecom" data-i18n-prompt="promptWecom" data-config-prompt="Tell me what is missing to enable WeCom, but never write secrets into configuration files.">Connect WeCom</button>
+            <button type="button" data-i18n="chipWechat" data-i18n-prompt="promptWechat" data-config-prompt="Check whether the official macOS personal WeChat bridge is online. Keep it isolated from Lark and DingTalk, and preserve the emergency-stop control.">Check personal WeChat</button>
           </div>
 
           <form class="assistant-composer" id="configForm">
-            <label for="configInput">配置指令</label>
-            <textarea id="configInput" rows="3" maxlength="4000" placeholder="直接描述你想改变的效果，不需要懂 JSON…"></textarea>
+            <label for="configInput" data-i18n="configInstruction">Configuration request</label>
+            <textarea id="configInput" rows="3" maxlength="4000" placeholder="Describe the outcome you want—no JSON required…" data-i18n-placeholder="configPlaceholder"></textarea>
             <div>
-              <small>不会接受密钥、验证码、任意命令或系统文件路径</small>
-              <button class="button config-send" id="configSendButton" type="submit">生成修改方案</button>
+              <small data-i18n="configSafety">Secrets, verification codes, arbitrary commands, and system paths are rejected</small>
+              <button class="button config-send" id="configSendButton" type="submit" data-i18n="generatePlan">Generate plan</button>
             </div>
           </form>
         </article>
@@ -205,42 +247,42 @@
         <aside class="change-inspector">
           <div class="inspector-title">
             <div>
-              <span>CHANGE INSPECTOR</span>
-              <h4>修改预览</h4>
+              <span data-i18n="inspectorEyebrow">CHANGE INSPECTOR</span>
+              <h4 data-i18n="inspectorTitle">Change preview</h4>
             </div>
-            <b id="planRisk">等待指令</b>
+            <b id="planRisk" data-i18n="waitingForRequest">Waiting for request</b>
           </div>
 
           <div class="plan-empty" id="planEmpty">
-            <strong>不会直接修改</strong>
-            <p>每一项变化都会先显示“修改前 / 修改后”。你确认后才会写入。</p>
+            <strong data-i18n="noDirectChanges">Nothing changes immediately</strong>
+            <p data-i18n="noDirectChangesDescription">Every change is shown as before / after. Files are written only after your confirmation.</p>
           </div>
 
           <div class="plan-card hidden" id="planCard">
             <div class="plan-summary">
-              <span>本次方案</span>
+              <span data-i18n="thisPlan">THIS PLAN</span>
               <strong id="planSummary">—</strong>
             </div>
             <div class="plan-changes" id="planChanges"></div>
             <div class="confirmation-box hidden" id="confirmationBox">
-              <span>敏感变更 · 需要二次确认</span>
-              <p>输入确认码 <b id="confirmationHint">------</b></p>
-              <input id="confirmationInput" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="6 位确认码">
+              <span data-i18n="sensitiveChange">Sensitive change · second confirmation required</span>
+              <p><span data-i18n="enterConfirmation">Enter confirmation code</span> <b id="confirmationHint">------</b></p>
+              <input id="confirmationInput" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="6-digit code" data-i18n-placeholder="confirmationPlaceholder">
             </div>
             <div class="plan-actions">
-              <button class="button primary" id="applyPlanButton" type="button">确认并应用</button>
-              <button class="button" id="cancelPlanButton" type="button">放弃方案</button>
+              <button class="button primary" id="applyPlanButton" type="button" data-i18n="applyPlan">Confirm &amp; apply</button>
+              <button class="button" id="cancelPlanButton" type="button" data-i18n="discardPlan">Discard</button>
             </div>
-            <p class="apply-contract">应用流程：创建备份 → 校验 → 重启 → 健康检查 → 失败自动回滚</p>
+            <p class="apply-contract" data-i18n="applyContract">Apply flow: backup → validate → restart → health check → automatic rollback on failure</p>
           </div>
 
           <div class="history-panel">
             <div class="history-title">
-              <span>ROLLBACK POINTS</span>
-              <b>最近备份</b>
+              <span data-i18n="rollbackPoints">ROLLBACK POINTS</span>
+              <b data-i18n="recentBackups">Recent backups</b>
             </div>
             <div id="configHistory">
-              <p class="empty">正在读取修改记录…</p>
+              <p class="empty" data-i18n="loadingHistory">Loading change history…</p>
             </div>
           </div>
         </aside>
@@ -250,39 +292,68 @@
     <section class="lower-grid">
       <article class="panel timeline-panel">
         <div class="panel-title">
-          <div><span>EVENT STREAM</span><h3>最近运行事件</h3></div>
-          <b>自动刷新 5s</b>
+          <div><span data-i18n="eventStream">EVENT STREAM</span><h3 data-i18n="recentEvents">Recent operations</h3></div>
+          <b data-i18n="autoRefresh">AUTO REFRESH · 5S</b>
         </div>
         <div class="timeline" id="timeline">
-          <p class="empty">正在读取审计事件…</p>
+          <p class="empty" data-i18n="loadingEvents">Loading audit events…</p>
         </div>
       </article>
 
       <aside class="panel operator-panel">
         <div class="panel-title">
-          <div><span>OPERATOR GUIDE</span><h3>你该怎么看</h3></div>
+          <div><span data-i18n="operatorGuide">OPERATOR GUIDE</span><h3 data-i18n="guideTitle">How to read this console</h3></div>
         </div>
         <ol class="guide">
-          <li><b>绿色「运行正常」</b><span>主轮询在推进，用户消息能被发现。</span></li>
-          <li><b>橙色「需要维护」</b><span>进程可能还在，但至少一条关键链路失效。</span></li>
-          <li><b>红色「主进程离线」</b><span>点击重启；面板会继续在线观察恢复。</span></li>
-          <li><b>断线与恢复通知</b><span>状态变化会触发 macOS 本地横幅，不依赖飞书通道存活。</span></li>
+          <li><b data-i18n="guideOnlineTitle">Green · Operational</b><span data-i18n="guideOnlineText">The main polling cursor is advancing and user messages can be discovered.</span></li>
+          <li><b data-i18n="guideDegradedTitle">Amber · Maintenance required</b><span data-i18n="guideDegradedText">The process may still be alive, but at least one critical path is unhealthy.</span></li>
+          <li><b data-i18n="guideOfflineTitle">Red · Core service offline</b><span data-i18n="guideOfflineText">Restart the service; this dashboard remains available to observe recovery.</span></li>
+          <li><b data-i18n="guideNotifyTitle">Disconnect &amp; recovery alerts</b><span data-i18n="guideNotifyText">State transitions trigger local macOS notifications without relying on Lark.</span></li>
         </ol>
         <div class="maintenance-callout hidden" id="credentialGuide">
-          <span>当前维护动作</span>
-          <strong>飞书用户凭据被钥匙串拦截</strong>
-          <p>需在终端人工确认执行：</p>
+          <span data-i18n="maintenanceAction">CURRENT MAINTENANCE ACTION</span>
+          <strong data-i18n="credentialBlocked">Lark credentials are blocked by Keychain</strong>
+          <p data-i18n="terminalConfirmation">Confirm this command manually in Terminal:</p>
           <code>lark-cli config keychain-downgrade</code>
-          <small>安全影响：同一 macOS 用户下的进程将能读取本地密钥文件。</small>
+          <small data-i18n="credentialRisk">Security note: processes under the same macOS user will be able to read the local credential file.</small>
         </div>
         <div class="channel-contract">
-          <span>用户入口</span>
-          <strong>群聊 @ 你 · 单聊直接发</strong>
-          <p>全部会话开放，不添加 AI 标签。</p>
+          <span data-i18n="userEntry">USER ENTRY</span>
+          <strong data-i18n="entryContract">Group @ mention · direct message</strong>
+          <p data-i18n="entryDescription">All conversations are enabled. No AI label is added.</p>
         </div>
-        <p class="local-only">仅本机可见 · 127.0.0.1 · 不对公网开放</p>
+        <p class="local-only" data-i18n="localOnly">LOCAL ONLY · 127.0.0.1 · NOT EXPOSED TO THE INTERNET</p>
       </aside>
     </section>
+
+    <section class="invite-studio hidden" id="inviteStudio" aria-labelledby="inviteStudioTitle">
+      <div class="invite-studio-copy">
+        <span data-i18n="inviteStudioEyebrow">FOUNDER CONTROL / INVITE STUDIO</span>
+        <h3 id="inviteStudioTitle" data-i18n="inviteStudioTitle">Issue ten invitations</h3>
+        <p data-i18n="inviteStudioDescription">Each code is unique, numeric, and shown in full only in the newly generated batch.</p>
+        <label for="invitationNote" data-i18n="invitationNote">Customer note (optional)</label>
+        <input id="invitationNote" maxlength="200" data-i18n-placeholder="invitationNotePlaceholder" placeholder="Customer or deployment name">
+        <button class="button primary" id="generateInvitesButton" type="button" data-i18n="generateTenInvites">Generate 10 codes</button>
+        <p id="inviteStudioMessage" role="status"></p>
+      </div>
+      <div class="invitation-batch">
+        <div class="invitation-batch-head">
+          <div><span data-i18n="latestBatch">LATEST BATCH</span><strong id="invitationBatchId">—</strong></div>
+          <div class="invitation-actions">
+            <button id="copyInvitesButton" type="button" disabled data-i18n="copyAll">Copy all</button>
+            <button id="downloadInvitesButton" type="button" disabled>CSV</button>
+          </div>
+        </div>
+        <ol id="invitationCodes" aria-live="polite"><li data-i18n="noInvitationsGenerated">No invitations generated in this session.</li></ol>
+      </div>
+    </section>
+
+    </div>
+
+    <footer class="product-footer">
+      <span data-i18n="brandFooter">ACHONG DIGITAL HUMAN · CODEX RUNTIME</span>
+      <strong data-i18n="openSourceCredit">Developed by Zhao Yingzhi &amp; James Feng</strong>
+    </footer>
   </main>
 
   <dialog class="channel-dialog" id="channelDialog" aria-labelledby="channelDialogTitle">
@@ -290,61 +361,83 @@
       <header class="channel-dialog-header">
         <div>
           <span id="channelDialogEyebrow">IM CHANNEL / LOCAL SETUP</span>
-          <h2 id="channelDialogTitle">配置 IM 通道</h2>
-          <p id="channelDialogDescription">只显示当前通道需要的配置。</p>
+          <h2 id="channelDialogTitle" data-i18n="channelDialogTitle">Configure messaging channel</h2>
+          <p id="channelDialogDescription" data-i18n="channelDialogDescription">Only settings required by this channel are shown.</p>
         </div>
-        <button type="button" class="channel-dialog-close" id="channelDialogClose" aria-label="关闭">×</button>
+        <button type="button" class="channel-dialog-close" id="channelDialogClose" aria-label="Close" data-i18n-aria="close">×</button>
       </header>
 
       <div class="channel-safety" id="channelSafety">
-        <b>隔离保护已启用</b>
-        <span>本通道配置失败会自动回滚，不会停止飞书 + Codex 主链路。</span>
+        <b data-i18n="isolationEnabled">Isolation protection is active</b>
+        <span data-i18n="isolationDescription">A failed channel change rolls back automatically and cannot stop the Lark + Codex primary path.</span>
       </div>
 
       <form id="channelForm" class="channel-form">
         <label class="channel-toggle" id="channelEnabledRow">
-          <span><b>启用通道</b><small>保存后自动重启并执行真实连接测试</small></span>
+          <span><b data-i18n="enableChannel">Enable channel</b><small data-i18n="enableChannelDescription">Saving restarts the service and runs a real connection test</small></span>
           <input type="checkbox" id="channelEnabled">
         </label>
 
         <section class="channel-fields hidden" data-channel-fields="feishu">
-          <label>受保护的应用身份<input id="channelFeishuIdentity" readonly></label>
-          <p class="field-note">飞书是主通道。这里可以查看和复测，但不能关闭或覆盖凭据。</p>
+          <label><span data-i18n="protectedIdentity">Protected application identity</span><input id="channelFeishuIdentity" readonly></label>
+          <p class="field-note" data-i18n="feishuFieldNote">Lark is the protected primary channel. You can inspect and retest it, but cannot disable it or overwrite its credentials here.</p>
         </section>
 
         <section class="channel-fields hidden" data-channel-fields="dingtalk">
-          <label>DWS 登录配置名<input id="channelDingtalkProfile" maxlength="200" placeholder="留空则使用本机默认登录"></label>
-          <p class="field-note">后台会自动探测本机 DWS CLI 与已有登录状态；只有未登录时才需要在终端完成一次授权。</p>
+          <label><span data-i18n="dingtalkProfile">DWS login profile</span><input id="channelDingtalkProfile" maxlength="200" placeholder="Leave blank to use the local default login" data-i18n-placeholder="dingtalkProfilePlaceholder"></label>
+          <p class="field-note" data-i18n="dingtalkFieldNote">AIPRO discovers the local DWS CLI and existing login automatically. Terminal authorization is required only when no session exists.</p>
         </section>
 
         <section class="channel-fields hidden" data-channel-fields="wecom">
-          <label>Bot ID<input id="channelWecomBotId" maxlength="200" autocomplete="off" placeholder="企业微信智能机器人 Bot ID"></label>
-          <label>Bot Secret <span id="channelWecomCredentialState"></span><input type="password" id="channelWecomCredential" maxlength="4096" autocomplete="new-password" placeholder="已保存时可留空"></label>
-          <p class="field-note">Secret 只从本机页面直写 macOS Keychain，不回显、不进入配置文件、日志或 Git。</p>
+          <label>Bot ID<input id="channelWecomBotId" maxlength="200" autocomplete="off" placeholder="Official WeCom AI Bot ID" data-i18n-placeholder="wecomBotPlaceholder"></label>
+          <label>Bot Secret <span id="channelWecomCredentialState"></span><input type="password" id="channelWecomCredential" maxlength="4096" autocomplete="new-password" placeholder="Leave blank to keep the stored secret" data-i18n-placeholder="credentialStoredPlaceholder"></label>
+          <p class="field-note" data-i18n="wecomFieldNote">The secret is written directly to macOS Keychain. It is never displayed or stored in configuration, logs, or Git.</p>
         </section>
 
         <section class="channel-fields hidden" data-channel-fields="wechat">
-          <label>GeWe App ID<input id="channelWechatAppId" maxlength="200" autocomplete="off" placeholder="微信节点 App ID"></label>
-          <label>GeWe API Token <span id="channelWechatCredentialState"></span><input type="password" id="channelWechatCredential" maxlength="4096" autocomplete="new-password" placeholder="已保存时可留空"></label>
-          <label>公网 HTTPS 回调地址<input type="url" id="channelWechatCallback" maxlength="500" placeholder="https://example.com/aipro"></label>
-          <label>@ 名称（逗号或换行分隔）<textarea id="channelWechatMentions" rows="3" maxlength="1000" placeholder="James, 詹老师"></textarea></label>
-          <p class="field-note warning">个人微信使用 GeWe 第三方 API，并非腾讯官方开放接口，存在账号风控风险。</p>
+          <label>GeWe App ID<input id="channelWechatAppId" maxlength="200" autocomplete="off" placeholder="WeChat node App ID" data-i18n-placeholder="wechatAppPlaceholder"></label>
+          <label>GeWe API Token <span id="channelWechatCredentialState"></span><input type="password" id="channelWechatCredential" maxlength="4096" autocomplete="new-password" placeholder="Leave blank to keep the stored secret" data-i18n-placeholder="credentialStoredPlaceholder"></label>
+          <label><span data-i18n="publicCallback">Public HTTPS callback</span><input type="url" id="channelWechatCallback" maxlength="500" placeholder="https://example.com/aipro"></label>
+          <label><span data-i18n="mentionNames">@ names (comma or newline separated)</span><textarea id="channelWechatMentions" rows="3" maxlength="1000" placeholder="James"></textarea></label>
+          <p class="field-note warning" data-i18n="wechatFieldWarning">This legacy connector uses a third-party GeWe API, not an official Tencent interface, and may create account risk.</p>
         </section>
 
         <div class="channel-validation" id="channelValidation" aria-live="polite">
           <div class="channel-validation-head">
-            <span>CONNECTION TEST</span>
-            <b id="channelValidationState">尚未测试</b>
+            <span data-i18n="connectionTest">CONNECTION TEST</span>
+            <b id="channelValidationState" data-i18n="notTested">Not tested</b>
           </div>
-          <div id="channelValidationChecks"><p>点击“测试当前连接”，查看每一个验收项。</p></div>
+          <div id="channelValidationChecks"><p data-i18n="testHint">Run “Test connection” to inspect every acceptance check.</p></div>
         </div>
 
         <div class="channel-form-actions">
-          <button class="button" type="button" id="channelTestButton">测试当前连接</button>
-          <button class="button primary" type="submit" id="channelSaveButton">保存并连接</button>
+          <button class="button" type="button" id="channelTestButton" data-i18n="testConnection">Test connection</button>
+          <button class="button primary" type="submit" id="channelSaveButton" data-i18n="saveConnect">Save &amp; connect</button>
         </div>
-        <p class="channel-apply-contract">保存流程：校验必填项 → 密钥写入 Keychain → 配置备份 → 重启 → 连接验收 → 失败自动回滚</p>
+        <p class="channel-apply-contract" data-i18n="saveContract">Save flow: validate → Keychain → backup → restart → connection test → automatic rollback on failure</p>
       </form>
+    </div>
+  </dialog>
+
+  <dialog class="contact-dialog" id="contactDialog" aria-labelledby="contactDialogTitle">
+    <div class="contact-dialog-shell">
+      <button type="button" class="contact-dialog-close" id="contactDialogClose" aria-label="Close" data-i18n-aria="close">×</button>
+      <div class="contact-dialog-copy">
+        <span data-i18n="contactEyebrow">AUTHORIZED INVITATION ISSUER</span>
+        <h2 id="contactDialogTitle" data-i18n="contactTitle">Get your AIPRO invitation</h2>
+        <h3>James Feng <small data-i18n="jamesChineseName">James</small></h3>
+        <p data-i18n="contactRole">Co-developer · Authorized invitation issuer</p>
+        <p data-i18n="contactInstructions">Scan with WeChat, add James, and send “AIPRO invitation”.</p>
+        <p class="contact-security" data-i18n="contactSecurity">James will never ask for your account password, verification code, device private key, or recovery key.</p>
+      </div>
+      <div class="contact-card-frame">
+        <div class="contact-card-loading" id="contactCardLoading" data-i18n="contactLoading">Loading secure contact card…</div>
+        <img class="hidden" id="contactCardImage" alt="James Feng WeChat contact card" data-i18n-alt="contactCardAlt">
+        <div class="contact-card-error hidden" id="contactCardError">
+          <p data-i18n="contactLoadFailed">The contact card could not be loaded.</p>
+          <button id="contactCardRetry" type="button" data-i18n="retry">Retry</button>
+        </div>
+      </div>
     </div>
   </dialog>
 

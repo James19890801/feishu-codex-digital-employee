@@ -13,7 +13,6 @@ function shortDrain(stream, timeoutMs = 50) {
       resolve();
     };
     const timer = setTimeout(finish, timeoutMs);
-    timer.unref?.();
     stream.once('end', finish);
   });
 }
@@ -24,7 +23,9 @@ export async function consumeLinesUntilExit(child, onLine) {
     for await (const line of lines) {
       if (line.trim()) await onLine(line);
     }
-  })();
+  })().catch(error => {
+    if (error?.code !== 'ERR_STREAM_PREMATURE_CLOSE') throw error;
+  });
   const exitCode = await new Promise((resolve, reject) => {
     child.once('error', reject);
     child.once('exit', code => resolve(code));
@@ -32,8 +33,9 @@ export async function consumeLinesUntilExit(child, onLine) {
   await shortDrain(child.stdout);
   lines.close();
   child.stdout.destroy();
-  await reader.catch(error => {
-    if (error?.code !== 'ERR_STREAM_PREMATURE_CLOSE') throw error;
-  });
+  await Promise.race([
+    reader,
+    new Promise(resolve => setTimeout(resolve, 100)),
+  ]);
   return exitCode;
 }

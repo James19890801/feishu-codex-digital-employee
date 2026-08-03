@@ -2,6 +2,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boundedInteger } from './reliability.mjs';
+import {
+  validateDingTalkConfiguration,
+  validateFeishuConfiguration,
+} from './runtime-mode.mjs';
 
 const srcDir = dirname(fileURLToPath(import.meta.url));
 const workdir = resolve(srcDir, '..');
@@ -16,11 +20,13 @@ if (!Array.isArray(raw.authorizedChatIds || [])) {
 }
 
 export const config = {
+  feishuEnabled: raw.feishuEnabled !== false,
   feishuAppId: raw.feishuAppId || '',
   ownerOpenId: raw.ownerOpenId || '',
   keychainService: raw.keychainService || 'codex-feishu-digital-employee',
   authorizedChatIds: raw.authorizedChatIds || [],
   allowAllChats: raw.allowAllChats === true,
+  ownerContactPhone: String(raw.ownerContactPhone || '').trim(),
   actionItemDocumentToken: raw.actionItemDocumentToken || '',
   digitalTwinLabel: raw.digitalTwinLabel ?? '【AI数字分身】',
   eventTransport: raw.eventTransport || 'lark-cli',
@@ -59,7 +65,10 @@ export const config = {
   }),
   aiRuntime: raw.aiRuntime || 'auto',
   dingtalkEnabled: raw.dingtalkEnabled === true,
+  dingtalkTransport: String(raw.dingtalkTransport || 'event-stream').trim(),
   dingtalkProfile: raw.dingtalkProfile || '',
+  dingtalkChannel: String(raw.dingtalkChannel || '').trim(),
+  dingtalkOwnerOpenId: String(raw.dingtalkOwnerOpenId || '').trim(),
   dingtalkBin: raw.dingtalkBin || join(home, '.npm-global', 'bin', 'dws'),
   wecomEnabled: raw.wecomEnabled === true,
   wecomBotId: raw.wecomBotId || '',
@@ -78,7 +87,9 @@ export const config = {
     : [],
   multicaEnabled: raw.multicaEnabled === true,
   multicaProfile: raw.multicaProfile || 'desktop-api.multica.ai',
+  multicaAppUrl: raw.multicaAppUrl || 'https://multica.ai',
   multicaDefaultWorkspaceId: raw.multicaDefaultWorkspaceId || '',
+  multicaOwnerSquad: String(raw.multicaOwnerSquad || '詹老师的开发团伙').trim(),
   multicaSyncIntervalMs: boundedInteger(raw.multicaSyncIntervalMs, {
     name: 'multicaSyncIntervalMs', fallback: 10000, min: 5000, max: 300000,
   }),
@@ -88,8 +99,12 @@ export const config = {
   dashboardPort: boundedInteger(raw.dashboardPort, {
     name: 'dashboardPort', fallback: 17655, min: 1024, max: 65535,
   }),
+  licensingEnforced: raw.licensingEnforced === true,
+  licensingServiceUrl: String(raw.licensingServiceUrl || '').trim(),
+  licensingProxyUrl: String(raw.licensingProxyUrl || raw.codexProxyUrl || '').trim(),
+  licensingPublicKey: String(raw.licensingPublicKey || '').trim(),
+  licensingProductId: String(raw.licensingProductId || 'AIPRO').trim(),
   workdir,
-  artifactDir: raw.artifactDir || join(home, 'Desktop', '数字员工交付物'),
   codexBin: raw.codexBin || '/Applications/ChatGPT.app/Contents/Resources/codex',
   codexModel: raw.codexModel || 'gpt-5.6-terra',
   codexProxyUrl: raw.codexProxyUrl || '',
@@ -100,19 +115,59 @@ export const config = {
     || '/Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/multica',
 };
 
-for (const key of ['feishuAppId', 'ownerOpenId']) {
-  if (!config[key]) throw new Error(`config.local.json 缺少 ${key}`);
+export function validateCoreConfiguration(value = config) {
+  validateFeishuConfiguration(value);
+  if (!value.allowAllChats && !value.authorizedChatIds.length) {
+    throw new Error('未启用 allowAllChats 时，config.local.json 至少需要一个 authorizedChatIds');
+  }
 }
-if (!/^cli_[0-9a-fA-F]{16}$/.test(config.feishuAppId)) {
-  throw new Error('feishuAppId 格式无效');
-}
-if (!/^ou_[A-Za-z0-9]+$/.test(config.ownerOpenId)) {
-  throw new Error('ownerOpenId 格式无效');
+
+if (!config.licensingEnforced) validateCoreConfiguration(config);
+if (config.ownerContactPhone
+  && !/^\+?[0-9][0-9 ()-]{5,28}[0-9]$/.test(config.ownerContactPhone)) {
+  throw new Error('ownerContactPhone 格式无效');
 }
 if (config.codexProxyUrl) {
   const proxy = new URL(config.codexProxyUrl);
   if (!['http:', 'https:'].includes(proxy.protocol)) {
     throw new Error('codexProxyUrl 只能使用 http 或 https');
+  }
+}
+if (config.licensingServiceUrl) {
+  const licensingUrl = new URL(config.licensingServiceUrl);
+  if (licensingUrl.protocol !== 'https:'
+    || licensingUrl.username
+    || licensingUrl.password
+    || licensingUrl.search
+    || licensingUrl.hash) {
+    throw new Error('licensingServiceUrl 必须是不含凭据、查询或锚点的 HTTPS 地址');
+  }
+}
+if (config.licensingProxyUrl) {
+  const proxy = new URL(config.licensingProxyUrl);
+  if (!['http:', 'https:'].includes(proxy.protocol)
+    || proxy.username
+    || proxy.password
+    || proxy.search
+    || proxy.hash
+    || !['', '/'].includes(proxy.pathname)) {
+    throw new Error('licensingProxyUrl 必须是不含凭据、查询、路径或锚点的 http/https 地址');
+  }
+}
+if (config.licensingEnforced) {
+  if (!config.licensingServiceUrl) throw new Error('启用 licensingEnforced 时必须填写 licensingServiceUrl');
+  if (!/^[A-Za-z0-9_-]{40,256}$/.test(config.licensingPublicKey)) {
+    throw new Error('启用 licensingEnforced 时必须填写有效的 licensingPublicKey');
+  }
+  if (config.licensingProductId !== 'AIPRO') {
+    throw new Error('licensingProductId 必须是 AIPRO');
+  }
+}
+{
+  const multicaAppUrl = new URL(config.multicaAppUrl);
+  if (!['http:', 'https:'].includes(multicaAppUrl.protocol)
+    || multicaAppUrl.username || multicaAppUrl.password) {
+    throw new Error('multicaAppUrl 只能使用 http 或 https，且不能包含账号密码');
   }
 }
 if (!['lark-cli', 'sdk'].includes(config.eventTransport)) {
@@ -121,6 +176,7 @@ if (!['lark-cli', 'sdk'].includes(config.eventTransport)) {
 if (!['auto', 'codex', 'qoder', 'codebuddy', 'trae'].includes(config.aiRuntime)) {
   throw new Error('aiRuntime 只能是 auto、codex、qoder、codebuddy 或 trae');
 }
+validateDingTalkConfiguration(config);
 if (config.wecomEnabled && !config.wecomBotId) {
   throw new Error('启用 wecomEnabled 时必须填写 wecomBotId');
 }
@@ -141,7 +197,4 @@ if (config.multicaDefaultWorkspaceId
   && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     .test(config.multicaDefaultWorkspaceId)) {
   throw new Error('multicaDefaultWorkspaceId 必须是 UUID');
-}
-if (!config.allowAllChats && !config.authorizedChatIds.length) {
-  throw new Error('未启用 allowAllChats 时，config.local.json 至少需要一个 authorizedChatIds');
 }

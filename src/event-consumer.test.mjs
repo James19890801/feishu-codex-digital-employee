@@ -20,11 +20,13 @@ assert.equal(shouldRetrySupervisor(true), false);
     setTimeout(() => process.exit(5), 20);
   `], { stdio: ['ignore', 'pipe', 'pipe'] });
   const lines = [];
-  const startedAt = Date.now();
+  let exitedAt = 0;
+  child.once('exit', () => { exitedAt = Date.now(); });
   const exitCode = await consumeLinesUntilExit(child, line => lines.push(line));
   assert.equal(exitCode, 5);
   assert.deepEqual(lines, ['{"message_id":"om_test"}']);
-  assert.ok(Date.now() - startedAt < 1_000, 'must not wait for descendant-held stdout');
+  assert.ok(exitedAt > 0, 'must observe the direct child exit');
+  assert.ok(Date.now() - exitedAt < 1_000, 'must not wait for descendant-held stdout');
 }
 
 console.log('EVENT_CONSUMER_TEST_OK');

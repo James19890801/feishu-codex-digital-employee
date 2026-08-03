@@ -94,6 +94,52 @@ const base = {
 {
   const view = buildOperatorView({
     ...base,
+    feishuEnabled: false,
+    pollCursorMs: Number.NaN,
+    websocketActive: true,
+    dingtalkChannel: {
+      enabled: true,
+      installed: true,
+      authenticated: true,
+      connected: true,
+      identityMode: 'user',
+      lastReadyAt: '2026-07-30T00:59:55.000Z',
+    },
+  });
+  assert.equal(view.state, 'online');
+  assert.equal(view.issues.includes('poll_cursor_stale'), false);
+  assert.equal(view.channels.feishu.enabled, false);
+  assert.equal(view.channels.feishu.healthy, true);
+  assert.equal(view.channels.feishu.transport, 'disabled');
+  assert.equal(view.channels.dingtalk.healthy, true);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    feishuEnabled: false,
+    pollCursorMs: Number.NaN,
+    websocketActive: false,
+    dingtalkChannel: {
+      enabled: true,
+      installed: true,
+      configured: true,
+      authenticated: true,
+      connected: true,
+      identityMode: 'user',
+      transport: 'Wukong DWS polling',
+      lastReadyAt: '2026-07-30T00:59:58.000Z',
+    },
+  });
+  assert.equal(view.state, 'online');
+  assert.equal(view.issues.includes('websocket_consumer_missing'), false);
+  assert.equal(view.channels.dingtalk.transport, 'Wukong DWS polling');
+  assert.equal(view.channels.dingtalk.lastReadyAt, '2026-07-30T00:59:58.000Z');
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
     dingtalkChannel: {
       enabled: true,
       installed: true,
@@ -207,6 +253,32 @@ const base = {
   assert.equal(view.state, 'degraded');
   assert.equal(view.issues.includes('credential_access_blocked'), true);
   assert.equal(view.maintenance.credentialBlocked, true);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    selfChatCircuitLast: {
+      chatId: 'oc_self',
+      openUntilMs: base.nowMs + 60_000,
+      trippedAt: '2026-07-30T00:59:30.000Z',
+    },
+  });
+  assert.equal(view.state, 'degraded');
+  assert.equal(view.issues.includes('self_chat_circuit_open'), true);
+  assert.equal(view.maintenance.selfChatCircuitOpen, true);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    selfChatCircuitLast: {
+      chatId: 'oc_self',
+      openUntilMs: base.nowMs - 1,
+      trippedAt: '2026-07-30T00:57:00.000Z',
+    },
+  });
+  assert.equal(view.issues.includes('self_chat_circuit_open'), false);
 }
 
 {

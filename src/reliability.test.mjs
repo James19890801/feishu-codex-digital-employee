@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import * as reliability from './reliability.mjs';
 import {
   assertCompleteSearchResult,
   boundedInteger,
@@ -10,6 +11,19 @@ import {
   planPollWindow,
   validateInboundPayload,
 } from './reliability.mjs';
+
+{
+  assert.equal(typeof reliability.initializeOptionalPoller, 'function');
+  const unavailable = new Error('enterprise permission is unavailable');
+  assert.deepEqual(
+    await reliability.initializeOptionalPoller(async () => { throw unavailable; }),
+    { active: false, error: unavailable },
+  );
+  assert.deepEqual(
+    await reliability.initializeOptionalPoller(async () => true),
+    { active: true, error: null },
+  );
+}
 
 {
   assert.deepEqual(validateInboundPayload({

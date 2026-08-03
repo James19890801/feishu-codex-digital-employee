@@ -8,41 +8,98 @@ import {
   rollbackConfirmation,
   runtimeCanSelect,
   runtimeStatusLabel,
+  wechatPocRequestHeaders,
 } from './config-ui.js';
+import { normalizeLocale, translate } from './i18n.js';
+import {
+  canShowInviteStudio,
+  invitationCsv,
+  licensingRequestHeaders,
+  normalizeInvitationCode,
+} from './licensing-ui.js';
 
 const $ = id => document.getElementById(id);
-const stateLabels = {
-  online: { title: '运行正常', kicker: '主通道正在真实工作', code: 'LIVE' },
-  degraded: { title: '需要维护', kicker: '进程在线，但关键链路异常', code: 'WARN' },
-  offline: { title: '主进程离线', kicker: '看门人在线，AIPRO 已停止', code: 'DOWN' },
-  error: { title: '面板失联', kicker: '无法读取本机状态 API', code: 'ERR' },
+const stateLabelKeys = {
+  online: { title: 'onlineTitle', kicker: 'onlineKicker', code: 'LIVE' },
+  degraded: { title: 'degradedTitle', kicker: 'degradedKicker', code: 'WARN' },
+  offline: { title: 'offlineTitle', kicker: 'offlineKicker', code: 'DOWN' },
+  error: { title: 'errorTitle', kicker: 'errorKicker', code: 'ERR' },
 };
-const eventLabels = {
-  message_replied: '消息已回复',
-  message_received: '收到消息',
-  inbound_enqueued: '消息进入队列',
-  inbound_retry_scheduled: '安排消息重试',
-  inbound_failed_final: '消息最终失败',
-  inbound_dead_lettered: '消息进入死信',
-  poller_error: '主轮询异常',
-  websocket_error: '辅助监听异常',
-  dingtalk_channel_error: '钉钉通道异常',
-  wecom_channel_error: '企业微信通道异常',
-  wechat_channel_error: '个人微信通道异常',
-  im_channel_connected: 'IM 通道已连接',
-  im_channel_disconnected: 'IM 通道已断开',
-  multica_sync_error: 'Multica 同步异常',
-  multica_delivery_pending: 'Multica 通知等待重试',
-  multica_sync_change: 'Multica Issue 变化',
-  multica_sync_notification_failed: 'Multica 通知失败',
-  multica_plan_created: 'Multica 方案已生成',
-  multica_action_completed: 'Multica 操作完成',
-  multica_mutation_applied: 'Multica 写入完成',
-  multica_mutation_failed: 'Multica 写入失败',
-  sdk_client_unavailable: '业务凭据未配置',
-  message_rate_limited: '消息触发限流',
-  maintenance_error: '维护任务异常',
+const eventLabelKeys = {
+  message_replied: 'eventMessageReplied',
+  message_received: 'eventMessageReceived',
+  inbound_enqueued: 'eventInboundEnqueued',
+  inbound_retry_scheduled: 'eventRetryScheduled',
+  inbound_failed_final: 'eventInboundFailed',
+  inbound_dead_lettered: 'eventDeadLettered',
+  poller_error: 'eventPollerError',
+  websocket_error: 'eventWebsocketError',
+  dingtalk_channel_error: 'eventDingtalkError',
+  wecom_channel_error: 'eventWecomError',
+  wechat_channel_error: 'eventWechatError',
+  im_channel_connected: 'eventChannelConnected',
+  im_channel_disconnected: 'eventChannelDisconnected',
+  multica_sync_error: 'eventMulticaSyncError',
+  multica_delivery_pending: 'eventMulticaPending',
+  multica_sync_change: 'eventMulticaChange',
+  multica_sync_notification_failed: 'eventMulticaNotifyFailed',
+  multica_plan_created: 'eventMulticaPlan',
+  multica_action_completed: 'eventMulticaAction',
+  multica_mutation_applied: 'eventMulticaApplied',
+  multica_mutation_failed: 'eventMulticaFailed',
+  sdk_client_unavailable: 'eventCredentialsMissing',
+  message_rate_limited: 'eventRateLimited',
+  maintenance_error: 'eventMaintenanceError',
 };
+
+const issueLabelKeys = {
+  process_not_running: 'issueProcessStopped',
+  poll_cursor_stale: 'issuePollingStale',
+  messages_processing_stale: 'issueProcessingStale',
+  messages_failed: 'issueMessagesFailed',
+  sqlite_integrity_failed: 'issueSqliteIntegrity',
+  database_backup_stale: 'issueBackupStale',
+  database_backup_error: 'issueBackupError',
+  websocket_consumer_missing: 'issueWebsocketMissing',
+  codex_proxy_unreachable: 'issueProxyUnavailable',
+  ai_runtime_unavailable: 'issueRuntimeUnavailable',
+  ai_runtime_last_call_failed: 'issueRuntimeFailed',
+  credential_access_blocked: 'issueCredentialBlocked',
+  multica_sync_stale: 'issueMulticaStale',
+  multica_sync_error: 'issueMulticaError',
+  multica_delivery_pending: 'issueMulticaPending',
+  multica_delivery_dead: 'issueMulticaDead',
+  dingtalk_channel_unavailable: 'issueDingtalkUnavailable',
+  wecom_channel_unavailable: 'issueWecomUnavailable',
+  wechat_channel_unavailable: 'issueWechatUnavailable',
+  self_chat_circuit_open: 'issueSelfChatCircuit',
+};
+
+const runtimeDescriptionKeys = {
+  codex: 'runtimeCodexDescription',
+  qoder: 'runtimeQoderDescription',
+  codebuddy: 'runtimeCodebuddyDescription',
+  trae: 'runtimeTraeDescription',
+};
+
+const channelCheckLabelKeys = {
+  '主进程': 'checkCoreService',
+  '用户消息轮询': 'checkUserPolling',
+  'WebSocket 辅助监听': 'checkWebsocket',
+  '通道开关': 'checkChannelSwitch',
+  '本机运行时': 'checkLocalRuntime',
+  '必要配置': 'checkRequiredConfig',
+  '身份认证': 'checkAuthentication',
+  '实时连接': 'checkLiveConnection',
+};
+
+function localizeChannelReportText(value) {
+  const text = String(value || '');
+  if (channelCheckLabelKeys[text]) return tr(channelCheckLabelKeys[text]);
+  if (text === '当前未启用，不影响飞书主通道') return tr('channelOffSafe');
+  if (text === '通道当前未启用') return tr('channelCurrentlyDisabled');
+  return text;
+}
 
 let refreshTimer;
 let lastFetchedAt = 0;
@@ -51,41 +108,101 @@ let pendingConfigPlan = null;
 let configBusy = false;
 let latestRuntimeState = null;
 let latestChannelConfigurations = {};
+let latestChannelReport = null;
 let selectedChannel = '';
 let channelBusy = false;
+let wechatPocBusy = false;
+let locale = normalizeLocale(localStorage.getItem('aipro.locale'));
+let latestStatusData = null;
+let latestConfigPayload = null;
+let licensingSessionToken = '';
+let latestLicensingStatus = null;
+let operationsStarted = false;
+let activeInvitationCodes = [];
 
-const channelCopy = {
+const channelCopyKeys = {
   feishu: {
-    title: '飞书主通道',
-    description: '受保护的真人身份主链路：用户消息轮询为主，WebSocket 为辅。',
+    title: 'feishuPrimaryTitle',
+    description: 'feishuPrimaryDescription',
   },
   dingtalk: {
-    title: '连接钉钉',
-    description: '优先自动使用本机 DWS CLI 与已有真人身份登录。',
+    title: 'dingtalkTitle',
+    description: 'dingtalkDescription',
   },
   wecom: {
-    title: '连接企业微信',
-    description: '填写官方智能机器人身份，后台建立 WebSocket 长连接。',
+    title: 'wecomTitle',
+    description: 'wecomDescription',
   },
   wechat: {
-    title: '连接个人微信',
-    description: '填写 GeWe 节点信息，通过第三方 REST + Webhook 接收与回复。',
+    title: 'wechatTitle',
+    description: 'wechatDescription',
   },
 };
 
+function tr(key, variables) {
+  return translate(locale, key, variables);
+}
+
+function applyStaticTranslations() {
+  document.documentElement.lang = locale === 'zh' ? 'zh-CN' : 'en';
+  document.title = tr('pageTitle');
+  for (const element of document.querySelectorAll('[data-i18n]')) {
+    element.textContent = tr(element.dataset.i18n);
+  }
+  for (const element of document.querySelectorAll('[data-i18n-placeholder]')) {
+    element.placeholder = tr(element.dataset.i18nPlaceholder);
+  }
+  for (const element of document.querySelectorAll('[data-i18n-aria]')) {
+    element.setAttribute('aria-label', tr(element.dataset.i18nAria));
+  }
+  for (const element of document.querySelectorAll('[data-i18n-title]')) {
+    element.title = tr(element.dataset.i18nTitle);
+  }
+  for (const element of document.querySelectorAll('[data-i18n-alt]')) {
+    element.alt = tr(element.dataset.i18nAlt);
+  }
+  for (const element of document.querySelectorAll('[data-i18n-prompt]')) {
+    element.dataset.configPrompt = tr(element.dataset.i18nPrompt);
+  }
+  $('languageCode').textContent = locale === 'zh' ? '中' : 'EN';
+  if (latestLicensingStatus) {
+    $('contactDeveloperLabel').textContent = tr(
+      latestLicensingStatus.activated ? 'contactDeveloper' : 'getInvitation',
+    );
+  }
+}
+
+function setLocale(value, { persist = true } = {}) {
+  locale = normalizeLocale(value);
+  if (persist) localStorage.setItem('aipro.locale', locale);
+  applyStaticTranslations();
+  if (latestStatusData) render(latestStatusData);
+  if (latestConfigPayload) {
+    renderConfigurationOverview(latestConfigPayload);
+    renderSnapshots(latestConfigPayload.snapshots);
+  }
+  if (selectedChannel && latestChannelConfigurations[selectedChannel]) {
+    renderChannelLocale(selectedChannel, latestChannelConfigurations[selectedChannel]);
+    if (latestChannelReport) renderChannelReport(latestChannelReport, { remember: false });
+  } else if (latestRuntimeState) {
+    renderRuntimeState(latestRuntimeState);
+  }
+  tick();
+}
+
 function formatAge(ms) {
-  if (ms === null || !Number.isFinite(ms)) return '未知';
+  if (ms === null || !Number.isFinite(ms)) return tr('unknown');
   if (ms < 1000) return `${Math.round(ms)} ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} 秒`;
-  if (ms < 3_600_000) return `${Math.round(ms / 60_000)} 分钟`;
-  return `${(ms / 3_600_000).toFixed(1)} 小时`;
+  if (ms < 60_000) return tr('seconds', { value: (ms / 1000).toFixed(ms < 10_000 ? 1 : 0) });
+  if (ms < 3_600_000) return tr('minutes', { value: Math.round(ms / 60_000) });
+  return tr('hours', { value: (ms / 3_600_000).toFixed(1) });
 }
 
 function formatDate(value, timeOnly = false) {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en-GB', {
     timeZone: 'Asia/Shanghai',
     ...(timeOnly
       ? { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }
@@ -103,28 +220,61 @@ function renderChannel(prefix, channel, fallbackMeta) {
   const dot = $(`channel${prefix}Dot`);
   if (!channel?.enabled) {
     status.textContent = !channel?.installed
-      ? '未安装'
-      : channel?.configured ? '已安装 · 待启用' : '已安装 · 待配置';
+      ? tr('notInstalled')
+      : channel?.configured ? tr('installedDisabled') : tr('installedNeedsSetup');
     meta.textContent = fallbackMeta;
     dot.className = '';
     return;
   }
   if (channel.connected) {
-    status.textContent = '在线';
+    status.textContent = tr('online');
     meta.textContent = `${fallbackMeta} · ${formatDate(channel.lastReadyAt, true)}`;
     dot.className = 'good';
     return;
   }
-  status.textContent = channel.authenticated ? '正在重连' : '需要认证';
+  status.textContent = channel.authenticated ? tr('reconnecting') : tr('authenticationRequired');
   meta.textContent = channel.lastError?.error
     ? String(channel.lastError.error).slice(0, 120)
     : fallbackMeta;
   dot.className = channel.authenticated ? 'warn' : 'bad';
 }
 
+function renderWeChatPoc(channel) {
+  if (!channel) return;
+  const labels = {
+    not_installed: tr('serviceNotInstalled'),
+    offline: tr('serviceOffline'),
+    disabled: tr('disabled'),
+    starting: tr('starting'),
+    online: tr('running'),
+    degraded: tr('pendingWork'),
+    uncertain: tr('deliveryUncertain'),
+  };
+  $('wechatPocStatus').textContent = labels[channel.state] || tr('checking');
+  $('wechatPocToggle').checked = channel.control?.enabled === true;
+  $('wechatPocToggle').disabled = wechatPocBusy || !channel.processAlive;
+  $('wechatPocOpenClient').disabled = wechatPocBusy;
+  $('wechatPocEmergencyStop').disabled = wechatPocBusy || !channel.processAlive;
+  const dot = $('wechatPocDot');
+  dot.className = channel.state === 'online'
+    ? 'good'
+    : ['degraded', 'starting', 'uncertain'].includes(channel.state) ? 'warn' : channel.state === 'offline' ? 'bad' : '';
+  const permission = channel.permissionState === 'granted'
+    ? tr('accessibilityGranted')
+    : channel.permissionState === 'missing' ? tr('accessibilityRequired') : tr('permissionPending');
+  $('wechatPocMeta').textContent = `${channel.clientRunning ? tr('wechatOpen') : tr('wechatClosed')} · ${permission} · ${tr('pendingCount', { count: channel.pending || 0 })}`;
+  $('wechatPocDetail').textContent = channel.lastError?.error
+    ? tr('recentError', { value: String(channel.lastError.error).slice(0, 130) })
+    : tr('recentActions', {
+      action: channel.lastAction || tr('waiting'),
+      received: formatDate(channel.lastReceiveAt, true),
+      replied: formatDate(channel.lastReplyAt, true),
+    });
+}
+
 function renderEvents(events) {
   if (!events?.length) {
-    $('timeline').innerHTML = '<p class="empty">暂时没有审计事件。</p>';
+    $('timeline').innerHTML = `<p class="empty">${escapeHtml(tr('noAuditEvents'))}</p>`;
     return;
   }
   $('timeline').innerHTML = events.map(item => {
@@ -132,11 +282,11 @@ function renderEvents(events) {
     const success = /replied|created|resumed|ready/.test(item.event);
     const detail = item.detail?.error
       ? String(item.detail.error).slice(0, 180)
-      : Object.keys(item.detail || {}).length ? JSON.stringify(item.detail) : '正常记录';
+      : Object.keys(item.detail || {}).length ? JSON.stringify(item.detail) : tr('routineRecord');
     return `
       <div class="event ${error ? 'error' : success ? 'success' : ''}">
         <i class="event-dot"></i>
-        <span class="event-name">${escapeHtml(eventLabels[item.event] || item.event)}</span>
+        <span class="event-name">${escapeHtml(eventLabelKeys[item.event] ? tr(eventLabelKeys[item.event]) : item.event)}</span>
         <span class="event-detail">${escapeHtml(detail)}</span>
         <time>${formatDate(item.at, true)}</time>
       </div>`;
@@ -150,71 +300,74 @@ function escapeHtml(value) {
 }
 
 function render(data) {
-  const visual = stateLabels[data.state] || stateLabels.error;
+  latestStatusData = data;
+  const visual = stateLabelKeys[data.state] || stateLabelKeys.error;
   $('hero').dataset.state = data.state;
-  $('statusTitle').textContent = visual.title;
-  $('statusKicker').textContent = visual.kicker;
+  $('statusTitle').textContent = tr(visual.title);
+  $('statusKicker').textContent = tr(visual.kicker);
   $('statusCode').textContent = visual.code;
   $('statusSummary').textContent = data.state === 'online'
-    ? '消息轮询持续推进，辅助监听在线，状态数据库完整。'
-    : data.issueLabels?.[0] || '至少一条关键链路需要检查。';
+    ? tr('onlineSummary')
+    : (data.issues?.[0] && issueLabelKeys[data.issues[0]]
+      ? tr(issueLabelKeys[data.issues[0]])
+      : data.issueLabels?.[0] || tr('degradedSummary'));
   $('lastCheck').textContent = formatDate(data.checkedAt, true);
 
   $('issueStrip').classList.toggle('hidden', !data.issueLabels?.length);
-  $('issueList').innerHTML = (data.issueLabels || []).map(label => `<span>${escapeHtml(label)}</span>`).join('');
+  $('issueList').innerHTML = (data.issues || []).map((issue, index) => {
+    const label = issueLabelKeys[issue] ? tr(issueLabelKeys[issue]) : data.issueLabels?.[index] || issue;
+    return `<span>${escapeHtml(label)}</span>`;
+  }).join('');
 
   renderChannel(
     'Feishu',
     data.channels?.feishu,
-    '真人用户身份 · 轮询 + WebSocket',
+    tr('feishuMeta'),
   );
   renderChannel(
     'Dingtalk',
     data.channels?.dingtalk,
-    '真人用户身份 · DWS 个人事件长连接',
+    tr('dingtalkMeta'),
   );
   renderChannel(
     'Wecom',
     data.channels?.wecom,
-    '智能机器人身份 · 官方 WebSocket SDK',
+    tr('wecomMeta'),
   );
   renderChannel(
     'Wechat',
     data.channels?.wechat,
-    '个人微信身份 · GeWe 第三方 REST + Webhook',
+    tr('wechatLegacyMeta'),
   );
+  renderWeChatPoc(data.wechatPoc || data.channels?.wechatPoc);
 
-  $('processValue').textContent = data.process.alive ? '运行中' : '已停止';
+  $('processValue').textContent = data.process.alive ? tr('processRunning') : tr('processStopped');
   $('processMeta').textContent = data.process.alive
-    ? `PID ${data.process.pid} · 启动 ${formatDate(data.process.startedAt)}`
-    : '面板仍在线，可尝试重启';
+    ? tr('processStarted', { pid: data.process.pid, time: formatDate(data.process.startedAt) })
+    : tr('dashboardStillOnline');
   setDot('processDot', data.process.alive);
 
-  $('pollingValue').textContent = data.polling.healthy ? formatAge(data.polling.ageMs) : '已停滞';
+  $('pollingValue').textContent = data.polling.healthy ? formatAge(data.polling.ageMs) : tr('pollingStalled');
   $('pollingMeta').textContent = data.polling.healthy
-    ? `单次耗时 ${formatAge(data.polling.lastDurationMs)}`
-    : (data.polling.lastError?.error || '轮询游标没有继续推进');
+    ? tr('cycleDuration', { value: formatAge(data.polling.lastDurationMs) })
+    : (data.polling.lastError?.error || tr('pollingNotAdvancing'));
   setDot('pollingDot', data.polling.healthy);
 
-  $('websocketValue').textContent = data.websocket.active ? `${data.websocket.activeConsumers} 个消费者` : '未连接';
-  $('websocketMeta').textContent = `最近就绪 ${formatDate(data.websocket.lastReadyAt)}`;
+  $('websocketValue').textContent = data.websocket.active
+    ? tr('consumers', { count: data.websocket.activeConsumers }) : tr('disconnected');
+  $('websocketMeta').textContent = tr('lastReady', { time: formatDate(data.websocket.lastReadyAt) });
   setDot('websocketDot', data.websocket.active);
 
-  $('codexValue').textContent = data.aiRuntime?.label || '未选择';
-  $('codexMeta').textContent = data.aiRuntime?.configured === 'auto'
-    ? `自动选择 · ${data.aiRuntime?.selected || '无可用引擎'}`
-    : `固定选择 · ${data.aiRuntime?.selected || '不可用'}`;
-  setDot('codexDot', data.aiRuntime?.healthy);
   renderRuntimeState(data.aiRuntime);
 
   $('multicaValue').textContent = !data.multica.enabled
-    ? '未启用'
-    : data.multica.healthy ? '同步在线' : '需要维护';
+    ? tr('notEnabled')
+    : data.multica.healthy ? tr('syncOnline') : tr('degradedTitle');
   $('multicaMeta').textContent = data.multica.enabled
-    ? `最近同步 ${formatAge(data.multica.ageMs)} · 扫描 ${data.multica.scanned || 0} 条`
-      + (data.multica.pending ? ` · 待补发 ${data.multica.pending}` : '')
-      + (data.multica.dead ? ` · 死信 ${data.multica.dead}` : '')
-    : '可在对话配置面板启用';
+    ? tr('lastSync', { age: formatAge(data.multica.ageMs), count: data.multica.scanned || 0 })
+      + (data.multica.pending ? tr('pendingDelivery', { count: data.multica.pending }) : '')
+      + (data.multica.dead ? tr('deadLetters', { count: data.multica.dead }) : '')
+    : tr('enableInConfig');
   setDot('multicaDot', data.multica.enabled && data.multica.healthy);
 
   const counts = data.database.inboxCounts || {};
@@ -222,20 +375,21 @@ function render(data) {
   $('processingCount').textContent = counts.processing || 0;
   $('failedCount').textContent = (counts.failed || 0) + (counts.dead || 0);
   $('dbIntegrity').textContent = data.database.integrity === 'ok'
-    ? `OK · 备份 ${formatAge(data.database.backupAgeMs)}`
-    : '异常';
+    ? `OK · ${formatAge(data.database.backupAgeMs)}`
+    : tr('abnormal');
   setDot('databaseDot', data.database.healthy);
 
   $('credentialGuide').classList.toggle('hidden', !data.maintenance?.credentialBlocked);
   renderEvents(data.recentEvents);
   lastFetchedAt = Date.now();
+  tick();
 }
 
-function runtimeCard(runtime, configured) {
+function runtimeCard(runtime, selectedId, configured) {
   const card = document.createElement('article');
-  const selected = runtime.id === configured
-    || (runtime.id === 'auto' && configured === 'auto');
+  const selected = runtime.id === selectedId;
   card.className = `runtime-card ${runtime.available ? 'available' : 'unavailable'}${selected ? ' selected' : ''}`;
+  if (selected) card.setAttribute('aria-current', 'true');
 
   const header = document.createElement('header');
   const dot = document.createElement('i');
@@ -244,50 +398,178 @@ function runtimeCard(runtime, configured) {
   header.append(dot, title);
 
   const status = document.createElement('b');
-  status.textContent = runtime.id === 'auto'
-    ? 'CODEX FIRST'
-    : runtimeStatusLabel(runtime).toUpperCase();
+  status.textContent = runtimeStatusLabel(runtime, locale).toUpperCase();
   const description = document.createElement('p');
-  description.textContent = runtime.reason || runtime.description || '';
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.dataset.runtimeId = runtime.id;
-  button.textContent = selected
-    ? '当前配置'
-    : runtime.available ? '选择此运行时' : runtimeStatusLabel(runtime);
-  button.disabled = !runtimeCanSelect(runtime, configured);
-  card.append(header, status, description, button);
+  const localizedDescription = runtimeDescriptionKeys[runtime.id]
+    ? tr(runtimeDescriptionKeys[runtime.id])
+    : runtime.description || '';
+  const localizedReason = runtime.reason
+    ? !runtime.installed
+      ? tr('notInstalled')
+      : runtime.id === 'trae' ? tr('runtimeTraeReason') : runtime.reason
+    : '';
+  description.textContent = localizedReason || localizedDescription;
+  card.append(header, status, description);
+  if (!selected) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.runtimeId = runtime.id;
+    button.textContent = runtime.available ? tr('selectRuntime') : runtimeStatusLabel(runtime, locale);
+    button.disabled = !runtimeCanSelect(runtime, configured);
+    card.append(button);
+  }
   return card;
 }
 
 function renderRuntimeState(state) {
   if (!state) return;
   latestRuntimeState = state;
-  $('runtimeCurrent').textContent = state.label || '无可用运行时';
-  $('runtimePolicy').textContent = state.configured === 'auto'
-    ? `AUTO / ${(state.selected || 'NONE').toUpperCase()}`
-    : `FIXED / ${String(state.configured || '').toUpperCase()}`;
   const grid = $('runtimeGrid');
   grid.replaceChildren();
-  grid.append(runtimeCard({
-    id: 'auto',
-    label: '自动选择',
-    description: '按 Codex、Qoder、CodeBuddy 的顺序选择本机可用引擎。',
-    installed: true,
-    available: (state.runtimes || []).some(item => item.available),
-    reason: '',
-  }, state.configured));
+  const selectedId = String(state.selected || '').toLowerCase();
   for (const runtime of state.runtimes || []) {
-    grid.append(runtimeCard(runtime, state.configured));
+    grid.append(runtimeCard(runtime, selectedId, state.configured));
   }
 }
 
 function renderError() {
   $('hero').dataset.state = 'error';
-  $('statusTitle').textContent = stateLabels.error.title;
-  $('statusKicker').textContent = stateLabels.error.kicker;
-  $('statusCode').textContent = stateLabels.error.code;
-  $('statusSummary').textContent = '如果刷新浏览器仍无法连接，请检查独立 Dashboard LaunchAgent。';
+  $('statusTitle').textContent = tr(stateLabelKeys.error.title);
+  $('statusKicker').textContent = tr(stateLabelKeys.error.kicker);
+  $('statusCode').textContent = stateLabelKeys.error.code;
+  $('statusSummary').textContent = tr('dashboardApiError');
+}
+
+function renderLicensingStatus(status) {
+  latestLicensingStatus = status;
+  licensingSessionToken = status.sessionToken || licensingSessionToken;
+  const activated = status.activated === true;
+  $('activationGate').classList.toggle('hidden', activated);
+  $('operationsConsole').classList.toggle('hidden', !activated);
+  $('inviteStudio').classList.toggle('hidden', !canShowInviteStudio(status));
+  $('contactDeveloperLabel').textContent = tr(activated ? 'contactDeveloper' : 'getInvitation');
+  if (activated && !operationsStarted) startOperationsConsole();
+}
+
+async function loadLicensingStatus() {
+  try {
+    const response = await fetch('/api/licensing/status', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const status = await response.json();
+    renderLicensingStatus(status);
+    return status;
+  } catch (error) {
+    $('activationGate').classList.remove('hidden');
+    $('operationsConsole').classList.add('hidden');
+    $('activationMessage').textContent = `${tr('activationFailed')} ${error.message}`;
+    return null;
+  }
+}
+
+function startOperationsConsole() {
+  if (operationsStarted) return;
+  operationsStarted = true;
+  refresh();
+  loadConfigurationAssistant();
+  refreshTimer = setInterval(refresh, 5000);
+}
+
+async function activateAipro(event) {
+  event.preventDefault();
+  const code = normalizeInvitationCode($('activationCode').value);
+  if (code.length !== 10) {
+    $('activationMessage').textContent = tr('activationFailed');
+    $('activationCode').focus();
+    return;
+  }
+  $('activationSubmit').disabled = true;
+  $('activationMessage').textContent = tr('activating');
+  try {
+    const status = await responseJson(await fetch('/api/licensing/activate', {
+      method: 'POST',
+      headers: licensingRequestHeaders('licensing-activate', licensingSessionToken),
+      body: JSON.stringify({ code }),
+    }));
+    $('activationMessage').textContent = tr('activationComplete');
+    $('activationCode').value = '';
+    renderLicensingStatus({ ...status, sessionToken: licensingSessionToken });
+    setTimeout(refresh, 1800);
+  } catch {
+    $('activationMessage').textContent = tr('activationFailed');
+  } finally {
+    $('activationSubmit').disabled = false;
+  }
+}
+
+function renderInvitationBatch(batch) {
+  activeInvitationCodes = [...batch.codes];
+  $('invitationBatchId').textContent = batch.id || '—';
+  $('invitationCodes').replaceChildren(...activeInvitationCodes.map(code => {
+    const item = document.createElement('li');
+    item.textContent = code;
+    return item;
+  }));
+  $('copyInvitesButton').disabled = false;
+  $('downloadInvitesButton').disabled = false;
+}
+
+async function generateInvitations() {
+  if (!latestLicensingStatus?.issuer?.authorized) return;
+  $('generateInvitesButton').disabled = true;
+  $('inviteStudioMessage').textContent = tr('generatingInvites');
+  try {
+    const payload = await responseJson(await fetch('/api/licensing/invites', {
+      method: 'POST',
+      headers: licensingRequestHeaders('licensing-generate', licensingSessionToken),
+      body: JSON.stringify({ customerNote: $('invitationNote').value.trim() }),
+    }));
+    renderInvitationBatch(payload.batch);
+    $('inviteStudioMessage').textContent = tr('invitationsReady');
+  } catch {
+    $('inviteStudioMessage').textContent = tr('invitationGenerationFailed');
+  } finally {
+    $('generateInvitesButton').disabled = false;
+  }
+}
+
+async function copyInvitations() {
+  if (!activeInvitationCodes.length) return;
+  await navigator.clipboard.writeText(activeInvitationCodes.join('\n'));
+  showToast(tr('copied'));
+}
+
+function downloadInvitations() {
+  if (!activeInvitationCodes.length) return;
+  const blob = new Blob([invitationCsv(activeInvitationCodes)], { type: 'text/csv;charset=utf-8' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `aipro-invitations-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 0);
+}
+
+function loadContactCard({ force = false } = {}) {
+  const image = $('contactCardImage');
+  if (image.src && !force && !image.classList.contains('hidden')) return;
+  $('contactCardLoading').classList.remove('hidden');
+  $('contactCardError').classList.add('hidden');
+  image.classList.add('hidden');
+  image.onload = () => {
+    $('contactCardLoading').classList.add('hidden');
+    $('contactCardError').classList.add('hidden');
+    image.classList.remove('hidden');
+  };
+  image.onerror = () => {
+    $('contactCardLoading').classList.add('hidden');
+    $('contactCardError').classList.remove('hidden');
+    image.classList.add('hidden');
+  };
+  image.src = `/api/licensing/contact-card${force ? `?retry=${Date.now()}` : ''}`;
+}
+
+function openContactDialog() {
+  $('contactDialog').showModal();
+  loadContactCard();
 }
 
 async function refresh() {
@@ -298,14 +580,16 @@ async function refresh() {
     render(await response.json());
   } catch (error) {
     renderError();
-    showToast(`状态读取失败：${error.message}`);
+    showToast(`${tr('errorTitle')}: ${error.message}`);
   } finally {
     $('refreshButton').disabled = false;
   }
 }
 
 async function restart() {
-  if (!window.confirm('确认重启 AIPRO 主进程？面板不会关闭。')) return;
+  if (!window.confirm(locale === 'zh'
+    ? '确认重启 AIPRO 主进程？面板不会关闭。'
+    : 'Restart the AIPRO core service? This dashboard will remain open.')) return;
   $('restartButton').disabled = true;
   try {
     const response = await fetch('/api/restart', {
@@ -313,12 +597,75 @@ async function restart() {
       headers: { 'X-Dashboard-Action': 'restart' },
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    showToast('重启指令已发送，正在等待主进程恢复。');
+    showToast(locale === 'zh'
+      ? '重启指令已发送，正在等待主进程恢复。'
+      : 'Restart requested. Waiting for the core service to recover.');
     setTimeout(refresh, 2500);
   } catch (error) {
-    showToast(`重启失败：${error.message}`);
+    showToast(`${locale === 'zh' ? '重启失败' : 'Restart failed'}: ${error.message}`);
   } finally {
     setTimeout(() => { $('restartButton').disabled = false; }, 2500);
+  }
+}
+
+async function ensureDashboardSession() {
+  if (!configSessionToken) await loadConfigurationAssistant();
+  if (!configSessionToken) throw new Error(locale === 'zh'
+    ? '控制会话尚未就绪，请刷新页面'
+    : 'The control session is not ready. Refresh the page.');
+}
+
+async function postWeChatPoc(path, action, body = {}) {
+  await ensureDashboardSession();
+  wechatPocBusy = true;
+  for (const id of ['wechatPocToggle', 'wechatPocOpenClient', 'wechatPocEmergencyStop']) $(id).disabled = true;
+  try {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: wechatPocRequestHeaders(action, configSessionToken),
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) throw new Error(payload.error || `HTTP ${response.status}`);
+    showToast(payload.message || (locale === 'zh' ? '个人微信操作已完成' : 'Personal WeChat action completed.'));
+  } finally {
+    wechatPocBusy = false;
+    await refresh();
+  }
+}
+
+async function toggleWeChatPoc(event) {
+  const enabled = event.target.checked;
+  if (enabled && !window.confirm(locale === 'zh'
+    ? '确认恢复个人微信自动回复？单聊全部回复，群聊仅明确 @，仅处理文本。启用状态会跨重启保留，可随时紧急停止。'
+    : 'Enable personal WeChat auto-reply? Direct chats are answered; group chats require an explicit @ mention; text only. The switch persists across restarts and can be stopped at any time.')) {
+    event.target.checked = false;
+    return;
+  }
+  try {
+    await postWeChatPoc('/api/wechat-poc/control', 'wechat-poc-control', { enabled, confirmed: true });
+  } catch (error) {
+    showToast(`${locale === 'zh' ? '个人微信切换失败' : 'Personal WeChat switch failed'}: ${error.message}`);
+    event.target.checked = !enabled;
+  }
+}
+
+async function emergencyStopWeChatPoc() {
+  if (!window.confirm(locale === 'zh'
+    ? '立即关闭个人微信自动回复并取消待发送任务？'
+    : 'Stop personal WeChat auto-reply and cancel pending sends now?')) return;
+  try {
+    await postWeChatPoc('/api/wechat-poc/emergency-stop', 'wechat-poc-stop');
+  } catch (error) {
+    showToast(`${locale === 'zh' ? '紧急停止失败' : 'Emergency stop failed'}: ${error.message}`);
+  }
+}
+
+async function openWeChatClient() {
+  try {
+    await postWeChatPoc('/api/wechat-poc/open-client', 'wechat-poc-open');
+  } catch (error) {
+    showToast(`${locale === 'zh' ? '微信打开失败' : 'Could not open WeChat'}: ${error.message}`);
   }
 }
 
@@ -365,19 +712,20 @@ function setConfigBusy(busy) {
 }
 
 function renderConfigurationOverview(payload) {
+  latestConfigPayload = payload;
   const configuration = payload.configuration || {};
   $('configScope').textContent = configuration.allowAllChats
-    ? '全部群聊与单聊'
-    : `指定会话 ${configuration.authorizedChatIds?.length || 0} 个`;
+    ? tr('allChats')
+    : tr('selectedChats', { count: configuration.authorizedChatIds?.length || 0 });
   $('configPoll').textContent = Number.isFinite(configuration.pollIntervalMs)
     ? `${(configuration.pollIntervalMs / 1000).toFixed(
       configuration.pollIntervalMs % 1000 ? 1 : 0,
-    )} 秒`
+    )}${locale === 'zh' ? ' 秒' : 's'}`
     : '—';
   $('configProfile').textContent =
-    `${payload.profile?.personaCharacters || 0} + ${payload.profile?.bibleCharacters || 0} 字符`;
-  $('configKnowledge').textContent = `${payload.profile?.knowledgeDocuments || 0} 份`;
-  $('configConnection').textContent = '安全模式已连接';
+    tr('characters', { count: `${payload.profile?.personaCharacters || 0} + ${payload.profile?.bibleCharacters || 0}` });
+  $('configKnowledge').textContent = tr('documents', { count: payload.profile?.knowledgeDocuments || 0 });
+  $('configConnection').textContent = tr('safeModeConnected');
   if (payload.aiRuntime) renderRuntimeState(payload.aiRuntime);
 }
 
@@ -387,7 +735,7 @@ function renderSnapshots(snapshots) {
   if (!snapshots?.length) {
     const empty = document.createElement('p');
     empty.className = 'empty';
-    empty.textContent = '还没有配置备份。首次应用修改时会自动创建。';
+    empty.textContent = tr('noBackups');
     history.append(empty);
     return;
   }
@@ -397,7 +745,20 @@ function renderSnapshots(snapshots) {
 
     const detail = document.createElement('div');
     const summary = document.createElement('strong');
-    summary.textContent = snapshot.summary || '配置备份';
+    const originalSummary = String(snapshot.summary || '');
+    if (locale === 'en' && /[\u3400-\u9fff]/.test(originalSummary)) {
+      const runtime = originalSummary.match(/切换 AI 运行时为\s*([^（\n]+)/)?.[1]?.trim();
+      const seconds = originalSummary.match(/(?:调整为|从\s*\d+\s*秒调整为)\s*(\d+)\s*秒/)?.[1];
+      summary.textContent = /自动选择/.test(originalSummary)
+        ? tr('beforeRuntimeAuto')
+        : runtime ? tr('beforeRuntime', { runtime })
+          : seconds ? tr('beforePolling', { seconds })
+            : /沟通风格|表达习惯|简短/.test(originalSummary)
+              ? tr('beforePersona') : tr('beforeConfigurationChange');
+      summary.title = originalSummary;
+    } else {
+      summary.textContent = originalSummary || tr('configurationBackup');
+    }
     const meta = document.createElement('small');
     const time = document.createElement('time');
     time.textContent = `${formatDate(snapshot.createdAt)} · ${snapshot.id}`;
@@ -407,7 +768,7 @@ function renderSnapshots(snapshots) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'button';
-    button.textContent = '回滚';
+    button.textContent = tr('rollback');
     button.addEventListener('click', () => rollbackSnapshot(snapshot.id));
     row.append(detail, button);
     history.append(row);
@@ -423,8 +784,8 @@ async function loadConfigurationAssistant() {
     renderSnapshots(payload.snapshots);
     return payload;
   } catch (error) {
-    $('configConnection').textContent = '配置通道异常';
-    appendConfigMessage('system', `无法读取当前配置：${error.message}`);
+    $('configConnection').textContent = tr('configChannelError');
+    appendConfigMessage('system', `${locale === 'zh' ? '无法读取当前配置' : 'Could not read the current configuration'}: ${error.message}`);
     return null;
   }
 }
@@ -437,19 +798,20 @@ function setChannelBusy(busy) {
   $('channelDialogClose').disabled = busy;
 }
 
-function renderChannelReport(report) {
+function renderChannelReport(report, { remember = true } = {}) {
+  if (remember) latestChannelReport = report;
   const validation = $('channelValidation');
   validation.dataset.state = report?.state || '';
   $('channelValidationState').textContent = report?.state === 'connected'
-    ? '全部通过 · 已连接'
+    ? tr('connectedAllPassed')
     : report?.state === 'disabled'
-      ? '通道未启用'
-      : report?.state === 'failed' ? '未通过' : '尚未测试';
+      ? tr('channelDisabled')
+      : report?.state === 'failed' ? tr('failed') : tr('notTested');
   const checks = $('channelValidationChecks');
   checks.replaceChildren();
   if (!report?.checks?.length) {
     const empty = document.createElement('p');
-    empty.textContent = '点击“测试当前连接”，查看每一个验收项。';
+    empty.textContent = tr('testHint');
     checks.append(empty);
     return;
   }
@@ -458,42 +820,48 @@ function renderChannelReport(report) {
     row.className = `channel-check${item.passed ? ' passed' : ''}`;
     const dot = document.createElement('i');
     const label = document.createElement('span');
-    label.textContent = item.label;
+    label.textContent = localizeChannelReportText(item.label);
     const detail = document.createElement('small');
-    detail.textContent = item.detail || (item.passed ? '通过' : '未通过');
+    detail.textContent = item.detail
+      ? localizeChannelReportText(item.detail)
+      : item.passed ? tr('passed') : tr('failed');
     row.append(dot, label, detail);
     checks.append(row);
   }
   if (report.detail) {
     const detail = document.createElement('p');
-    detail.textContent = `最近错误：${report.detail}`;
+    detail.textContent = tr('latestError', { value: localizeChannelReportText(report.detail) });
     checks.append(detail);
   }
 }
 
+function renderChannelLocale(channel, configuration) {
+  const copy = channelCopyKeys[channel];
+  $('channelDialogTitle').textContent = copy?.title ? tr(copy.title) : tr('channelDialogTitle');
+  $('channelDialogDescription').textContent = copy?.description ? tr(copy.description) : '';
+  $('channelWecomCredentialState').textContent = configuration.credentialStored
+    ? tr('keychainStored') : tr('credentialMissing');
+  $('channelWechatCredentialState').textContent = configuration.credentialStored
+    ? tr('keychainStored') : tr('credentialMissing');
+  $('channelSaveButton').textContent = channelSubmitLabel(configuration, locale);
+}
+
 function renderChannelForm(channel, configuration) {
   selectedChannel = channel;
-  const copy = channelCopy[channel];
-  $('channelDialogTitle').textContent = copy?.title || '配置 IM 通道';
-  $('channelDialogDescription').textContent = copy?.description || '';
+  renderChannelLocale(channel, configuration);
   $('channelEnabledRow').classList.toggle('hidden', configuration.protected === true);
   $('channelEnabled').checked = configuration.enabled === true;
   $('channelFeishuIdentity').value = configuration.identity || '';
   $('channelDingtalkProfile').value = configuration.profile || '';
   $('channelWecomBotId').value = configuration.botId || '';
   $('channelWecomCredential').value = '';
-  $('channelWecomCredentialState').textContent = configuration.credentialStored
-    ? 'Keychain 已保存 · 留空不覆盖' : '尚未保存 · 启用时必填';
   $('channelWechatAppId').value = configuration.appId || '';
   $('channelWechatCredential').value = '';
-  $('channelWechatCredentialState').textContent = configuration.credentialStored
-    ? 'Keychain 已保存 · 留空不覆盖' : '尚未保存 · 启用时必填';
   $('channelWechatCallback').value = configuration.publicCallbackBaseUrl || '';
   $('channelWechatMentions').value = (configuration.mentionNames || []).join(', ');
   for (const section of document.querySelectorAll('[data-channel-fields]')) {
     section.classList.toggle('hidden', section.dataset.channelFields !== channel);
   }
-  $('channelSaveButton').textContent = channelSubmitLabel(configuration);
   renderChannelReport(null);
   setChannelBusy(false);
 }
@@ -502,7 +870,7 @@ async function openChannelDialog(channel) {
   const payload = await loadConfigurationAssistant();
   const configuration = payload?.channels?.[channel];
   if (!configuration) {
-    showToast('无法读取这个通道的配置。');
+    showToast(locale === 'zh' ? '无法读取这个通道的配置。' : 'Could not read this channel configuration.');
     return;
   }
   renderChannelForm(channel, configuration);
@@ -538,7 +906,7 @@ async function testSelectedChannel() {
   await loadConfigurationAssistant();
   if (!configSessionToken) return;
   setChannelBusy(true);
-  $('channelValidationState').textContent = '正在执行真实连接测试…';
+  $('channelValidationState').textContent = tr('testRunning');
   try {
     const payload = await responseJson(await fetch('/api/channels/test', {
       method: 'POST',
@@ -550,7 +918,7 @@ async function testSelectedChannel() {
     renderChannelReport({
       state: 'failed',
       detail: error.message,
-      checks: [{ label: '测试接口', passed: false, detail: error.message }],
+      checks: [{ label: tr('testApi'), passed: false, detail: error.message }],
     });
   } finally {
     setChannelBusy(false);
@@ -567,13 +935,13 @@ async function saveSelectedChannel(event) {
   const requestedIdentity = selectedChannel === 'wecom' ? body.botId : body.appId;
   if (body.enabled && ['wecom', 'wechat'].includes(selectedChannel)
     && channelNeedsCredential(configuration, enteredCredential, requestedIdentity)) {
-    showToast('启用前请填写当前通道的密钥。');
+    showToast(tr('enterCredential'));
     $(selectedChannel === 'wecom' ? 'channelWecomCredential' : 'channelWechatCredential').focus();
     return;
   }
-  if (!window.confirm('确认保存这条通道配置？系统会备份、重启并自动测试连接；失败会回滚。')) return;
+  if (!window.confirm(tr('saveChannelConfirm'))) return;
   setChannelBusy(true);
-  $('channelValidationState').textContent = '正在备份、连接与验收…';
+  $('channelValidationState').textContent = tr('savingTesting');
   try {
     const payload = await responseJson(await fetch('/api/channels/configure', {
       method: 'POST',
@@ -584,7 +952,7 @@ async function saveSelectedChannel(event) {
     $('channelWechatCredential').value = '';
     renderChannelReport(payload.report);
     showToast(payload.report?.state === 'disabled'
-      ? '配置已保存，通道保持关闭。' : '配置已保存，真实连接测试通过。');
+      ? tr('configSavedDisabled') : tr('configSavedConnected'));
     await Promise.all([loadConfigurationAssistant(), refresh()]);
     renderChannelForm(selectedChannel, latestChannelConfigurations[selectedChannel]);
     renderChannelReport(payload.report);
@@ -593,12 +961,14 @@ async function saveSelectedChannel(event) {
       state: 'failed',
       detail: error.message,
       checks: [{
-        label: error.rolledBack ? '连接验收（已自动回滚）' : '配置保存',
+        label: error.rolledBack ? tr('connectionAcceptanceRollback') : tr('configurationSave'),
         passed: false,
         detail: error.message,
       }],
     });
-    showToast(error.rolledBack ? '连接失败，已自动恢复原配置。' : `配置失败：${error.message}`);
+    showToast(error.rolledBack
+      ? tr('connectionRollback')
+      : `${locale === 'zh' ? '配置失败' : 'Configuration failed'}: ${error.message}`);
     await Promise.all([loadConfigurationAssistant(), refresh()]);
   } finally {
     setChannelBusy(false);
@@ -606,9 +976,9 @@ async function saveSelectedChannel(event) {
 }
 
 function riskLabel(plan) {
-  if (!planCanApply(plan)) return ['无需修改', ''];
-  if (plan.confirmationLevel === 'double') return ['敏感变更 · 二次确认', 'double'];
-  return ['常规变更 · 一次确认', 'single'];
+  if (!planCanApply(plan)) return [tr('noChanges'), ''];
+  if (plan.confirmationLevel === 'double') return [tr('sensitiveRisk'), 'double'];
+  return [tr('standardRisk'), 'single'];
 }
 
 function renderConfigPlan(plan) {
@@ -619,7 +989,7 @@ function renderConfigPlan(plan) {
   const [label, className] = riskLabel(plan);
   $('planRisk').textContent = label;
   $('planRisk').className = className;
-  $('planSummary').textContent = plan.summary || '配置建议';
+  $('planSummary').textContent = plan.summary || tr('configRecommendation');
   $('confirmationInput').value = '';
 
   const changes = $('planChanges');
@@ -638,8 +1008,8 @@ function renderConfigPlan(plan) {
     const comparison = document.createElement('div');
     comparison.className = 'change-values';
     for (const [caption, value, direction] of [
-      ['修改前', change.before, 'before'],
-      ['修改后', change.after, 'after'],
+      [tr('before'), change.before, 'before'],
+      [tr('after'), change.after, 'after'],
     ]) {
       const column = document.createElement('div');
       column.className = direction;
@@ -670,7 +1040,7 @@ function clearConfigPlan() {
   pendingConfigPlan = null;
   $('planEmpty').classList.remove('hidden');
   $('planCard').classList.add('hidden');
-  $('planRisk').textContent = '等待指令';
+  $('planRisk').textContent = tr('waitingForRequest');
   $('planRisk').className = '';
   $('planChanges').replaceChildren();
   $('confirmationInput').value = '';
@@ -681,7 +1051,7 @@ async function submitConfigRequest(event) {
   if (configBusy) return;
   const message = $('configInput').value.trim();
   if (!message) {
-    showToast('请先描述你希望调整的效果。');
+    showToast(tr('describeChange'));
     return;
   }
   await loadConfigurationAssistant();
@@ -689,7 +1059,7 @@ async function submitConfigRequest(event) {
   clearConfigPlan();
   appendConfigMessage('user', message);
   $('configInput').value = '';
-  const loading = appendConfigMessage('assistant', '正在读取当前配置并生成受限修改方案', {
+  const loading = appendConfigMessage('assistant', tr('generatingPlan'), {
     loading: true,
   });
   setConfigBusy(true);
@@ -704,13 +1074,13 @@ async function submitConfigRequest(event) {
     appendConfigMessage(
       'assistant',
       plan.answer || (planCanApply(plan)
-        ? '方案已生成。请检查右侧的修改前后对比，确认后再应用。'
-        : '我检查了当前配置，这个请求不需要修改。'),
+        ? tr('planReady')
+        : tr('noPlanChanges')),
     );
     renderConfigPlan(plan);
   } catch (error) {
     loading.remove();
-    appendConfigMessage('system', `方案生成失败：${error.message}`);
+    appendConfigMessage('system', `${locale === 'zh' ? '方案生成失败' : 'Plan generation failed'}: ${error.message}`);
   } finally {
     setConfigBusy(false);
   }
@@ -721,14 +1091,14 @@ async function requestRuntimePlan(runtimeId) {
   await loadConfigurationAssistant();
   if (!configSessionToken) return;
   const runtime = runtimeId === 'auto'
-    ? { label: '自动选择' }
+    ? { label: tr('autoSelect') }
     : latestRuntimeState?.runtimes?.find(item => item.id === runtimeId);
   if (!runtime || (runtimeId !== 'auto' && !runtime.available)) {
-    showToast('这个运行时尚不具备可用的无界面 CLI。');
+    showToast(tr('runtimeUnavailable'));
     return;
   }
   clearConfigPlan();
-  appendConfigMessage('user', `切换 AI 运行时为 ${runtime.label}`);
+  appendConfigMessage('user', tr('switchRuntime', { runtime: runtime.label }));
   setConfigBusy(true);
   try {
     const payload = await responseJson(await fetch('/api/config/runtime-plan', {
@@ -740,7 +1110,7 @@ async function requestRuntimePlan(runtimeId) {
     renderConfigPlan(payload.plan);
     $('configConsole').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (error) {
-    appendConfigMessage('system', `无法生成运行时切换方案：${error.message}`);
+    appendConfigMessage('system', `${locale === 'zh' ? '无法生成运行时切换方案' : 'Could not generate a runtime change plan'}: ${error.message}`);
   } finally {
     setConfigBusy(false);
   }
@@ -751,12 +1121,12 @@ async function applyConfigPlan() {
   const confirmationCode = $('confirmationInput').value.trim();
   if (pendingConfigPlan.confirmationLevel === 'double'
     && confirmationCode !== pendingConfigPlan.confirmationCode) {
-    showToast('请输入右侧显示的 6 位确认码。');
+    showToast(tr('confirmationCodeRequired'));
     $('confirmationInput').focus();
     return;
   }
   setConfigBusy(true);
-  appendConfigMessage('system', '正在备份、写入、重启并执行健康检查，请不要关闭页面。');
+  appendConfigMessage('system', tr('applyingPlan'));
   try {
     const payload = await responseJson(await fetch('/api/config/apply', {
       method: 'POST',
@@ -768,7 +1138,10 @@ async function applyConfigPlan() {
     }));
     appendConfigMessage(
       'assistant',
-      `配置已应用并通过健康检查。当前状态：${payload.state || '正常'}。已保留回滚点 ${payload.snapshot?.id || ''}。`,
+      tr('planApplied', {
+        state: payload.state || tr('normal'),
+        snapshot: payload.snapshot?.id || '—',
+      }),
     );
     clearConfigPlan();
     await Promise.all([loadConfigurationAssistant(), refresh()]);
@@ -776,8 +1149,8 @@ async function applyConfigPlan() {
     appendConfigMessage(
       'system',
       error.rolledBack
-        ? `应用失败，但系统已经自动恢复到修改前：${error.message}`
-        : `应用失败：${error.message}`,
+        ? `${locale === 'zh' ? '应用失败，但系统已经自动恢复到修改前' : 'Apply failed; the previous configuration was restored'}: ${error.message}`
+        : `${locale === 'zh' ? '应用失败' : 'Apply failed'}: ${error.message}`,
     );
     if (error.rolledBack) clearConfigPlan();
     await Promise.all([loadConfigurationAssistant(), refresh()]);
@@ -789,14 +1162,14 @@ async function applyConfigPlan() {
 function cancelConfigPlan() {
   if (configBusy) return;
   clearConfigPlan();
-  appendConfigMessage('system', '已放弃这份方案，没有修改任何配置。');
+  appendConfigMessage('system', tr('planDiscarded'));
 }
 
 async function rollbackSnapshot(snapshotId) {
   if (configBusy) return;
-  if (!window.confirm(`确认恢复到备份 ${snapshotId}？恢复后会重启并执行健康检查。`)) return;
+  if (!window.confirm(tr('rollbackConfirm', { snapshot: snapshotId }))) return;
   setConfigBusy(true);
-  appendConfigMessage('system', `正在恢复备份 ${snapshotId} 并验证服务状态。`);
+  appendConfigMessage('system', tr('rollbackRunning', { snapshot: snapshotId }));
   try {
     const payload = await responseJson(await fetch('/api/config/rollback', {
       method: 'POST',
@@ -806,11 +1179,11 @@ async function rollbackSnapshot(snapshotId) {
         confirmation: rollbackConfirmation(snapshotId),
       }),
     }));
-    appendConfigMessage('assistant', `备份已恢复并通过健康检查。当前状态：${payload.state || '正常'}。`);
+    appendConfigMessage('assistant', tr('rollbackComplete', { state: payload.state || tr('normal') }));
     clearConfigPlan();
     await Promise.all([loadConfigurationAssistant(), refresh()]);
   } catch (error) {
-    appendConfigMessage('system', `回滚失败：${error.message}`);
+    appendConfigMessage('system', `${locale === 'zh' ? '回滚失败' : 'Rollback failed'}: ${error.message}`);
     await Promise.all([loadConfigurationAssistant(), refresh()]);
   } finally {
     setConfigBusy(false);
@@ -818,15 +1191,34 @@ async function rollbackSnapshot(snapshotId) {
 }
 
 function tick() {
-  $('clock').textContent = new Intl.DateTimeFormat('zh-CN', {
+  $('clock').textContent = new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en-GB', {
     timeZone: 'Asia/Shanghai',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
   }).format(new Date());
-  $('refreshAge').textContent = lastFetchedAt ? `${Math.max(0, Math.floor((Date.now() - lastFetchedAt) / 1000))}s AGO` : '连接中';
+  $('refreshAge').textContent = lastFetchedAt
+    ? tr('ago', { seconds: Math.max(0, Math.floor((Date.now() - lastFetchedAt) / 1000)) })
+    : tr('connecting');
 }
 
+$('languageToggle').addEventListener('click', () => setLocale(locale === 'en' ? 'zh' : 'en'));
+$('contactDeveloperButton').addEventListener('click', openContactDialog);
+$('contactDialogClose').addEventListener('click', () => $('contactDialog').close());
+$('contactCardRetry').addEventListener('click', () => loadContactCard({ force: true }));
+$('activationForm').addEventListener('submit', activateAipro);
+$('activationCode').addEventListener('input', event => {
+  const normalized = normalizeInvitationCode(event.target.value);
+  if (normalized || event.target.value === '') event.target.value = normalized;
+});
+$('generateInvitesButton').addEventListener('click', generateInvitations);
+$('copyInvitesButton').addEventListener('click', () => {
+  copyInvitations().catch(() => showToast(tr('invitationGenerationFailed')));
+});
+$('downloadInvitesButton').addEventListener('click', downloadInvitations);
 $('refreshButton').addEventListener('click', refresh);
 $('restartButton').addEventListener('click', restart);
+$('wechatPocToggle').addEventListener('change', toggleWeChatPoc);
+$('wechatPocEmergencyStop').addEventListener('click', emergencyStopWeChatPoc);
+$('wechatPocOpenClient').addEventListener('click', openWeChatClient);
 $('configForm').addEventListener('submit', submitConfigRequest);
 $('applyPlanButton').addEventListener('click', applyConfigPlan);
 $('cancelPlanButton').addEventListener('click', cancelConfigPlan);
@@ -838,7 +1230,7 @@ $('channelEnabled').addEventListener('change', () => {
   $('channelSaveButton').textContent = channelSubmitLabel({
     ...configuration,
     enabled: $('channelEnabled').checked,
-  });
+  }, locale);
 });
 $('channelDialog').addEventListener('cancel', event => {
   if (channelBusy) event.preventDefault();
@@ -863,8 +1255,8 @@ for (const chip of document.querySelectorAll('[data-config-prompt]')) {
   });
 }
 setInterval(tick, 1000);
-refreshTimer = setInterval(refresh, 5000);
-window.addEventListener('beforeunload', () => clearInterval(refreshTimer));
-tick();
-refresh();
-loadConfigurationAssistant();
+window.addEventListener('beforeunload', () => {
+  if (refreshTimer) clearInterval(refreshTimer);
+});
+setLocale(locale, { persist: false });
+loadLicensingStatus();

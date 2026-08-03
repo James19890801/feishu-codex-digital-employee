@@ -1,3 +1,5 @@
+import { channelSubmitText, runtimeStatusText } from './i18n.js';
+
 export function formatAssistantValue(value) {
   if (typeof value === 'string') return value;
   if (value === undefined) return 'Not set';
@@ -24,19 +26,23 @@ export function runtimeCanSelect(runtime, selectedId) {
   return Boolean(runtime?.available && runtime.id !== selectedId);
 }
 
-export function runtimeStatusLabel(runtime) {
-  if (runtime?.available) return '可用';
-  if (runtime?.installed) return '仅检测到应用';
-  return '未安装';
+export function runtimeStatusLabel(runtime, locale = 'en') {
+  return runtimeStatusText(locale, runtime);
 }
 
 export function channelRequestHeaders(sessionToken) {
   return assistantRequestHeaders('channel-config', sessionToken);
 }
 
-export function channelSubmitLabel(channel) {
-  if (channel?.protected) return '主通道受保护';
-  return channel?.enabled ? '保存并连接' : '保存配置';
+export function wechatPocRequestHeaders(action, sessionToken) {
+  if (!['wechat-poc-control', 'wechat-poc-stop', 'wechat-poc-open'].includes(action)) {
+    throw new Error('Unsupported personal WeChat action');
+  }
+  return assistantRequestHeaders(action, sessionToken);
+}
+
+export function channelSubmitLabel(channel, locale = 'en') {
+  return channelSubmitText(locale, channel);
 }
 
 export function channelNeedsCredential(channel, enteredCredential, requestedIdentity = '') {
