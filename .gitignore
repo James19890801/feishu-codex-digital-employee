@@ -8,6 +8,7 @@ data/
 *.log
 .DS_Store
 .worktrees/
+dist/
 .wrangler/
 **/.wrangler/
 **/.dev.vars

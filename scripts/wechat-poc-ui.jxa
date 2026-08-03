@@ -206,7 +206,7 @@ function notificationObservation(group, boundaryAt) {
   const senderName = groupConversation && senderMatch ? senderMatch[1].trim() : title;
   const text = groupConversation && senderMatch ? senderMatch[2].trim() : rawBody;
   const mentionedSelf = groupConversation
-    && /(?:[@＠](?:James|詹老师)|\[有人@我\]|有人@我)/i.test(rawBody);
+    && /(?:[@＠](?:我)|\[有人@我\]|有人@我)/i.test(rawBody);
   let identifier = '';
   try { identifier = String(group.attributes.byName('AXIdentifier').value() || ''); } catch (error) {}
   const observedAt = new Date().toISOString();
@@ -380,7 +380,7 @@ function scan(payload) {
     const observedAt = observationTime(row, payload.boundaryAt);
     if (Number.isFinite(boundaryMs) && Date.parse(observedAt) + 60000 < boundaryMs) continue;
     const mentionedSelf = /[@＠]/.test(row.snippet)
-      && /(James|詹老师|我)/i.test(row.snippet);
+      && /我/i.test(row.snippet);
     const group = mentionedSelf || /[:：]/.test(row.snippet) || /群/.test(row.title);
     observations.push({
       sourceMessageId: [row.title, row.snippet, row.time].join('|'),

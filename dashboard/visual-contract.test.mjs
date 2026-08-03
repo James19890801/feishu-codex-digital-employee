@@ -49,7 +49,8 @@ for (const endpoint of [
 
 assert.match(html, /<html lang="en">/);
 assert.match(html, /id="languageToggle"/);
-assert.equal((html.match(/Developed by Zhao Yingzhi &amp; James Feng/g) || []).length, 1);
+assert.equal((html.match(/Personal Digital Human · Local Runtime/g) || []).length, 1);
+assert.doesNotMatch(html, /James|詹老师|Zhao Yingzhi|赵颖知/);
 assert.match(html, /class="brand-mark" role="img" aria-label="Personal digital human emblem"/);
 assert.match(html, /<h1 data-i18n="brandName">Personal Digital Human<\/h1>/);
 assert.doesNotMatch(html, /Achong|阿充/);

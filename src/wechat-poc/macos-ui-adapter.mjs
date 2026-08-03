@@ -172,7 +172,7 @@ export class MacOsWeChatUiAdapter {
     return unreadRows(analysis).filter(row => !excluded.test(row.title)).map(row => {
       const timestamp = observedAt(row, boundaryAt);
       if (Number.isFinite(boundaryMs) && Date.parse(timestamp) + 60_000 < boundaryMs) return null;
-      const mentionedSelf = /[@＠]/.test(row.snippet) && /(James|詹老师|我)/i.test(row.snippet);
+      const mentionedSelf = /[@＠]/.test(row.snippet) && /我/i.test(row.snippet);
       const group = mentionedSelf || /[:：]/.test(row.snippet) || /群/.test(row.title);
       return {
         sourceMessageId: [row.title, row.snippet, row.time].join('|'),
