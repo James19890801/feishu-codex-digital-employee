@@ -69,7 +69,7 @@ function timestamp(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function normalizeMessage(raw, { conversationId, ownerIds }) {
+function normalizeMessage(raw, { conversationId, ownerIds, ownerNames }) {
   const content = messageText(raw?.content ?? raw?.text ?? raw?.messageContent);
   if (!usableText(content)) return null;
   const senderId = String(
@@ -87,7 +87,7 @@ function normalizeMessage(raw, { conversationId, ownerIds }) {
     conversationId: messageConversationId || String(conversationId || ''),
     senderId,
     senderName,
-    direction: ownerIds.has(senderId) ? 'owner' : 'counterparty',
+    direction: ownerIds.has(senderId) || ownerNames.has(senderName) ? 'owner' : 'counterparty',
     content,
     createdAt: String(createdAtRaw || ''),
     createdAtMs,
@@ -115,6 +115,7 @@ function normalizeTrustedCurrent(raw, options) {
 export function normalizeConversationHistory(root, {
   conversationId = '',
   ownerIds = [],
+  ownerNames = [],
   currentMessage = null,
 } = {}) {
   const normalizedConversationId = String(conversationId || '').trim();
@@ -122,7 +123,14 @@ export function normalizeConversationHistory(root, {
   const normalizedOwnerIds = new Set(
     (Array.isArray(ownerIds) ? ownerIds : [ownerIds]).map(value => String(value || '').trim()).filter(Boolean),
   );
-  const options = { conversationId: normalizedConversationId, ownerIds: normalizedOwnerIds };
+  const normalizedOwnerNames = new Set(
+    (Array.isArray(ownerNames) ? ownerNames : [ownerNames]).map(value => String(value || '').trim()).filter(Boolean),
+  );
+  const options = {
+    conversationId: normalizedConversationId,
+    ownerIds: normalizedOwnerIds,
+    ownerNames: normalizedOwnerNames,
+  };
   const messages = rawMessages(root)
     .map(raw => normalizeMessage(raw, options))
     .filter(Boolean);

@@ -39,6 +39,7 @@ export class ConversationContextClient {
     env = {},
     cwd,
     ownerIds = [],
+    ownerNames = [],
     runner,
     timeoutMs = 30_000,
     audit = () => {},
@@ -49,6 +50,7 @@ export class ConversationContextClient {
     this.env = env;
     this.cwd = cwd;
     this.ownerIds = ownerIds;
+    this.ownerNames = ownerNames;
     this.runner = runner;
     this.timeoutMs = timeoutMs;
     this.audit = typeof audit === 'function' ? audit : () => {};
@@ -108,6 +110,7 @@ export class ConversationContextClient {
       const normalized = normalizeConversationHistory(root, {
         conversationId: context.conversationId,
         ownerIds: this.ownerIds,
+        ownerNames: this.ownerNames,
         currentMessage: context.currentMessage,
       });
       if (!normalized.currentMessage || !normalized.latestCounterpartyMessage) {

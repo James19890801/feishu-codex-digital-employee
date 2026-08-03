@@ -129,6 +129,27 @@ const rawShape = normalizeConversationHistory(
 assert.equal(rawShape.messages.length, 1);
 assert.equal(rawShape.latestCounterpartyMessage.senderName, '群友乙');
 
+const ownerByName = normalizeConversationHistory(
+  {
+    result: {
+      messages: [{
+        openMessageId: 'owner-name-1', senderOpenDingTalkId: 'unknown-owner-open-id',
+        sender: '冯周充', content: '我先看一下', createTime: '2026-08-03 14:59:00',
+        openConversationId: 'cid-direct',
+      }],
+    },
+  },
+  {
+    conversationId: 'cid-direct', ownerIds: ['384351'], ownerNames: ['阿充', '冯周充'],
+    currentMessage: {
+      messageId: 'owner-name-current', conversationId: 'cid-direct', senderId: 'colleague-open',
+      senderName: '同事甲', content: '能帮我看看吗', createdAt: '2026-08-03 15:00:00',
+    },
+  },
+);
+assert.equal(ownerByName.styleSamples.length, 1);
+assert.equal(ownerByName.styleSamples[0].content, '我先看一下');
+
 const formatted = formatConversationContext(normalized);
 assert.match(formatted, /当前钉钉会话最近 30 条真实消息/);
 assert.match(formatted, /当前回应目标/);
