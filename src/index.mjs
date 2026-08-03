@@ -21,6 +21,7 @@ import {
   canReadDocument,
   extractKnowledgeQuery,
   looksLikeKnowledgeRequest,
+  normalizeKnowledgeCatalog,
   resolveCatalogDocument,
   sourceLine,
   stripHighlight,
@@ -179,6 +180,7 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_DOC_CHARS = 40_000;
 const KNOWLEDGE_CATALOG_PATH = join(WORKDIR, 'knowledge-catalog.json');
 const KNOWLEDGE_CATALOG = JSON.parse(await readFile(KNOWLEDGE_CATALOG_PATH, 'utf8'));
+const KNOWLEDGE_SOURCES = normalizeKnowledgeCatalog(KNOWLEDGE_CATALOG).sources;
 await mkdir(CODEX_RUNTIME_DIR, { recursive: true });
 await mkdir(CODEX_HOME_DIR, { recursive: true, mode: 0o700 });
 const isolatedAuthPath = join(CODEX_HOME_DIR, 'auth.json');
@@ -553,7 +555,7 @@ async function searchFeishuKnowledge(client, text, senderOpenId) {
     const documents = (response.data?.res_units || [])
       .map(result => {
         const token = tokenFromSearchResult(result);
-        const catalog = KNOWLEDGE_CATALOG.find(item => item.token === token);
+        const catalog = KNOWLEDGE_SOURCES.find(item => item.token === token);
         return catalog ? { documentId: token, ...catalog } : {
           documentId: token,
           token,

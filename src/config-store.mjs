@@ -35,8 +35,12 @@ function serializeDocuments(documents) {
   if (typeof documents.persona !== 'string' || typeof documents.bible !== 'string') {
     throw new Error('Persona and Bible documents must be strings');
   }
-  if (!Array.isArray(documents.knowledgeCatalog)) {
-    throw new Error('Knowledge catalog must be an array');
+  const catalogIsV2 = documents.knowledgeCatalog
+    && !Array.isArray(documents.knowledgeCatalog)
+    && Number(documents.knowledgeCatalog.version) === 2
+    && Array.isArray(documents.knowledgeCatalog.sources);
+  if (!Array.isArray(documents.knowledgeCatalog) && !catalogIsV2) {
+    throw new Error('Knowledge catalog must be an array or a version 2 object');
   }
   return {
     config: `${JSON.stringify(documents.config, null, 2)}\n`,

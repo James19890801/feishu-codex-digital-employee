@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { normalizeMemoryCandidate } from './memory-policy.mjs';
 
 function parseStoredPayload(value) {
   try {
@@ -33,6 +34,42 @@ export class AgentState {
         scope TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
         updated_at TEXT NOT NULL, PRIMARY KEY(scope, key)
       );
+      CREATE TABLE IF NOT EXISTS identity_tombstone (
+        term TEXT PRIMARY KEY,
+        reason TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS memory_item (
+        memory_id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        content TEXT NOT NULL,
+        source_refs TEXT NOT NULL,
+        confidence TEXT NOT NULL,
+        valid_from TEXT NOT NULL DEFAULT '',
+        valid_until TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS memory_item_active
+        ON memory_item(status, kind, updated_at DESC);
+      CREATE TABLE IF NOT EXISTS knowledge_source (
+        source_id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        locator TEXT NOT NULL,
+        owner_id TEXT NOT NULL DEFAULT '',
+        reader_ids TEXT NOT NULL DEFAULT '[]',
+        sensitivity TEXT NOT NULL DEFAULT 'internal',
+        status TEXT NOT NULL DEFAULT 'active',
+        freshness_at TEXT NOT NULL DEFAULT '',
+        summary TEXT NOT NULL DEFAULT '',
+        exclusion_reason TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS knowledge_source_active
+        ON knowledge_source(status, type, updated_at DESC);
       CREATE TABLE IF NOT EXISTS audit (
         id INTEGER PRIMARY KEY, event TEXT NOT NULL, chat_id TEXT,
         sender_id TEXT, message_id TEXT, detail TEXT NOT NULL,
@@ -213,6 +250,121 @@ export class AgentState {
 
   unset(scope, key) {
     this.db.prepare('DELETE FROM settings WHERE scope = ? AND key = ?').run(scope, key);
+  }
+
+  upsertMemoryItem(candidate) {
+    const item = normalizeMemoryCandidate(candidate);
+    if (!item.memoryId) throw new Error('memoryId is required');
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT INTO memory_item
+      (memory_id, kind, subject, content, source_refs, confidence,
+       valid_from, valid_until, status, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+      ON CONFLICT(memory_id) DO UPDATE SET
+        kind=excluded.kind, subject=excluded.subject, content=excluded.content,
+        source_refs=excluded.source_refs, confidence=excluded.confidence,
+        valid_from=excluded.valid_from, valid_until=excluded.valid_until,
+        status='active', updated_at=excluded.updated_at`)
+      .run(
+        item.memoryId,
+        item.kind,
+        item.subject,
+        item.content,
+        JSON.stringify(item.sourceRefs),
+        item.confidence,
+        item.validFrom,
+        item.validUntil,
+        now,
+      );
+    return this.getMemoryItem(item.memoryId);
+  }
+
+  getMemoryItem(memoryId) {
+    const row = this.db.prepare('SELECT * FROM memory_item WHERE memory_id = ?').get(memoryId);
+    if (!row) return null;
+    return {
+      memoryId: row.memory_id,
+      kind: row.kind,
+      subject: row.subject,
+      content: row.content,
+      sourceRefs: JSON.parse(row.source_refs),
+      confidence: row.confidence,
+      validFrom: row.valid_from,
+      validUntil: row.valid_until,
+      status: row.status,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  listActiveMemories(query = '', limit = 20) {
+    const needle = `%${String(query || '').trim()}%`;
+    return this.db.prepare(`SELECT memory_id FROM memory_item
+      WHERE status = 'active' AND (subject LIKE ? OR content LIKE ?)
+      ORDER BY updated_at DESC LIMIT ?`)
+      .all(needle, needle, Math.max(1, Math.min(100, Number(limit) || 20)))
+      .map(row => this.getMemoryItem(row.memory_id));
+  }
+
+  forgetMemory(memoryId) {
+    return this.db.prepare(`UPDATE memory_item SET status = 'forgotten', updated_at = ?
+      WHERE memory_id = ? AND status != 'forgotten'`)
+      .run(new Date().toISOString(), memoryId).changes === 1;
+  }
+
+  upsertKnowledgeSource(source = {}) {
+    const sourceId = String(source.sourceId || '').trim();
+    const type = String(source.type || '').trim();
+    const title = String(source.title || '').trim();
+    const locator = String(source.locator || '').trim();
+    if (!sourceId || !type || !title || !locator) throw new Error('Knowledge source is incomplete');
+    if (/\bALT\b/iu.test(`${title}\n${locator}\n${source.summary || ''}`)) {
+      throw new Error('Knowledge source rejected: excluded_scope');
+    }
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT INTO knowledge_source
+      (source_id, type, title, locator, owner_id, reader_ids, sensitivity,
+       status, freshness_at, summary, exclusion_reason, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(source_id) DO UPDATE SET
+        type=excluded.type, title=excluded.title, locator=excluded.locator,
+        owner_id=excluded.owner_id, reader_ids=excluded.reader_ids,
+        sensitivity=excluded.sensitivity, status=excluded.status,
+        freshness_at=excluded.freshness_at, summary=excluded.summary,
+        exclusion_reason=excluded.exclusion_reason, updated_at=excluded.updated_at`)
+      .run(
+        sourceId,
+        type,
+        title,
+        locator,
+        String(source.ownerId || ''),
+        JSON.stringify(Array.isArray(source.readerIds) ? source.readerIds : []),
+        String(source.sensitivity || 'internal'),
+        String(source.status || 'active'),
+        String(source.freshnessAt || ''),
+        String(source.summary || ''),
+        String(source.exclusionReason || ''),
+        now,
+      );
+    return this.getKnowledgeSource(sourceId);
+  }
+
+  getKnowledgeSource(sourceId) {
+    const row = this.db.prepare('SELECT * FROM knowledge_source WHERE source_id = ?').get(sourceId);
+    if (!row) return null;
+    return {
+      sourceId: row.source_id,
+      type: row.type,
+      title: row.title,
+      locator: row.locator,
+      ownerId: row.owner_id,
+      readerIds: JSON.parse(row.reader_ids),
+      sensitivity: row.sensitivity,
+      status: row.status,
+      freshnessAt: row.freshness_at,
+      summary: row.summary,
+      exclusionReason: row.exclusion_reason,
+      updatedAt: row.updated_at,
+    };
   }
 
   audit(event, {

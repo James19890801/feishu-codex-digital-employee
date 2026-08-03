@@ -50,6 +50,22 @@ try {
   assert.equal(updated.config.pollIntervalMs, 3000);
   assert.match(updated.persona, /Updated/);
 
+  const versionedCatalog = {
+    version: 2,
+    sources: [{
+      sourceId: 'repo:webagent',
+      type: 'code_repository',
+      title: 'WebAgent',
+      locator: 'enterprise-development/ai-lab-agent',
+      status: 'active',
+    }],
+  };
+  await store.writeConfigurationDocuments(root, {
+    ...updated,
+    knowledgeCatalog: versionedCatalog,
+  });
+  assert.deepEqual((await store.readConfigurationDocuments(root)).knowledgeCatalog, versionedCatalog);
+
   const history = await store.listConfigurationSnapshots(root);
   assert.equal(history.length, 1);
   assert.equal(history[0].summary, 'Before polling update');
