@@ -71,6 +71,20 @@ export function buildDingTalkConsumerArgs(profile = '') {
   ];
 }
 
+export function buildDingTalkListAllPollingArgs(start, end, cursor = '0') {
+  const startTime = String(start || '').trim();
+  const endTime = String(end || '').trim();
+  if (!startTime || !endTime) throw new Error('DingTalk polling start and end times are required');
+  return [
+    'chat', 'message', 'list-all',
+    '--start', startTime,
+    '--end', endTime,
+    '--limit', '50',
+    '--cursor', String(cursor || '0'),
+    '--format', 'json',
+  ];
+}
+
 export function buildDingTalkSelfPollingArgs(profile, userId, start) {
   return [
     ...(profile ? ['--profile', profile] : []),
@@ -105,6 +119,7 @@ export function buildDingTalkConversationPollingArgs(profile, target, start) {
 
 export function buildDingTalkSendArgs(target, text, uuid = '', {
   atOpenDingTalkIds = [],
+  transport = 'event-stream',
 } = {}) {
   if (target?.channel !== 'dingtalk') {
     throw new Error('DingTalk sender received a non-DingTalk target');
@@ -122,8 +137,8 @@ export function buildDingTalkSendArgs(target, text, uuid = '', {
     'chat', 'message', 'send',
     ...recipient,
     '--text', content,
-    '--ai-tag=false',
   ];
+  if (transport !== 'wukong-polling') args.push('--ai-tag=false');
   const mentionIds = target.kind === 'group'
     ? [...new Set(atOpenDingTalkIds.map(value => String(value || '').trim()).filter(Boolean))]
       .slice(0, 20)
@@ -221,6 +236,88 @@ export function normalizeDingTalkSelfMessages(result) {
       },
     }];
   });
+}
+
+export function normalizeDingTalkListAllPage(result, {
+  ownerOpenId = '',
+  ownerNames = [],
+  mentionNames = [],
+} = {}) {
+  const root = result?.result || result?.data || result || {};
+  const conversations = Array.isArray(root?.conversationMessagesList)
+    ? root.conversationMessagesList
+    : [];
+  const ownerId = String(ownerOpenId || '').trim();
+  const normalizedOwnerNames = new Set(
+    (Array.isArray(ownerNames) ? ownerNames : [])
+      .map(value => String(value || '').trim())
+      .filter(Boolean),
+  );
+  const normalizedMentionNames = (Array.isArray(mentionNames) ? mentionNames : [])
+    .map(value => String(value || '').trim())
+    .filter(Boolean);
+  const payloads = [];
+
+  for (const conversation of conversations) {
+    const singleChat = conversation?.singleChat === true;
+    const conversationId = String(conversation?.openConversationId || '').trim();
+    const conversationTitle = String(conversation?.title || '').trim();
+    const messages = Array.isArray(conversation?.messages) ? conversation.messages : [];
+    if (!conversationId) continue;
+    for (const item of messages) {
+      const messageId = String(item?.openMessageId || item?.messageId || '').trim();
+      const senderId = String(item?.senderOpenDingTalkId || '').trim();
+      const content = String(item?.content || '').trim();
+      if (!messageId || !senderId || !content) continue;
+      if (/^\[(?:图片|文件|视频)消息\]/.test(content) || /^\[文件\]/.test(content)) continue;
+
+      let targetId = '';
+      let selfChat = false;
+      if (singleChat) {
+        if (senderId === ownerId) {
+          selfChat = normalizedOwnerNames.has(conversationTitle);
+          if (!selfChat) continue;
+        }
+        targetId = senderId;
+      } else {
+        if (senderId === ownerId) continue;
+        const mentioned = normalizedMentionNames.some(name => (
+          content.includes(`@${name}`) || content.includes(`＠${name}`)
+        ));
+        if (!mentioned) continue;
+        targetId = conversationId;
+      }
+
+      payloads.push({
+        message: {
+          message_id: `dingtalk:${messageId}`,
+          chat_id: formatChannelChatId('dingtalk', singleChat ? 'user' : 'group', targetId),
+          chat_type: singleChat ? 'p2p' : 'group',
+          message_type: 'text',
+          create_time: normalizedTimestamp(item?.createTime),
+          content: JSON.stringify({ text: content }),
+          mentions: singleChat ? [] : [{ id: 'dingtalk-current-user' }],
+        },
+        sender: {
+          sender_type: 'user',
+          sender_id: { open_id: `dingtalk:${senderId}` },
+        },
+        metadata: {
+          channel: 'dingtalk',
+          source: 'wukong-poll',
+          selfChat,
+          conversationId,
+          conversationTitle,
+        },
+      });
+    }
+  }
+
+  return {
+    payloads,
+    hasMore: root?.hasMore === true,
+    nextCursor: String(root?.nextCursor || '0'),
+  };
 }
 
 function weComText(body) {

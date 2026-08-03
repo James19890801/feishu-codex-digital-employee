@@ -4,10 +4,12 @@ import {
   buildDingTalkConversationPollingArgs,
   buildDingTalkSelfPollingArgs,
   buildDingTalkConsumerArgs,
+  buildDingTalkListAllPollingArgs,
   buildDingTalkSendArgs,
   formatChannelChatId,
   normalizeGeWeWebhook,
   normalizeDingTalkEvent,
+  normalizeDingTalkListAllPage,
   normalizeDingTalkSelfMessages,
   normalizeWeComFrame,
   parseChannelChatId,
@@ -116,6 +118,104 @@ assert.deepEqual(buildDingTalkConsumerArgs('corp:user'), [
   '--flatten',
   '--format', 'ndjson',
 ]);
+
+assert.deepEqual(buildDingTalkListAllPollingArgs(
+  '2026-08-03 11:20:00',
+  '2026-08-03 11:25:00',
+  'cursor-2',
+), [
+  'chat', 'message', 'list-all',
+  '--start', '2026-08-03 11:20:00',
+  '--end', '2026-08-03 11:25:00',
+  '--limit', '50',
+  '--cursor', 'cursor-2',
+  '--format', 'json',
+]);
+
+{
+  const page = normalizeDingTalkListAllPage({
+    success: true,
+    result: {
+      conversationMessagesList: [{
+        openConversationId: 'cid-direct',
+        singleChat: true,
+        title: '同事甲',
+        messages: [{
+          content: '你好，帮我看一下',
+          createTime: '2026-08-03 11:21:00',
+          openConversationId: 'cid-direct',
+          openMessageId: 'msg-direct',
+          sender: '同事甲',
+          senderOpenDingTalkId: 'open-colleague',
+        }, {
+          content: '这是阿充已发出的回复',
+          createTime: '2026-08-03 11:21:05',
+          openConversationId: 'cid-direct',
+          openMessageId: 'msg-outbound',
+          sender: '阿充James',
+          senderOpenDingTalkId: 'open-owner',
+        }],
+      }, {
+        openConversationId: 'cid-self',
+        singleChat: true,
+        title: '阿充James',
+        messages: [{
+          content: '你是谁？',
+          createTime: '2026-08-03 11:22:00',
+          openConversationId: 'cid-self',
+          openMessageId: 'msg-self',
+          sender: '阿充James',
+          senderOpenDingTalkId: 'open-owner',
+        }],
+      }, {
+        openConversationId: 'cid-group',
+        singleChat: false,
+        title: '研发群',
+        messages: [{
+          content: '@阿充 请看下这个问题',
+          createTime: '2026-08-03 11:23:00',
+          openConversationId: 'cid-group',
+          openMessageId: 'msg-at',
+          sender: '同事乙',
+          senderOpenDingTalkId: 'open-colleague-2',
+        }, {
+          content: '这是普通群消息',
+          createTime: '2026-08-03 11:23:05',
+          openConversationId: 'cid-group',
+          openMessageId: 'msg-no-at',
+          sender: '同事乙',
+          senderOpenDingTalkId: 'open-colleague-2',
+        }, {
+          content: '@阿充 这是本人发的',
+          createTime: '2026-08-03 11:23:10',
+          openConversationId: 'cid-group',
+          openMessageId: 'msg-owner-group',
+          sender: '阿充James',
+          senderOpenDingTalkId: 'open-owner',
+        }],
+      }],
+      hasMore: true,
+      nextCursor: 'next-page',
+    },
+  }, {
+    ownerOpenId: 'open-owner',
+    ownerNames: ['阿充', '阿充James'],
+    mentionNames: ['阿充', '阿充James'],
+  });
+  assert.equal(page.hasMore, true);
+  assert.equal(page.nextCursor, 'next-page');
+  assert.deepEqual(page.payloads.map(item => item.message.message_id), [
+    'dingtalk:msg-direct',
+    'dingtalk:msg-self',
+    'dingtalk:msg-at',
+  ]);
+  assert.equal(page.payloads[0].message.chat_id, 'dingtalk:user:open-colleague');
+  assert.equal(page.payloads[0].metadata.selfChat, false);
+  assert.equal(page.payloads[1].message.chat_id, 'dingtalk:user:open-owner');
+  assert.equal(page.payloads[1].metadata.selfChat, true);
+  assert.equal(page.payloads[2].message.chat_id, 'dingtalk:group:cid-group');
+  assert.equal(page.payloads[2].message.mentions.length, 1);
+}
 
 assert.deepEqual(buildDingTalkSelfPollingArgs('corp:user', 'user', '2026-08-01 13:50:00'), [
   '--profile', 'corp:user',
@@ -242,6 +342,23 @@ assert.equal(normalizeDingTalkEvent({
     '--text', '收到，我来处理。',
     '--ai-tag=false',
     '--uuid', 'reply-uuid',
+    '--yes',
+    '--format', 'json',
+  ]);
+}
+
+{
+  const args = buildDingTalkSendArgs(
+    { channel: 'dingtalk', kind: 'user', id: 'open-colleague' },
+    '收到，我来看一下。',
+    'wukong-uuid',
+    { transport: 'wukong-polling' },
+  );
+  assert.deepEqual(args, [
+    'chat', 'message', 'send',
+    '--open-dingtalk-id', 'open-colleague',
+    '--text', '收到，我来看一下。',
+    '--uuid', 'wukong-uuid',
     '--yes',
     '--format', 'json',
   ]);
