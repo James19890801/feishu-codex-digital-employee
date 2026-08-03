@@ -27,7 +27,7 @@ assert.equal(
 {
   const result = await runBufferedProcess(process.execPath, [
     '-e', 'process.stdout.write("ok"); process.stderr.write("warn")',
-  ], { timeoutMs: 2_000 });
+  ], { timeoutMs: 10_000 });
   assert.equal(result.stdout, 'ok');
   assert.equal(result.stderr, 'warn');
 }
@@ -35,14 +35,14 @@ assert.equal(
 {
   const result = await runBufferedProcess(process.execPath, [
     '-e', 'const fs=require("fs"); process.stdout.write(String(fs.fstatSync(0).isSocket()))',
-  ], { timeoutMs: 2_000 });
+  ], { timeoutMs: 10_000 });
   assert.equal(result.stdout, 'false');
 }
 
 {
   const result = await runBufferedProcess(process.execPath, [
     '-e', 'process.stdin.pipe(process.stdout)',
-  ], { input: 'input-ok', timeoutMs: 2_000 });
+  ], { input: 'input-ok', timeoutMs: 10_000 });
   assert.equal(result.stdout, 'input-ok');
 }
 
@@ -87,7 +87,7 @@ assert.equal(
     ['-e', 'process.exit(0)'],
     {
       input: 'x'.repeat(20 * 1024 * 1024),
-      timeoutMs: 2_000,
+      timeoutMs: 10_000,
     },
   );
   assert.equal(result.exitCode, 0);

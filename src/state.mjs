@@ -252,6 +252,39 @@ export class AgentState {
       this.db.exec(`ALTER TABLE multica_global_subscription
         ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''`);
     }
+    const a1CacheColumns = new Set(
+      this.db.prepare('PRAGMA table_info(a1_workitem_cache)').all().map(row => row.name),
+    );
+    if (!a1CacheColumns.has('project_id')) {
+      this.db.exec(`ALTER TABLE a1_workitem_cache
+        ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!a1CacheColumns.has('title')) {
+      this.db.exec(`ALTER TABLE a1_workitem_cache
+        ADD COLUMN title TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!a1CacheColumns.has('workitem_updated_at')) {
+      this.db.exec(`ALTER TABLE a1_workitem_cache
+        ADD COLUMN workitem_updated_at TEXT NOT NULL DEFAULT ''`);
+    }
+    const a1SubscriptionColumns = new Set(
+      this.db.prepare('PRAGMA table_info(a1_workitem_subscription)').all().map(row => row.name),
+    );
+    if (!a1SubscriptionColumns.has('project_id')) {
+      this.db.exec(`ALTER TABLE a1_workitem_subscription
+        ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!a1SubscriptionColumns.has('chat_type')) {
+      this.db.exec(`ALTER TABLE a1_workitem_subscription
+        ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''`);
+    }
+    const a1OutboxColumns = new Set(
+      this.db.prepare('PRAGMA table_info(a1_notification_outbox)').all().map(row => row.name),
+    );
+    if (!a1OutboxColumns.has('chat_type')) {
+      this.db.exec(`ALTER TABLE a1_notification_outbox
+        ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''`);
+    }
   }
 
   remember(chatId, senderId, role, content) {
@@ -324,10 +357,19 @@ export class AgentState {
     const workitemId = String(snapshot?.id || '');
     if (!workitemId) throw new Error('A1 workitem snapshot id is required');
     const now = new Date().toISOString();
-    this.db.prepare(`INSERT INTO a1_workitem_cache(workitem_id, snapshot, seen_at)
-      VALUES (?, ?, ?) ON CONFLICT(workitem_id) DO UPDATE SET
-        snapshot=excluded.snapshot, seen_at=excluded.seen_at`)
-      .run(workitemId, JSON.stringify(snapshot), now);
+    this.db.prepare(`INSERT INTO a1_workitem_cache
+      (workitem_id, project_id, title, snapshot, workitem_updated_at, seen_at)
+      VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(workitem_id) DO UPDATE SET
+        project_id=excluded.project_id, title=excluded.title, snapshot=excluded.snapshot,
+        workitem_updated_at=excluded.workitem_updated_at, seen_at=excluded.seen_at`)
+      .run(
+        workitemId,
+        String(snapshot?.projectId || ''),
+        String(snapshot?.title || ''),
+        JSON.stringify(snapshot),
+        String(snapshot?.updatedAt || ''),
+        now,
+      );
   }
 
   enqueueA1Notification({

@@ -64,8 +64,10 @@ const processingCount = Number(db.prepare(`SELECT COUNT(*) AS count FROM inbound
 const failedCount = Number(db.prepare(`SELECT COUNT(*) AS count FROM inbound_message
   WHERE status = 'dead' OR (status = 'failed' AND available_at < ?)`)
   .get(new Date(nowMs - 60_000).toISOString())?.count || 0);
-const multicaDeadCount = Number(db.prepare(`SELECT COUNT(*) AS count
-  FROM multica_notification_outbox WHERE status = 'dead'`).get()?.count || 0);
+const a1PendingCount = Number(db.prepare(`SELECT COUNT(*) AS count
+  FROM a1_notification_outbox WHERE status = 'pending'`).get()?.count || 0);
+const a1DeadCount = Number(db.prepare(`SELECT COUNT(*) AS count
+  FROM a1_notification_outbox WHERE status = 'dead'`).get()?.count || 0);
 const proxyReachable = await tcpReachable(config.codexProxyUrl || '');
 const result = evaluateHealth({
   nowMs,
@@ -89,10 +91,9 @@ const lastPollError = setting('health', 'last_poll_error', null);
 const lastPollSuccessAt = setting('health', 'last_poll_success_at', '');
 const lastPollDurationMs = Number(setting('health', 'last_poll_duration_ms', 0));
 const lastWebsocketReadyAt = setting('health', 'last_websocket_ready_at', '');
-const lastMulticaSyncAt = setting('health', 'last_multica_sync_at', '');
-const lastMulticaSyncError = setting('health', 'last_multica_sync_error', null);
-const lastMulticaSyncResult = setting('health', 'last_multica_sync_result', null);
-const lastMulticaDispatchResult = setting('health', 'last_multica_dispatch_result', null);
+const lastA1SyncAt = setting('health', 'last_a1_sync_at', '');
+const lastA1SyncError = setting('health', 'last_a1_sync_error', null);
+const lastA1SyncResult = setting('health', 'last_a1_sync_result', null);
 const lastBackupAt = setting('health', 'last_database_backup_at', '');
 const lastBackupError = setting('health', 'last_database_backup_error', null);
 const lastAiRuntimeSuccessAt = setting('health', 'last_ai_runtime_success_at', '');
@@ -126,30 +127,22 @@ if (config.wecomEnabled === true && !wecomChannel.connected) {
 if (config.geweEnabled === true && !geweChannel.connected) {
   result.issues.push('wechat_channel_unavailable');
 }
-let multicaSyncAgeMs = null;
-if (config.multicaEnabled) {
-  multicaSyncAgeMs = lastMulticaSyncAt
-    ? nowMs - new Date(lastMulticaSyncAt).getTime()
+let a1SyncAgeMs = null;
+if (config.a1Enabled) {
+  a1SyncAgeMs = lastA1SyncAt
+    ? nowMs - new Date(lastA1SyncAt).getTime()
     : null;
-  const maxMulticaSyncAgeMs = Math.max(
-    60_000,
-    Number(config.multicaSyncIntervalMs || 10_000) * 6,
+  const maxA1SyncAgeMs = Math.max(
+    600_000,
+    Number(config.a1SyncIntervalMs || 300_000) * 3,
   );
-  if (multicaSyncAgeMs === null || !Number.isFinite(multicaSyncAgeMs)
-    || multicaSyncAgeMs > maxMulticaSyncAgeMs) {
-    result.issues.push('multica_sync_stale');
+  if (a1SyncAgeMs === null || !Number.isFinite(a1SyncAgeMs)
+    || a1SyncAgeMs > maxA1SyncAgeMs) {
+    result.issues.push('a1_sync_stale');
   }
-  if (lastMulticaSyncError) result.issues.push('multica_sync_error');
-  if (Number(lastMulticaSyncResult?.pending || 0) > 0) {
-    result.issues.push('multica_delivery_pending');
-  }
-  if (multicaDeadCount > 0) result.issues.push('multica_delivery_dead');
-  if (Number(lastMulticaDispatchResult?.pending || 0) > 0) {
-    result.issues.push('multica_dispatch_pending');
-  }
-  if (Number(lastMulticaDispatchResult?.deadTotal || 0) > 0) {
-    result.issues.push('multica_dispatch_dead');
-  }
+  if (lastA1SyncError) result.issues.push('a1_sync_error');
+  if (a1PendingCount > 0) result.issues.push('a1_delivery_pending');
+  if (a1DeadCount > 0) result.issues.push('a1_delivery_dead');
 }
 result.healthy = result.issues.length === 0;
 result.metrics = {
@@ -164,18 +157,15 @@ result.metrics = {
   aiRuntimeConfigured: config.aiRuntime || 'auto',
   aiRuntimeSelected: selectedAiRuntime?.id || '',
   aiRuntimeLabel: selectedAiRuntime?.label || '',
-  multicaEnabled: config.multicaEnabled === true,
-  lastMulticaSyncAt,
-  multicaSyncAgeMs,
-  multicaScanned: Number(lastMulticaSyncResult?.scanned || 0),
-  multicaChanges: Number(lastMulticaSyncResult?.changes || 0),
-  multicaNotified: Number(lastMulticaSyncResult?.notified || 0),
-  multicaPending: Number(lastMulticaSyncResult?.pending || 0),
-  multicaFailed: Number(lastMulticaSyncResult?.failed || 0),
-  multicaDead: multicaDeadCount,
-  multicaDispatchPending: Number(lastMulticaDispatchResult?.pending || 0),
-  multicaDispatchDead: Number(lastMulticaDispatchResult?.deadTotal || 0),
-  multicaDispatched: Number(lastMulticaDispatchResult?.dispatched || 0),
+  a1Enabled: config.a1Enabled === true,
+  lastA1SyncAt,
+  a1SyncAgeMs,
+  a1Scanned: Number(lastA1SyncResult?.fetched || 0),
+  a1Changes: Number(lastA1SyncResult?.changed || 0),
+  a1Notified: Number(lastA1SyncResult?.delivered || 0),
+  a1Pending: a1PendingCount,
+  a1Failed: Number(lastA1SyncResult?.failed || 0),
+  a1Dead: a1DeadCount,
   lastDatabaseBackupAt: lastBackupAt,
   databaseBackupAgeMs: backupAgeMs,
   lastAiRuntimeSuccessAt,

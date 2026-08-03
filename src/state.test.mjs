@@ -2,10 +2,40 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { AgentState } from './state.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'xiaozhao-state-'));
 try {
+  const legacyPath = join(dir, 'legacy.sqlite');
+  const legacyDb = new DatabaseSync(legacyPath);
+  legacyDb.exec(`
+    CREATE TABLE a1_workitem_cache (
+      workitem_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, title TEXT NOT NULL,
+      snapshot TEXT NOT NULL, workitem_updated_at TEXT NOT NULL, seen_at TEXT NOT NULL
+    );
+    CREATE TABLE a1_workitem_subscription (
+      workitem_id TEXT NOT NULL, chat_id TEXT NOT NULL, sender_id TEXT NOT NULL,
+      created_at TEXT NOT NULL, PRIMARY KEY(workitem_id, chat_id, sender_id)
+    );
+    CREATE TABLE a1_notification_outbox (
+      notification_key TEXT PRIMARY KEY, workitem_id TEXT NOT NULL, chat_id TEXT NOT NULL,
+      sender_id TEXT NOT NULL, content TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending', available_at TEXT NOT NULL,
+      last_error TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      dead_at TEXT NOT NULL DEFAULT ''
+    );
+  `);
+  legacyDb.close();
+  const migrated = new AgentState(legacyPath);
+  migrated.registerA1Subscription({
+    workitemId: '90000002', projectId: '2165415', chatId: 'chat', senderId: 'sender',
+    chatType: 'p2p', snapshot: { id: '90000002', title: '迁移测试', status: '待处理', updatedAt: 'now' },
+  });
+  assert.equal(migrated.a1Subscribers('90000002')[0].chatType, 'p2p');
+  assert.equal(migrated.getA1WorkitemSnapshot('90000002').title, '迁移测试');
+  migrated.close();
+
   const state = new AgentState(join(dir, 'state.sqlite'));
   assert.equal(state.db.prepare('PRAGMA synchronous').get().synchronous, 2);
   state.remember('chat', 'user', 'user', '第一条');
