@@ -85,6 +85,21 @@ export const config = {
   geweMentionNames: Array.isArray(raw.geweMentionNames)
     ? raw.geweMentionNames.map(value => String(value).trim()).filter(Boolean).slice(0, 10)
     : [],
+  a1Enabled: raw.a1Enabled === true,
+  a1Bin: raw.a1Bin || join(home, '.qoderwork', 'bin', 'a1'),
+  a1WebAgentProjectId: String(raw.a1WebAgentProjectId || '2165415').trim(),
+  a1AiCollaborationProjectId: String(raw.a1AiCollaborationProjectId || '2168196').trim(),
+  a1WebAgentRepo: String(raw.a1WebAgentRepo || 'enterprise-development/ai-lab-agent').trim(),
+  a1AiCollaborationRepo: String(raw.a1AiCollaborationRepo
+    || 'enterprise-development/ai-native-flow-platform').trim(),
+  a1AiCollaborationBranch: String(raw.a1AiCollaborationBranch
+    || 'feature/20260606_29656382_init_project_1').trim(),
+  a1SyncIntervalMs: boundedInteger(raw.a1SyncIntervalMs, {
+    name: 'a1SyncIntervalMs', fallback: 30000, min: 5000, max: 300000,
+  }),
+  a1MaxWorkitems: boundedInteger(raw.a1MaxWorkitems, {
+    name: 'a1MaxWorkitems', fallback: 500, min: 50, max: 5000,
+  }),
   multicaEnabled: raw.multicaEnabled === true,
   multicaProfile: raw.multicaProfile || 'desktop-api.multica.ai',
   multicaAppUrl: raw.multicaAppUrl || 'https://multica.ai',
@@ -197,4 +212,18 @@ if (config.multicaDefaultWorkspaceId
   && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     .test(config.multicaDefaultWorkspaceId)) {
   throw new Error('multicaDefaultWorkspaceId 必须是 UUID');
+}
+if (config.a1Enabled) {
+  for (const [name, value] of [
+    ['a1WebAgentProjectId', config.a1WebAgentProjectId],
+    ['a1AiCollaborationProjectId', config.a1AiCollaborationProjectId],
+  ]) {
+    if (!/^\d{5,20}$/.test(value)) throw new Error(`${name} 必须是数字项目 ID`);
+  }
+  for (const [name, value] of [
+    ['a1WebAgentRepo', config.a1WebAgentRepo],
+    ['a1AiCollaborationRepo', config.a1AiCollaborationRepo],
+  ]) {
+    if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(value)) throw new Error(`${name} 必须是 group/repo 路径`);
+  }
 }
