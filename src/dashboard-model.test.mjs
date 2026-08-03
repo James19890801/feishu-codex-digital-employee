@@ -94,6 +94,29 @@ const base = {
 {
   const view = buildOperatorView({
     ...base,
+    feishuEnabled: false,
+    pollCursorMs: Number.NaN,
+    websocketActive: true,
+    dingtalkChannel: {
+      enabled: true,
+      installed: true,
+      authenticated: true,
+      connected: true,
+      identityMode: 'user',
+      lastReadyAt: '2026-07-30T00:59:55.000Z',
+    },
+  });
+  assert.equal(view.state, 'online');
+  assert.equal(view.issues.includes('poll_cursor_stale'), false);
+  assert.equal(view.channels.feishu.enabled, false);
+  assert.equal(view.channels.feishu.healthy, true);
+  assert.equal(view.channels.feishu.transport, 'disabled');
+  assert.equal(view.channels.dingtalk.healthy, true);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
     dingtalkChannel: {
       enabled: true,
       installed: true,

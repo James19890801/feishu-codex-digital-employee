@@ -30,6 +30,10 @@ export function buildOperatorView(input) {
     ? Math.max(0, input.nowMs - input.pollCursorMs)
     : null;
   const issues = [];
+  const feishuEnabled = input.feishuEnabled !== false;
+  const dingtalkChannel = input.dingtalkChannel || {};
+  const wecomChannel = input.wecomChannel || {};
+  const geweChannel = input.geweChannel || {};
   const multicaSyncAgeMs = input.multicaEnabled && input.lastMulticaSyncAt
     ? Math.max(0, input.nowMs - new Date(input.lastMulticaSyncAt).getTime())
     : null;
@@ -37,7 +41,9 @@ export function buildOperatorView(input) {
     ? Math.max(0, input.nowMs - new Date(input.lastBackupAt).getTime())
     : null;
   if (!input.processAlive) issues.push('process_not_running');
-  if (pollAgeMs === null || pollAgeMs > input.maxPollAgeMs) issues.push('poll_cursor_stale');
+  if (feishuEnabled && (pollAgeMs === null || pollAgeMs > input.maxPollAgeMs)) {
+    issues.push('poll_cursor_stale');
+  }
   if (input.staleProcessing > 0) issues.push('messages_processing_stale');
   if (input.overdueFailed > 0 || input.deadCount > 0) issues.push('messages_failed');
   if (input.sqliteIntegrity !== 'ok') issues.push('sqlite_integrity_failed');
@@ -47,7 +53,9 @@ export function buildOperatorView(input) {
     issues.push('database_backup_stale');
   }
   if (input.backupRequired && input.lastBackupError) issues.push('database_backup_error');
-  if (!input.websocketActive) issues.push('websocket_consumer_missing');
+  if ((feishuEnabled || dingtalkChannel.enabled) && !input.websocketActive) {
+    issues.push('websocket_consumer_missing');
+  }
   if (!input.codexProxyReachable) issues.push('codex_proxy_unreachable');
   if (input.aiRuntime && !input.aiRuntime.available) issues.push('ai_runtime_unavailable');
   if (input.lastAiRuntimeError?.at
@@ -55,7 +63,7 @@ export function buildOperatorView(input) {
       || input.lastAiRuntimeError.at > input.lastAiRuntimeSuccessAt)) {
     issues.push('ai_runtime_last_call_failed');
   }
-  if (input.credentialBlocked) issues.push('credential_access_blocked');
+  if (feishuEnabled && input.credentialBlocked) issues.push('credential_access_blocked');
   const selfChatCircuitOpen = Number(input.selfChatCircuitLast?.openUntilMs || 0) > input.nowMs;
   if (selfChatCircuitOpen) issues.push('self_chat_circuit_open');
   if (input.multicaEnabled
@@ -70,9 +78,6 @@ export function buildOperatorView(input) {
   if (input.multicaEnabled && Number(input.multicaDeadCount || 0) > 0) {
     issues.push('multica_delivery_dead');
   }
-  const dingtalkChannel = input.dingtalkChannel || {};
-  const wecomChannel = input.wecomChannel || {};
-  const geweChannel = input.geweChannel || {};
   if (dingtalkChannel.enabled && !dingtalkChannel.connected) {
     issues.push('dingtalk_channel_unavailable');
   }
@@ -112,17 +117,17 @@ export function buildOperatorView(input) {
     },
     channels: {
       feishu: {
-        enabled: true,
-        installed: true,
-        configured: true,
-        authenticated: !input.credentialBlocked,
-        connected: Boolean(input.processAlive)
+        enabled: feishuEnabled,
+        installed: feishuEnabled,
+        configured: feishuEnabled,
+        authenticated: feishuEnabled && !input.credentialBlocked,
+        connected: feishuEnabled && Boolean(input.processAlive)
           && !issues.includes('poll_cursor_stale'),
-        healthy: Boolean(input.processAlive)
+        healthy: !feishuEnabled || (Boolean(input.processAlive)
           && !issues.includes('poll_cursor_stale')
-          && !issues.includes('credential_access_blocked'),
+          && !issues.includes('credential_access_blocked')),
         identityMode: 'user',
-        transport: 'polling + websocket',
+        transport: feishuEnabled ? 'polling + websocket' : 'disabled',
         lastReadyAt: input.lastPollSuccessAt || '',
         lastError: input.lastPollError || null,
       },

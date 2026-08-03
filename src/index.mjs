@@ -77,6 +77,7 @@ import {
   assertCompleteSearchResult,
   canPerformMutation,
   effectiveTask,
+  initializeOptionalPoller,
   isBareMention,
   planPollWindow,
   validateInboundPayload,
@@ -2880,7 +2881,16 @@ async function main() {
     }
     triggerDrain();
     await initializeAdditionalImChannels();
-    if (await initializeDingTalkSelfPolling()) {
+    const dingTalkSelfPolling = await initializeOptionalPoller(initializeDingTalkSelfPolling);
+    if (dingTalkSelfPolling.error) {
+      const summary = processFailureSummary(dingTalkSelfPolling.error);
+      state.set('health', 'last_dingtalk_self_poll_error', {
+        at: new Date().toISOString(), error: summary,
+      });
+      state.audit('dingtalk_self_poll_unavailable', { detail: { error: summary } });
+      console.error('[dingtalk-self-poll-unavailable]', dingTalkSelfPolling.error);
+    }
+    if (dingTalkSelfPolling.active) {
       dingTalkSelfPollingPromise = runDingTalkSelfPollingLoop()
         .catch(error => console.error('[dingtalk-self-poll-fatal]', error));
     }

@@ -189,7 +189,8 @@ async function refreshWebsocket(nowMs, processPid) {
     const activeConsumers = stdout.split('\n').filter(line => {
       const match = line.match(/^\s*(\d+)\s+(.+)$/);
       return Number(match?.[1]) === processPid
-        && /\blark-cli\s+event\s+consume\b/.test(match?.[2] || '');
+        && /(?:\blark-cli\s+event\s+consume\b|\bdws\b.*\bevent\s+consume\b)/
+          .test(match?.[2] || '');
     }).length;
     eventCache = {
       checkedAt: nowMs,
@@ -347,6 +348,7 @@ async function collectStatus() {
     processAlive: processInfo.alive,
     processPid: processInfo.pid,
     processStartedAt: processInfo.startedAt,
+    feishuEnabled: config.feishuEnabled,
     maxPollAgeMs: Math.max(60_000, config.pollIntervalMs * 12),
     websocketActive: websocket.active,
     activeConsumers: websocket.activeConsumers,
