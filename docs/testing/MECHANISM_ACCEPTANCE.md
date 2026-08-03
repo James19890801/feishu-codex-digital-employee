@@ -6,7 +6,7 @@ This suite turns recently added product rules into repeatable, non-production te
 npm run test:mechanisms
 ```
 
-The suite asks each rule as a falsifiable question and tests the answer against production modules. It does not send IM messages, write Multica Issues, or use live credentials.
+The suite asks each rule as a falsifiable question and tests the answer against production modules. It does not send IM messages, write 1A workitems, or use live credentials.
 
 ## Self-questioning model
 
@@ -22,7 +22,8 @@ For every new mechanism, ask all five dimensions before implementation:
 
 | Domain | Cases | Primary contract |
 |---|---:|---|
-| Owner authorization | 24 | Only the verified Owner in a trusted self-chat can advance Multica writes |
+| Licensing | 2 | A valid local entitlement is required before the digital human starts |
+| Owner authorization | 24 | Only the verified Owner in a trusted self-chat can advance protected external writes |
 | Human takeover | 8 | Owner controls, five-minute boundary, assistant echo exclusion, retry/degrade policy |
 | Group attribution | 6 | Group replies @ the requester without malformed or accidental mentions |
 | Inbound normalization | 5 | Only complete supported DingTalk events become internal messages |
@@ -35,13 +36,14 @@ For every new mechanism, ask all five dimensions before implementation:
 | Agent routing | 4 | Content work from every IM provider goes to the configured local agent runtime |
 | Decision boundary | 4 | Safe reads execute; external writes confirm; privacy and decision requests refuse |
 | Polling selection | 1 | Group @, direct chat, duplicate and Owner-message filtering remain deterministic |
+| Live reply context | 2 | Ordinary DingTalk replies read the latest conversation before invoking Codex and fail closed if history cannot be read |
 | Retry boundary | 4 | Attempts one and two retry; attempt three and later do not loop forever |
 
-Total: 83 mechanism contracts.
+Total: 87 mechanism contracts.
 
 ## Live verification boundary
 
-Automated contracts cover deterministic platform logic. External-provider behavior still requires bounded smoke tests for OAuth validity, event-bus connectivity, IM delivery status, and Multica availability. Live smoke tests must use the Owner self-chat or an explicitly designated test group and must never broadcast to unrelated conversations.
+Automated contracts cover deterministic platform logic. External-provider behavior still requires bounded smoke tests for DWS authentication, event-stream connectivity, IM delivery status, 1A access, and repository access. Live smoke tests must use the Owner self-chat or an explicitly designated recipient and must never broadcast to unrelated conversations.
 
 ## Change rule
 
