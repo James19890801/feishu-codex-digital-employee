@@ -69,7 +69,7 @@ ZIP 只是便携容器，不把源码伪装成签名 `.pkg`。本轮不引入 Ap
 - `authorizedChatIds=["__SETUP_REQUIRED__"]`
 - `digitalTwinLabel=""`
 - `aiRuntime="auto"`
-- 不包含 profile、OpenDingTalkId、`DWS_CHANNEL`、组织 ID、手机号、密钥、内部代码仓或需求池授权。
+- 不包含 profile、OpenDingTalkId、`DWS_CHANNEL`、组织 ID、手机号、密钥或任何本机授权结果。项目自身的 1A 路由能力可随源码保留，但在新安装中默认关闭。
 
 Dashboard 可用但通道处于“待配置”。用户必须在本机完成自己的身份、消息范围和通道授权，才能产生第一条自动回复。
 
@@ -81,7 +81,7 @@ Dashboard 可用但通道处于“待配置”。用户必须在本机完成自�
 - `config.local.json`、本机 Persona/Bible、Keychain 导出、邀请码、恢复包或 Founder 材料。
 - `data/`、SQLite/WAL/SHM、聊天记录、会议记录、审计记录、备份和任何日志。
 - `knowledge-catalog.json`、`knowledge-source-manifest.json`、本机文档路径或个人知识索引。
-- 阿充的通讯录 ID、DWS profile、渠道码、黑名单、语气样本、内部对话和企业专属链接。
+- 阿充的通讯录 ID、DWS profile、渠道码、黑名单、语气样本、内部对话和个人专属链接。
 - 项目设计/回归文档中的个人身份、工号、OpenDingTalkId、回执 ID 或内部仓库地址。
 
 构建后执行二次扫描：路径级禁止清单 + 内容级敏感模式扫描。扫描命中时不生成 ZIP。
