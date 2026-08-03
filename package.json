@@ -1,6 +1,7 @@
 {
   "name": "feishu-codex-digital-employee",
   "version": "1.0.0",
+  "packageManager": "pnpm@11.9.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -13,6 +14,7 @@
     "test:operator-profile": "node src/operator-profile.test.mjs",
     "test:distribution-defaults": "node scripts/distribution-defaults.test.mjs",
     "test:distribution-package": "node scripts/distribution-package.test.mjs",
+    "test:install-aicoding": "node scripts/install-aicoding.test.mjs",
     "package:aicoding": "node scripts/build-aicoding-package.mjs",
     "test:identity": "node src/identity-policy.test.mjs",
     "test:memory": "node src/memory-policy.test.mjs && node src/knowledge.test.mjs",
