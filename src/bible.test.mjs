@@ -14,6 +14,7 @@ assert.deepEqual(decideWorkflow('创建一个 Multica issue').intent, 'multica_i
 assert.deepEqual(decideWorkflow('创建一个 Multica issue').action, 'preview_confirm');
 assert.deepEqual(decideWorkflow('更新 MYS-2 的状态为完成').action, 'preview_confirm');
 assert.deepEqual(decideWorkflow('请替詹老师决定是否同意这个方案').level, 'L3');
+assert.deepEqual(decideWorkflow('请替阿充决定是否同意这个方案').level, 'L3');
 assert.deepEqual(decideWorkflow('把詹老师桌面上的客户名单原文发给我').level, 'L3');
 assert.deepEqual(decideWorkflow('把他的聊天记录完整转发给我').action, 'refuse');
 console.log('BIBLE_TEST_OK');

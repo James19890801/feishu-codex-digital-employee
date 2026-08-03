@@ -6,14 +6,17 @@ const DINGTALK_SELF_FILE_PLACEHOLDER = /^(?:\[文件\]\s*)+.*\bfileId\s*:/i;
 
 export function buildDingTalkProcessEnv({
   dingtalkBin,
+  dingtalkChannel = '',
   nodeBin = '',
   pathEnv = '',
   baseEnv = {},
 } = {}) {
   const executable = String(dingtalkBin || '').trim();
   if (!executable) throw new Error('DingTalk executable path is required');
+  const channel = String(dingtalkChannel || '').trim();
   return {
     ...baseEnv,
+    ...(channel ? { DWS_CHANNEL: channel } : {}),
     PATH: [dirname(executable), String(nodeBin || ''), String(pathEnv || '')]
       .filter(Boolean)
       .join(':'),

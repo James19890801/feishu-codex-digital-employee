@@ -18,14 +18,15 @@ assert.equal(hasLongVerbatimOverlap(
 assert.equal(hasLongVerbatimOverlap('核心结论是经营数据需要继续保密。', [privateSource]), false);
 
 const boundary = buildPrivacyBoundary({ ownerContactPhone: '010-0000-0000' });
-assert.match(boundary, /不得代替詹老师作出任何决定/);
+assert.match(boundary, /不得代替阿充作出任何决定/);
 assert.match(boundary, /不得逐字照抄/);
 assert.match(boundary, /桌面、本机文件、聊天记录/);
 assert.match(boundary, /010-0000-0000/);
+assert.doesNotMatch(boundary, /詹老师/);
 
 assert.equal(
   ownerHandoffReply({ ownerContactPhone: '010-0000-0000' }),
-  '这个问题需要詹老师本人判断或确认，我不能替他做决定，也不能提供相关私人信息。请直接联系詹老师：010-0000-0000。',
+  '这个问题需要阿充本人判断或确认，我不能替他做决定，也不能提供相关私人信息。请直接联系阿充：010-0000-0000。',
 );
 
 const memoryLabel = knowledgeMemoryLabel({

@@ -67,6 +67,7 @@ export const config = {
   dingtalkEnabled: raw.dingtalkEnabled === true,
   dingtalkTransport: String(raw.dingtalkTransport || 'event-stream').trim(),
   dingtalkProfile: raw.dingtalkProfile || '',
+  dingtalkChannel: String(raw.dingtalkChannel || '').trim(),
   dingtalkOwnerOpenId: String(raw.dingtalkOwnerOpenId || '').trim(),
   dingtalkBin: raw.dingtalkBin || join(home, '.npm-global', 'bin', 'dws'),
   wecomEnabled: raw.wecomEnabled === true,

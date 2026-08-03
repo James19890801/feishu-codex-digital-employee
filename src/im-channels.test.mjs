@@ -24,10 +24,12 @@ assert.equal(
 if (typeof imChannelHelpers.buildDingTalkProcessEnv === 'function') {
   assert.deepEqual(imChannelHelpers.buildDingTalkProcessEnv({
     dingtalkBin: '/opt/dws/bin/dws',
+    dingtalkChannel: 'channel-code',
     nodeBin: '/opt/node/bin',
     pathEnv: '/usr/bin:/bin',
     baseEnv: { LANG: 'zh_CN.UTF-8' },
   }), {
+    DWS_CHANNEL: 'channel-code',
     LANG: 'zh_CN.UTF-8',
     PATH: '/opt/dws/bin:/opt/node/bin:/usr/bin:/bin',
   });

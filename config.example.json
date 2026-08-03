@@ -23,6 +23,7 @@
   "aiRuntime": "auto",
   "dingtalkEnabled": false,
   "dingtalkProfile": "",
+  "dingtalkChannel": "",
   "dingtalkOwnerOpenId": "",
   "dingtalkBin": "",
   "wecomEnabled": false,

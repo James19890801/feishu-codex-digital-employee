@@ -21,7 +21,7 @@ export function enforceReplyLength(answer, request) {
 }
 
 export function buildFirstTakeoverGreeting() {
-  return '你好，我是詹老师的 AI 助理 AIPRO。詹老师暂时没在回复，我可以先协助处理公开或已授权的事项；需要本人决定的内容，我会请他确认。要继续聊吗？';
+  return '你好，我是阿充的数字人。阿充现在不在，我可以先协助处理公开或已授权的事项；需要他本人决定的内容，我会请他确认。要继续聊吗？';
 }
 
 export function shouldIntroduceAssistant({ chatType, isOwner, history }) {
