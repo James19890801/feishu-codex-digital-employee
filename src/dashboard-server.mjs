@@ -348,6 +348,11 @@ async function collectStatus() {
 
   const view = buildOperatorView({
     nowMs,
+    operator: {
+      displayName: config.ownerDisplayName,
+      role: config.ownerRole,
+      brandName: config.digitalHumanBrand,
+    },
     processAlive: processInfo.alive,
     processPid: processInfo.pid,
     processStartedAt: processInfo.startedAt,

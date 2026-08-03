@@ -17,11 +17,11 @@ assert.equal(
   true,
 );
 
-const greeting = buildFirstTakeoverGreeting();
-assert.match(greeting, /我是阿充的数字人/);
-assert.match(greeting, /阿充现在不在/);
+const greeting = buildFirstTakeoverGreeting({ ownerLabel: '新用户' });
+assert.match(greeting, /我是新用户的数字人/);
+assert.match(greeting, /新用户现在不在/);
 assert.match(greeting, /要继续聊吗/);
-assert.doesNotMatch(greeting, /詹老师|AI 助理 AIPRO/);
+assert.doesNotMatch(greeting, /阿充|詹老师|AI 助理 AIPRO/);
 assert.doesNotMatch(greeting, /告诉我他的一切|我掌握他所有|他懂的我也懂/);
 
 assert.equal(shouldIntroduceAssistant({ chatType: 'p2p', isOwner: false, history: [] }), true);

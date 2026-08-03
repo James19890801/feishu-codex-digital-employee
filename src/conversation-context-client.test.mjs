@@ -133,13 +133,14 @@ const verifiedDisplayNameClient = new ConversationContextClient({
   env: {},
   cwd: '/srv/aipro',
   ownerIds: ['384351'],
+  ownerNames: ['新用户', '小新'],
   runner: async () => ({
     stdout: JSON.stringify({
       success: true,
       result: {
         messages: [{
           openMessageId: 'owner-display-1', openConversationId: 'provider-cid',
-          senderOpenDingTalkId: 'owner-open-unknown', sender: '阿充James',
+          senderOpenDingTalkId: 'owner-open-unknown', sender: '小新',
           content: '这个我先看下', createTime: '2026-08-03 14:59:00',
         }],
       },

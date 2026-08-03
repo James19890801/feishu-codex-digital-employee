@@ -29,6 +29,7 @@ const base = {
   codexProxyReachable: true,
   inboxCounts: { completed: 4 },
   recentEvents: [],
+  operator: { displayName: '新用户', role: '产品经理', brandName: '新用户的数字人' },
 };
 
 {
@@ -40,6 +41,9 @@ const base = {
   assert.equal(view.channels.dingtalk.enabled, false);
   assert.equal(view.channels.wecom.enabled, false);
   assert.equal(view.channels.wechat.enabled, false);
+  assert.deepEqual(view.operator, {
+    displayName: '新用户', role: '产品经理', brandName: '新用户的数字人',
+  });
 }
 
 {

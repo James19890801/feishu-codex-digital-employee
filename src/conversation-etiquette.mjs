@@ -20,8 +20,8 @@ export function enforceReplyLength(answer, request) {
   return policy.detailed ? truncateCharacters(normalized, policy.maxChars) : truncateCharacters(normalized, policy.maxChars);
 }
 
-export function buildFirstTakeoverGreeting() {
-  return '你好，我是阿充的数字人。阿充现在不在，我可以先协助处理公开或已授权的事项；需要他本人决定的内容，我会请他确认。要继续聊吗？';
+export function buildFirstTakeoverGreeting({ ownerLabel = '账号本人' } = {}) {
+  return `你好，我是${ownerLabel}的数字人。${ownerLabel}现在不在，我可以先协助处理公开或已授权的事项；需要本人决定的内容，我会请他确认。要继续聊吗？`;
 }
 
 export function shouldIntroduceAssistant({ chatType, isOwner, history }) {

@@ -184,25 +184,25 @@ function displayTime(message) {
   return text || (message.createdAtMs ? new Date(message.createdAtMs).toISOString() : '时间未知');
 }
 
-function speaker(message) {
-  if (message.direction === 'owner') return '阿充';
+function speaker(message, ownerLabel) {
+  if (message.direction === 'owner') return ownerLabel;
   return message.senderName || '对方';
 }
 
-export function formatConversationContext(context = {}) {
+export function formatConversationContext(context = {}, { ownerLabel = '账号本人' } = {}) {
   const messages = Array.isArray(context.messages) ? context.messages : [];
   const target = context.latestCounterpartyMessage;
   const styles = Array.isArray(context.styleSamples) ? context.styleSamples : [];
   return [
     `当前钉钉会话最近 30 条真实消息（实际读取 ${messages.length} 条）：`,
     messages.length
-      ? messages.map(item => `[${displayTime(item)}] ${speaker(item)}：${item.content}`).join('\n')
+      ? messages.map(item => `[${displayTime(item)}] ${speaker(item, ownerLabel)}：${item.content}`).join('\n')
       : '（当前会话没有可用历史）',
     '',
     '当前回应目标：',
-    target ? `${speaker(target)}：${target.content}` : '（没有可确认的对方消息）',
+    target ? `${speaker(target, ownerLabel)}：${target.content}` : '（没有可确认的对方消息）',
     '',
-    '阿充在本会话中的表达风格样本：',
-    styles.length ? styles.map(item => `阿充：${item.content}`).join('\n') : '（无，使用 Persona 默认风格）',
+    `${ownerLabel}在本会话中的表达风格样本：`,
+    styles.length ? styles.map(item => `${ownerLabel}：${item.content}`).join('\n') : '（无，使用 Persona 默认风格）',
   ].join('\n');
 }

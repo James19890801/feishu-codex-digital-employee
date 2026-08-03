@@ -78,6 +78,7 @@ const normalizedContext = {
 
 const service = new ReplyContextService({
   contextClient: { fetch: async () => normalizedContext },
+  ownerLabel: '新用户',
 });
 const prepared = await service.prepare({
   task: '这个岗位招一个6，你怎么看',
@@ -87,16 +88,20 @@ const prepared = await service.prepare({
 assert.match(prepared.historyPrompt, /最近 30 条真实消息/);
 assert.equal(prepared.currentTarget, '这个岗位招一个6，你怎么看');
 assert.match(prepared.stylePrompt, /我先看下/);
+assert.match(prepared.stylePrompt, /新用户：/);
+assert.doesNotMatch(prepared.historyPrompt, /阿充在本会话/);
 assert.match(prepared.languagePrompt, /P6/);
 
-const instruction = buildReplyContextInstruction(prepared);
+const instruction = buildReplyContextInstruction(prepared, { ownerLabel: '新用户' });
 assert.match(instruction, /先回应“当前回应目标”/);
 assert.match(instruction, /这个岗位招一个6/);
 assert.match(instruction, /P6/);
 assert.match(instruction, /模仿表达方式但不复制承诺、隐私或历史事实/);
+assert.match(instruction, /风格样本只来自新用户本人/);
 
 const failingService = new ReplyContextService({
   contextClient: { fetch: async () => { throw new Error('DWS auth expired'); } },
+  ownerLabel: '新用户',
 });
 await assert.rejects(
   failingService.prepare({ task: '你好', historyRequest: {} }),

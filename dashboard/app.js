@@ -167,6 +167,17 @@ function applyStaticTranslations() {
       latestLicensingStatus.activated ? 'contactDeveloper' : 'getInvitation',
     );
   }
+  if (latestStatusData) applyOperatorBrand(latestStatusData);
+}
+
+function applyOperatorBrand(data) {
+  const brandName = String(data.operator?.brandName || '').trim();
+  if (!brandName) return;
+  const brand = document.querySelector('[data-i18n="brandName"]');
+  if (brand) brand.textContent = brandName;
+  document.title = locale === 'zh'
+    ? `${brandName} · Codex 驱动`
+    : `${brandName} · Powered by Codex`;
 }
 
 function setLocale(value, { persist = true } = {}) {
@@ -298,6 +309,7 @@ function escapeHtml(value) {
 
 function render(data) {
   latestStatusData = data;
+  applyOperatorBrand(data);
   const visual = stateLabelKeys[data.state] || stateLabelKeys.error;
   $('hero').dataset.state = data.state;
   $('statusTitle').textContent = tr(visual.title);

@@ -175,11 +175,12 @@ assert.deepEqual(
 );
 assert.equal(providerConversationId.messages[0].conversationId, 'dingtalk:user:colleague-open');
 
-const formatted = formatConversationContext(normalized);
+const formatted = formatConversationContext(normalized, { ownerLabel: '新用户' });
 assert.match(formatted, /当前钉钉会话最近 30 条真实消息/);
 assert.match(formatted, /当前回应目标/);
 assert.match(formatted, /同事甲：最后一句/);
-assert.match(formatted, /阿充在本会话中的表达风格样本/);
+assert.match(formatted, /新用户在本会话中的表达风格样本/);
 assert.match(formatted, /阿充回复100/);
+assert.doesNotMatch(formatted, /阿充在本会话/);
 
 console.log('CONVERSATION_CONTEXT_TEST_OK');

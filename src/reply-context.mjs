@@ -56,11 +56,12 @@ export class ReplyContextUnavailableError extends Error {
 }
 
 export class ReplyContextService {
-  constructor({ contextClient } = {}) {
+  constructor({ contextClient, ownerLabel = '账号本人' } = {}) {
     if (!contextClient || typeof contextClient.fetch !== 'function') {
       throw new Error('Reply context requires a conversation context client');
     }
     this.contextClient = contextClient;
+    this.ownerLabel = String(ownerLabel || '账号本人').trim() || '账号本人';
   }
 
   async prepare({ task = '', historyRequest = {} } = {}) {
@@ -81,23 +82,24 @@ export class ReplyContextService {
     const language = annotateAlibabaLanguage(task, context.messages);
     return {
       context,
-      historyPrompt: formatConversationContext(context),
+      historyPrompt: formatConversationContext(context, { ownerLabel: this.ownerLabel }),
       currentTarget,
       stylePrompt: styles.length
-        ? styles.map(item => `阿充：${item.content}`).join('\n')
+        ? styles.map(item => `${this.ownerLabel}：${item.content}`).join('\n')
         : '（无，使用 Persona 默认风格）',
       languagePrompt: formatAlibabaLanguageAnnotations(language),
       languageAmbiguous: language.ambiguous,
+      ownerLabel: this.ownerLabel,
     };
   }
 }
 
-export function buildReplyContextInstruction(prepared = {}) {
+export function buildReplyContextInstruction(prepared = {}, { ownerLabel = prepared.ownerLabel || '账号本人' } = {}) {
   return [
     '本轮真实会话理解规则：',
     '1. 先回应“当前回应目标”。最近30条只用于消歧，不要回到已经结束的话题。',
-    '2. 风格样本只来自阿充本人；模仿表达方式但不复制承诺、隐私或历史事实。',
-    '3. 如果没有阿充样本，使用 Persona 默认风格。不要向对方解释内部读取或模仿过程。',
+    `2. 风格样本只来自${ownerLabel}本人；模仿表达方式但不复制承诺、隐私或历史事实。`,
+    `3. 如果没有${ownerLabel}样本，使用 Persona 默认风格。不要向对方解释内部读取或模仿过程。`,
     '',
     String(prepared.historyPrompt || ''),
     '',

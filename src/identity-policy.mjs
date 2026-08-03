@@ -1,60 +1,39 @@
-export const ACTIVE_IDENTITY = '阿充，AI 产品经理';
-
-export const IDENTITY_TOMBSTONES = Object.freeze([
-  '詹老师',
-  'AIPRO',
-  'Second Developer',
-  '开发者',
-  '审核架构师',
-  'ALT',
-]);
-
 const TOMBSTONE_PATTERNS = [
-  /詹老师/giu,
-  /\bAIPRO\b/giu,
-  /\bSecond\s+Developer\b/giu,
-  /开发者/gu,
-  /审核架构师/gu,
   /\bALT\b/giu,
 ];
 
-const JAMES_IDENTITY_PATTERN = /(?:我是|自称|身份是|叫)\s*James\b/giu;
-const JAMES_TOKEN_PATTERN = /\bJames\b/giu;
-const AUTHORIZED_JAMES_SIGNATURE = '——阿充（James）';
-const SIGNATURE_TOKEN = '\u0000ACHONG_JAMES_SIGNATURE\u0000';
+export const IDENTITY_TOMBSTONES = Object.freeze(['ALT']);
 
 export function isExcludedIdentityText(text = '') {
   const value = String(text);
   return TOMBSTONE_PATTERNS.some(pattern => {
     pattern.lastIndex = 0;
     return pattern.test(value);
-  }) || JAMES_IDENTITY_PATTERN.test(value);
+  });
 }
 
-export function sanitizeIdentityContext(text = '', { allowJamesSignature = false } = {}) {
+export function sanitizeIdentityContext(text = '') {
   let value = String(text);
-  if (allowJamesSignature && value.includes(AUTHORIZED_JAMES_SIGNATURE)) {
-    value = value.replaceAll(AUTHORIZED_JAMES_SIGNATURE, SIGNATURE_TOKEN);
-  }
   for (const pattern of TOMBSTONE_PATTERNS) {
     pattern.lastIndex = 0;
     value = value.replace(pattern, '');
   }
-  value = value.replace(JAMES_IDENTITY_PATTERN, match => match.replace(/James/iu, ''));
-  value = value.replace(JAMES_TOKEN_PATTERN, '');
   return value
-    .replaceAll(SIGNATURE_TOKEN, AUTHORIZED_JAMES_SIGNATURE)
     .replace(/[ \t]+([，。！？；：])/gu, '$1')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
 }
 
-export function buildIdentityInstruction() {
+export function buildIdentityInstruction({ displayName = '账号本人', role = '' } = {}) {
+  const ownerLabel = String(displayName || '账号本人').trim() || '账号本人';
+  const roleText = String(role || '').trim();
   return `身份内核：
-你是阿充的数字人。阿充在本企业的唯一现行身份是 AI 产品经理。
-你围绕企业 AI 产品完成产品分析、需求澄清、代码取证、完整需求写作、1A 工作项管理和研发协作。
-AIFlow、AI-Lab、WebAgent、数字员工、采购和审核只是产品、项目或业务场景，不是阿充的并列身份。
-不得使用任何历史称谓或把其他职责描述成并列身份。
-不得让被排除的业务上下文进入 Persona、Prompt、长期记忆、知识检索或回复，也不得据此推断阿充的能力与经历。
-阿充明确指定的私人消息正文或签名可以原样发送；这不改变数字人的身份。`;
+你是${ownerLabel}的数字人。${roleText
+    ? `${ownerLabel}在本企业的现行角色是${roleText}。`
+    : `${ownerLabel}尚未配置企业角色，不得自行推断。`}
+你围绕已配置的企业产品与协作范围完成分析、澄清、代码取证、完整需求写作、工作项管理和研发协作。
+产品、项目或业务场景不是${ownerLabel}的并列身份。
+不得使用本地 Persona 明确排除的历史称谓，也不得把其他职责描述成并列身份。
+不得让被排除的业务上下文进入 Persona、Prompt、长期记忆、知识检索或回复，也不得据此推断${ownerLabel}的能力与经历。
+${ownerLabel}明确指定的私人消息正文或签名可以原样发送；这不改变数字人的身份。`;
 }

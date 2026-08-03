@@ -100,6 +100,11 @@ export function buildOperatorView(input) {
     state,
     healthy: state === 'online',
     primaryChannel,
+    operator: {
+      displayName: String(input.operator?.displayName || '账号本人'),
+      role: String(input.operator?.role || ''),
+      brandName: String(input.operator?.brandName || 'Personal Digital Human'),
+    },
     checkedAt: new Date(input.nowMs).toISOString(),
     issues,
     issueLabels: issues.map(issue => ISSUE_LABELS[issue] || issue),
