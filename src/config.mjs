@@ -7,6 +7,7 @@ import {
   validateFeishuConfiguration,
 } from './runtime-mode.mjs';
 import { normalizeOperatorProfile } from './operator-profile.mjs';
+import { normalizeCommunicationBlocklist } from './communication-blocklist.mjs';
 
 const srcDir = dirname(fileURLToPath(import.meta.url));
 const workdir = resolve(srcDir, '..');
@@ -31,6 +32,9 @@ export const config = {
   ownerRole: operatorProfile.role,
   ownerAliases: operatorProfile.aliases,
   digitalHumanBrand: operatorProfile.brandName,
+  automaticCommunicationBlocklist: normalizeCommunicationBlocklist(
+    raw.automaticCommunicationBlocklist,
+  ),
   feishuEnabled: raw.feishuEnabled !== false,
   feishuAppId: raw.feishuAppId || '',
   ownerOpenId: raw.ownerOpenId || '',

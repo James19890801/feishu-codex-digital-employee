@@ -20,6 +20,7 @@ assert.deepEqual(defaults.authorizedChatIds, ['__SETUP_REQUIRED__']);
 assert.equal(defaults.ownerOpenId, '');
 assert.equal(defaults.dingtalkOwnerOpenId, '');
 assert.equal(defaults.aiRuntime, 'auto');
+assert.deepEqual(defaults.automaticCommunicationBlocklist, []);
 
 const fixture = await mkdtemp(join(tmpdir(), 'aipro-safe-setup-'));
 await mkdir(join(fixture, 'scripts'), { recursive: true });

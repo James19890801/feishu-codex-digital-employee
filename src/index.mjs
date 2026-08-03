@@ -161,6 +161,11 @@ import {
   buildDingTalkReplyHistoryRequest,
   executeGroundedReply,
 } from './reply-context.mjs';
+import {
+  applyAutomaticInboundBlock,
+  automaticCommunicationDecision,
+  canSendBlockedRecipient,
+} from './communication-blocklist.mjs';
 
 const CORE_LICENSE_GUARD = await evaluateLicenseGuard({
   enforced: config.licensingEnforced,
@@ -693,7 +698,27 @@ function formatTaskTime(date) {
 async function sendText(client, chatId, text, uuid, {
   mentionSenderId = '',
   chatType = '',
+  explicitOwnerAuthorized = false,
 } = {}) {
+  const communicationDecision = automaticCommunicationDecision(
+    { chatId },
+    config.automaticCommunicationBlocklist,
+  );
+  if (!canSendBlockedRecipient({
+    blocked: communicationDecision.blocked,
+    explicitOwnerAuthorized,
+  })) {
+    state.audit('automatic_communication_blocked', {
+      chatId,
+      detail: {
+        channel: communicationDecision.channel,
+        phase: 'outbound',
+        explicitOwnerAuthorized: false,
+        uuid: String(uuid || '').slice(0, 100),
+      },
+    });
+    return { suppressed: true, reason: 'automatic_communication_blocklist' };
+  }
   let outboundText = String(text || '');
   if (state.isSelfChat(chatId)) {
     const circuit = state.claimSelfChatOutbound(chatId);
@@ -2140,6 +2165,12 @@ function enqueueInbound(payload, source) {
     return false;
   }
   const senderOpenId = payload.sender?.sender_id?.open_id || '';
+  if (applyAutomaticInboundBlock({
+    payload,
+    source,
+    blocklist: config.automaticCommunicationBlocklist,
+    state,
+  })) return false;
   const selfChat = payload.metadata?.selfChat === true;
   const operatorControl = payload.metadata?.operatorControl === true;
   const ownerActivity = payload.metadata?.ownerActivity === true;
@@ -2236,6 +2267,13 @@ async function processStoredInbound(item, client = null) {
     });
     return;
   }
+
+  if (applyAutomaticInboundBlock({
+    payload,
+    source: `${item.source}:stored`,
+    blocklist: config.automaticCommunicationBlocklist,
+    state,
+  })) return;
 
   await chatQueues.run(message.chat_id, async () => {
     const claimedAt = new Date().toISOString();

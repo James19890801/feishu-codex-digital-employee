@@ -3,6 +3,7 @@
   "ownerRole": "",
   "ownerAliases": [],
   "digitalHumanBrand": "Personal Digital Human",
+  "automaticCommunicationBlocklist": [],
   "feishuEnabled": true,
   "feishuAppId": "cli_xxxxxxxxxxxxxxxx",
   "ownerOpenId": "ou_xxxxxxxxxxxxxxxx",
