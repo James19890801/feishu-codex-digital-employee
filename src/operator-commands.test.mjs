@@ -19,7 +19,8 @@ assert.equal(matchOperatorCommand(''), null);
   assert.match(text, /“状态”/);
   assert.match(text, /数字人请退场/);
   assert.match(text, /5 分钟/);
-  assert.match(text, /Multica/);
+  assert.match(text, /1A/);
+  assert.doesNotMatch(text, /Multica/);
   assert.match(text, /仅在这台 Mac/);
 }
 
@@ -30,11 +31,11 @@ assert.equal(matchOperatorCommand(''), null);
     lastPollError: null,
     websocketConnected: true,
     aiRuntimeLabel: 'Codex CLI',
-    multicaEnabled: true,
-    lastMulticaSyncAt: '2026-07-30T00:59:55.000Z',
-    lastMulticaSyncError: null,
-    multicaPending: 2,
-    multicaDead: 1,
+    a1Enabled: true,
+    lastA1SyncAt: '2026-07-30T00:59:55.000Z',
+    lastA1SyncError: null,
+    a1Pending: 2,
+    a1Dead: 1,
     inboxCounts: {},
     dashboardUrl: 'http://127.0.0.1:17655',
   });
@@ -50,10 +51,10 @@ assert.equal(matchOperatorCommand(''), null);
     lastPollError: null,
     websocketConnected: true,
     aiRuntimeLabel: 'Codex CLI',
-    multicaEnabled: true,
-    lastMulticaSyncAt: '2026-07-30T00:58:00.000Z',
-    lastMulticaSyncError: null,
-    maxMulticaSyncAgeMs: 180_000,
+    a1Enabled: true,
+    lastA1SyncAt: '2026-07-30T00:58:00.000Z',
+    lastA1SyncError: null,
+    maxA1SyncAgeMs: 180_000,
     inboxCounts: {},
     dashboardUrl: 'http://127.0.0.1:17655',
   });
@@ -68,9 +69,9 @@ assert.equal(matchOperatorCommand(''), null);
     lastPollError: null,
     websocketConnected: true,
     aiRuntimeLabel: 'Codex CLI',
-    multicaEnabled: true,
-    lastMulticaSyncAt: '2026-07-30T00:59:50.000Z',
-    lastMulticaSyncError: null,
+    a1Enabled: true,
+    lastA1SyncAt: '2026-07-30T00:59:50.000Z',
+    lastA1SyncError: null,
     inboxCounts: { pending: 1, completed: 20, failed: 0, dead: 0 },
     dashboardUrl: 'http://127.0.0.1:17655',
     detailed: true,
@@ -79,7 +80,7 @@ assert.equal(matchOperatorCommand(''), null);
   assert.match(text, /主消息轮询：5 秒前/);
   assert.match(text, /辅助监听：已连接/);
   assert.match(text, /AI 运行时：Codex CLI/);
-  assert.match(text, /Multica 同步：10 秒前/);
+  assert.match(text, /1A 同步：10 秒前/);
   assert.match(text, /待处理 1/);
   assert.match(text, /http:\/\/127\.0\.0\.1:17655/);
 }

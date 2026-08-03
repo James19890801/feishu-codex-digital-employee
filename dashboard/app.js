@@ -39,14 +39,11 @@ const eventLabelKeys = {
   wechat_channel_error: 'eventWechatError',
   im_channel_connected: 'eventChannelConnected',
   im_channel_disconnected: 'eventChannelDisconnected',
-  multica_sync_error: 'eventMulticaSyncError',
-  multica_delivery_pending: 'eventMulticaPending',
-  multica_sync_change: 'eventMulticaChange',
-  multica_sync_notification_failed: 'eventMulticaNotifyFailed',
-  multica_plan_created: 'eventMulticaPlan',
-  multica_action_completed: 'eventMulticaAction',
-  multica_mutation_applied: 'eventMulticaApplied',
-  multica_mutation_failed: 'eventMulticaFailed',
+  a1_sync_error: 'eventA1SyncError',
+  a1_status_changed: 'eventA1Change',
+  a1_status_notification_failed: 'eventA1NotifyFailed',
+  a1_requirement_handled: 'eventA1Handled',
+  a1_requirement_failed: 'eventA1Failed',
   sdk_client_unavailable: 'eventCredentialsMissing',
   message_rate_limited: 'eventRateLimited',
   maintenance_error: 'eventMaintenanceError',
@@ -65,10 +62,10 @@ const issueLabelKeys = {
   ai_runtime_unavailable: 'issueRuntimeUnavailable',
   ai_runtime_last_call_failed: 'issueRuntimeFailed',
   credential_access_blocked: 'issueCredentialBlocked',
-  multica_sync_stale: 'issueMulticaStale',
-  multica_sync_error: 'issueMulticaError',
-  multica_delivery_pending: 'issueMulticaPending',
-  multica_delivery_dead: 'issueMulticaDead',
+  a1_sync_stale: 'issueA1Stale',
+  a1_sync_error: 'issueA1Error',
+  a1_delivery_pending: 'issueA1Pending',
+  a1_delivery_dead: 'issueA1Dead',
   dingtalk_channel_unavailable: 'issueDingtalkUnavailable',
   wecom_channel_unavailable: 'issueWecomUnavailable',
   wechat_channel_unavailable: 'issueWechatUnavailable',
@@ -360,15 +357,15 @@ function render(data) {
 
   renderRuntimeState(data.aiRuntime);
 
-  $('multicaValue').textContent = !data.multica.enabled
+  $('a1Value').textContent = !data.a1.enabled
     ? tr('notEnabled')
-    : data.multica.healthy ? tr('syncOnline') : tr('degradedTitle');
-  $('multicaMeta').textContent = data.multica.enabled
-    ? tr('lastSync', { age: formatAge(data.multica.ageMs), count: data.multica.scanned || 0 })
-      + (data.multica.pending ? tr('pendingDelivery', { count: data.multica.pending }) : '')
-      + (data.multica.dead ? tr('deadLetters', { count: data.multica.dead }) : '')
+    : data.a1.healthy ? tr('syncOnline') : tr('degradedTitle');
+  $('a1Meta').textContent = data.a1.enabled
+    ? tr('lastSync', { age: formatAge(data.a1.ageMs), count: data.a1.scanned || 0 })
+      + (data.a1.pending ? tr('pendingDelivery', { count: data.a1.pending }) : '')
+      + (data.a1.dead ? tr('deadLetters', { count: data.a1.dead }) : '')
     : tr('enableInConfig');
-  setDot('multicaDot', data.multica.enabled && data.multica.healthy);
+  setDot('a1Dot', data.a1.enabled && data.a1.healthy);
 
   const counts = data.database.inboxCounts || {};
   $('completedCount').textContent = counts.completed || 0;
@@ -588,8 +585,8 @@ async function refresh() {
 
 async function restart() {
   if (!window.confirm(locale === 'zh'
-    ? '确认重启 AIPRO 主进程？面板不会关闭。'
-    : 'Restart the AIPRO core service? This dashboard will remain open.')) return;
+    ? '确认重启数字人主进程？面板不会关闭。'
+    : 'Restart the digital-human core service? This dashboard will remain open.')) return;
   $('restartButton').disabled = true;
   try {
     const response = await fetch('/api/restart', {

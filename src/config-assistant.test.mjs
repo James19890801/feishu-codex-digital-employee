@@ -52,6 +52,14 @@ const documents = {
     geweAppId: '',
     gewePublicCallbackBaseUrl: '',
     geweMentionNames: [],
+    a1Enabled: false,
+    a1WebAgentProjectId: '2165415',
+    a1AiCollaborationProjectId: '2168196',
+    a1WebAgentRepo: 'enterprise-development/ai-lab-agent',
+    a1AiCollaborationRepo: 'enterprise-development/ai-native-flow-platform',
+    a1AiCollaborationBranch: 'feature/20260606_29656382_init_project_1',
+    a1SyncIntervalMs: 300000,
+    a1MaxWorkitems: 500,
   },
   persona: '# Persona\n\n- Keep replies concise.\n',
   bible: '# Bible\n\n- Never make payments.\n',
@@ -73,20 +81,24 @@ assert.equal(safePlan.confirmationLevel, 'single');
 assert.equal(safePlan.changes[0].before, 5000);
 assert.equal(safePlan.changes[0].after, 3000);
 
-const multicaPlan = assistant.createChangePlan({
-  summary: 'Enable Multica integration',
+const a1Plan = assistant.createChangePlan({
+  summary: 'Configure A1 requirement integration',
   changes: [{
     target: 'config',
-    key: 'multicaEnabled',
+    key: 'a1Enabled',
     value: true,
   }, {
     target: 'config',
-    key: 'multicaSyncIntervalMs',
-    value: 10000,
+    key: 'a1SyncIntervalMs',
+    value: 300000,
   }],
 }, documents);
-assert.equal(multicaPlan.confirmationLevel, 'double');
-assert.equal(multicaPlan.changes[0].after, true);
+assert.equal(a1Plan.confirmationLevel, 'double');
+assert.equal(a1Plan.changes[0].after, true);
+assert.throws(() => assistant.createChangePlan({
+  summary: 'Legacy requirement platform is read-only',
+  changes: [{ target: 'config', key: 'multicaEnabled', value: true }],
+}, documents), /cannot be changed/);
 
 const contactPlan = assistant.createChangePlan({
   summary: 'Update the owner handoff phone',
@@ -245,6 +257,10 @@ assert.equal(personaPlan.confirmationLevel, 'single');
 const updatedDocuments = assistant.applyChangePlan(documents, personaPlan);
 assert.match(updatedDocuments.persona, /three sentences/);
 assert.equal(documents.persona, '# Persona\n\n- Keep replies concise.\n');
+assert.throws(() => assistant.createChangePlan({
+  summary: 'Reject excluded identity context',
+  changes: [{ target: 'persona', content: '# Persona\n\n- ALT platform operator.' }],
+}, documents), /excluded identity/i);
 
 assert.doesNotThrow(() => assistant.assertPlanMatchesDocuments(documents, safePlan));
 assert.throws(

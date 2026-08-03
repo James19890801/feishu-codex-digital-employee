@@ -240,10 +240,11 @@ async function collectStatus() {
     lastPollDurationMs: 0,
     lastPollError: null,
     lastWebsocketReadyAt: '',
-    lastMulticaSyncAt: '',
-    lastMulticaSyncError: null,
-    lastMulticaSyncResult: null,
-    multicaDeadCount: 0,
+    lastA1SyncAt: '',
+    lastA1SyncError: null,
+    lastA1SyncResult: null,
+    a1PendingCount: 0,
+    a1DeadCount: 0,
     lastBackupAt: '',
     lastBackupError: null,
     lastAiRuntimeSuccessAt: '',
@@ -298,11 +299,13 @@ async function collectStatus() {
         lastPollDurationMs: Number(parseSetting(db, 'health', 'last_poll_duration_ms', 0)),
         lastPollError: parseSetting(db, 'health', 'last_poll_error', null),
         lastWebsocketReadyAt: parseSetting(db, 'health', 'last_websocket_ready_at', ''),
-        lastMulticaSyncAt: parseSetting(db, 'health', 'last_multica_sync_at', ''),
-        lastMulticaSyncError: parseSetting(db, 'health', 'last_multica_sync_error', null),
-        lastMulticaSyncResult: parseSetting(db, 'health', 'last_multica_sync_result', null),
-        multicaDeadCount: Number(db.prepare(`SELECT COUNT(*) count
-          FROM multica_notification_outbox WHERE status = 'dead'`).get()?.count || 0),
+        lastA1SyncAt: parseSetting(db, 'health', 'last_a1_sync_at', ''),
+        lastA1SyncError: parseSetting(db, 'health', 'last_a1_sync_error', null),
+        lastA1SyncResult: parseSetting(db, 'health', 'last_a1_sync_result', null),
+        a1PendingCount: Number(db.prepare(`SELECT COUNT(*) count
+          FROM a1_notification_outbox WHERE status = 'pending'`).get()?.count || 0),
+        a1DeadCount: Number(db.prepare(`SELECT COUNT(*) count
+          FROM a1_notification_outbox WHERE status = 'dead'`).get()?.count || 0),
         lastBackupAt: parseSetting(db, 'health', 'last_database_backup_at', ''),
         lastBackupError: parseSetting(db, 'health', 'last_database_backup_error', null),
         lastAiRuntimeSuccessAt: parseSetting(db, 'health', 'last_ai_runtime_success_at', ''),
@@ -356,8 +359,8 @@ async function collectStatus() {
     credentialBlocked: isCredentialAccessBlocked(database.lastPollError),
     codexModel: config.codexModel,
     aiRuntime,
-    multicaEnabled: config.multicaEnabled,
-    maxMulticaSyncAgeMs: Math.max(60_000, config.multicaSyncIntervalMs * 6),
+    a1Enabled: config.a1Enabled,
+    maxA1SyncAgeMs: Math.max(600_000, config.a1SyncIntervalMs * 3),
     backupRequired: true,
     maxBackupAgeMs: 12 * 60 * 60_000,
     configuration: {
@@ -375,10 +378,13 @@ async function collectStatus() {
       gewePublicCallbackBaseUrl: config.gewePublicCallbackBaseUrl,
       geweCallbackPort: config.geweCallbackPort,
       geweMentionNames: config.geweMentionNames,
-      multicaEnabled: config.multicaEnabled,
-      multicaProfile: config.multicaProfile,
-      multicaDefaultWorkspaceId: config.multicaDefaultWorkspaceId,
-      multicaSyncIntervalMs: config.multicaSyncIntervalMs,
+      a1Enabled: config.a1Enabled,
+      a1WebAgentProjectId: config.a1WebAgentProjectId,
+      a1AiCollaborationProjectId: config.a1AiCollaborationProjectId,
+      a1WebAgentRepo: config.a1WebAgentRepo,
+      a1AiCollaborationRepo: config.a1AiCollaborationRepo,
+      a1AiCollaborationBranch: config.a1AiCollaborationBranch,
+      a1SyncIntervalMs: config.a1SyncIntervalMs,
     },
     ...database,
   });
@@ -408,8 +414,8 @@ async function notifyState(view) {
   }), { mode: 0o600 }).catch(() => {});
   if (!event) return;
   const title = event === 'recovered'
-    ? 'AIPRO 已恢复'
-    : event === 'partial_recovery' ? 'AIPRO 正在恢复' : 'AIPRO 通道断线';
+    ? '数字人已恢复'
+    : event === 'partial_recovery' ? '数字人正在恢复' : '数字人通道断线';
   const message = event === 'recovered'
     ? '主轮询、WebSocket 和数据库已恢复正常。'
     : event === 'partial_recovery'

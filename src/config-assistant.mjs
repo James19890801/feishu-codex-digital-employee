@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { isExcludedIdentityText } from './identity-policy.mjs';
 
 const CONFIG_RULES = {
   allowAllChats: { type: 'boolean', risk: 'double' },
@@ -31,11 +32,14 @@ const CONFIG_RULES = {
   gewePublicCallbackBaseUrl: { type: 'httpsUrlOrEmpty', risk: 'double' },
   geweMentionNames: { type: 'stringArray', maxItems: 10, maxLength: 100, risk: 'double' },
   codexModel: { type: 'model', risk: 'double' },
-  multicaEnabled: { type: 'boolean', risk: 'double' },
-  multicaProfile: { type: 'string', maxLength: 200, risk: 'double' },
-  multicaDefaultWorkspaceId: { type: 'uuidOrEmpty', risk: 'double' },
-  multicaSyncIntervalMs: { type: 'integer', min: 5000, max: 300000, risk: 'single' },
-  multicaMaxIssues: { type: 'integer', min: 100, max: 20000, risk: 'single' },
+  a1Enabled: { type: 'boolean', risk: 'double' },
+  a1WebAgentProjectId: { type: 'numericId', risk: 'double' },
+  a1AiCollaborationProjectId: { type: 'numericId', risk: 'double' },
+  a1WebAgentRepo: { type: 'repoPath', risk: 'double' },
+  a1AiCollaborationRepo: { type: 'repoPath', risk: 'double' },
+  a1AiCollaborationBranch: { type: 'string', maxLength: 300, risk: 'double' },
+  a1SyncIntervalMs: { type: 'integer', min: 5000, max: 300000, risk: 'single' },
+  a1MaxWorkitems: { type: 'integer', min: 50, max: 5000, risk: 'single' },
 };
 
 const PUBLIC_CONFIG_KEYS = Object.keys(CONFIG_RULES);
@@ -99,6 +103,18 @@ function normalizeConfigValue(key, value) {
     }
     return value;
   }
+  if (rule.type === 'numericId') {
+    if (typeof value !== 'string' || !/^\d{5,20}$/.test(value)) {
+      throw new Error(`${key} must be a numeric project ID`);
+    }
+    return value;
+  }
+  if (rule.type === 'repoPath') {
+    if (typeof value !== 'string' || !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(value)) {
+      throw new Error(`${key} must be a group/repository path`);
+    }
+    return value;
+  }
   if (rule.type === 'uuidOrEmpty') {
     if (value === '') return '';
     if (typeof value !== 'string'
@@ -138,6 +154,9 @@ function normalizeDocumentContent(target, content) {
     throw new Error(`${target} content must contain 1 to ${maxLength} characters`);
   }
   assertNoCredentials(normalized);
+  if (isExcludedIdentityText(normalized)) {
+    throw new Error(`${target} content contains excluded identity context`);
+  }
   return `${normalized}\n`;
 }
 
@@ -331,6 +350,7 @@ export const assistantSchema = {
     'nodeBin',
     'pythonBin',
     'multicaBin',
+    'a1Bin',
   ],
 };
 
@@ -347,7 +367,7 @@ export function buildPlannerPrompt({ request, documents }) {
   const normalizedRequest = validateAssistantRequest(request);
   const safeConfig = publicConfiguration(documents?.config || {});
   return `
-You are the AIPRO Configuration Planner. Convert the operator's natural-language
+You are the Digital Human Configuration Planner. Convert the operator's natural-language
 request into a constrained configuration plan. You plan changes only. You never
 execute commands, edit files, reveal credentials, or claim that a change has
 already been applied.

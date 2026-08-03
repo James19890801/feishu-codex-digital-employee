@@ -284,44 +284,45 @@ const base = {
 {
   const view = buildOperatorView({
     ...base,
-    multicaEnabled: true,
-    lastMulticaSyncAt: '2026-07-30T00:59:55.000Z',
-    maxMulticaSyncAgeMs: 60_000,
-    lastMulticaSyncError: null,
-    lastMulticaSyncResult: { scanned: 17, changes: 0, notified: 0 },
+    a1Enabled: true,
+    lastA1SyncAt: '2026-07-30T00:59:55.000Z',
+    maxA1SyncAgeMs: 600_000,
+    lastA1SyncError: null,
+    lastA1SyncResult: { fetched: 17, changed: 0, delivered: 0 },
   });
-  assert.equal(view.multica.enabled, true);
-  assert.equal(view.multica.healthy, true);
-  assert.equal(view.multica.scanned, 17);
+  assert.equal(view.a1.enabled, true);
+  assert.equal(view.a1.healthy, true);
+  assert.equal(view.a1.scanned, 17);
 }
 
 {
   const view = buildOperatorView({
     ...base,
-    multicaEnabled: true,
-    lastMulticaSyncAt: '2026-07-30T00:59:55.000Z',
-    maxMulticaSyncAgeMs: 60_000,
-    lastMulticaSyncError: null,
-    lastMulticaSyncResult: { scanned: 17, changes: 1, notified: 0, pending: 1 },
+    a1Enabled: true,
+    lastA1SyncAt: '2026-07-30T00:59:55.000Z',
+    maxA1SyncAgeMs: 600_000,
+    lastA1SyncError: null,
+    lastA1SyncResult: { fetched: 17, changed: 1, delivered: 0 },
+    a1PendingCount: 1,
   });
   assert.equal(view.state, 'degraded');
-  assert.equal(view.issues.includes('multica_delivery_pending'), true);
-  assert.equal(view.multica.pending, 1);
+  assert.equal(view.issues.includes('a1_delivery_pending'), true);
+  assert.equal(view.a1.pending, 1);
 }
 
 {
   const view = buildOperatorView({
     ...base,
-    multicaEnabled: true,
-    lastMulticaSyncAt: '2026-07-30T00:59:55.000Z',
-    maxMulticaSyncAgeMs: 60_000,
-    lastMulticaSyncError: null,
-    lastMulticaSyncResult: { scanned: 17, changes: 0, notified: 0 },
-    multicaDeadCount: 1,
+    a1Enabled: true,
+    lastA1SyncAt: '2026-07-30T00:59:55.000Z',
+    maxA1SyncAgeMs: 600_000,
+    lastA1SyncError: null,
+    lastA1SyncResult: { fetched: 17, changed: 0, delivered: 0 },
+    a1DeadCount: 1,
   });
   assert.equal(view.state, 'degraded');
-  assert.equal(view.issues.includes('multica_delivery_dead'), true);
-  assert.equal(view.multica.dead, 1);
+  assert.equal(view.issues.includes('a1_delivery_dead'), true);
+  assert.equal(view.a1.dead, 1);
 }
 
 {
@@ -342,14 +343,14 @@ const base = {
 {
   const view = buildOperatorView({
     ...base,
-    multicaEnabled: true,
-    lastMulticaSyncAt: '2026-07-30T00:50:00.000Z',
-    maxMulticaSyncAgeMs: 60_000,
-    lastMulticaSyncError: { error: 'timeout' },
+    a1Enabled: true,
+    lastA1SyncAt: '2026-07-30T00:40:00.000Z',
+    maxA1SyncAgeMs: 600_000,
+    lastA1SyncError: { error: 'timeout' },
   });
   assert.equal(view.state, 'degraded');
-  assert.equal(view.issues.includes('multica_sync_stale'), true);
-  assert.equal(view.issues.includes('multica_sync_error'), true);
+  assert.equal(view.issues.includes('a1_sync_stale'), true);
+  assert.equal(view.issues.includes('a1_sync_error'), true);
 }
 
 console.log('DASHBOARD_MODEL_TEST_OK');

@@ -95,7 +95,7 @@ export const config = {
   a1AiCollaborationBranch: String(raw.a1AiCollaborationBranch
     || 'feature/20260606_29656382_init_project_1').trim(),
   a1SyncIntervalMs: boundedInteger(raw.a1SyncIntervalMs, {
-    name: 'a1SyncIntervalMs', fallback: 30000, min: 5000, max: 300000,
+    name: 'a1SyncIntervalMs', fallback: 300000, min: 5000, max: 300000,
   }),
   a1MaxWorkitems: boundedInteger(raw.a1MaxWorkitems, {
     name: 'a1MaxWorkitems', fallback: 500, min: 50, max: 5000,
@@ -104,7 +104,7 @@ export const config = {
   multicaProfile: raw.multicaProfile || 'desktop-api.multica.ai',
   multicaAppUrl: raw.multicaAppUrl || 'https://multica.ai',
   multicaDefaultWorkspaceId: raw.multicaDefaultWorkspaceId || '',
-  multicaOwnerSquad: String(raw.multicaOwnerSquad || '詹老师的开发团伙').trim(),
+  multicaOwnerSquad: String(raw.multicaOwnerSquad || '').trim(),
   multicaSyncIntervalMs: boundedInteger(raw.multicaSyncIntervalMs, {
     name: 'multicaSyncIntervalMs', fallback: 10000, min: 5000, max: 300000,
   }),

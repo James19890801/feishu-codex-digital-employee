@@ -23,7 +23,7 @@ assert.equal(
 
 const instruction = buildIdentityInstruction();
 assert.match(instruction, /阿充在本企业的唯一现行身份是 AI 产品经理/);
-assert.match(instruction, /ALT/);
-assert.match(instruction, /不得进入/);
+assert.doesNotMatch(instruction, /ALT|James|詹老师|AIPRO/);
+assert.match(instruction, /被排除的业务上下文/);
 
 console.log('IDENTITY_POLICY_TEST_OK');

@@ -876,7 +876,7 @@ ${buildIdentityInstruction()}
 ${PERSONA_TEXT}
 
 工作与表达标准：
-1. 你是阿充的数字人，不虚构阿充本人已经阅读、同意或承诺；不要把产品名 AIPRO 当作自己的名字。
+1. 你是阿充的数字人，不虚构阿充本人已经阅读、同意或承诺；唯一现行角色是 AI 产品经理。
 2. 默认使用简体中文，按 Persona 的风格自然、直接地回复。
 3. 不要使用客服腔或报告腔。避免“已记录”“请提供相关材料”“我可以立即为你”“处理如下”等模板句式。
 4. 不要每次复述问题，不要无必要地加标题、总结、编号或固定落款。
@@ -1576,8 +1576,9 @@ async function processIncoming(client, message, sender, metadata = {}) {
   if (message.chat_type === 'group'
     && (!Array.isArray(message.mentions) || message.mentions.length === 0)) return;
 
-  if (await applyPendingFeedback(message, senderOpenId, cleanText, metadata)) return;
-  if (looksLikeMulticaFeedback(cleanText)) {
+  if (config.multicaEnabled
+    && await applyPendingFeedback(message, senderOpenId, cleanText, metadata)) return;
+  if (config.multicaEnabled && looksLikeMulticaFeedback(cleanText)) {
     await startMulticaFeedback(message, senderOpenId, cleanText, metadata);
     return;
   }
@@ -1620,19 +1621,18 @@ async function processIncoming(client, message, sender, metadata = {}) {
     return;
   }
   if (operatorCommand === 'status') {
-    const lastMulticaSyncResult = state.get('health', 'last_multica_sync_result', null);
     const answer = buildStatusReply({
       startedAt: state.get('health', 'last_start_at', ''),
       lastPollSuccessAt: state.get('health', 'last_poll_success_at', ''),
       lastPollError: state.get('health', 'last_poll_error', null),
       websocketConnected: state.get('health', 'websocket_connected', false),
       aiRuntimeLabel: SELECTED_AI_RUNTIME.label,
-      multicaEnabled: config.multicaEnabled,
-      lastMulticaSyncAt: state.get('health', 'last_multica_sync_at', ''),
-      lastMulticaSyncError: state.get('health', 'last_multica_sync_error', null),
-      maxMulticaSyncAgeMs: Math.max(60_000, config.multicaSyncIntervalMs * 6),
-      multicaPending: Number(lastMulticaSyncResult?.pending || 0),
-      multicaDead: state.multicaNotificationDeadCount(),
+      a1Enabled: config.a1Enabled,
+      lastA1SyncAt: state.get('health', 'last_a1_sync_at', ''),
+      lastA1SyncError: state.get('health', 'last_a1_sync_error', null),
+      maxA1SyncAgeMs: Math.max(600_000, config.a1SyncIntervalMs * 3),
+      a1Pending: state.a1NotificationCount('pending'),
+      a1Dead: state.a1NotificationCount('dead'),
       inboxCounts: state.inboxStatusCounts(),
       dashboardUrl: DASHBOARD_URL,
       detailed: senderOpenId === OWNER_OPEN_ID,
@@ -1723,8 +1723,9 @@ async function processIncoming(client, message, sender, metadata = {}) {
       return;
     }
   }
-  if (await applyPendingMultica(message, senderOpenId, cleanText, metadata)) return;
-  const multicaWorkRequest = parseMulticaWorkRequest(cleanText);
+  if (config.multicaEnabled
+    && await applyPendingMultica(message, senderOpenId, cleanText, metadata)) return;
+  const multicaWorkRequest = config.multicaEnabled ? parseMulticaWorkRequest(cleanText) : null;
   if (multicaWorkRequest) {
     try {
       await handleMulticaWorkRequest(
@@ -1749,7 +1750,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
     }
     return;
   }
-  if (looksLikeMulticaRequest(cleanText)) {
+  if (config.multicaEnabled && looksLikeMulticaRequest(cleanText)) {
     try {
       await handleMulticaRequest(message, senderOpenId, cleanText, metadata);
     } catch (error) {
@@ -2483,8 +2484,8 @@ async function fetchDingTalkWukongMessages(startMs, endMs) {
     start: dingTalkPollingTime(startMs),
     end: dingTalkPollingTime(endMs),
     ownerOpenId: config.dingtalkOwnerOpenId,
-    ownerNames: ['阿充', '阿充James', '冯周充'],
-    mentionNames: ['阿充', '阿充James'],
+    ownerNames: ['阿充', '冯周充'],
+    mentionNames: ['阿充'],
     run: runBufferedProcess,
     runOptions: {
       cwd: WORKDIR,

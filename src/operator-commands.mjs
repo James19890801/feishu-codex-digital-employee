@@ -25,8 +25,9 @@ export function buildHelpReply({ dashboardUrl }) {
     '• 单聊直接发送问题',
     '• 发送“状态”查看通道健康',
     '• 账号本人发送“数字人请退场”、“数字人停止”或“数字人先不要你了”，当前会话静默至少 5 分钟',
-    '• 可以查询、创建、更新和跟进 Multica Issue；写入前会先让请求人确认',
-    '• 发送“把 Multica 全空间变化同步到这里”开启业务变化同步',
+    '• 可以查询、创建、更新和跟进 1A 需求；需求会直接写入、回读并返回真实链接',
+    '• 新需求会先确认 WebAgent、AI协同空间或其他产品，再按对应需求池处理',
+    '• 已创建需求的真实状态变化会自动通知原提出人',
     '',
     `可视化面板：${dashboardUrl}`,
     '面板仅在这台 Mac 上可以打开。',
@@ -40,12 +41,12 @@ export function buildStatusReply({
   lastPollError,
   websocketConnected,
   aiRuntimeLabel = '',
-  multicaEnabled = false,
-  lastMulticaSyncAt = '',
-  lastMulticaSyncError = null,
-  maxMulticaSyncAgeMs = 60_000,
-  multicaPending = 0,
-  multicaDead = 0,
+  a1Enabled = false,
+  lastA1SyncAt = '',
+  lastA1SyncError = null,
+  maxA1SyncAgeMs = 600_000,
+  a1Pending = 0,
+  a1Dead = 0,
   inboxCounts = {},
   dashboardUrl,
   detailed = false,
@@ -54,15 +55,15 @@ export function buildStatusReply({
   const pollHealthy = Number.isFinite(pollTimestamp)
     && nowMs - pollTimestamp <= 60_000
     && !lastPollError;
-  const multicaTimestamp = Date.parse(lastMulticaSyncAt || '');
-  const multicaHealthy = !multicaEnabled || (
-    Number.isFinite(multicaTimestamp)
-    && nowMs - multicaTimestamp <= maxMulticaSyncAgeMs
-    && !lastMulticaSyncError
-    && Number(multicaPending || 0) === 0
-    && Number(multicaDead || 0) === 0
+  const a1Timestamp = Date.parse(lastA1SyncAt || '');
+  const a1Healthy = !a1Enabled || (
+    Number.isFinite(a1Timestamp)
+    && nowMs - a1Timestamp <= maxA1SyncAgeMs
+    && !lastA1SyncError
+    && Number(a1Pending || 0) === 0
+    && Number(a1Dead || 0) === 0
   );
-  const healthy = pollHealthy && websocketConnected && multicaHealthy
+  const healthy = pollHealthy && websocketConnected && a1Healthy
     && Number(inboxCounts.dead || 0) === 0;
   const lines = [
     `运行状态：${healthy ? '正常' : '需要维护'}`,
@@ -70,11 +71,11 @@ export function buildStatusReply({
     `辅助监听：${websocketConnected ? '已连接' : '未连接'}`,
   ];
   if (aiRuntimeLabel) lines.push(`AI 运行时：${aiRuntimeLabel}`);
-  if (multicaEnabled) {
+  if (a1Enabled) {
     lines.push(
-      `Multica 同步：${formatAge(nowMs, lastMulticaSyncAt)}`
-      + (multicaPending ? `，待补发 ${multicaPending}` : '')
-      + (multicaDead ? `，死信 ${multicaDead}` : ''),
+      `1A 同步：${formatAge(nowMs, lastA1SyncAt)}`
+      + (a1Pending ? `，待补发 ${a1Pending}` : '')
+      + (a1Dead ? `，死信 ${a1Dead}` : ''),
     );
   }
   if (detailed) {

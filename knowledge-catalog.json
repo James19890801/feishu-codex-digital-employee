@@ -2,30 +2,20 @@
   "version": 2,
   "sources": [
     {
-      "sourceId": "repo:webagent",
-      "type": "code_repository",
-      "title": "WebAgent 代码仓库",
-      "locator": "enterprise-development/ai-lab-agent",
+      "sourceId": "a1:aiflow-project",
+      "type": "a1_workitem",
+      "title": "AI采购协同空间",
+      "locator": "a1:project:2168196",
       "ownerId": "384351",
       "readerIds": [],
-      "aliases": ["WebAgent", "Web Agent", "ai-lab-agent"],
+      "aliases": [
+        "AI 协同空间需求",
+        "AIFlow 需求进展"
+      ],
       "sensitivity": "internal",
       "status": "active",
       "freshnessAt": "2026-08-03",
-      "summary": "WebAgent 产品代码、页面、运行时、接口与测试的事实来源。"
-    },
-    {
-      "sourceId": "repo:aiflow",
-      "type": "code_repository",
-      "title": "AI 协同空间代码仓库",
-      "locator": "enterprise-development/ai-native-flow-platform@feature/20260606_29656382_init_project_1",
-      "ownerId": "384351",
-      "readerIds": [],
-      "aliases": ["AIFlow", "AI 协同空间", "AI采购协同空间"],
-      "sensitivity": "internal",
-      "status": "active",
-      "freshnessAt": "2026-08-03",
-      "summary": "AI 协同空间的人机协同、工作流、项目、任务和智能体实现事实来源。"
+      "summary": "AI 协同空间需求、缺陷、任务和进展的实时事实来源。"
     },
     {
       "sourceId": "a1:webagent-project",
@@ -34,24 +24,14 @@
       "locator": "a1:project:2165415",
       "ownerId": "384351",
       "readerIds": [],
-      "aliases": ["WebAgent需求", "WebAgent 需求进展"],
+      "aliases": [
+        "WebAgent需求",
+        "WebAgent 需求进展"
+      ],
       "sensitivity": "internal",
       "status": "active",
       "freshnessAt": "2026-08-03",
       "summary": "WebAgent 需求、缺陷、任务和进展的实时事实来源。"
-    },
-    {
-      "sourceId": "a1:aiflow-project",
-      "type": "a1_workitem",
-      "title": "AI采购协同空间",
-      "locator": "a1:project:2168196",
-      "ownerId": "384351",
-      "readerIds": [],
-      "aliases": ["AI 协同空间需求", "AIFlow 需求进展"],
-      "sensitivity": "internal",
-      "status": "active",
-      "freshnessAt": "2026-08-03",
-      "summary": "AI 协同空间需求、缺陷、任务和进展的实时事实来源。"
     },
     {
       "sourceId": "dingtalk-doc:aiflow-conversation-project-plan",
@@ -60,50 +40,14 @@
       "locator": "vy20BglGWOxjGpq0CgY4vqELVA7depqY",
       "ownerId": "384351",
       "readerIds": [],
-      "aliases": ["AIFlow 产品方案", "对话式项目发起"],
+      "aliases": [
+        "AIFlow 产品方案",
+        "对话式项目发起"
+      ],
       "sensitivity": "internal",
       "status": "active",
       "freshnessAt": "2026-08-03",
       "summary": "AIFlow 产品定位、用户旅程、核心对象、优先级、状态、通知与异常规则。"
-    },
-    {
-      "sourceId": "dingtalk-doc:webagent-automation-plan",
-      "type": "dingtalk_doc",
-      "title": "Web-Agent全链路自动化模块产品方案",
-      "locator": "QG53mjyd800agdlKHgO1Dg4j86zbX04v",
-      "ownerId": "384351",
-      "readerIds": [],
-      "aliases": ["WebAgent 自动化方案", "全链路自动化"],
-      "sensitivity": "internal",
-      "status": "active",
-      "freshnessAt": "2026-08-03",
-      "summary": "WebAgent 全链路自动化的产品结构、场景与交付要求。"
-    },
-    {
-      "sourceId": "dingtalk-doc:webagent-sop",
-      "type": "dingtalk_doc",
-      "title": "【AI Lab】Web Agent 能力目录与接入 SOP",
-      "locator": "N7dx2rn0JbxOaqnAC27X1oZXWMGjLRb3",
-      "ownerId": "384351",
-      "readerIds": [],
-      "aliases": ["Web Agent SOP", "WebAgent 能力目录"],
-      "sensitivity": "internal",
-      "status": "active",
-      "freshnessAt": "2026-08-03",
-      "summary": "WebAgent 能力边界、接入步骤和使用约束。"
-    },
-    {
-      "sourceId": "dingtalk-doc:webagent-positioning",
-      "type": "dingtalk_doc",
-      "title": "WebAgent平台 — 产品定位、用户与使用动线",
-      "locator": "jb9Y4gmKWrx9eo4dCj3jEN0OJGXn6lpz",
-      "ownerId": "384351",
-      "readerIds": [],
-      "aliases": ["WebAgent 产品定位", "WebAgent 使用动线"],
-      "sensitivity": "internal",
-      "status": "active",
-      "freshnessAt": "2026-08-03",
-      "summary": "WebAgent 的产品定位、目标用户和核心使用路径。"
     },
     {
       "sourceId": "dingtalk-doc:digital-human-group-intent",
@@ -112,7 +56,10 @@
       "locator": "mExel2BLV59rgdDPiPMvae1DVgk9rpMq",
       "ownerId": "384351",
       "readerIds": [],
-      "aliases": ["多数字人自动介入", "群聊意图识别"],
+      "aliases": [
+        "多数字人自动介入",
+        "群聊意图识别"
+      ],
       "sensitivity": "internal",
       "status": "active",
       "freshnessAt": "2026-08-03",
@@ -125,11 +72,96 @@
       "locator": "R1zknDm0WR6XzZ4LtxYBDx0jWBQEx5rG",
       "ownerId": "384351",
       "readerIds": [],
-      "aliases": ["让 AI 回到流程里", "页面里的智能体"],
+      "aliases": [
+        "让 AI 回到流程里",
+        "页面里的智能体"
+      ],
       "sensitivity": "internal",
       "status": "active",
       "freshnessAt": "2026-08-03",
       "summary": "嵌入式 AI、任务 Skill、分层运行时、降级和产品验证方法。"
+    },
+    {
+      "sourceId": "dingtalk-doc:webagent-automation-plan",
+      "type": "dingtalk_doc",
+      "title": "Web-Agent全链路自动化模块产品方案",
+      "locator": "QG53mjyd800agdlKHgO1Dg4j86zbX04v",
+      "ownerId": "384351",
+      "readerIds": [],
+      "aliases": [
+        "WebAgent 自动化方案",
+        "全链路自动化"
+      ],
+      "sensitivity": "internal",
+      "status": "active",
+      "freshnessAt": "2026-08-03",
+      "summary": "WebAgent 全链路自动化的产品结构、场景与交付要求。"
+    },
+    {
+      "sourceId": "dingtalk-doc:webagent-positioning",
+      "type": "dingtalk_doc",
+      "title": "WebAgent平台 — 产品定位、用户与使用动线",
+      "locator": "jb9Y4gmKWrx9eo4dCj3jEN0OJGXn6lpz",
+      "ownerId": "384351",
+      "readerIds": [],
+      "aliases": [
+        "WebAgent 产品定位",
+        "WebAgent 使用动线"
+      ],
+      "sensitivity": "internal",
+      "status": "active",
+      "freshnessAt": "2026-08-03",
+      "summary": "WebAgent 的产品定位、目标用户和核心使用路径。"
+    },
+    {
+      "sourceId": "dingtalk-doc:webagent-sop",
+      "type": "dingtalk_doc",
+      "title": "【AI Lab】Web Agent 能力目录与接入 SOP",
+      "locator": "N7dx2rn0JbxOaqnAC27X1oZXWMGjLRb3",
+      "ownerId": "384351",
+      "readerIds": [],
+      "aliases": [
+        "Web Agent SOP",
+        "WebAgent 能力目录"
+      ],
+      "sensitivity": "internal",
+      "status": "active",
+      "freshnessAt": "2026-08-03",
+      "summary": "WebAgent 能力边界、接入步骤和使用约束。"
+    },
+    {
+      "sourceId": "repo:aiflow",
+      "type": "code_repository",
+      "title": "AI 协同空间代码仓库",
+      "locator": "enterprise-development/ai-native-flow-platform@feature/20260606_29656382_init_project_1",
+      "ownerId": "384351",
+      "readerIds": [],
+      "aliases": [
+        "AIFlow",
+        "AI 协同空间",
+        "AI采购协同空间"
+      ],
+      "sensitivity": "internal",
+      "status": "active",
+      "freshnessAt": "2026-08-03",
+      "summary": "AI 协同空间的人机协同、工作流、项目、任务和智能体实现事实来源。"
+    },
+    {
+      "sourceId": "repo:webagent",
+      "type": "code_repository",
+      "title": "WebAgent 代码仓库",
+      "locator": "enterprise-development/ai-lab-agent",
+      "ownerId": "384351",
+      "readerIds": [],
+      "aliases": [
+        "WebAgent",
+        "Web Agent",
+        "ai-lab-agent"
+      ],
+      "sensitivity": "internal",
+      "status": "active",
+      "freshnessAt": "2026-08-03",
+      "summary": "WebAgent 产品代码、页面、运行时、接口与测试的事实来源。"
     }
   ]
 }

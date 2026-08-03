@@ -25,6 +25,11 @@ function fieldValue(fields, identifier) {
   return String(field?.displayValue ?? field?.value ?? '');
 }
 
+function fieldRawValue(fields, identifier) {
+  const field = fields.find(item => String(item?.identifier || '') === identifier);
+  return String(field?.value ?? '');
+}
+
 export function normalizeWorkitem(item) {
   if (!item || typeof item !== 'object') throw new Error('A1 workitem is invalid');
   const id = requiredText(item.id, 'workitem id', 100);
@@ -41,7 +46,7 @@ export function normalizeWorkitem(item) {
     description: String(item.description || ''),
     status: fieldValue(fields, 'status'),
     assignee: fieldValue(fields, 'assignedTo'),
-    projectId: fieldValue(fields, 'space'),
+    projectId: fieldRawValue(fields, 'space'),
     projectName: fieldValue(fields, 'space'),
     updatedAt: String(item.updatedAt || ''),
     raw: structuredClone(item),

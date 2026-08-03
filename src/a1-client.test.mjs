@@ -48,6 +48,8 @@ const runner = async (bin, args, options) => {
 const client = new A1Client({ bin: '/opt/a1', runner });
 const fetched = await client.getWorkitem('84886503');
 assert.equal(fetched.status, '就绪(待开发)');
+assert.equal(fetched.projectId, '2165415');
+assert.equal(fetched.projectName, 'WebAgent需求池');
 assert.deepEqual(calls.at(-1).args, ['project', 'workitem', 'get', '84886503', '-f', 'json']);
 
 calls.length = 0;
