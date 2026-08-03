@@ -112,6 +112,10 @@ const base = {
   assert.equal(view.channels.feishu.healthy, true);
   assert.equal(view.channels.feishu.transport, 'disabled');
   assert.equal(view.channels.dingtalk.healthy, true);
+  assert.equal(view.primaryChannel, 'dingtalk');
+  assert.equal(view.polling.applicable, false);
+  assert.equal(view.polling.ageMs, null);
+  assert.equal(view.websocket.lastReadyAt, '2026-07-30T00:59:55.000Z');
 }
 
 {

@@ -70,5 +70,11 @@ assert.doesNotMatch(html, /data-card="codex"/, 'runtime must not be repeated in 
 assert.doesNotMatch(html, /class="runtime-contract"/, 'internal switching workflow should not repeat below the cards');
 assert.doesNotMatch(app, /id:\s*'auto'/, 'automatic discovery is an implementation policy, not a runtime card');
 assert.match(app, /runtime\.id === selectedId/);
+assert.match(html, /id="channelFeishuRole"[^>]*data-i18n="disabledRole">DISABLED<\/span>/);
+assert.match(html, /id="channelDingtalkRole"[^>]*data-i18n="primaryRole">PRIMARY<\/span>/);
+assert.doesNotMatch(html, /Lark or DingTalk/);
+assert.doesNotMatch(html, /Identity boundary: Lark and DingTalk/);
+assert.match(app, /data\.polling\.applicable/);
+assert.match(app, /data\.primaryChannel/);
 
 console.log('DASHBOARD_VISUAL_CONTRACT_TEST_OK');

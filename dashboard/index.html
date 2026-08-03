@@ -106,19 +106,19 @@
         <div>
           <span data-i18n="channelsEyebrow">OMNICHANNEL ROUTER / ISOLATED FAILURE DOMAINS</span>
           <h3 data-i18n="channelsTitle">Messaging channels</h3>
-          <p data-i18n="channelsDescription">Every channel shares the same runtime, memory, queue, and audit trail. Personal WeChat runs in an isolated process, so failures cannot interrupt Lark or DingTalk.</p>
+          <p data-i18n="channelsDescription">Every channel shares the same runtime, memory, queue, and audit trail. Personal WeChat runs in an isolated process, so failures cannot interrupt the primary DingTalk path.</p>
         </div>
         <b data-i18n="primaryProtected">PRIMARY PATH PROTECTED</b>
       </div>
       <div class="channel-grid">
         <article class="channel-card" data-channel="feishu">
-          <header><i id="channelFeishuDot"></i><strong data-i18n="feishuName">Lark / Feishu</strong><span>PRIMARY</span></header>
+          <header><i id="channelFeishuDot"></i><strong data-i18n="feishuName">Lark / Feishu</strong><span id="channelFeishuRole" data-i18n="disabledRole">DISABLED</span></header>
           <b id="channelFeishuStatus" data-i18n="checking">Checking</b>
           <p id="channelFeishuMeta" data-i18n="feishuMeta">Human identity · polling + WebSocket</p>
           <button type="button" data-channel-open="feishu" data-i18n="inspectTest">Inspect &amp; test</button>
         </article>
         <article class="channel-card" data-channel="dingtalk">
-          <header><i id="channelDingtalkDot"></i><strong data-i18n="dingtalkName">DingTalk</strong><span>OPTIONAL</span></header>
+          <header><i id="channelDingtalkDot"></i><strong data-i18n="dingtalkName">DingTalk</strong><span id="channelDingtalkRole" data-i18n="primaryRole">PRIMARY</span></header>
           <b id="channelDingtalkStatus" data-i18n="checking">Checking</b>
           <p id="channelDingtalkMeta" data-i18n="dingtalkMeta">Human identity · DWS personal event stream</p>
           <button type="button" data-channel-open="dingtalk" data-i18n="configure">Configure</button>
@@ -147,7 +147,7 @@
           <small id="wechatPocDetail" data-i18n="wechatPocDetail">Replies to direct chats; group chats require an explicit @ mention; text only.</small>
         </article>
       </div>
-      <p class="channel-identity-note" data-i18n="channelIdentityNote">Identity boundary: Lark and DingTalk keep their existing human-identity paths. Personal WeChat controls only the local official client, with its own switch, state database, and process.</p>
+      <p class="channel-identity-note" data-i18n="channelIdentityNote">Identity boundary: DingTalk uses Achong's authenticated human-identity path. The disabled Feishu connector and isolated personal WeChat process cannot replace or interrupt it.</p>
     </section>
 
     <section class="metrics-grid">

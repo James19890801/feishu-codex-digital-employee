@@ -26,11 +26,13 @@ export function isCredentialAccessBlocked(lastPollError) {
 }
 
 export function buildOperatorView(input) {
-  const pollAgeMs = Number.isFinite(input.pollCursorMs)
+  const feishuEnabled = input.feishuEnabled !== false;
+  const pollAgeMs = feishuEnabled
+    && Number.isFinite(input.pollCursorMs)
+    && input.pollCursorMs > 0
     ? Math.max(0, input.nowMs - input.pollCursorMs)
     : null;
   const issues = [];
-  const feishuEnabled = input.feishuEnabled !== false;
   const dingtalkChannel = input.dingtalkChannel || {};
   const wecomChannel = input.wecomChannel || {};
   const geweChannel = input.geweChannel || {};
@@ -91,9 +93,13 @@ export function buildOperatorView(input) {
   }
 
   const state = !input.processAlive ? 'offline' : issues.length ? 'degraded' : 'online';
+  const primaryChannel = dingtalkChannel.enabled
+    ? 'dingtalk'
+    : feishuEnabled ? 'feishu' : '';
   return {
     state,
     healthy: state === 'online',
+    primaryChannel,
     checkedAt: new Date(input.nowMs).toISOString(),
     issues,
     issueLabels: issues.map(issue => ISSUE_LABELS[issue] || issue),
@@ -103,8 +109,9 @@ export function buildOperatorView(input) {
       startedAt: input.processStartedAt || '',
     },
     polling: {
+      applicable: feishuEnabled,
       healthy: !issues.includes('poll_cursor_stale'),
-      cursorAt: Number.isFinite(input.pollCursorMs)
+      cursorAt: pollAgeMs !== null
         ? new Date(input.pollCursorMs).toISOString()
         : '',
       ageMs: pollAgeMs,
@@ -115,7 +122,9 @@ export function buildOperatorView(input) {
     websocket: {
       active: Boolean(input.websocketActive),
       activeConsumers: Number(input.activeConsumers || 0),
-      lastReadyAt: input.lastWebsocketReadyAt || '',
+      lastReadyAt: (dingtalkNeedsWebsocket ? dingtalkChannel.lastReadyAt : '')
+        || input.lastWebsocketReadyAt
+        || '',
     },
     channels: {
       feishu: {

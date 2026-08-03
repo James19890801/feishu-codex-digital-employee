@@ -336,6 +336,12 @@ function render(data) {
     data.channels?.wechat,
     tr('wechatLegacyMeta'),
   );
+  $('channelFeishuRole').textContent = tr(data.primaryChannel === 'feishu'
+    ? 'primaryRole'
+    : data.channels?.feishu?.enabled ? 'optionalRole' : 'disabledRole');
+  $('channelDingtalkRole').textContent = tr(data.primaryChannel === 'dingtalk'
+    ? 'primaryRole'
+    : data.channels?.dingtalk?.enabled ? 'optionalRole' : 'disabledRole');
   renderWeChatPoc(data.wechatPoc || data.channels?.wechatPoc);
 
   $('processValue').textContent = data.process.alive ? tr('processRunning') : tr('processStopped');
@@ -344,11 +350,15 @@ function render(data) {
     : tr('dashboardStillOnline');
   setDot('processDot', data.process.alive);
 
-  $('pollingValue').textContent = data.polling.healthy ? formatAge(data.polling.ageMs) : tr('pollingStalled');
-  $('pollingMeta').textContent = data.polling.healthy
+  $('pollingValue').textContent = !data.polling.applicable
+    ? tr('disabled')
+    : data.polling.healthy ? formatAge(data.polling.ageMs) : tr('pollingStalled');
+  $('pollingMeta').textContent = !data.polling.applicable
+    ? tr('notEnabled')
+    : data.polling.healthy
     ? tr('cycleDuration', { value: formatAge(data.polling.lastDurationMs) })
     : (data.polling.lastError?.error || tr('pollingNotAdvancing'));
-  setDot('pollingDot', data.polling.healthy);
+  setDot('pollingDot', !data.polling.applicable || data.polling.healthy);
 
   $('websocketValue').textContent = data.websocket.active
     ? tr('consumers', { count: data.websocket.activeConsumers }) : tr('disconnected');
