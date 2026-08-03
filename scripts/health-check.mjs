@@ -146,7 +146,7 @@ if (config.a1Enabled) {
 }
 result.healthy = result.issues.length === 0;
 result.metrics = {
-  pollAgeMs: nowMs - cursorMs,
+  pollAgeMs: config.feishuEnabled === false ? null : nowMs - cursorMs,
   staleProcessing: processingCount,
   overdueFailed: failedCount,
   sqliteIntegrity: integrity,
