@@ -2,6 +2,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boundedInteger } from './reliability.mjs';
+import {
+  validateDingTalkConfiguration,
+  validateFeishuConfiguration,
+} from './runtime-mode.mjs';
 
 const srcDir = dirname(fileURLToPath(import.meta.url));
 const workdir = resolve(srcDir, '..');
@@ -16,6 +20,7 @@ if (!Array.isArray(raw.authorizedChatIds || [])) {
 }
 
 export const config = {
+  feishuEnabled: raw.feishuEnabled !== false,
   feishuAppId: raw.feishuAppId || '',
   ownerOpenId: raw.ownerOpenId || '',
   keychainService: raw.keychainService || 'codex-feishu-digital-employee',
@@ -109,15 +114,7 @@ export const config = {
 };
 
 export function validateCoreConfiguration(value = config) {
-  for (const key of ['feishuAppId', 'ownerOpenId']) {
-    if (!value[key]) throw new Error(`config.local.json 缺少 ${key}`);
-  }
-  if (!/^cli_[0-9a-fA-F]{16}$/.test(value.feishuAppId)) {
-    throw new Error('feishuAppId 格式无效');
-  }
-  if (!/^ou_[A-Za-z0-9]+$/.test(value.ownerOpenId)) {
-    throw new Error('ownerOpenId 格式无效');
-  }
+  validateFeishuConfiguration(value);
   if (!value.allowAllChats && !value.authorizedChatIds.length) {
     throw new Error('未启用 allowAllChats 时，config.local.json 至少需要一个 authorizedChatIds');
   }
@@ -177,13 +174,7 @@ if (!['lark-cli', 'sdk'].includes(config.eventTransport)) {
 if (!['auto', 'codex', 'qoder', 'codebuddy', 'trae'].includes(config.aiRuntime)) {
   throw new Error('aiRuntime 只能是 auto、codex、qoder、codebuddy 或 trae');
 }
-if (config.dingtalkOwnerOpenId
-  && !/^[A-Za-z0-9_-]{8,256}$/.test(config.dingtalkOwnerOpenId)) {
-  throw new Error('dingtalkOwnerOpenId 格式无效');
-}
-if (config.dingtalkEnabled && !config.dingtalkOwnerOpenId) {
-  throw new Error('启用 dingtalkEnabled 时必须填写 dingtalkOwnerOpenId 以验证 Owner');
-}
+validateDingTalkConfiguration(config);
 if (config.wecomEnabled && !config.wecomBotId) {
   throw new Error('启用 wecomEnabled 时必须填写 wecomBotId');
 }

@@ -66,9 +66,11 @@ export function channelConfigurationView(configuration, credentialStates = {}) {
     feishu: {
       id: 'feishu',
       protected: true,
-      enabled: true,
-      identity: maskedIdentity(configuration.feishuAppId),
-      credentialStored: true,
+      enabled: configuration.feishuEnabled !== false,
+      identity: configuration.feishuEnabled === false
+        ? '未配置'
+        : maskedIdentity(configuration.feishuAppId),
+      credentialStored: configuration.feishuEnabled !== false,
     },
     dingtalk: {
       id: 'dingtalk',
@@ -165,6 +167,16 @@ function check(label, passed, detail = '') {
 export function channelConnectionReport(channel, status) {
   if (!CHANNELS.has(channel)) throw new Error('Unknown IM channel');
   if (channel === 'feishu') {
+    const enabled = status?.channels?.feishu?.enabled !== false;
+    if (!enabled) {
+      return {
+        channel,
+        ok: true,
+        state: 'disabled',
+        checks: [check('通道开关', true, '当前机器未启用飞书')],
+        detail: '飞书通道当前未启用',
+      };
+    }
     const checks = [
       check('主进程', status?.process?.alive),
       check('用户消息轮询', status?.polling?.healthy),

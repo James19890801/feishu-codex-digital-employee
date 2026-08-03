@@ -16,6 +16,7 @@ import { basename, dirname, extname, join } from 'node:path';
 import { config, validateCoreConfiguration } from './config.mjs';
 import { evaluateLicenseGuard, waitForTerminationSignals } from './licensing/guard.mjs';
 import { LicensingStore } from './licensing/store.mjs';
+import { runtimeMode } from './runtime-mode.mjs';
 import {
   canReadDocument,
   extractKnowledgeQuery,
@@ -201,6 +202,7 @@ const chatQueues = new SerialKeyQueue();
 const AUTHORIZED_CHAT_IDS = new Set(config.authorizedChatIds);
 const DIGITAL_TWIN_LABEL = config.digitalTwinLabel;
 const POLL_INTERVAL_MS = config.pollIntervalMs;
+const RUNTIME_MODE = runtimeMode(config);
 const POLL_OVERLAP_MS = config.pollOverlapMs;
 const POLL_INITIAL_LOOKBACK_MS = config.pollInitialLookbackMs;
 const POLL_MAX_CATCHUP_MS = config.pollMaxCatchupMs;
@@ -2866,13 +2868,16 @@ async function main() {
       label: SELECTED_AI_RUNTIME.label,
     });
     state.set('health', 'websocket_connected', false);
+    state.set('health', 'feishu_enabled', RUNTIME_MODE.feishuEnabled);
     const recovered = state.recoverProcessingInbound(new Date().toISOString());
     if (recovered) console.log(`[inbound] recovered ${recovered} stale message(s)`);
     await runMaintenance();
     const maintenanceTimer = setInterval(() => { runMaintenance(); }, 6 * 60 * 60_000);
     maintenanceTimer.unref();
-    businessClient = await createBusinessClient();
-    await initializeUserPolling();
+    if (RUNTIME_MODE.feishuEnabled) {
+      businessClient = await createBusinessClient();
+      await initializeUserPolling();
+    }
     triggerDrain();
     await initializeAdditionalImChannels();
     if (await initializeDingTalkSelfPolling()) {
@@ -2885,14 +2890,21 @@ async function main() {
       console.log(`[multica-sync] active every ${config.multicaSyncIntervalMs}ms across all workspaces`);
     }
 
-    if (config.eventTransport === 'sdk') {
-      superviseSdkEvents(businessClient).catch(error => console.error('[websocket-sdk-supervisor-fatal]', error));
-    } else {
-      superviseLarkCliEvents().catch(error => console.error('[websocket-supervisor-fatal]', error));
+    if (RUNTIME_MODE.feishuEnabled) {
+      if (config.eventTransport === 'sdk') {
+        superviseSdkEvents(businessClient).catch(error => console.error('[websocket-sdk-supervisor-fatal]', error));
+      } else {
+        superviseLarkCliEvents().catch(error => console.error('[websocket-supervisor-fatal]', error));
+      }
     }
     console.log(`[ai-runtime] selected ${SELECTED_AI_RUNTIME.label} (${config.aiRuntime})`);
-    console.log(`[poll] user message polling active every ${POLL_INTERVAL_MS}ms; websocket auxiliary active`);
-    await runUserPollingLoop();
+    if (RUNTIME_MODE.feishuEnabled) {
+      console.log(`[poll] user message polling active every ${POLL_INTERVAL_MS}ms; websocket auxiliary active`);
+      await runUserPollingLoop();
+    } else {
+      console.log(`[channel] Feishu disabled; primary=${RUNTIME_MODE.primaryChannel}`);
+      while (!stopping) await wait(1000);
+    }
     if (drainPromise) await drainPromise.catch(() => {});
     if (multicaSyncPromise) await multicaSyncPromise.catch(() => {});
     if (dingTalkSupervisorPromise) await dingTalkSupervisorPromise.catch(() => {});

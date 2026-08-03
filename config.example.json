@@ -1,4 +1,5 @@
 {
+  "feishuEnabled": true,
   "feishuAppId": "cli_xxxxxxxxxxxxxxxx",
   "ownerOpenId": "ou_xxxxxxxxxxxxxxxx",
   "keychainService": "codex-feishu-digital-employee",

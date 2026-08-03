@@ -158,4 +158,18 @@ const disabledReport = channelConfiguration.channelConnectionReport('wechat', {
 assert.equal(disabledReport.ok, true);
 assert.equal(disabledReport.state, 'disabled');
 
+const disabledFeishuView = channelConfiguration.channelConfigurationView({
+  ...configuration,
+  feishuEnabled: false,
+}, {});
+assert.equal(disabledFeishuView.feishu.enabled, false);
+assert.equal(disabledFeishuView.feishu.identity, '未配置');
+
+const disabledFeishuReport = channelConfiguration.channelConnectionReport('feishu', {
+  channels: { feishu: { enabled: false } },
+});
+assert.equal(disabledFeishuReport.ok, true);
+assert.equal(disabledFeishuReport.state, 'disabled');
+assert.match(disabledFeishuReport.detail, /未启用/);
+
 console.log('CHANNEL_CONFIGURATION_TEST_OK');

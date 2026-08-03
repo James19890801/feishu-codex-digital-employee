@@ -69,7 +69,7 @@ const multicaDeadCount = Number(db.prepare(`SELECT COUNT(*) AS count
 const proxyReachable = await tcpReachable(config.codexProxyUrl || '');
 const result = evaluateHealth({
   nowMs,
-  cursorMs,
+  cursorMs: config.feishuEnabled === false ? nowMs : cursorMs,
   maxPollAgeMs: Math.max(60_000, Number(config.pollIntervalMs || 5000) * 12),
   processingCount,
   failedCount,
@@ -111,7 +111,8 @@ if (lastAiRuntimeError?.at
   && (!lastAiRuntimeSuccessAt || lastAiRuntimeError.at > lastAiRuntimeSuccessAt)) {
   result.issues.push('ai_runtime_last_call_failed');
 }
-if (lastPollError?.at && (!lastPollSuccessAt || lastPollError.at > lastPollSuccessAt)) {
+if (config.feishuEnabled !== false
+  && lastPollError?.at && (!lastPollSuccessAt || lastPollError.at > lastPollSuccessAt)) {
   result.issues.push('poller_last_run_failed');
 }
 const selfChatCircuitOpen = Number(selfChatCircuitLast?.openUntilMs || 0) > nowMs;
@@ -181,7 +182,12 @@ result.metrics = {
   selfChatCircuitOpen,
   selfChatCircuitLast,
   channels: {
-    feishu: { connected: true, identityMode: 'user' },
+    feishu: {
+      enabled: config.feishuEnabled !== false,
+      connected: config.feishuEnabled !== false,
+      state: config.feishuEnabled === false ? 'disabled' : 'connected',
+      identityMode: 'user',
+    },
     dingtalk: {
       enabled: config.dingtalkEnabled === true,
       installed: Boolean(dingtalkChannel.installed),
