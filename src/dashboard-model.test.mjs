@@ -117,6 +117,29 @@ const base = {
 {
   const view = buildOperatorView({
     ...base,
+    feishuEnabled: false,
+    pollCursorMs: Number.NaN,
+    websocketActive: false,
+    dingtalkChannel: {
+      enabled: true,
+      installed: true,
+      configured: true,
+      authenticated: true,
+      connected: true,
+      identityMode: 'user',
+      transport: 'Wukong DWS polling',
+      lastReadyAt: '2026-07-30T00:59:58.000Z',
+    },
+  });
+  assert.equal(view.state, 'online');
+  assert.equal(view.issues.includes('websocket_consumer_missing'), false);
+  assert.equal(view.channels.dingtalk.transport, 'Wukong DWS polling');
+  assert.equal(view.channels.dingtalk.lastReadyAt, '2026-07-30T00:59:58.000Z');
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
     dingtalkChannel: {
       enabled: true,
       installed: true,

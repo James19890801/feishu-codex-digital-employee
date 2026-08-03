@@ -37,8 +37,24 @@ assert.doesNotThrow(() => runtime.validateFeishuConfiguration({
 assert.doesNotThrow(() => runtime.validateDingTalkConfiguration({
   dingtalkEnabled: true,
   multicaEnabled: false,
+  dingtalkTransport: 'wukong-polling',
   dingtalkOwnerOpenId: '',
 }));
+assert.doesNotThrow(() => runtime.validateDingTalkConfiguration({
+  dingtalkEnabled: true,
+  multicaEnabled: false,
+  dingtalkTransport: 'event-stream',
+  dingtalkOwnerOpenId: '',
+}));
+assert.throws(
+  () => runtime.validateDingTalkConfiguration({
+    dingtalkEnabled: true,
+    multicaEnabled: false,
+    dingtalkTransport: 'automatic-fallback',
+    dingtalkOwnerOpenId: '',
+  }),
+  /dingtalkTransport/,
+);
 assert.throws(
   () => runtime.validateDingTalkConfiguration({
     dingtalkEnabled: true,

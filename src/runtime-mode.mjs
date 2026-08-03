@@ -23,6 +23,10 @@ export function validateFeishuConfiguration(configuration = {}) {
 }
 
 export function validateDingTalkConfiguration(configuration = {}) {
+  const transport = String(configuration.dingtalkTransport || 'event-stream').trim();
+  if (!['event-stream', 'wukong-polling'].includes(transport)) {
+    throw new Error('dingtalkTransport 只能是 event-stream 或 wukong-polling');
+  }
   const ownerOpenId = String(configuration.dingtalkOwnerOpenId || '').trim();
   if (ownerOpenId && !/^[A-Za-z0-9_-]{8,256}$/.test(ownerOpenId)) {
     throw new Error('dingtalkOwnerOpenId 格式无效');

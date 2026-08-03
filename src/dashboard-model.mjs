@@ -53,7 +53,9 @@ export function buildOperatorView(input) {
     issues.push('database_backup_stale');
   }
   if (input.backupRequired && input.lastBackupError) issues.push('database_backup_error');
-  if ((feishuEnabled || dingtalkChannel.enabled) && !input.websocketActive) {
+  const dingtalkNeedsWebsocket = dingtalkChannel.enabled
+    && dingtalkChannel.transport !== 'Wukong DWS polling';
+  if ((feishuEnabled || dingtalkNeedsWebsocket) && !input.websocketActive) {
     issues.push('websocket_consumer_missing');
   }
   if (!input.codexProxyReachable) issues.push('codex_proxy_unreachable');

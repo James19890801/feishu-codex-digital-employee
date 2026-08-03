@@ -65,6 +65,7 @@ export const config = {
   }),
   aiRuntime: raw.aiRuntime || 'auto',
   dingtalkEnabled: raw.dingtalkEnabled === true,
+  dingtalkTransport: String(raw.dingtalkTransport || 'event-stream').trim(),
   dingtalkProfile: raw.dingtalkProfile || '',
   dingtalkOwnerOpenId: String(raw.dingtalkOwnerOpenId || '').trim(),
   dingtalkBin: raw.dingtalkBin || join(home, '.npm-global', 'bin', 'dws'),

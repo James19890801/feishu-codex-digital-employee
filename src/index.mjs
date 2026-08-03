@@ -142,6 +142,7 @@ import {
   GeWeWebhookServer,
   WeComChannel,
 } from './im-channel-runtime.mjs';
+import { fetchDingTalkWukongWindow } from './dingtalk-wukong-poller.mjs';
 
 const CORE_LICENSE_GUARD = await evaluateLicenseGuard({
   enforced: config.licensingEnforced,
@@ -1316,7 +1317,10 @@ function dingTalkMessageTime(value) {
 
 async function syncRecentDingTalkTakeover(message, metadata = {}) {
   const target = parseChannelChatId(message?.chat_id);
-  if (target?.channel !== 'dingtalk' || !config.dingtalkOwnerOpenId || metadata.selfChat === true) return null;
+  if (target?.channel !== 'dingtalk'
+    || config.dingtalkTransport === 'wukong-polling'
+    || !config.dingtalkOwnerOpenId
+    || metadata.selfChat === true) return null;
   const nowMs = Date.now();
   const { stdout, stderr } = await runBufferedProcess(
     config.dingtalkBin,
@@ -2335,6 +2339,114 @@ async function runDingTalkSelfPollingLoop() {
   }
 }
 
+async function fetchDingTalkWukongMessages(startMs, endMs) {
+  if (!config.dingtalkEnabled || config.dingtalkTransport !== 'wukong-polling') return [];
+  return fetchDingTalkWukongWindow({
+    bin: config.dingtalkBin,
+    start: dingTalkPollingTime(startMs),
+    end: dingTalkPollingTime(endMs),
+    ownerOpenId: config.dingtalkOwnerOpenId,
+    ownerNames: ['阿充', '阿充James', '冯周充'],
+    mentionNames: ['阿充', '阿充James'],
+    run: runBufferedProcess,
+    runOptions: {
+      cwd: WORKDIR,
+      env: dingtalkProcessEnv(),
+      timeoutMs: config.larkCliTimeoutMs,
+      maxStdoutBytes: 16 * 1024 * 1024,
+      maxStderrBytes: 1024 * 1024,
+    },
+  });
+}
+
+async function initializeDingTalkWukongPolling() {
+  if (!config.dingtalkEnabled || config.dingtalkTransport !== 'wukong-polling') return false;
+  const nowMs = Date.now();
+  if (!state.get('dingtalk_wukong_poller', 'initialized_v1', false)) {
+    const snapshot = await fetchDingTalkWukongMessages(
+      nowMs - POLL_INITIAL_LOOKBACK_MS,
+      nowMs,
+    );
+    const seededAt = new Date().toISOString();
+    let seeded = 0;
+    for (const payload of snapshot) {
+      if (state.seedInbound(payload.message.message_id, 'dingtalk-wukong-baseline', payload, seededAt)) {
+        seeded += 1;
+      }
+    }
+    state.set('dingtalk_wukong_poller', 'cursor_ms', nowMs);
+    state.set('dingtalk_wukong_poller', 'initialized_v1', true);
+    state.audit('dingtalk_wukong_poller_baseline_seeded', { detail: { seeded } });
+    console.log(`[dingtalk-wukong-poll] baseline ready; seeded ${seeded} existing message(s)`);
+  } else if (!state.get('dingtalk_wukong_poller', 'cursor_ms', 0)) {
+    state.set('dingtalk_wukong_poller', 'cursor_ms', nowMs);
+  }
+  const readyAt = new Date().toISOString();
+  state.set('health', 'last_dingtalk_wukong_poll_success_at', readyAt);
+  state.unset('health', 'last_dingtalk_wukong_poll_error');
+  updateImChannelStatus('dingtalk', {
+    authenticated: true,
+    connected: true,
+    lastReadyAt: readyAt,
+    lastError: null,
+  });
+  return true;
+}
+
+async function pollDingTalkWukongMessagesOnce() {
+  const nowMs = Date.now();
+  const cursorMs = Number(state.get('dingtalk_wukong_poller', 'cursor_ms', nowMs));
+  const { startMs, endMs } = planPollWindow(cursorMs, nowMs, {
+    overlapMs: POLL_OVERLAP_MS,
+    maxCatchupMs: POLL_MAX_CATCHUP_MS,
+    maxWindowMs: POLL_WINDOW_MS,
+  });
+  const payloads = await fetchDingTalkWukongMessages(startMs, endMs);
+  let enqueued = 0;
+  for (const payload of payloads) {
+    if (enqueueInbound(payload, 'dingtalk-wukong-poll')) enqueued += 1;
+  }
+  state.set('dingtalk_wukong_poller', 'cursor_ms', endMs);
+  const readyAt = new Date().toISOString();
+  state.set('health', 'last_dingtalk_wukong_poll_success_at', readyAt);
+  state.unset('health', 'last_dingtalk_wukong_poll_error');
+  updateImChannelStatus('dingtalk', {
+    authenticated: true,
+    connected: true,
+    lastReadyAt: readyAt,
+    lastError: null,
+  });
+  if (enqueued) {
+    console.log(`[dingtalk-wukong-poll] enqueued ${enqueued} new message(s)`);
+    triggerDrain();
+  }
+  return enqueued;
+}
+
+async function runDingTalkWukongPollingLoop() {
+  let failures = 0;
+  while (!stopping) {
+    const startedAt = Date.now();
+    try {
+      await pollDingTalkWukongMessagesOnce();
+      failures = 0;
+    } catch (error) {
+      if (stopping) break;
+      failures += 1;
+      const delayMs = pollFailureDelayMs(error, failures, { baseIntervalMs: POLL_INTERVAL_MS });
+      const summary = processFailureSummary(error);
+      const lastError = { at: new Date().toISOString(), error: summary };
+      state.set('health', 'last_dingtalk_wukong_poll_error', lastError);
+      state.audit('dingtalk_wukong_poll_error', { detail: { failures, delayMs, error: summary } });
+      updateImChannelStatus('dingtalk', { connected: false, failures, lastError });
+      console.error(`[dingtalk-wukong-poll-error] retry in ${delayMs}ms:`, error);
+      await wait(delayMs);
+      continue;
+    }
+    await wait(Math.max(250, POLL_INTERVAL_MS - (Date.now() - startedAt)));
+  }
+}
+
 async function runMulticaSyncLoop() {
   if (!MULTICA_SYNCHRONIZER) return;
   let failures = 0;
@@ -2423,6 +2535,7 @@ function createDingTalkChannel() {
   return new DingTalkChannel({
     bin: config.dingtalkBin,
     profile: config.dingtalkProfile,
+    transport: config.dingtalkTransport,
     run: (bin, args) => runBufferedProcess(bin, args, {
       cwd: WORKDIR,
       env: dingtalkProcessEnv(),
@@ -2507,7 +2620,9 @@ async function initializeAdditionalImChannels() {
     authenticated: false,
     connected: false,
     identityMode: 'user',
-    transport: 'dws personal websocket',
+    transport: config.dingtalkTransport === 'wukong-polling'
+      ? 'Wukong DWS polling'
+      : 'DWS personal event stream',
   });
   updateImChannelStatus('wecom', {
     enabled: config.wecomEnabled,
@@ -2541,8 +2656,10 @@ async function initializeAdditionalImChannels() {
       });
     } else {
       dingTalkChannel = createDingTalkChannel();
-      dingTalkSupervisorPromise = superviseDingTalkEvents()
-        .catch(error => console.error('[dingtalk-supervisor-fatal]', error));
+      if (config.dingtalkTransport === 'event-stream') {
+        dingTalkSupervisorPromise = superviseDingTalkEvents()
+          .catch(error => console.error('[dingtalk-supervisor-fatal]', error));
+      }
     }
   }
 
@@ -2881,18 +2998,28 @@ async function main() {
     }
     triggerDrain();
     await initializeAdditionalImChannels();
-    const dingTalkSelfPolling = await initializeOptionalPoller(initializeDingTalkSelfPolling);
+    const dingTalkSelfPolling = await initializeOptionalPoller(
+      config.dingtalkTransport === 'wukong-polling'
+        ? initializeDingTalkWukongPolling
+        : initializeDingTalkSelfPolling,
+    );
     if (dingTalkSelfPolling.error) {
       const summary = processFailureSummary(dingTalkSelfPolling.error);
-      state.set('health', 'last_dingtalk_self_poll_error', {
+      const healthKey = config.dingtalkTransport === 'wukong-polling'
+        ? 'last_dingtalk_wukong_poll_error'
+        : 'last_dingtalk_self_poll_error';
+      state.set('health', healthKey, {
         at: new Date().toISOString(), error: summary,
       });
       state.audit('dingtalk_self_poll_unavailable', { detail: { error: summary } });
       console.error('[dingtalk-self-poll-unavailable]', dingTalkSelfPolling.error);
     }
     if (dingTalkSelfPolling.active) {
-      dingTalkSelfPollingPromise = runDingTalkSelfPollingLoop()
-        .catch(error => console.error('[dingtalk-self-poll-fatal]', error));
+      const runPollingLoop = config.dingtalkTransport === 'wukong-polling'
+        ? runDingTalkWukongPollingLoop
+        : runDingTalkSelfPollingLoop;
+      dingTalkSelfPollingPromise = runPollingLoop()
+        .catch(error => console.error('[dingtalk-poll-fatal]', error));
     }
     if (MULTICA_SYNCHRONIZER) {
       multicaSyncPromise = runMulticaSyncLoop()
