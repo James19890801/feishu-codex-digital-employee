@@ -153,6 +153,14 @@ import {
   extractRepositoryPaths,
   parseA1RequirementSpec,
 } from './a1-spec-planner.mjs';
+import {
+  ConversationContextClient,
+} from './conversation-context-client.mjs';
+import {
+  ReplyContextService,
+  buildDingTalkReplyHistoryRequest,
+  executeGroundedReply,
+} from './reply-context.mjs';
 
 const CORE_LICENSE_GUARD = await evaluateLicenseGuard({
   enforced: config.licensingEnforced,
@@ -212,6 +220,24 @@ const singletonLock = await acquireSingletonLock(join(WORKDIR, 'data', 'service.
 const state = new AgentState(STATE_PATH);
 const pendingActions = new PendingActionStore(state);
 const chatQueues = new SerialKeyQueue();
+const DINGTALK_PROFILE_USER_ID = String(config.dingtalkProfile || '').split(':').at(-1)?.trim() || '';
+const CONVERSATION_CONTEXT_CLIENT = config.dingtalkEnabled
+  ? new ConversationContextClient({
+      bin: config.dingtalkBin,
+      profile: config.dingtalkProfile,
+      transport: config.dingtalkTransport,
+      env: dingtalkProcessEnv(),
+      cwd: WORKDIR,
+      ownerIds: [config.dingtalkOwnerOpenId, DINGTALK_PROFILE_USER_ID].filter(Boolean),
+      ownerNames: ['阿充', '冯周充', '阿充James'],
+      runner: runBufferedProcess,
+      timeoutMs: config.larkCliTimeoutMs,
+      audit: (event, detail) => state.audit(event, { detail }),
+    })
+  : null;
+const REPLY_CONTEXT_SERVICE = CONVERSATION_CONTEXT_CLIENT
+  ? new ReplyContextService({ contextClient: CONVERSATION_CONTEXT_CLIENT })
+  : null;
 const AUTHORIZED_CHAT_IDS = new Set(config.authorizedChatIds);
 const DIGITAL_TWIN_LABEL = config.digitalTwinLabel;
 const POLL_INTERVAL_MS = config.pollIntervalMs;
@@ -868,7 +894,7 @@ async function runAiRuntime(prompt, options) {
   }
 }
 
-async function runCodex(task, history, imagePaths = [], decision = null) {
+async function runCodex(task, history, imagePaths = [], decision = null, liveReplyContext = '') {
   const lengthPolicy = replyLengthPolicy(task);
   const prompt = `
 ${buildIdentityInstruction()}
@@ -900,8 +926,9 @@ ${PRIVACY_BOUNDARY_TEXT}
 本次工作流决策：
 ${decision ? workflowInstruction(decision) : '未指定，按 Bible 判断。'}
 
-本次运行周期内的最近对话：
-${history}
+${liveReplyContext
+    ? `本次钉钉真实会话上下文：\n${liveReplyContext}`
+    : `本次运行周期内的最近对话：\n${history}`}
 
 用户指令：
 ${task}
@@ -2044,14 +2071,35 @@ async function processIncoming(client, message, sender, metadata = {}) {
         task = '找到了相关资料，但读取原文失败。请自然说明刚刚没能打开资料，让对方稍后再试。';
       }
     }
-    const history = formatHistory(message.chat_id, senderOpenId);
+    const target = parseChannelChatId(message.chat_id);
+    const history = target?.channel === 'dingtalk'
+      ? '（钉钉回复使用本轮实时读取的当前会话历史）'
+      : formatHistory(message.chat_id, senderOpenId);
     const historyLabel = knowledgeResult?.documents?.length
       ? knowledgeMemoryLabel({ request: cleanText, documents: knowledgeResult.documents })
       : fileRef
         ? `${cleanText || '请求读取文件'}：${fileRef.fileName || '未命名文件'}`
         : imageRefs.length ? `${cleanText || '发送了图片'}（含图片）` : task;
     remember(message.chat_id, senderOpenId, 'user', historyLabel);
-    const answer = await runCodex(task, history, imagePaths, decision);
+    const answer = target?.channel === 'dingtalk'
+      ? await executeGroundedReply({
+          contextService: REPLY_CONTEXT_SERVICE,
+          task: cleanText || task,
+          historyRequest: buildDingTalkReplyHistoryRequest({
+            message,
+            senderOpenId,
+            cleanText: cleanText || task,
+            metadata,
+          }),
+          generate: ({ replyContextInstruction }) => runCodex(
+            task,
+            history,
+            imagePaths,
+            decision,
+            replyContextInstruction,
+          ),
+        })
+      : await runCodex(task, history, imagePaths, decision);
     remember(message.chat_id, senderOpenId, 'assistant', answer);
     await sendText(client, message.chat_id, answer, `xiaozhao-${message.message_id}`);
     audit('message_replied', message, senderOpenId, { artifact: false, answerChars: answer.length });

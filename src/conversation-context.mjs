@@ -78,13 +78,13 @@ function normalizeMessage(raw, { conversationId, ownerIds, ownerNames }) {
   const senderName = String(raw?.sender ?? raw?.senderName ?? raw?.nickName ?? '').trim();
   const createdAtRaw = raw?.createTime ?? raw?.createdAt ?? raw?.sendTime ?? raw?.timestamp ?? '';
   const createdAtMs = timestamp(createdAtRaw);
-  const messageConversationId = String(
+  const providerConversationId = String(
     raw?.openConversationId ?? raw?.conversationId ?? conversationId ?? '',
   ).trim();
-  if (conversationId && messageConversationId && messageConversationId !== conversationId) return null;
   return {
     messageId: String(raw?.openMessageId ?? raw?.messageId ?? raw?.msgId ?? '').trim(),
-    conversationId: messageConversationId || String(conversationId || ''),
+    conversationId: String(conversationId || providerConversationId),
+    providerConversationId,
     senderId,
     senderName,
     direction: ownerIds.has(senderId) || ownerNames.has(senderName) ? 'owner' : 'counterparty',

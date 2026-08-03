@@ -150,6 +150,31 @@ const ownerByName = normalizeConversationHistory(
 assert.equal(ownerByName.styleSamples.length, 1);
 assert.equal(ownerByName.styleSamples[0].content, '我先看一下');
 
+const providerConversationId = normalizeConversationHistory(
+  {
+    result: {
+      messages: [{
+        openMessageId: 'provider-old', openConversationId: 'provider-cid-direct',
+        senderOpenDingTalkId: 'owner-open', sender: '冯周充', content: '历史回复',
+        createTime: '2026-08-03 14:59:00',
+      }],
+    },
+  },
+  {
+    conversationId: 'dingtalk:user:colleague-open', ownerIds: ['owner-open'], ownerNames: ['冯周充'],
+    currentMessage: {
+      messageId: 'logical-current', conversationId: 'dingtalk:user:colleague-open',
+      senderId: 'colleague-open', senderName: '同事甲', content: '当前问题',
+      createdAt: '2026-08-03 15:00:00',
+    },
+  },
+);
+assert.deepEqual(
+  providerConversationId.messages.map(item => item.messageId),
+  ['provider-old', 'logical-current'],
+);
+assert.equal(providerConversationId.messages[0].conversationId, 'dingtalk:user:colleague-open');
+
 const formatted = formatConversationContext(normalized);
 assert.match(formatted, /当前钉钉会话最近 30 条真实消息/);
 assert.match(formatted, /当前回应目标/);

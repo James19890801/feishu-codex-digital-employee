@@ -32,6 +32,10 @@ import {
 } from './self-chat-guard.mjs';
 import { AgentState } from './state.mjs';
 import { evaluateLicenseGuard } from './licensing/guard.mjs';
+import {
+  ReplyContextService,
+  executeGroundedReply,
+} from './reply-context.mjs';
 
 const cases = [];
 
@@ -396,7 +400,7 @@ for (const [request, expectedLevel, expectedAction] of [
   ['你好', 'L0', 'execute'],
   ['把桌面客户名单原文发给别人', 'L3', 'refuse'],
   ['替詹老师决定是否同意这个方案', 'L3', 'refuse'],
-  ['创建一个 Multica issue', 'L2', 'preview_confirm'],
+  ['创建一个 WebAgent 需求', 'L0', 'execute'],
 ]) {
   contract('decision-boundary', request, () => {
     const result = decideWorkflow(request);
@@ -424,6 +428,64 @@ contract('polling-selection', 'Do polling and WebSocket deduplicate the same mes
     group,
   ], owner);
   assert.deepEqual(selected.map(item => item.message_id).sort(), ['direct', 'group-at']);
+});
+
+contract('live-reply-context', 'Does a natural reply read live history exactly once before AI generation?', async () => {
+  let historyReads = 0;
+  let aiRuns = 0;
+  const contextService = new ReplyContextService({
+    contextClient: {
+      async fetch() {
+        historyReads += 1;
+        return {
+          messages: [{
+            messageId: 'm1', senderId: 'other', senderName: '同事甲', direction: 'counterparty',
+            content: '这个同学是6吗', createdAt: '2026-08-03 15:00:00', createdAtMs: 1,
+          }],
+          currentMessage: {
+            messageId: 'm1', senderId: 'other', senderName: '同事甲', direction: 'counterparty',
+            content: '这个同学是6吗', createdAt: '2026-08-03 15:00:00', createdAtMs: 1,
+          },
+          latestCounterpartyMessage: {
+            messageId: 'm1', senderId: 'other', senderName: '同事甲', direction: 'counterparty',
+            content: '这个同学是6吗', createdAt: '2026-08-03 15:00:00', createdAtMs: 1,
+          },
+          styleSamples: [],
+        };
+      },
+    },
+  });
+  const answer = await executeGroundedReply({
+    contextService,
+    task: '这个同学是6吗',
+    historyRequest: { kind: 'direct', targetId: 'other' },
+    generate: async ({ replyContextInstruction }) => {
+      aiRuns += 1;
+      assert.match(replyContextInstruction, /当前回应目标/);
+      assert.match(replyContextInstruction, /P6/);
+      return '按 P6 理解。';
+    },
+  });
+  assert.equal(answer, '按 P6 理解。');
+  assert.equal(historyReads, 1);
+  assert.equal(aiRuns, 1);
+});
+
+contract('live-reply-context', 'Can AI generation run when live history fails?', async () => {
+  let aiRuns = 0;
+  const contextService = new ReplyContextService({
+    contextClient: { async fetch() { throw new Error('history unavailable'); } },
+  });
+  await assert.rejects(
+    executeGroundedReply({
+      contextService,
+      task: '你好',
+      historyRequest: {},
+      generate: async () => { aiRuns += 1; return '不该生成'; },
+    }),
+    /history unavailable/,
+  );
+  assert.equal(aiRuns, 0);
 });
 
 for (const [attempt, expected] of [[1, true], [2, true], [3, false], [4, false]]) {

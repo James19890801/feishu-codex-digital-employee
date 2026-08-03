@@ -39,7 +39,7 @@ export class ConversationContextClient {
     env = {},
     cwd,
     ownerIds = [],
-    ownerNames = [],
+    ownerNames = ['阿充', '冯周充', '阿充James'],
     runner,
     timeoutMs = 30_000,
     audit = () => {},

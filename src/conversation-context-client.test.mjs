@@ -126,4 +126,38 @@ const firstConversation = await emptyClient.fetch({
 assert.equal(firstConversation.messages.length, 1);
 assert.equal(firstConversation.latestCounterpartyMessage.content, '第一次说话');
 
+const verifiedDisplayNameClient = new ConversationContextClient({
+  bin: ORIGINAL_DWS_BIN,
+  profile: 'corp:user',
+  transport: 'event-stream',
+  env: {},
+  cwd: '/srv/aipro',
+  ownerIds: ['384351'],
+  runner: async () => ({
+    stdout: JSON.stringify({
+      success: true,
+      result: {
+        messages: [{
+          openMessageId: 'owner-display-1', openConversationId: 'provider-cid',
+          senderOpenDingTalkId: 'owner-open-unknown', sender: '阿充James',
+          content: '这个我先看下', createTime: '2026-08-03 14:59:00',
+        }],
+      },
+    }),
+    stderr: '',
+    exitCode: 0,
+  }),
+});
+const verifiedDisplayName = await verifiedDisplayNameClient.fetch({
+  kind: 'direct', targetId: 'colleague-open', beforeTime: '2026-08-03 15:00:01',
+  conversationId: 'dingtalk:user:colleague-open',
+  currentMessage: {
+    messageId: 'owner-display-current', conversationId: 'dingtalk:user:colleague-open',
+    senderId: 'colleague-open', senderName: '同事甲', content: '你看看这个',
+    createdAt: '2026-08-03 15:00:00',
+  },
+});
+assert.equal(verifiedDisplayName.styleSamples.length, 1);
+assert.equal(verifiedDisplayName.styleSamples[0].content, '这个我先看下');
+
 console.log('CONVERSATION_CONTEXT_CLIENT_TEST_OK');
