@@ -50,7 +50,8 @@ for (const endpoint of [
 assert.match(html, /<html lang="en">/);
 assert.match(html, /id="languageToggle"/);
 assert.equal((html.match(/Developed by Zhao Yingzhi &amp; James Feng/g) || []).length, 1);
-assert.match(html, /class="brand-mark" role="img" aria-label="AIPRO emblem"/);
+assert.match(html, /class="brand-mark" role="img" aria-label="Achong digital human emblem"/);
+assert.match(html, /<h1 data-i18n="brandName">Achong's Digital Human<\/h1>/);
 assert.match(css, /grid-template-columns:[^;]*minmax\(260px,[^;]*minmax\(280px,/);
 assert.doesNotMatch(html, /<div class="brand">[\s\S]{0,900}data-i18n="brandCredit"/);
 assert.doesNotMatch(html, /<span class="brand-mark">AI<\/span>/);

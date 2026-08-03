@@ -1,6 +1,8 @@
 const catalog = {
   en: {
-    pageTitle: 'AIPRO · Your identity, intelligently present.',
+    pageTitle: "Achong's Digital Human · Powered by Codex",
+    brandName: "Achong's Digital Human",
+    brandFooter: 'ACHONG DIGITAL HUMAN · CODEX RUNTIME',
     brandSubtitle: 'Your identity, intelligently present.',
     brandCredit: 'Developed by Zhao Yingzhi & James Feng',
     brandCampaignEyebrow: 'REAL IDENTITY · MULTI-CHANNEL AI',
@@ -376,7 +378,9 @@ const catalog = {
     ago: '{seconds}s ago',
   },
   zh: {
-    pageTitle: 'AIPRO · 让智能，以你的身份在场。',
+    pageTitle: '阿充的数字人 · Codex 驱动',
+    brandName: '阿充的数字人',
+    brandFooter: '阿充的数字人 · CODEX 运行时',
     brandSubtitle: '让智能，以你的身份在场。',
     brandCredit: '开发者 · 赵颖知 & James Feng（詹老师）',
     brandCampaignEyebrow: '真实身份 · 全渠道智能',
