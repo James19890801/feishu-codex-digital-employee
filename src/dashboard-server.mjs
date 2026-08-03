@@ -355,6 +355,10 @@ async function collectStatus() {
     codexProxyReachable,
     credentialBlocked: isCredentialAccessBlocked(database.lastPollError),
     codexModel: config.codexModel,
+    webReaderEnabled: config.webReaderEnabled,
+    audioTranscriberAvailable: Boolean(
+      config.audioTranscriptionCommand && existsSync(config.audioTranscriptionCommand)
+    ),
     aiRuntime,
     multicaEnabled: config.multicaEnabled,
     maxMulticaSyncAgeMs: Math.max(60_000, config.multicaSyncIntervalMs * 6),

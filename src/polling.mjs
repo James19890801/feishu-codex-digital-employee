@@ -65,7 +65,7 @@ export function selectInboundMessages(messages, ownerOpenId) {
       if (message.sender?.sender_type !== 'user') return false;
       if (message.sender?.id === ownerOpenId
         && !(message.chat_type === 'p2p' && message.self_chat === true)) return false;
-      if (!['text', 'post'].includes(message.msg_type || 'text')) return false;
+      if (!['text', 'post', 'image', 'file', 'audio', 'media'].includes(message.msg_type || 'text')) return false;
       if (message.chat_type === 'group') {
         if (!message.mentions?.some(mention => mention?.id === ownerOpenId)) return false;
       } else if (message.chat_type !== 'p2p') {
@@ -80,14 +80,31 @@ export function selectInboundMessages(messages, ownerOpenId) {
 }
 
 export function normalizeSearchMessage(item) {
+  const messageType = String(item.msg_type || 'text');
+  let content = String(item.content || '');
+  if (messageType === 'text' || messageType === 'post') {
+    content = JSON.stringify({ text: content });
+  } else if (messageType === 'image') {
+    const imageKey = content.match(/^\[Image:\s*([^\]\s]+)\]$/i)?.[1]
+      || content.match(/<img\b[^>]*\bkey="([^"]+)"/i)?.[1];
+    content = imageKey ? JSON.stringify({ image_key: imageKey }) : JSON.stringify({ text: content });
+  } else if (messageType === 'file' || messageType === 'audio' || messageType === 'media') {
+    const fileKey = content.match(/<(?:file|audio|media)\b[^>]*\bkey="([^"]+)"/i)?.[1];
+    const fileName = content.match(/<(?:file|audio|media)\b[^>]*\bname="([^"]*)"/i)?.[1] || '';
+    content = fileKey
+      ? JSON.stringify({ file_key: fileKey, ...(fileName ? { file_name: fileName } : {}) })
+      : JSON.stringify({ text: content });
+  } else {
+    try { JSON.parse(content); } catch { content = JSON.stringify({ text: content }); }
+  }
   const payload = {
     message: {
       message_id: item.message_id,
       chat_id: item.chat_id,
       chat_type: item.chat_type,
-      message_type: 'text',
+      message_type: messageType,
       create_time: String(messageTime(item) || Date.now()),
-      content: JSON.stringify({ text: String(item.content || '') }),
+      content,
       mentions: Array.isArray(item.mentions) ? item.mentions : [],
     },
     sender: {
