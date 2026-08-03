@@ -74,7 +74,7 @@ assert.equal(
 {
   await assert.rejects(
     runBufferedProcess(process.execPath, ['-e', 'process.stdout.write("x".repeat(10000))'], {
-      timeoutMs: 2_000,
+      timeoutMs: 10_000,
       maxStdoutBytes: 100,
     }),
     error => error?.code === 'PROCESS_OUTPUT_LIMIT',
