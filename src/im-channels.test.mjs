@@ -219,6 +219,30 @@ assert.deepEqual(buildDingTalkListAllPollingArgs(
   assert.equal(page.payloads[2].message.mentions.length, 1);
 }
 
+{
+  const page = normalizeDingTalkListAllPage({
+    success: true,
+    result: {
+      conversationMessagesList: [{
+        openConversationId: 'cid-media',
+        singleChat: true,
+        title: '同事媒体',
+        messages: [{
+          content: '[图片消息](mediaId=@image_poll_1)',
+          createTime: '2026-08-03 11:24:00',
+          openMessageId: 'msg-image-poll',
+          senderOpenDingTalkId: 'open-media-sender',
+        }],
+      }],
+      hasMore: false,
+    },
+  }, { ownerOpenId: 'open-owner' });
+  assert.equal(page.payloads.length, 1);
+  assert.equal(page.payloads[0].message.message_type, 'image');
+  assert.equal(page.payloads[0].metadata.media.resourceId, '@image_poll_1');
+  assert.equal(page.payloads[0].metadata.media.conversationId, 'cid-media');
+}
+
 assert.deepEqual(buildDingTalkSelfPollingArgs('corp:user', 'user', '2026-08-01 13:50:00'), [
   '--profile', 'corp:user',
   'chat', 'message', 'list',
@@ -310,6 +334,25 @@ assert.throws(
   assert.equal(JSON.parse(payload.message.content).text, '@James 请给我项目状态');
   assert.equal(payload.message.mentions.length, 1);
   assert.equal(payload.metadata.channel, 'dingtalk');
+}
+
+{
+  const payload = normalizeDingTalkEvent({
+    type: 'user_im_message_receive_o2o_all',
+    event_id: 'event-voice',
+    message_id: 'msg-voice',
+    conversation_id: 'cid-direct',
+    sender_open_dingtalk_id: 'sender-voice',
+    content: '[语音消息](mediaId=@voice_123) 注意：如需下载使用命令',
+  });
+  assert.equal(payload.message.message_type, 'audio');
+  assert.equal(JSON.parse(payload.message.content).resource_id, '@voice_123');
+  assert.deepEqual(payload.metadata.media, {
+    kind: 'audio',
+    resourceId: '@voice_123',
+    messageId: 'msg-voice',
+    conversationId: 'cid-direct',
+  });
 }
 
 {

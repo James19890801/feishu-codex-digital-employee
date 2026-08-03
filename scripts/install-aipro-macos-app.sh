@@ -21,6 +21,12 @@ cp "$ROOT/macos/AIPRO/Info.plist" "$BUNDLE/Contents/Info.plist"
   -o "$BUNDLE/Contents/MacOS/AIPRO"
 chmod 755 "$BUNDLE/Contents/MacOS/AIPRO"
 
+/usr/bin/xcrun swiftc -parse-as-library -O \
+  "$ROOT/macos/AIPRO/AIPROTranscribe.swift" \
+  -framework AVFoundation -framework Speech \
+  -o "$BUNDLE/Contents/MacOS/AIPROTranscribe"
+chmod 755 "$BUNDLE/Contents/MacOS/AIPROTranscribe"
+
 /usr/bin/xcrun swift "$ROOT/macos/AIPRO/GenerateIcon.swift" "$ICONSET"
 /usr/bin/iconutil -c icns "$ICONSET" -o "$BUNDLE/Contents/Resources/AppIcon.icns"
 

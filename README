@@ -638,7 +638,7 @@ proposed and clarified in a verified Owner self-chat uses a persistent outbox
 to assign the Issue to the configured Owner Squad and move it to `todo`.
 
 
-TEXT, IMAGE, AND FILE CAPABILITIES
+TEXT, IMAGE, AUDIO, WEB, AND FILE CAPABILITIES
 
 Text:
 
@@ -656,6 +656,31 @@ Images:
     Up to four recent images by default
     Screenshot and visual-content understanding when the selected runtime
     supports image input
+
+Audio:
+
+    Feishu audio resources downloaded through the authenticated user identity
+    DingTalk voice resources downloaded through the official DWS media command
+    Local Chinese transcription through the macOS Speech framework
+    No audio content is sent to a separate transcription API
+    A short, explicit fallback reply when local transcription is unavailable
+
+Public web links:
+
+    Up to two HTTP or HTTPS links extracted from one message by default
+    HTML, XHTML, plain text, and JSON reading
+    Script, style, navigation, and layout noise removal before AI processing
+    Redirect revalidation, response-size limits, timeouts, and content limits
+    Loopback, private-network, link-local, multicast, custom-port, credentialed,
+    and cloud-metadata-style targets are rejected before fetching
+    Web content is marked as untrusted data and cannot override AIPRO policy
+
+Short video:
+
+    DingTalk video resources can be downloaded through DWS
+    A local Quick Look key frame and any available local speech transcript are
+    passed to an image-capable runtime
+    Video processing failure is isolated from normal text-message processing
 
 Files:
 
@@ -680,6 +705,10 @@ Recommended attachment workflow:
     First send the image or file.
     Then send a text instruction in the same conversation, such as:
     "Summarize the file I just sent."
+
+The operations dashboard reports Text, Image, Audio, and Link readiness for
+each connected channel. A connected channel is not automatically presented as
+multimodal-ready when its media downloader or local transcriber is unavailable.
 
 AIPRO searches only the same conversation, only the same sender, and only the
 previous 30 minutes. It does not substitute a file sent by another person.

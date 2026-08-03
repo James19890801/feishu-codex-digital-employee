@@ -214,6 +214,16 @@ function setDot(id, good) {
   $(id).className = good ? 'good' : 'bad';
 }
 
+function channelCapabilitySummary(channel) {
+  if (!channel?.capabilities) return '';
+  const labels = locale === 'zh'
+    ? { text: '文字', image: '图片', audio: '语音', link: '链接' }
+    : { text: 'Text', image: 'Image', audio: 'Audio', link: 'Link' };
+  return Object.entries(labels)
+    .map(([key, label]) => `${label} ${channel.capabilities[key] ? '✓' : '×'}`)
+    .join(' · ');
+}
+
 function renderChannel(prefix, channel, fallbackMeta) {
   const status = $(`channel${prefix}Status`);
   const meta = $(`channel${prefix}Meta`);
@@ -228,7 +238,8 @@ function renderChannel(prefix, channel, fallbackMeta) {
   }
   if (channel.connected) {
     status.textContent = tr('online');
-    meta.textContent = `${fallbackMeta} · ${formatDate(channel.lastReadyAt, true)}`;
+    const capabilities = channelCapabilitySummary(channel);
+    meta.textContent = `${fallbackMeta} · ${formatDate(channel.lastReadyAt, true)}${capabilities ? ` · ${capabilities}` : ''}`;
     dot.className = 'good';
     return;
   }

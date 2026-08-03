@@ -64,6 +64,7 @@ assert.doesNotMatch(css, /--blue:/, 'the brand system should not introduce a com
 assert.match(css, /backdrop-filter:\s*blur/);
 assert.match(css, /@media \(max-width: 560px\)/);
 assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+assert.match(app, /channel\.capabilities/, 'channel cards must expose text, image, audio and link readiness');
 
 assert.doesNotMatch(html, /class="runtime-current"/, 'effective runtime should be expressed only by the selected card');
 assert.doesNotMatch(html, /data-card="codex"/, 'runtime must not be repeated in the summary metrics');
