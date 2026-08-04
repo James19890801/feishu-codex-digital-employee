@@ -76,7 +76,7 @@ export const config = {
     name: 'rateLimitWindowMs', fallback: 300000, min: 60000, max: 3600000,
   }),
   rateLimitMaxMessages: boundedInteger(raw.rateLimitMaxMessages, {
-    name: 'rateLimitMaxMessages', fallback: 10, min: 1, max: 100,
+    name: 'rateLimitMaxMessages', fallback: 60, min: 1, max: 100,
   }),
   aiRuntime: raw.aiRuntime || 'auto',
   dingtalkEnabled: raw.dingtalkEnabled === true,

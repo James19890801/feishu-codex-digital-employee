@@ -36,6 +36,10 @@ import {
   ReplyContextService,
   executeGroundedReply,
 } from './reply-context.mjs';
+import {
+  AutomationPeerGuard,
+  handleAutomationPeerInbound,
+} from './automation-peer-guard.mjs';
 
 const cases = [];
 
@@ -315,6 +319,62 @@ contract('loop-prevention', 'Does the circuit breaker isolate different self cha
     assert.equal(state.claimSelfChatOutbound('a', 2_000, options).allowed, true);
     assert.equal(state.claimSelfChatOutbound('a', 3_000, options).allowed, false);
     assert.equal(state.claimSelfChatOutbound('b', 3_000, options).allowed, true);
+  });
+});
+
+contract('loop-prevention', 'Does an explicit digital human receive one stop notice before durable silence?', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'james-acceptance-automation-peer-'));
+  const state = new AgentState(join(dir, 'state.sqlite'));
+  try {
+    const guard = new AutomationPeerGuard({ state });
+    const sent = [];
+    const events = [];
+    const input = {
+      guard,
+      chatId: 'dingtalk:user:automation-peer',
+      senderId: 'dingtalk:automation-peer',
+      chatType: 'p2p',
+      sendTermination: async text => sent.push(text),
+      onHandled: event => events.push(event),
+    };
+    const first = await handleAutomationPeerInbound({
+      ...input, text: '你好，我是凤小楼，凤楼的AI助理。', messageId: 'peer-1',
+    });
+    const second = await handleAutomationPeerInbound({
+      ...input, text: '我还可以继续处理。', messageId: 'peer-2',
+    });
+    assert.equal(first.notified, true);
+    assert.equal(second.notified, false);
+    assert.deepEqual(sent, ['既然是数字人，我就不跟你玩了，浪费token。']);
+    assert.deepEqual(events.map(event => event.name), [
+      'automation_peer_detected',
+      'automation_peer_suppressed',
+    ]);
+  } finally {
+    state.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+contract('loop-prevention', 'Does the tenth rapid machine-like round stop without another outbound?', () => {
+  withState('james-acceptance-rapid-peer-', state => {
+    let nowMs = 1_000_000;
+    const guard = new AutomationPeerGuard({ state, now: () => nowMs });
+    let decision;
+    for (let round = 1; round <= 10; round += 1) {
+      guard.recordOutbound({ chatId: 'dingtalk:user:rapid' });
+      nowMs += 1_000;
+      decision = guard.evaluateInbound({
+        chatId: 'dingtalk:user:rapid',
+        senderId: 'dingtalk:rapid',
+        chatType: 'p2p',
+        text: `普通回复 ${round}`,
+      });
+      nowMs += 1_000;
+    }
+    assert.equal(decision.action, 'suppress');
+    assert.equal(decision.reason, 'rapid_round_limit');
+    assert.equal(decision.rapidRounds, 10);
   });
 });
 

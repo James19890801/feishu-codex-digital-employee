@@ -102,6 +102,21 @@ const groupBot = await handleAutomationPeerInbound({
 });
 assert.equal(groupBot.handled, false, 'group messages remain governed by the existing mention policy');
 
+const platformKnownSent = [];
+const platformKnown = await handleAutomationPeerInbound({
+  guard,
+  chatId: 'feishu-private-chat-with-app',
+  senderId: 'feishu:app-peer',
+  chatType: 'p2p',
+  text: '您好，我可以协助处理。',
+  messageId: 'app-peer-1',
+  knownAutomation: true,
+  sendTermination: async text => platformKnownSent.push(text),
+});
+assert.equal(platformKnown.handled, true, 'platform app identity must terminate before text inference');
+assert.equal(platformKnown.notified, true);
+assert.deepEqual(platformKnownSent, [AUTOMATION_PEER_TERMINATION_TEXT]);
+
 const failedChatId = 'dingtalk:user:send-failed';
 await assert.rejects(
   handleAutomationPeerInbound({

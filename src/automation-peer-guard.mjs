@@ -49,6 +49,7 @@ export class AutomationPeerGuard {
 
   evaluateInbound({
     chatId = '', senderId = '', chatType = '', text = '', isOwner = false, selfChat = false,
+    knownAutomation = false,
   } = {}) {
     if (chatType !== 'p2p' || isOwner || selfChat || !chatId || !senderId) {
       return { action: 'allow', reason: 'not_applicable', evidence: '', rapidRounds: 0 };
@@ -60,6 +61,16 @@ export class AutomationPeerGuard {
         reason: String(blocked.reason || 'explicit_automation_identity'),
         evidence: String(blocked.evidence || ''),
         rapidRounds: Number(blocked.rapidRounds || 0),
+        newlyBlocked: false,
+      };
+    }
+    if (knownAutomation) {
+      return {
+        action: 'terminate',
+        reason: 'explicit_automation_identity',
+        evidence: 'platform_automation_sender_type',
+        rapidRounds: 0,
+        newlyBlocked: false,
       };
     }
     const detection = detectExplicitAutomationPeer(text);
@@ -69,6 +80,7 @@ export class AutomationPeerGuard {
         reason: 'explicit_automation_identity',
         evidence: detection.evidence,
         rapidRounds: 0,
+        newlyBlocked: false,
       };
     }
     const nowMs = Number(this.now());
@@ -96,6 +108,7 @@ export class AutomationPeerGuard {
         reason: 'rapid_round_limit',
         evidence: 'rapid_reply_after_outbound',
         rapidRounds,
+        newlyBlocked: true,
       });
       return {
         action: 'suppress',
@@ -143,18 +156,28 @@ export async function handleAutomationPeerInbound({
   messageId = '',
   isOwner = false,
   selfChat = false,
+  knownAutomation = false,
   sendTermination,
+  onHandled,
 } = {}) {
   if (!guard || typeof guard.evaluateInbound !== 'function') {
     throw new Error('Automation peer inbound handling requires a guard');
   }
   const decision = guard.evaluateInbound({
-    chatId, senderId, chatType, text, isOwner, selfChat,
+    chatId, senderId, chatType, text, isOwner, selfChat, knownAutomation,
   });
   if (decision.action === 'allow') {
     return { handled: false, notified: false, decision };
   }
   if (decision.action === 'suppress') {
+    if (typeof onHandled === 'function') {
+      await onHandled({
+        name: decision.newlyBlocked
+          ? 'automation_peer_rapid_round_limit'
+          : 'automation_peer_suppressed',
+        decision,
+      });
+    }
     return { handled: true, notified: false, decision };
   }
   if (typeof sendTermination !== 'function') {
@@ -168,6 +191,9 @@ export async function handleAutomationPeerInbound({
     evidence: decision.evidence,
     messageId,
   });
+  if (typeof onHandled === 'function') {
+    await onHandled({ name: 'automation_peer_detected', decision });
+  }
   return { handled: true, notified: true, decision };
 }
 
