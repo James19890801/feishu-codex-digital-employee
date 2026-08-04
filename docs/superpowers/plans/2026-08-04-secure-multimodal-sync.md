@@ -291,56 +291,78 @@ git commit -m "feat: expose multimodal capability readiness"
 ### Task 5: End-to-end media orchestration
 
 **Files:**
+- Create: `src/multimodal-pipeline.test.mjs`
+- Create: `src/multimodal-pipeline.mjs`
 - Modify: `src/index.mjs`
-- Modify: `src/mechanism-acceptance.test.mjs`
+- Modify: `package.json`
 - Modify: `README.md`
 
 **Interfaces:**
 - Consumes: all Task 1 and Task 2 helpers.
 - Consumes: channel `metadata.media` from Task 3.
+- Produces: `assertRegularMediaFile(filePath, options): Promise<string>`.
+- Produces: `transcribeMedia(filePath, options): Promise<string>`.
+- Produces: `readPublicWebContext(text, options): Promise<{context, pages, failures}>`.
 - Produces: bounded image attachments, document text, audio transcripts, video frame/transcript context, web-page context, audit events, and user-visible degraded responses.
 
-- [ ] **Step 1: Add mechanism assertions before orchestration**
+- [ ] **Step 1: Add executable pipeline behavior tests**
 
-Extend mechanism acceptance to assert imports and call sites for `buildDingTalkMediaDownloadArgs`, `buildFeishuMediaDownloadArgs`, `buildTranscriptionInvocation`, `readPublicWebPage`, regular-file validation, and `finally` cleanup.
+Create literal fixtures that catch three concrete production failures: accepting a symlink or oversized media file, invoking a transcriber through the wrong executable/arguments, and treating a failed URL as successfully read. Inject only filesystem, process, and network boundaries; assert the real pipeline return values.
 
 ```js
-assert.match(indexSource, /buildDingTalkMediaDownloadArgs/);
-assert.match(indexSource, /buildTranscriptionInvocation/);
-assert.match(indexSource, /readPublicWebPage/);
-assert.match(indexSource, /lstat\(filePath\)/);
+await assert.rejects(
+  assertRegularMediaFile('/tmp/link', {
+    lstatImpl: async () => ({ isFile: () => true, isSymbolicLink: () => true, size: 10 }),
+    maxBytes: 1024,
+  }),
+  /regular file/,
+);
+const transcript = await transcribeMedia('/tmp/voice.m4a', {
+  command: '/opt/local/bin/transcriber', args: ['{input}', 'zh-CN'],
+  runProcess: async (command, args) => ({ command, args, stdout: '项目进展正常\n' }),
+  workdir: '/tmp', timeoutMs: 180000, maxChars: 40000,
+});
+assert.equal(transcript, '项目进展正常');
 ```
 
-- [ ] **Step 2: Run mechanism acceptance and confirm RED**
+- [ ] **Step 2: Run the pipeline test and confirm RED**
 
-Run: `node src/mechanism-acceptance.test.mjs`
+Run: `node src/multimodal-pipeline.test.mjs`
 
-Expected: missing multimodal orchestration assertions fail.
+Expected: failure with `ERR_MODULE_NOT_FOUND` for `src/multimodal-pipeline.mjs`.
 
-- [ ] **Step 3: Port imports, message parsing, and task selection**
+- [ ] **Step 3: Implement and pass the pipeline unit**
+
+Implement regular-file validation with `lstat`, transcription through `buildTranscriptionInvocation` plus the injected bounded process runner, and web context through `extractHttpUrls` plus the injected page reader. Return page and failure counts so the entrypoint can audit without inspecting mocks.
+
+Run: `node src/multimodal-pipeline.test.mjs`
+
+Expected: `MULTIMODAL_PIPELINE_TEST_OK`.
+
+- [ ] **Step 4: Port imports, message parsing, and task selection**
 
 Adapt the `src/index.mjs` diff from `cf66cfc^..cf66cfc` to the current 33-commit-newer file. Preserve all newer A1, Alibaba-language, conversation-context, blocklist, and human-takeover paths. Accept Feishu audio resources and DingTalk `metadata.media`; do not relax the supported actor/channel checks.
 
-- [ ] **Step 4: Add secure download and transformation helpers**
+- [ ] **Step 5: Wire secure download and transformation helpers**
 
-Within the existing message handler, add `ensureTempDir`, `assertMediaFile`, and `transcribeAudio`. Use `runBufferedProcess` with fixed executables, bounded stdout/stderr, timeouts, and current channel environments. Feed only verified image paths and bounded extracted/transcribed text to the runtime.
+Within the existing message handler, add `ensureTempDir` and call `assertRegularMediaFile` plus `transcribeMedia`. Use `runBufferedProcess` with fixed executables, bounded stdout/stderr, timeouts, and current channel environments. Feed only verified image paths and bounded extracted/transcribed text to the runtime.
 
-- [ ] **Step 5: Add video, web, audit, and cleanup flows**
+- [ ] **Step 6: Add video, web, audit, and cleanup flows**
 
-Use `/usr/bin/qlmanage` for a bounded video thumbnail attempt. Treat web content as untrusted context. Audit successful downloads and degraded transcription/thumbnail/web failures. Keep cleanup in the existing `finally` block.
+Use `/usr/bin/qlmanage` for a bounded video thumbnail attempt. Call `readPublicWebContext`, treat returned content as untrusted context, and audit its page/failure counts. Audit successful downloads and degraded transcription/thumbnail failures. Keep cleanup in the existing `finally` block.
 
-- [ ] **Step 6: Update public behavior documentation**
+- [ ] **Step 7: Update public behavior documentation and test registration**
 
-Adapt the upstream README sections to James naming, explicitly documenting supported channels, file types, security limits, and the macOS 26 speech-helper requirement.
+Adapt the upstream README sections to James naming, explicitly documenting supported channels, file types, security limits, and the macOS 26 speech-helper requirement. Append `node src/multimodal-pipeline.test.mjs` to `test:multimodal`.
 
-- [ ] **Step 7: Run focused suites and commit**
+- [ ] **Step 8: Run focused suites and commit**
 
-Run: `npm run test:multimodal && node src/polling.test.mjs && node src/im-channels.test.mjs && node src/mechanism-acceptance.test.mjs && node --check src/index.mjs`
+Run: `npm run test:multimodal && node src/polling.test.mjs && node src/im-channels.test.mjs && node --check src/index.mjs`
 
 Expected: all commands exit 0.
 
 ```bash
-git add src/index.mjs src/mechanism-acceptance.test.mjs README.md
+git add src/multimodal-pipeline.mjs src/multimodal-pipeline.test.mjs src/index.mjs package.json README.md
 git commit -m "feat: understand secure multimodal messages"
 ```
 
