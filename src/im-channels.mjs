@@ -4,6 +4,11 @@ import { parseDingTalkMediaPlaceholder } from './multimodal-content.mjs';
 
 const CHANNEL_TARGET_PATTERN = /^(dingtalk|wecom|wechat):(group|user):(.+)$/;
 const DINGTALK_SELF_FILE_PLACEHOLDER = /^(?:\[文件\]\s*)+.*\bfileId\s*:/i;
+const DINGTALK_CALENDAR_RESPONSE_RECEIPT = /^.{1,80}接受了你的日程$/u;
+
+function isGeneratedDingTalkCalendarResponseReceipt(content) {
+  return DINGTALK_CALENDAR_RESPONSE_RECEIPT.test(String(content || '').trim());
+}
 
 export function buildDingTalkProcessEnv({
   dingtalkBin,
@@ -179,6 +184,7 @@ export function normalizeDingTalkEvent(event) {
   if (!messageId || !targetId || !senderId) return null;
   const conversationId = String(event?.conversation_id || '').trim();
   const rawContent = String(event?.content || '');
+  if (direct && isGeneratedDingTalkCalendarResponseReceipt(rawContent)) return null;
   const media = parseDingTalkMediaPlaceholder(rawContent);
   return {
     message: {
@@ -286,6 +292,7 @@ export function normalizeDingTalkListAllPage(result, {
       const senderId = String(item?.senderOpenDingTalkId || '').trim();
       const content = String(item?.content || '').trim();
       if (!messageId || !senderId || !content) continue;
+      if (singleChat && isGeneratedDingTalkCalendarResponseReceipt(content)) continue;
       const media = parseDingTalkMediaPlaceholder(content);
       if (!media && (/^\[(?:图片|文件|视频)消息\]/.test(content) || /^\[文件\]/.test(content))) continue;
 

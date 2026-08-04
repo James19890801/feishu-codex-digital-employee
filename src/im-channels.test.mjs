@@ -243,6 +243,36 @@ assert.deepEqual(buildDingTalkListAllPollingArgs(
   assert.equal(page.payloads[0].metadata.media.conversationId, 'cid-media');
 }
 
+{
+  const page = normalizeDingTalkListAllPage({
+    success: true,
+    result: {
+      conversationMessagesList: [{
+        openConversationId: 'cid-calendar-receipt',
+        singleChat: true,
+        title: '萌七',
+        messages: [{
+          content: '萌七接受了你的日程',
+          createTime: '2026-08-04 16:19:50',
+          openMessageId: 'calendar-receipt-message-1',
+          senderOpenDingTalkId: 'open-mengqi',
+        }, {
+          content: '第二个测试的时候有问题随时说。',
+          createTime: '2026-08-04 16:20:00',
+          openMessageId: 'human-message-after-calendar-receipt',
+          senderOpenDingTalkId: 'open-mengqi',
+        }],
+      }],
+      hasMore: false,
+    },
+  }, { ownerOpenId: 'open-owner' });
+  assert.deepEqual(
+    page.payloads.map(item => item.message.message_id),
+    ['dingtalk:human-message-after-calendar-receipt'],
+    'polling must keep human messages while discarding generated calendar receipts',
+  );
+}
+
 assert.deepEqual(buildDingTalkSelfPollingArgs('corp:user', 'user', '2026-08-01 13:50:00'), [
   '--profile', 'corp:user',
   'chat', 'message', 'list',
@@ -334,6 +364,23 @@ assert.throws(
   assert.equal(JSON.parse(payload.message.content).text, '@James 请给我项目状态');
   assert.equal(payload.message.mentions.length, 1);
   assert.equal(payload.metadata.channel, 'dingtalk');
+}
+
+{
+  const payload = normalizeDingTalkEvent({
+    type: 'user_im_message_receive_o2o_all',
+    event_id: 'calendar-receipt-event-1',
+    message_id: 'calendar-receipt-message-1',
+    conversation_id: 'cid-calendar-receipt',
+    sender_open_dingtalk_id: 'open-mengqi',
+    content: '萌七接受了你的日程',
+    create_time: '2026-08-04T16:19:50+08:00',
+  });
+  assert.equal(
+    payload,
+    null,
+    'a generated calendar acceptance receipt must not become a user message',
+  );
 }
 
 {
