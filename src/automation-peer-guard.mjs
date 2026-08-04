@@ -15,6 +15,10 @@ function peerKey(chatId, senderId) {
   return `${String(chatId || '').trim()}\u001f${String(senderId || '').trim()}`;
 }
 
+function activityKey(chatId) {
+  return String(chatId || '').trim();
+}
+
 export function detectExplicitAutomationPeer(text) {
   const value = normalizedText(text);
   if (!value || QUOTED_REPLY_REQUEST.test(value)) {
@@ -28,11 +32,19 @@ export function detectExplicitAutomationPeer(text) {
 }
 
 export class AutomationPeerGuard {
-  constructor({ state } = {}) {
+  constructor({
+    state,
+    now = Date.now,
+    rapidReplyWindowMs = 30_000,
+    rapidRoundLimit = 10,
+  } = {}) {
     if (!state || typeof state.get !== 'function' || typeof state.set !== 'function') {
       throw new Error('Automation peer guard requires durable state');
     }
     this.state = state;
+    this.now = now;
+    this.rapidReplyWindowMs = Math.max(1_000, Number(rapidReplyWindowMs) || 30_000);
+    this.rapidRoundLimit = Math.max(1, Number(rapidRoundLimit) || 10);
   }
 
   evaluateInbound({
@@ -59,19 +71,66 @@ export class AutomationPeerGuard {
         rapidRounds: 0,
       };
     }
-    return { action: 'allow', reason: 'no_signal', evidence: '', rapidRounds: 0 };
+    const nowMs = Number(this.now());
+    const key = activityKey(chatId);
+    const activity = this.state.get('automation_peer_activity', key, {});
+    const lastOutboundAtMs = Number(activity?.lastOutboundAtMs || 0);
+    const lastCountedOutboundAtMs = Number(activity?.lastCountedOutboundAtMs || 0);
+    let rapidRounds = Number(activity?.rapidRounds || 0);
+    if (lastOutboundAtMs > 0 && lastOutboundAtMs !== lastCountedOutboundAtMs) {
+      const elapsedMs = nowMs - lastOutboundAtMs;
+      rapidRounds = elapsedMs >= 0 && elapsedMs <= this.rapidReplyWindowMs
+        ? rapidRounds + 1
+        : 0;
+      this.state.set('automation_peer_activity', key, {
+        ...activity,
+        rapidRounds,
+        lastCountedOutboundAtMs: lastOutboundAtMs,
+        lastInboundAtMs: nowMs,
+      });
+    }
+    if (rapidRounds >= this.rapidRoundLimit) {
+      this.markTerminated({
+        chatId,
+        senderId,
+        reason: 'rapid_round_limit',
+        evidence: 'rapid_reply_after_outbound',
+        rapidRounds,
+      });
+      return {
+        action: 'suppress',
+        reason: 'rapid_round_limit',
+        evidence: 'rapid_reply_after_outbound',
+        rapidRounds,
+      };
+    }
+    return { action: 'allow', reason: 'no_signal', evidence: '', rapidRounds };
   }
 
-  markTerminated({ chatId = '', senderId = '', reason = '', evidence = '', messageId = '' } = {}) {
+  markTerminated({
+    chatId = '', senderId = '', reason = '', evidence = '', messageId = '', rapidRounds = 0,
+  } = {}) {
     if (!chatId || !senderId) throw new Error('Automation peer block requires chat and sender IDs');
     const block = {
       reason: String(reason || 'explicit_automation_identity'),
       evidence: String(evidence || ''),
       messageId: String(messageId || ''),
-      blockedAt: new Date().toISOString(),
+      rapidRounds: Math.max(0, Number(rapidRounds) || 0),
+      blockedAt: new Date(Number(this.now())).toISOString(),
     };
     this.state.set('automation_peer_block', peerKey(chatId, senderId), block);
     return block;
+  }
+
+  recordOutbound({ chatId = '' } = {}) {
+    const key = activityKey(chatId);
+    if (!key) return false;
+    const activity = this.state.get('automation_peer_activity', key, {});
+    this.state.set('automation_peer_activity', key, {
+      ...activity,
+      lastOutboundAtMs: Number(this.now()),
+    });
+    return true;
   }
 }
 
@@ -110,4 +169,18 @@ export async function handleAutomationPeerInbound({
     messageId,
   });
   return { handled: true, notified: true, decision };
+}
+
+export async function sendWithAutomationPeerTracking({
+  guard, chatId = '', text = '', send,
+} = {}) {
+  if (!guard || typeof guard.recordOutbound !== 'function') {
+    throw new Error('Automation peer outbound tracking requires a guard');
+  }
+  if (typeof send !== 'function') {
+    throw new Error('Automation peer outbound tracking requires a sender');
+  }
+  const result = await send();
+  if (result?.suppressed !== true) guard.recordOutbound({ chatId, text });
+  return result;
 }
