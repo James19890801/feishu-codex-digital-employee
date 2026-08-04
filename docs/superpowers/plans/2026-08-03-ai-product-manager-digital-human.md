@@ -54,11 +54,11 @@ Expected: module-not-found failure.
 
 - [ ] **Step 3: Implement identity policy and rewrite Persona/Bible**
 
-Implement exact-string and normalized tombstone filtering for `詹老师`, `AIPRO`, `Second Developer`, developer/architect identity claims, and ALT. Treat `James` as blocked unless `allowJamesSignature === true` and the content is an explicitly supplied outbound message.
+Implement exact-string and normalized tombstone filtering for `詹老师`, `James`, legacy developer/architect identity claims, and ALT. Treat `James` as blocked unless `allowJamesSignature === true` and the content is an explicitly supplied outbound message.
 
 - [ ] **Step 4: Replace the hard-coded prompt identity block**
 
-Import `buildIdentityInstruction()` in `src/index.mjs`; insert it above Persona and remove conflicting hard-coded AIPRO/old-role language. Replace the blanket “cannot read local files or run commands” statement with a named-tool boundary: the model cannot run arbitrary commands, but the application may provide read-only evidence and controlled A1/DWS results.
+Import `buildIdentityInstruction()` in `src/index.mjs`; insert it above Persona and remove conflicting hard-coded James/old-role language. Replace the blanket “cannot read local files or run commands” statement with a named-tool boundary: the model cannot run arbitrary commands, but the application may provide read-only evidence and controlled A1/DWS results.
 
 - [ ] **Step 5: Run focused tests**
 

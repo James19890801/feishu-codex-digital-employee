@@ -1,10 +1,10 @@
-# AIPRO Invitation Licensing Design
+# James Invitation Licensing Design
 
 ## Objective
 
-Require ordinary new installations to activate AIPRO with a one-time ten-digit invitation code before the message-processing service can run, while keeping the dashboard available for activation and keeping already activated installations independent from activation-service availability.
+Require ordinary new installations to activate James with a one-time ten-digit invitation code before the message-processing service can run, while keeping the dashboard available for activation and keeping already activated installations independent from activation-service availability.
 
-The ordinary-user flow is deliberately limited to three actions: open AIPRO, enter the invitation code supplied by an authorized developer, and select **Activate AIPRO**.
+The ordinary-user flow is deliberately limited to three actions: open James, enter the invitation code supplied by an authorized developer, and select **Activate James**.
 
 ## Product boundary
 
@@ -18,15 +18,15 @@ The ordinary-user flow is deliberately limited to three actions: open AIPRO, ent
 
 ### Activation service
 
-A small Cloudflare Worker owns the license-signing key through a deployment secret and stores invitation state in D1. The public verification key is embedded in AIPRO. The service signs device entitlements but never receives the device private key.
+A small Cloudflare Worker owns the license-signing key through a deployment secret and stores invitation state in D1. The public verification key is embedded in James. The service signs device entitlements but never receives the device private key.
 
 ### Authorized issuer
 
-The current James machine has an issuer key pair generated with cryptographically secure randomness. The private key is stored in macOS Keychain under a product-specific service name; the online service stores only its public key and issuer certificate. Zhao Yingzhi can enroll a separate machine and key later. Issuer requests use a short-lived server challenge and a signature, not a browser flag or a developer name.
+The current 阿充（James Feng）machine has an issuer key pair generated with cryptographically secure randomness. The private key is stored in macOS Keychain under a product-specific service name; the online service stores only its public key and issuer certificate. Provisioning creates exactly one Founder authority. Issuer requests use a short-lived server challenge and a signature, not a browser flag or a developer name.
 
 ### Founder recovery
 
-Founder authority is recoverable independently of any developer computer. Initial provisioning produces separate, one-time recovery kits for James Feng and Zhao Yingzhi. The service stores only a keyed hash of each recovery secret. A recovery kit can enroll a replacement issuer key, revoke the previous issuer, obtain a replacement Founder entitlement, and rotate the recovery secret. Recovery material must be stored outside the developer computer in an encrypted password manager and an offline copy.
+Founder authority is recoverable independently of the developer computer. Initial provisioning produces one rotating recovery kit for 阿充（James Feng）. The service stores only a keyed hash of the recovery secret. The recovery kit can enroll a replacement issuer key, revoke the previous issuer, obtain a replacement Founder entitlement, and rotate the recovery secret. Recovery material must be stored outside the developer computer in an encrypted password manager and an offline copy.
 
 ### Customer installation
 
@@ -54,7 +54,7 @@ The dashboard serves an activation gate before the operations console. It includ
 
 ### Licensed installation
 
-The signed entitlement is stored in Keychain. AIPRO verifies the service signature, product ID, validity period, and device-key fingerprint locally. No online request is required for ordinary service startup. Activation-service outages therefore cannot interrupt Feishu, DingTalk, Multica, memory, or audit on a licensed installation.
+The signed entitlement is stored in Keychain. James verifies the service signature, product ID, validity period, and device-key fingerprint locally. No online request is required for ordinary service startup. Activation-service outages therefore cannot interrupt Feishu, DingTalk, Multica, memory, or audit on a licensed installation.
 
 ### Issuer installation
 
@@ -135,4 +135,3 @@ Every response has a stable JSON envelope, request ID, explicit cache policy, an
 - Founder recovery enrolls a replacement issuer and revokes the previous issuer.
 - Existing licensed operation remains healthy while the activation service is unavailable.
 - Existing Feishu, DingTalk, Multica, privacy, takeover, loop-prevention, memory, and audit tests remain green.
-

@@ -22,7 +22,7 @@ const responder = new WeChatPocResponder({
   personaText: 'PERSONA_TEST',
   bibleText: 'BIBLE_TEST',
   privacyBoundaryText: 'PRIVACY_BOUNDARY_TEST',
-  cwd: '/tmp/aipro-wechat-poc',
+  cwd: '/tmp/james-wechat-poc',
   model: 'gpt-test',
   timeoutMs: 30_000,
 });
@@ -41,7 +41,7 @@ assert.match(calls[0].prompt, /PRIVACY_BOUNDARY_TEST/);
 assert.match(calls[0].prompt, /个人微信单聊/);
 assert.match(calls[0].prompt, /上次的问题/);
 assert.match(calls[0].prompt, /现在方便吗/);
-assert.equal(calls[0].options.cwd, '/tmp/aipro-wechat-poc');
+assert.equal(calls[0].options.cwd, '/tmp/james-wechat-poc');
 assert.equal(calls[0].options.model, 'gpt-test');
 assert.equal(calls[0].options.timeoutMs, 30_000);
 
@@ -50,7 +50,7 @@ const groupResponder = new WeChatPocResponder({
   state,
   personaText: 'P',
   bibleText: 'B',
-  cwd: '/tmp/aipro-wechat-poc',
+  cwd: '/tmp/james-wechat-poc',
 });
 assert.equal(await groupResponder.reply({ ...event, conversationKind: 'group' }), '群聊回复');
 

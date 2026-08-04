@@ -200,7 +200,7 @@ git commit -m "fix: support portable original DWS installations"
 
 **Interfaces:**
 - `config.distribution.json` is a complete valid fail-closed configuration.
-- `scripts/setup.sh` accepts `AIPRO_CONFIG_TEMPLATE` and no longer requires Feishu tooling when Feishu is disabled.
+- `scripts/setup.sh` accepts `JAMES_CONFIG_TEMPLATE` and no longer requires Feishu tooling when Feishu is disabled.
 - The guide exposes exactly one installation command and explicit OAuth/privacy boundaries.
 
 - [ ] **Step 1: Write the failing safe-default test**

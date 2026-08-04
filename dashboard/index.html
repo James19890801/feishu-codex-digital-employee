@@ -61,8 +61,8 @@
       <form class="activation-form" id="activationForm">
         <label for="activationCode" data-i18n="invitationCode">10-digit invitation code</label>
         <input id="activationCode" name="invitationCode" inputmode="numeric" autocomplete="one-time-code" maxlength="10" pattern="[0-9]{10}" placeholder="0000000000" aria-describedby="activationHint activationMessage">
-        <p id="activationHint" data-i18n="activationHint">Enter the code issued by an authorized AIPRO developer.</p>
-        <button class="button primary" id="activationSubmit" type="submit" data-i18n="activateAipro">Activate digital human</button>
+        <p id="activationHint" data-i18n="activationHint">Enter the code issued by an authorized James developer.</p>
+        <button class="button primary" id="activationSubmit" type="submit" data-i18n="activateJames">Activate digital human</button>
         <p class="activation-message" id="activationMessage" role="status"></p>
       </form>
     </section>
@@ -385,7 +385,7 @@
 
         <section class="channel-fields hidden" data-channel-fields="dingtalk">
           <label><span data-i18n="dingtalkProfile">DWS login profile</span><input id="channelDingtalkProfile" maxlength="200" placeholder="Leave blank to use the local default login" data-i18n-placeholder="dingtalkProfilePlaceholder"></label>
-          <p class="field-note" data-i18n="dingtalkFieldNote">AIPRO discovers the local DWS CLI and existing login automatically. Terminal authorization is required only when no session exists.</p>
+          <p class="field-note" data-i18n="dingtalkFieldNote">James discovers the local DWS CLI and existing login automatically. Terminal authorization is required only when no session exists.</p>
         </section>
 
         <section class="channel-fields hidden" data-channel-fields="wecom">
@@ -397,7 +397,7 @@
         <section class="channel-fields hidden" data-channel-fields="wechat">
           <label>GeWe App ID<input id="channelWechatAppId" maxlength="200" autocomplete="off" placeholder="WeChat node App ID" data-i18n-placeholder="wechatAppPlaceholder"></label>
           <label>GeWe API Token <span id="channelWechatCredentialState"></span><input type="password" id="channelWechatCredential" maxlength="4096" autocomplete="new-password" placeholder="Leave blank to keep the stored secret" data-i18n-placeholder="credentialStoredPlaceholder"></label>
-          <label><span data-i18n="publicCallback">Public HTTPS callback</span><input type="url" id="channelWechatCallback" maxlength="500" placeholder="https://example.com/aipro"></label>
+          <label><span data-i18n="publicCallback">Public HTTPS callback</span><input type="url" id="channelWechatCallback" maxlength="500" placeholder="https://example.com/james"></label>
           <label><span data-i18n="mentionNames">@ names (comma or newline separated)</span><textarea id="channelWechatMentions" rows="3" maxlength="1000" placeholder="Display name"></textarea></label>
           <p class="field-note warning" data-i18n="wechatFieldWarning">This legacy connector uses a third-party GeWe API, not an official Tencent interface, and may create account risk.</p>
         </section>
@@ -424,9 +424,9 @@
       <button type="button" class="contact-dialog-close" id="contactDialogClose" aria-label="Close" data-i18n-aria="close">×</button>
       <div class="contact-dialog-copy">
         <span data-i18n="contactEyebrow">AUTHORIZED INVITATION ISSUER</span>
-        <h2 id="contactDialogTitle" data-i18n="contactTitle">Get your AIPRO invitation</h2>
+        <h2 id="contactDialogTitle" data-i18n="contactTitle">Get your James invitation</h2>
         <h3 data-i18n="developerDisplayName">Authorized developer</h3>
-        <p data-i18n="contactRole">Co-developer · Authorized invitation issuer</p>
+        <p data-i18n="contactRole">Sole developer · Achong (James Feng)</p>
         <p data-i18n="contactInstructions">Use the support channel configured by your distributor.</p>
         <p class="contact-security" data-i18n="contactSecurity">A legitimate distributor will never ask for your account password, verification code, device private key, or recovery key.</p>
       </div>

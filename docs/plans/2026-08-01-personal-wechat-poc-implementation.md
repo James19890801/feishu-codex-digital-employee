@@ -1,10 +1,10 @@
-# AIPRO Personal WeChat POC Implementation Plan
+# James Personal WeChat POC Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Build a fail-closed, separately supervised macOS personal-WeChat text auto-reply POC with a dashboard master switch, while leaving the existing Feishu and DingTalk execution paths unchanged.
 
-**Architecture:** A new aipro-wechat-poc process uses an abstract UI adapter, a channel-local SQLite state store, and a dedicated AI runtime session. The dashboard controls a versioned atomic local contract; worker startup always disables auto-reply. The live adapter uses the official logged-in WeChat macOS UI through Accessibility/JXA and refuses to send if any target invariant is ambiguous.
+**Architecture:** A new james-wechat-poc process uses an abstract UI adapter, a channel-local SQLite state store, and a dedicated AI runtime session. The dashboard controls a versioned atomic local contract; worker startup always disables auto-reply. The live adapter uses the official logged-in WeChat macOS UI through Accessibility/JXA and refuses to send if any target invariant is ambiguous.
 
 **Tech Stack:** Node.js 22 ESM, node:sqlite, macOS JXA through /usr/bin/osascript, existing AiRuntimeClient, local HTML/CSS/JavaScript dashboard, LaunchAgent, Node assert tests.
 
@@ -291,7 +291,7 @@ Compose control store, isolated state, responder, adapter, and bridge. Import co
 
 **Step 4: Add LaunchAgent installer**
 
-Use label com.local.aipro-wechat-poc, RunAtLoad true, KeepAlive true, and POC-only logs. The installer may bootout/bootstrap only this label.
+Use label com.local.james-wechat-poc, RunAtLoad true, KeepAlive true, and POC-only logs. The installer may bootout/bootstrap only this label.
 
 **Step 5: Run and commit**
 
@@ -461,7 +461,7 @@ Prove the profile identifies exactly one conversation list, message list, title,
 
 Run: ./scripts/install-wechat-poc-service.sh
 
-Expected: com.local.aipro-wechat-poc is running and disabled. No primary service restart.
+Expected: com.local.james-wechat-poc is running and disabled. No primary service restart.
 
 **Step 6: Record primary baseline**
 

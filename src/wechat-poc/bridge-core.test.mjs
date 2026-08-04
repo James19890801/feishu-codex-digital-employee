@@ -6,7 +6,7 @@ import { WeChatPocBridge } from './bridge-core.mjs';
 import { WeChatPocControlStore } from './control-store.mjs';
 import { WeChatPocState } from './state.mjs';
 
-const directory = await mkdtemp(join(tmpdir(), 'aipro-wechat-bridge-'));
+const directory = await mkdtemp(join(tmpdir(), 'james-wechat-bridge-'));
 let clock = 0;
 const now = () => new Date(Date.UTC(2026, 7, 1, 3, 0, clock++)).toISOString();
 const controlStore = new WeChatPocControlStore({ directory, now });

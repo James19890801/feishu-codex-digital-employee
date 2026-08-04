@@ -41,7 +41,7 @@ function parseRecord(value, code) {
 
 function validatePair(privateKey, publicKey, code) {
   try {
-    const probe = { purpose: 'aipro-key-validation', version: 1 };
+    const probe = { purpose: 'james-key-validation', version: 1 };
     const token = signEnvelope(probe, privateKey);
     const verified = verifyEnvelope(token, publicKey);
     if (canonicalJson(verified) !== canonicalJson(probe)) throw new Error('mismatch');

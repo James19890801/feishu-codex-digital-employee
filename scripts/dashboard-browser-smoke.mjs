@@ -23,8 +23,8 @@ function loadPlaywright() {
   }
 }
 const { chromium } = loadPlaywright();
-const baseUrl = process.env.AIPRO_DASHBOARD_URL || 'http://127.0.0.1:17655/';
-const outputDir = process.env.AIPRO_UI_OUTPUT || '/tmp/aipro-dashboard-ui';
+const baseUrl = process.env.JAMES_DASHBOARD_URL || 'http://127.0.0.1:17655/';
+const outputDir = process.env.JAMES_UI_OUTPUT || '/tmp/james-dashboard-ui';
 mkdirSync(outputDir, { recursive: true });
 
 const browser = await chromium.launch({ headless: true });
@@ -42,7 +42,7 @@ page.on('response', response => {
 
 try {
   await page.goto(baseUrl, { waitUntil: 'networkidle' });
-  await page.evaluate(() => localStorage.removeItem('aipro.locale'));
+  await page.evaluate(() => localStorage.removeItem('james.locale'));
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForSelector('#hero[data-state]:not([data-state="loading"])');
 
@@ -51,10 +51,10 @@ try {
   assert.equal(await page.locator('#languageCode').textContent(), 'EN');
   assert.match(await page.locator('.channel-heading h3').textContent(), /Messaging channels/);
   assert.equal(await page.locator('.brand-campaign strong').textContent(), 'Your identity, intelligently present.');
-  assert.equal(await page.locator('.brand-campaign small').textContent(), 'Zhao Yingzhi × James Feng');
+  assert.equal(await page.locator('.brand-campaign small').textContent(), 'Operator × AI runtime');
   assert.equal(await page.locator('#contactDeveloperButton').isVisible(), true);
   assert.equal(await page.locator('#contactDeveloperLabel').textContent(), 'Contact developer');
-  assert.equal(await page.locator('.product-footer strong').textContent(), 'Developed by Zhao Yingzhi & James Feng');
+  assert.equal(await page.locator('.product-footer strong').textContent(), 'Personal digital-human runtime');
   assert.match(await page.locator('#configInput').getAttribute('placeholder'), /Describe the outcome/);
   assert.equal(await page.locator('#refreshButton').isEnabled(), true);
   assert.equal(await page.locator('.runtime-card.selected h4').textContent(), 'Codex CLI');
@@ -73,7 +73,7 @@ try {
   assert.equal(await page.locator('html').getAttribute('lang'), 'zh-CN');
   assert.equal(await page.locator('#languageCode').textContent(), '中');
   assert.match(await page.locator('.channel-heading h3').textContent(), /IM 通道/);
-  assert.match(await page.locator('.product-footer strong').textContent(), /赵颖知.*James Feng/);
+  assert.equal(await page.locator('.product-footer strong').textContent(), '个人数字人运行时');
   assert.equal(await page.locator('#contactDeveloperLabel').textContent(), '联系开发者');
 
   await page.locator('#languageToggle').click();

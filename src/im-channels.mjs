@@ -210,7 +210,7 @@ export function normalizeDingTalkSelfMessages(result) {
     const content = String(item?.content || item?.text || '').trim();
     if (!messageId || !senderId || !content) return [];
     // DWS represents files in a self-chat as text placeholders and does not
-    // expose whether they were sent by the human or by AIPRO. AIPRO cannot
+    // expose whether they were sent by the human or by James. James cannot
     // read these placeholders as files, and treating its own delivered file
     // as a new request creates an unbounded file-reply loop. Fail closed until
     // DWS exposes a reliable message direction or media-origin field.

@@ -7,7 +7,7 @@ export async function evaluateLicenseGuard({
   enforced = false,
   store = null,
   publicKey = '',
-  product = 'AIPRO',
+  product = 'James',
   now = new Date(),
 } = {}) {
   if (!enforced) {

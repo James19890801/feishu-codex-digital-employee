@@ -8,13 +8,27 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const distributionPath = join(root, 'config.distribution.json');
 const defaults = JSON.parse(await readFile(distributionPath, 'utf8'));
+const example = JSON.parse(await readFile(join(root, 'config.example.json'), 'utf8'));
+const packageMetadata = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+
+assert.equal(packageMetadata.author, '阿充');
 
 for (const key of [
-  'feishuEnabled', 'dingtalkEnabled', 'wecomEnabled', 'geweEnabled',
+  'feishuEnabled', 'wecomEnabled', 'geweEnabled',
   'a1Enabled', 'multicaEnabled', 'licensingEnforced',
 ]) {
   assert.equal(defaults[key], false, `${key} must fail closed`);
 }
+assert.equal(defaults.dingtalkEnabled, true);
+assert.equal(defaults.dingtalkTransport, 'event-stream');
+assert.equal(defaults.dingtalkProfile, '');
+assert.equal(defaults.dingtalkChannel, '');
+assert.equal(defaults.dingtalkBin, '');
+assert.equal(example.dingtalkEnabled, true);
+assert.equal(example.dingtalkTransport, 'event-stream');
+assert.equal(example.feishuEnabled, false);
+assert.equal(example.feishuAppId, '');
+assert.equal(example.ownerOpenId, '');
 assert.equal(defaults.allowAllChats, false);
 assert.deepEqual(defaults.authorizedChatIds, ['__SETUP_REQUIRED__']);
 assert.equal(defaults.ownerOpenId, '');
@@ -22,7 +36,7 @@ assert.equal(defaults.dingtalkOwnerOpenId, '');
 assert.equal(defaults.aiRuntime, 'auto');
 assert.deepEqual(defaults.automaticCommunicationBlocklist, []);
 
-const fixture = await mkdtemp(join(tmpdir(), 'aipro-safe-setup-'));
+const fixture = await mkdtemp(join(tmpdir(), 'james-safe-setup-'));
 await mkdir(join(fixture, 'scripts'), { recursive: true });
 await mkdir(join(fixture, 'templates'), { recursive: true });
 await mkdir(join(fixture, 'src'), { recursive: true });
@@ -46,14 +60,15 @@ const result = spawnSync('/bin/zsh', [join(fixture, 'scripts', 'setup.sh')], {
   env: {
     HOME: join(fixture, 'home'),
     PATH: `${bin}:/usr/bin:/bin`,
-    AIPRO_CONFIG_TEMPLATE: join(fixture, 'config.distribution.json'),
+    JAMES_CONFIG_TEMPLATE: join(fixture, 'config.distribution.json'),
   },
   encoding: 'utf8',
 });
 assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 const installed = JSON.parse(await readFile(join(fixture, 'config.local.json'), 'utf8'));
 assert.equal(installed.feishuEnabled, false);
-assert.equal(installed.dingtalkEnabled, false);
+assert.equal(installed.dingtalkEnabled, true);
+assert.equal(installed.dingtalkTransport, 'event-stream');
 assert.equal(installed.allowAllChats, false);
 assert.deepEqual(
   JSON.parse(await readFile(join(fixture, 'knowledge-catalog.json'), 'utf8')),

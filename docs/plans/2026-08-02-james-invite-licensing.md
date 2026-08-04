@@ -1,8 +1,8 @@
-# AIPRO Invitation Licensing Implementation Plan
+# James Invitation Licensing Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Require clean AIPRO installations to enter a one-time ten-digit invitation code while giving the current James machine recoverable Founder and invite-issuer authority.
+**Goal:** Require clean James installations to enter a one-time ten-digit invitation code while giving the current James machine recoverable Founder and invite-issuer authority.
 
 **Architecture:** A Cloudflare Worker with D1 atomically manages invitation state and signs device-bound entitlements; a private Cloudflare KV object stores the rotatable James contact card outside Git history. The local Node service stores device, issuer, and entitlement secrets only in macOS Keychain, verifies entitlements offline, leaves the loopback dashboard available for activation and developer contact, and gates the core IM worker before any channels start.
 
@@ -23,7 +23,7 @@ Cover deterministic canonical JSON, Ed25519 key generation, device fingerprintin
 
 ```js
 const pair = generateSigningKeyPair();
-const payload = { version: 1, product: 'AIPRO', licenseId: 'lic_test' };
+const payload = { version: 1, product: 'James', licenseId: 'lic_test' };
 const token = signEnvelope(payload, pair.privateKey);
 assert.deepEqual(verifyEnvelope(token, pair.publicKey), payload);
 assert.throws(() => verifyEnvelope(tamper(token), pair.publicKey));
@@ -130,7 +130,7 @@ Expected: Worker bundle succeeds without secret values in output.
 
 ```bash
 git add licensing/worker pnpm-workspace.yaml pnpm-lock.yaml .gitignore
-git commit -m "feat: add AIPRO activation worker"
+git commit -m "feat: add James activation worker"
 ```
 
 ### Task 4: Add Keychain-backed local identity and recovery
@@ -156,7 +156,7 @@ Expected: FAIL because the modules do not exist.
 
 **Step 3: Write minimal implementation**
 
-Wrap `/usr/bin/security` through argument arrays only, never the shell. Store PKCS8 and entitlement values as generic passwords under `com.aipro.licensing`. Use opaque account identifiers. Never include secret output in thrown errors or logs.
+Wrap `/usr/bin/security` through argument arrays only, never the shell. Store PKCS8 and entitlement values as generic passwords under `com.james.licensing`. Use opaque account identifiers. Never include secret output in thrown errors or logs.
 
 Bootstrap must generate the device and issuer keys, call the recovery endpoint, write the Founder entitlement successfully, verify it locally, and only then write an issuer-enabled marker. Recovery kits remain untracked and are created with owner-only permissions.
 
@@ -207,7 +207,7 @@ Expected: all pass, and mechanism count increases with licensing cases.
 
 ```bash
 git add src/licensing src/config.mjs config.example.json src/index.mjs scripts/health-check.mjs src/mechanism-acceptance.test.mjs
-git commit -m "feat: gate AIPRO core on device entitlement"
+git commit -m "feat: gate James core on device entitlement"
 ```
 
 ### Task 6: Add secure loopback licensing APIs
@@ -309,7 +309,7 @@ Create/apply D1 migrations, create the private KV namespace/binding, strip metad
 
 **Step 4: Bootstrap before enforcement**
 
-Generate and securely save separate James and Zhao Founder Recovery Kits. Enroll the current James issuer, obtain and locally verify the current machine's Founder entitlement, then enable enforcement and restart only the isolated/test instance first.
+Generate and securely save the sole 阿充（James Feng）Founder Recovery Kit. Enroll the current James issuer, obtain and locally verify the current machine's Founder entitlement, then enable enforcement and restart only the isolated/test instance first.
 
 **Step 5: Run live acceptance**
 
@@ -323,7 +323,7 @@ Expected: the current licensed installation is healthy; Feishu, DingTalk, Multic
 
 ```bash
 git add README docs/LICENSING.md scripts/licensing-smoke.mjs package.json
-git commit -m "docs: add AIPRO licensing operations guide"
+git commit -m "docs: add James licensing operations guide"
 ```
 
 ### Task 9: Integrate and publish safely
@@ -342,7 +342,7 @@ Run repository secret scans for PEM private keys, recovery material, invitation 
 
 **Step 3: Merge without disturbing user files**
 
-Merge the tested feature branch into `agent/aipro-commercial-platform-upgrade`, preserve unrelated untracked `outputs/` and `security_best_practices_report.md`, install dependencies with pnpm, and apply local Founder provisioning before restarting services.
+Merge the tested feature branch into `agent/james-commercial-platform-upgrade`, preserve unrelated untracked `outputs/` and `security_best_practices_report.md`, install dependencies with pnpm, and apply local Founder provisioning before restarting services.
 
 **Step 4: Push and verify remote**
 

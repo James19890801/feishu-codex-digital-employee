@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NODE_BIN="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin"
 export PATH="$NODE_BIN:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
-CONFIG_TEMPLATE="${AIPRO_CONFIG_TEMPLATE:-$ROOT/config.example.json}"
+CONFIG_TEMPLATE="${JAMES_CONFIG_TEMPLATE:-$ROOT/config.example.json}"
 
 command -v node >/dev/null 2>&1 || { echo "未找到 Node.js"; exit 1; }
 test -f "$CONFIG_TEMPLATE" || { echo "配置模板不存在：$CONFIG_TEMPLATE"; exit 1; }

@@ -87,11 +87,11 @@ export const config = {
   dingtalkBin: raw.dingtalkBin || join(home, '.npm-global', 'bin', 'dws'),
   wecomEnabled: raw.wecomEnabled === true,
   wecomBotId: raw.wecomBotId || '',
-  wecomKeychainService: raw.wecomKeychainService || 'aipro-wecom-bot',
+  wecomKeychainService: raw.wecomKeychainService || 'james-wecom-bot',
   wecomWebsocketUrl: raw.wecomWebsocketUrl || 'wss://openws.work.weixin.qq.com',
   geweEnabled: raw.geweEnabled === true,
   geweAppId: raw.geweAppId || '',
-  geweKeychainService: raw.geweKeychainService || 'aipro-gewe',
+  geweKeychainService: raw.geweKeychainService || 'james-gewe',
   geweApiBaseUrl: raw.geweApiBaseUrl || 'https://api.geweapi.com',
   gewePublicCallbackBaseUrl: raw.gewePublicCallbackBaseUrl || '',
   geweCallbackPort: boundedInteger(raw.geweCallbackPort, {
@@ -133,7 +133,7 @@ export const config = {
   licensingServiceUrl: String(raw.licensingServiceUrl || '').trim(),
   licensingProxyUrl: String(raw.licensingProxyUrl || raw.codexProxyUrl || '').trim(),
   licensingPublicKey: String(raw.licensingPublicKey || '').trim(),
-  licensingProductId: String(raw.licensingProductId || 'AIPRO').trim(),
+  licensingProductId: String(raw.licensingProductId || 'James').trim(),
   workdir,
   codexBin: raw.codexBin || '/Applications/ChatGPT.app/Contents/Resources/codex',
   codexModel: raw.codexModel || 'gpt-5.6-terra',
@@ -189,8 +189,8 @@ if (config.licensingEnforced) {
   if (!/^[A-Za-z0-9_-]{40,256}$/.test(config.licensingPublicKey)) {
     throw new Error('启用 licensingEnforced 时必须填写有效的 licensingPublicKey');
   }
-  if (config.licensingProductId !== 'AIPRO') {
-    throw new Error('licensingProductId 必须是 AIPRO');
+  if (config.licensingProductId !== 'James') {
+    throw new Error('licensingProductId 必须是 James');
   }
 }
 {

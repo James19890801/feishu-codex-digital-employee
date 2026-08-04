@@ -6,7 +6,7 @@ function channelProvider(chatId) {
   return 'feishu';
 }
 
-// AIPRO deliberately does not infer an output format or create documents.
+// James deliberately does not infer an output format or create documents.
 // Every request is handed to the selected local AI runtime as a normal reply.
 export function buildDeliveryPlan({ chatId, request }) {
   void request;

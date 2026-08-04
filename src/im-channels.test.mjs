@@ -415,7 +415,7 @@ assert.throws(
       chatid: 'group-1',
       from: { userid: 'user-1' },
       msgtype: 'text',
-      text: { content: '@AIPRO 帮我总结' },
+      text: { content: '@James 帮我总结' },
       create_time: 1785463200,
     },
   });
@@ -423,7 +423,7 @@ assert.throws(
   assert.equal(payload.message.chat_id, 'wecom:group:group-1');
   assert.equal(payload.message.chat_type, 'group');
   assert.equal(payload.sender.sender_id.open_id, 'wecom:user-1');
-  assert.equal(JSON.parse(payload.message.content).text, '@AIPRO 帮我总结');
+  assert.equal(JSON.parse(payload.message.content).text, '@James 帮我总结');
   assert.equal(payload.message.mentions.length, 1);
   assert.equal(payload.metadata.channel, 'wecom');
 }

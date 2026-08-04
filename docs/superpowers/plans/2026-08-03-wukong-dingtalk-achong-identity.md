@@ -4,14 +4,14 @@
 
 **Goal:** Run DingTalk permanently through the authenticated Wukong DWS polling transport and present every external reply as Achong's digital human.
 
-**Architecture:** Add transport-aware DingTalk argument builders and a pure normalizer for Wukong `chat message list-all` pages. The main runtime selects either the existing event stream or the new durable polling loop, but local configuration selects only `wukong-polling`; outbound sends use the same selected binary. Persona and privacy copy are changed independently from the AIPRO product and licensing identity.
+**Architecture:** Add transport-aware DingTalk argument builders and a pure normalizer for Wukong `chat message list-all` pages. The main runtime selects either the existing event stream or the new durable polling loop, but local configuration selects only `wukong-polling`; outbound sends use the same selected binary. Persona and privacy copy are changed independently from the James product and licensing identity.
 
 **Tech Stack:** Node.js ES modules, SQLite-backed `AgentState`, DWS CLI 0.2.87 Wukong edition, macOS LaunchAgent, built-in `node:assert` tests.
 
 ## Global Constraints
 
-- Keep `AIPRO` as the product, dashboard, installer, and licensing product ID.
-- External persona must be `阿充的数字人`; do not introduce it as AIPRO or address the owner as `詹老师`.
+- Keep `James` as the product, dashboard, installer, and licensing product ID.
+- External persona must be `阿充的数字人`; do not introduce it as James or address the owner as `詹老师`.
 - Local DingTalk transport is exactly `wukong-polling`; do not run the open DWS event consumer as an automatic fallback.
 - Wukong commands must not receive unsupported `--profile`, `--direction`, or `--ai-tag=false` flags.
 - Advance the polling timestamp only after every `list-all` page in the window succeeds.
@@ -115,11 +115,11 @@ git commit -m "feat: run DingTalk through Wukong polling"
 **Interfaces:**
 - Changes: `buildFirstTakeoverGreeting()` returns the approved Achong introduction.
 - Changes: `buildPrivacyBoundary()` and `ownerHandoffReply()` refer to Achong.
-- Changes: the runtime prompt calls itself Achong's digital human while retaining AIPRO only as a product name outside the persona.
+- Changes: the runtime prompt calls itself Achong's digital human while retaining James only as a product name outside the persona.
 
 - [ ] **Step 1: Write failing identity behavior tests**
 
-Assert the first greeting contains `我是阿充的数字人` and `阿充现在不在`, and contains neither `詹老师` nor `AI 助理 AIPRO`. Assert privacy and handoff responses name Achong and do not name `詹老师`.
+Assert the first greeting contains `我是阿充的数字人` and `阿充现在不在`, and contains neither `詹老师` nor `AI 助理 James`. Assert privacy and handoff responses name Achong and do not name `詹老师`.
 
 - [ ] **Step 2: Run identity tests and verify RED**
 
@@ -129,7 +129,7 @@ Expected: fail against the old external identity.
 
 - [ ] **Step 3: Implement the approved identity copy**
 
-Replace owner/persona wording in the greeting, Persona, privacy rules, handoff response, and AI runtime behavior prompt. Keep AIPRO product and licensing code unchanged.
+Replace owner/persona wording in the greeting, Persona, privacy rules, handoff response, and AI runtime behavior prompt. Keep James product and licensing code unchanged.
 
 - [ ] **Step 4: Run identity tests and verify GREEN**
 

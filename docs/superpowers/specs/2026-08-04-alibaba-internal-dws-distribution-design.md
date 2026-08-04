@@ -17,7 +17,7 @@
 - `dingtalkTransport` 固定为 `event-stream`。
 - 运行时配置校验只接受 `event-stream`；任何 `wukong-polling` 配置都立即失败，且不得自动回退到桌面控制、悟空或其他消息通道。
 - DWS 二进制、Profile 和 Channel 由安装者本机提供。安装包不分发 DWS 二进制，不保存任何认证结果。
-- 安装器优先使用显式 `AIPRO_DWS_BIN`，否则探测允许的独立 DWS 路径；解析后的路径如果位于悟空目录或名称表明是 Wukong 包装器，则拒绝。
+- 安装器优先使用显式 `JAMES_DWS_BIN`，否则探测允许的独立 DWS 路径；解析后的路径如果位于悟空目录或名称表明是 Wukong 包装器，则拒绝。
 - DWS 缺失或认证失败时必须明确显示未就绪，不得把通道标记为连接成功。
 
 ## 部署说明

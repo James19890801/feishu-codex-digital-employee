@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { multicaIssueUrl } from './multica-links.mjs';
 
-const FEEDBACK_OBJECT = /(?:AIPRO|AI\s*PRO|数字人|数字员工|助手)/i;
+const FEEDBACK_OBJECT = /(?:James|AI\s*PRO|数字人|数字员工|助手)/i;
 const FEEDBACK_INTENT = /(?:bug|故障|异常|问题|整改|改进|意见|建议|功能需求|新功能|反馈)/i;
 const DIRECT_FEEDBACK = /(?:反馈|报个|提个).{0,16}(?:bug|故障|异常|问题|整改|意见|建议|需求|功能)/i;
 
@@ -34,23 +34,23 @@ function feedbackKind(text) {
 
 function feedbackTitle(text) {
   const clean = String(text || '')
-    .replace(/^(?:给|向)?\s*(?:AIPRO|AI\s*PRO|数字人|数字员工|助手)\s*/i, '')
+    .replace(/^(?:给|向)?\s*(?:James|AI\s*PRO|数字人|数字员工|助手)\s*/i, '')
     .replace(/^(?:反馈|提个|报个|有个|的)?\s*(?:bug|问题|需求)?\s*[:：-]?\s*/i, '')
     .trim();
-  return `[AIPRO ${feedbackKind(text)}] ${(clean || text).slice(0, 120)}`;
+  return `[James ${feedbackKind(text)}] ${(clean || text).slice(0, 120)}`;
 }
 
 function feedbackDescription(pending, clarification, key) {
   const channel = sourceChannel(pending.context);
   return [
-    '由 AIPRO IM 受控反馈登记流程创建。',
+    '由 James IM 受控反馈登记流程创建。',
     '',
     `来源渠道：${channel}`,
     `原会话：${pending.context.chatId}`,
     `来源发送者：${pending.context.senderId}`,
     `来源消息：${pending.sourceMessageId}`,
     `反馈人权限：${pending.ownerAuthorized ? 'Owner' : '非 Owner'}`,
-    `AIPRO-FEEDBACK-ID: ${key}`,
+    `James-FEEDBACK-ID: ${key}`,
     '',
     `原始需求：${pending.originalRequest}`,
     `补充说明：${clarification}`,
@@ -169,7 +169,7 @@ export class MulticaFeedbackWorkflow {
     const stored = this.state.getMulticaFeedbackRegistration(key);
     if (stored?.issue) return { issue: stored.issue, replayed: true };
 
-    const marker = `AIPRO-FEEDBACK-ID: ${key}`;
+    const marker = `James-FEEDBACK-ID: ${key}`;
     const matches = await this.client.searchIssues(marker, { workspaces: [workspace] });
     let issue = matches.find(item => String(item.description || '').includes(marker));
     let replayed = Boolean(issue);

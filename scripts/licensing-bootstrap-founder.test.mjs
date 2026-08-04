@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { provisionFounderFromRecoveryFile } from './licensing-bootstrap-founder.mjs';
 
-const directory = await mkdtemp(join(tmpdir(), 'aipro-founder-bootstrap-'));
+const directory = await mkdtemp(join(tmpdir(), 'james-founder-bootstrap-'));
 const inputPath = join(directory, 'initial.json');
 const outputPath = join(directory, 'rotated.json');
 await writeFile(inputPath, JSON.stringify({

@@ -107,7 +107,7 @@ await assert.rejects(() => bootstrapFounder({
 assert.equal(await failedStore.loadFounderMarker(), null);
 assert.equal(await failedStore.loadEntitlement(), null);
 
-const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'aipro-recovery-'));
+const tempDirectory = await mkdtemp(path.join(os.tmpdir(), 'james-recovery-'));
 const recoveryPath = path.join(tempDirectory, 'founder-recovery.json');
 await writeRecoveryKitFile(recoveryPath, {
   version: 1,

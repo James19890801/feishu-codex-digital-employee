@@ -215,7 +215,7 @@ contract('group-attribution', 'Can a missing DingTalk @ placeholder pass silentl
 for (const [question, event, accepted] of [
   ['Is a valid DingTalk group @ event accepted?', {
     type: 'user_im_message_receive_at', message_id: 'm1', conversation_id: 'c1',
-    sender_open_dingtalk_id: 'u1', content: '@AIPRO 你好',
+    sender_open_dingtalk_id: 'u1', content: '@James 你好',
   }, true],
   ['Is a valid DingTalk direct event accepted?', {
     type: 'user_im_message_receive_o2o_all', event_id: 'e1',
@@ -262,7 +262,7 @@ for (const [question, payload, expectedReason] of [
 }
 
 contract('durable-inbox', 'Can duplicate transports enqueue the same message twice?', () => {
-  withState('aipro-acceptance-inbox-', state => {
+  withState('james-acceptance-inbox-', state => {
     const now = '2026-08-02T00:00:00.000Z';
     assert.equal(state.enqueueInbound('m1', 'websocket', { value: 1 }, now), true);
     assert.equal(state.enqueueInbound('m1', 'polling', { value: 2 }, now), false);
@@ -272,7 +272,7 @@ contract('durable-inbox', 'Can duplicate transports enqueue the same message twi
 });
 
 contract('durable-inbox', 'Does a failed message wait until its retry time?', () => {
-  withState('aipro-acceptance-retry-', state => {
+  withState('james-acceptance-retry-', state => {
     const now = '2026-08-02T00:00:00.000Z';
     state.enqueueInbound('m1', 'event', { ok: true }, now);
     state.claimInbound('m1', now);
@@ -283,7 +283,7 @@ contract('durable-inbox', 'Does a failed message wait until its retry time?', ()
 });
 
 contract('durable-inbox', 'Can a completed message be claimed again?', () => {
-  withState('aipro-acceptance-complete-', state => {
+  withState('james-acceptance-complete-', state => {
     const now = '2026-08-02T00:00:00.000Z';
     state.enqueueInbound('m1', 'event', { ok: true }, now);
     state.claimInbound('m1', now);
@@ -300,7 +300,7 @@ contract('loop-prevention', 'Is the invisible self-chat marker idempotent and re
 });
 
 contract('loop-prevention', 'Can the same outbound echo be consumed twice?', () => {
-  withState('aipro-acceptance-echo-', state => {
+  withState('james-acceptance-echo-', state => {
     const now = '2026-08-02T00:00:00.000Z';
     state.recordOutboundEcho('self', '回复', { now, ttlMs: 60_000 });
     assert.equal(state.consumeOutboundEcho('self', '回复', { now }), true);
@@ -309,7 +309,7 @@ contract('loop-prevention', 'Can the same outbound echo be consumed twice?', () 
 });
 
 contract('loop-prevention', 'Does the circuit breaker isolate different self chats?', () => {
-  withState('aipro-acceptance-circuit-', state => {
+  withState('james-acceptance-circuit-', state => {
     const options = { windowMs: 60_000, limit: 2, cooldownMs: 120_000 };
     assert.equal(state.claimSelfChatOutbound('a', 1_000, options).allowed, true);
     assert.equal(state.claimSelfChatOutbound('a', 2_000, options).allowed, true);
@@ -319,7 +319,7 @@ contract('loop-prevention', 'Does the circuit breaker isolate different self cha
 });
 
 contract('pending-confirmation', 'Can one user confirm another user\'s pending action?', () => {
-  withState('aipro-acceptance-pending-user-', state => {
+  withState('james-acceptance-pending-user-', state => {
     const pending = new PendingActionStore(state, { ttlMs: 10_000 });
     pending.set('multica_feedback', 'chat', 'user-a', { sourceMessageId: 'm1' }, 1_000);
     assert.equal(pending.get('multica_feedback', 'chat', 'user-b', 2_000), null);
@@ -330,7 +330,7 @@ contract('pending-confirmation', 'Can one user confirm another user\'s pending a
 });
 
 contract('pending-confirmation', 'Can confirmation leak across conversations?', () => {
-  withState('aipro-acceptance-pending-chat-', state => {
+  withState('james-acceptance-pending-chat-', state => {
     const pending = new PendingActionStore(state, { ttlMs: 10_000 });
     pending.set('multica_feedback', 'chat-a', 'user', { sourceMessageId: 'm1' }, 1_000);
     assert.equal(pending.get('multica_feedback', 'chat-b', 'user', 2_000), null);
@@ -338,7 +338,7 @@ contract('pending-confirmation', 'Can confirmation leak across conversations?', 
 });
 
 contract('pending-confirmation', 'Does an expired pending action remain executable?', () => {
-  withState('aipro-acceptance-pending-ttl-', state => {
+  withState('james-acceptance-pending-ttl-', state => {
     const pending = new PendingActionStore(state, { ttlMs: 10_000 });
     pending.set('multica_feedback', 'chat', 'user', { sourceMessageId: 'm1' }, 1_000);
     assert.equal(pending.get('multica_feedback', 'chat', 'user', 11_000), null);

@@ -51,7 +51,7 @@ function serializeDocuments(documents) {
 }
 
 async function atomicWrite(path, content) {
-  const temporary = `${path}.aipro-${process.pid}-${randomUUID()}.tmp`;
+  const temporary = `${path}.james-${process.pid}-${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, content, { mode: 0o600 });
     await rename(temporary, path);

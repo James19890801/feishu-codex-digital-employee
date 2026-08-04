@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..', '..');
-const sourcePath = join(here, 'AIPRO.swift');
-const installerPath = join(root, 'scripts', 'install-aipro-macos-app.sh');
+const sourcePath = join(here, 'James.swift');
+const installerPath = join(root, 'scripts', 'install-james-macos-app.sh');
 await access(sourcePath, constants.R_OK);
 await access(installerPath, constants.R_OK | constants.X_OK);
 
@@ -16,12 +16,12 @@ const source = await readFile(sourcePath, 'utf8');
 assert.match(source, /http:\/\/127\.0\.0\.1:17655\//);
 assert.match(source, /com\.local\.feishu-codex-dashboard/);
 assert.match(source, /com\.local\.feishu-codex-digital-employee/);
-assert.match(source, /com\.local\.aipro-wechat-poc/);
+assert.match(source, /com\.local\.james-wechat-poc/);
 assert.match(source, /WKWebView/);
 assert.match(
   source,
   /func applicationShouldHandleReopen\(_ sender: NSApplication, hasVisibleWindows flag: Bool\) -> Bool/,
-  'clicking the Dock icon while AIPRO is already running must be handled',
+  'clicking the Dock icon while James is already running must be handled',
 );
 assert.match(
   source,
@@ -31,19 +31,19 @@ assert.match(
 assert.match(
   source,
   /func applicationDidBecomeActive\(_ notification: Notification\)[\s\S]*openDashboardInBrowser\(\)/,
-  'activating a running windowless AIPRO app must reopen the dashboard',
+  'activating a running windowless James app must reopen the dashboard',
 );
 
-const bundle = process.env.AIPRO_APP_BUNDLE;
+const bundle = process.env.JAMES_APP_BUNDLE;
 if (bundle) {
-  await access(join(bundle, 'Contents', 'MacOS', 'AIPRO'), constants.X_OK);
+  await access(join(bundle, 'Contents', 'MacOS', 'James'), constants.X_OK);
   await access(join(bundle, 'Contents', 'Resources', 'AppIcon.icns'), constants.R_OK);
   const value = key => execFileSync('/usr/libexec/PlistBuddy', [
     '-c', `Print :${key}`, join(bundle, 'Contents', 'Info.plist'),
   ], { encoding: 'utf8' }).trim();
-  assert.equal(value('CFBundleIdentifier'), 'com.aipro.digitalemployee');
-  assert.equal(value('CFBundleDisplayName'), 'AIPRO');
-  assert.equal(value('CFBundleExecutable'), 'AIPRO');
+  assert.equal(value('CFBundleIdentifier'), 'com.james.digitalemployee');
+  assert.equal(value('CFBundleDisplayName'), 'James');
+  assert.equal(value('CFBundleExecutable'), 'James');
 }
 
-console.log('AIPRO_MACOS_APP_BUNDLE_TEST_OK');
+console.log('JAMES_MACOS_APP_BUNDLE_TEST_OK');

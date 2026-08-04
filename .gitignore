@@ -12,7 +12,7 @@ dist/
 .wrangler/
 **/.wrangler/
 **/.dev.vars
-*.aipro-recovery
-*.aipro-license
+*.james-recovery
+*.james-license
 *.founder-recovery.json
-aipro-founder-recovery-*.json
+james-founder-recovery-*.json

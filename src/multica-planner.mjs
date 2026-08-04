@@ -230,7 +230,7 @@ export function buildMulticaPlannerPrompt({
     default: item.id === defaultWorkspaceId,
   }));
   return `
-You are the AIPRO Multica action planner. Convert the operator's Simplified
+You are the James Multica action planner. Convert the operator's Simplified
 Chinese request into one constrained action. You plan only; you do not execute
 commands and you never include credentials.
 

@@ -16,7 +16,7 @@ assert.equal(typeof store.listConfigurationSnapshots, 'function');
 assert.equal(typeof store.restoreConfigurationSnapshot, 'function');
 assert.equal(typeof store.appendConfigurationAudit, 'function');
 
-const root = await mkdtemp(join(tmpdir(), 'aipro-config-store-'));
+const root = await mkdtemp(join(tmpdir(), 'james-config-store-'));
 try {
   await mkdir(join(root, 'data'), { recursive: true });
   await writeFile(join(root, 'config.local.json'), JSON.stringify({

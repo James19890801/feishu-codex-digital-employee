@@ -93,7 +93,7 @@ Expected: `RUNTIME_MODE_TEST_OK`.
 
 **Interfaces:**
 - Produces: `resolveStandaloneDws({ explicitPath, home, candidates, isExecutable }) -> string`.
-- Consumes: `AIPRO_DWS_BIN`, installer HOME, executable-path checks.
+- Consumes: `JAMES_DWS_BIN`, installer HOME, executable-path checks.
 
 - [ ] **Step 1: Write failing policy tests**
 

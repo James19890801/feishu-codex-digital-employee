@@ -20,14 +20,14 @@ if (config.codexProxyUrl) {
 }
 const client = new AiRuntimeClient({ runtime, env });
 const startedAt = Date.now();
-const { text } = await client.run('只回复：AIPRO_AI_RUNTIME_OK', {
+const { text } = await client.run('只回复：JAMES_AI_RUNTIME_OK', {
   cwd: runtimeDir,
   model: runtime.id === 'codex' ? config.codexModel : '',
   timeoutMs: Math.min(config.codexTimeoutMs, 90_000),
   maxStdoutBytes: 64 * 1024,
   maxStderrBytes: 256 * 1024,
 });
-if (!text.includes('AIPRO_AI_RUNTIME_OK')) {
+if (!text.includes('JAMES_AI_RUNTIME_OK')) {
   throw new Error(`${runtime.label} smoke test returned an unexpected response`);
 }
 console.log(JSON.stringify({

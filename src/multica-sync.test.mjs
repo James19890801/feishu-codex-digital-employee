@@ -8,7 +8,7 @@ import {
   formatMulticaChange,
 } from './multica-sync.mjs';
 
-const dir = mkdtempSync(join(tmpdir(), 'aipro-multica-sync-'));
+const dir = mkdtempSync(join(tmpdir(), 'james-multica-sync-'));
 try {
   const state = new AgentState(join(dir, 'state.sqlite'));
   const issue1 = {

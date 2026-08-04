@@ -6,11 +6,11 @@ private let dashboardURL = URL(string: "http://127.0.0.1:17655/")!
 private let serviceLabels = [
     "com.local.feishu-codex-dashboard",
     "com.local.feishu-codex-digital-employee",
-    "com.local.aipro-wechat-poc",
+    "com.local.james-wechat-poc",
 ]
 
 @main
-final class AIPROApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
+final class JamesApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     private var window: NSWindow!
     private var webView: WKWebView!
     private var retryTimer: Timer?
@@ -18,7 +18,7 @@ final class AIPROApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     private var browserLaunchInProgress = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSLog("AIPRO launcher started")
+        NSLog("James launcher started")
         NSApp.setActivationPolicy(.regular)
         configureMenu()
         configureWindow()
@@ -63,12 +63,12 @@ final class AIPROApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "AIPRO · 基于真人身份运行的AI数字人平台"
+        window.title = "James · 基于真人身份运行的AI数字人平台"
         window.titlebarAppearsTransparent = true
         window.minSize = NSSize(width: 980, height: 680)
         window.contentView = webView
         window.center()
-        window.setFrameAutosaveName("AIPRO.MainWindow")
+        window.setFrameAutosaveName("James.MainWindow")
         window.makeKeyAndOrderFront(nil)
     }
 
@@ -76,10 +76,10 @@ final class AIPROApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         let mainMenu = NSMenu()
         let appItem = NSMenuItem()
         mainMenu.addItem(appItem)
-        let appMenu = NSMenu(title: "AIPRO")
-        appMenu.addItem(withTitle: "关于 AIPRO", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        let appMenu = NSMenu(title: "James")
+        appMenu.addItem(withTitle: "关于 James", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "退出 AIPRO", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "退出 James", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
 
         let viewItem = NSMenuItem()
@@ -108,7 +108,7 @@ final class AIPROApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         h1{font-size:34px;margin:24px 0 8px}.sub{color:#b9bfd8;font-size:17px;margin:0}.status{margin-top:34px;padding:18px 20px;border-radius:16px;background:#ffffff0b;color:#dfe4ff}
         i{display:inline-block;width:9px;height:9px;margin-right:10px;border-radius:50%;background:#58e0a3;box-shadow:0 0 18px #58e0a3;animation:p 1.2s infinite alternate}@keyframes p{to{opacity:.35}}
         small{display:block;margin-top:14px;color:#777e9c}</style></head>
-        <body><main><b>AI</b><h1>AIPRO</h1><p class="sub">基于真人身份运行的AI数字人平台</p>
+        <body><main><b>AI</b><h1>James</h1><p class="sub">基于真人身份运行的AI数字人平台</p>
         <div class="status"><i></i>正在连接本机控制面板…</div><small>应用会自动恢复后台服务，无需打开 Codex。</small></main></body></html>
         """
         webView.loadHTMLString(html, baseURL: nil)
@@ -139,7 +139,7 @@ final class AIPROApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         request.timeoutInterval = 1.0
         URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-            NSLog("AIPRO dashboard probe status=%d error=%@", statusCode, error?.localizedDescription ?? "none")
+            NSLog("James dashboard probe status=%d error=%@", statusCode, error?.localizedDescription ?? "none")
             guard let http = response as? HTTPURLResponse, (200..<500).contains(http.statusCode) else { return }
             DispatchQueue.main.async {
                 guard let self, !self.dashboardLoaded else { return }
@@ -170,7 +170,7 @@ final class AIPROApp: NSObject, NSApplicationDelegate, WKNavigationDelegate {
 
     private func openDashboardInBrowser() {
         guard !browserLaunchInProgress else { return }
-        NSLog("AIPRO opening dashboard in default browser")
+        NSLog("James opening dashboard in default browser")
         browserLaunchInProgress = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             guard let self else { return }

@@ -16,7 +16,7 @@ const instruction = buildIdentityInstruction({
 });
 assert.match(instruction, /你是新用户的数字人/);
 assert.match(instruction, /新用户在本企业的现行角色是产品经理/);
-assert.doesNotMatch(instruction, /阿充|James|詹老师|AIPRO/);
+assert.doesNotMatch(instruction, /阿充|James|詹老师|James/);
 assert.match(instruction, /被排除的业务上下文/);
 
 console.log('IDENTITY_POLICY_TEST_OK');

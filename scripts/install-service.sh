@@ -10,7 +10,7 @@ SERVICE="gui/$(id -u)/$LABEL"
 LAUNCHCTL="${ACHONG_LAUNCHCTL:-launchctl}"
 RETRIES="${ACHONG_SERVICE_RETRIES:-10}"
 WAIT_SECONDS="${ACHONG_SERVICE_WAIT_SECONDS:-1}"
-LOCK_PATH="${AIPRO_SERVICE_LOCK_PATH:-$ROOT/data/service.lock}"
+LOCK_PATH="${JAMES_SERVICE_LOCK_PATH:-$ROOT/data/service.lock}"
 mkdir -p "$HOME/Library/LaunchAgents"
 
 /usr/bin/python3 - "$PLIST" "$ROOT" "$NODE" <<'PY'

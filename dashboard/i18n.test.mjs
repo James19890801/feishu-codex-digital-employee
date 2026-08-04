@@ -19,6 +19,8 @@ assert.equal(translate('en', 'generateTenInvites'), 'Generate 10 codes');
 assert.equal(translate('zh', 'contactDeveloper'), '联系开发者');
 assert.equal(translate('en', 'contactDeveloperMeta'), 'Invitation & support');
 assert.equal(translate('zh', 'contactDeveloperMeta'), '邀请码与支持');
+assert.equal(translate('en', 'contactRole'), 'Sole developer · Achong (James Feng)');
+assert.equal(translate('zh', 'contactRole'), '唯一开发者 · 阿充（James Feng）');
 assert.equal(translate('en', 'brandCampaignTitle'), 'Your identity, intelligently present.');
 assert.equal(translate('zh', 'brandCampaignTitle'), '让智能，以你的身份在场。');
 assert.equal(translate('en', 'openSourceCredit'), 'Personal digital-human runtime');

@@ -14,7 +14,7 @@ const deviceKeyHash = publicKeyFingerprint(device.publicKey);
 const now = new Date('2026-08-02T12:00:00.000Z');
 const validToken = signEnvelope({
   version: 1,
-  product: 'AIPRO',
+  product: 'James',
   licenseId: 'license-founder-james',
   edition: 'Founder',
   issuerId: 'issuer-james',
@@ -38,7 +38,7 @@ const allowed = await evaluateLicenseGuard({
   enforced: true,
   store,
   publicKey: authority.publicKey,
-  product: 'AIPRO',
+  product: 'James',
   now,
 });
 assert.equal(allowed.allowed, true);
@@ -60,7 +60,7 @@ const missing = await evaluateLicenseGuard({
   enforced: true,
   store: fakeStore({ token: null }),
   publicKey: authority.publicKey,
-  product: 'AIPRO',
+  product: 'James',
   now,
 });
 assert.equal(missing.allowed, false);
@@ -68,7 +68,7 @@ assert.equal(missing.reason, 'activation_required');
 
 const wrongDeviceToken = signEnvelope({
   version: 1,
-  product: 'AIPRO',
+  product: 'James',
   licenseId: 'license-other',
   edition: 'Business',
   deviceKeyHash: `sha256:${'b'.repeat(64)}`,
@@ -79,7 +79,7 @@ const wrongDevice = await evaluateLicenseGuard({
   enforced: true,
   store: fakeStore({ token: wrongDeviceToken }),
   publicKey: authority.publicKey,
-  product: 'AIPRO',
+  product: 'James',
   now,
 });
 assert.equal(wrongDevice.allowed, false);
@@ -91,7 +91,7 @@ const tampered = await evaluateLicenseGuard({
   enforced: true,
   store: fakeStore({ token: `${validBody}.${changedSignature}` }),
   publicKey: authority.publicKey,
-  product: 'AIPRO',
+  product: 'James',
   now,
 });
 assert.equal(tampered.allowed, false);
@@ -101,7 +101,7 @@ const rollback = await evaluateLicenseGuard({
   enforced: true,
   store: fakeStore({ lastSeenAt: '2026-08-03T12:00:00.000Z' }),
   publicKey: authority.publicKey,
-  product: 'AIPRO',
+  product: 'James',
   now,
 });
 assert.equal(rollback.allowed, false);

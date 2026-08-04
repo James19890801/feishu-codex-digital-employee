@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DESTINATION="${AIPRO_APP_DESTINATION:-$HOME/Applications/AIPRO.app}"
-BUILD_ROOT="$(mktemp -d /tmp/aipro-macos-app.XXXXXX)"
-BUNDLE="$BUILD_ROOT/AIPRO.app"
+DESTINATION="${JAMES_APP_DESTINATION:-$HOME/Applications/James.app}"
+BUILD_ROOT="$(mktemp -d /tmp/james-macos-app.XXXXXX)"
+BUNDLE="$BUILD_ROOT/James.app"
 ICONSET="$BUILD_ROOT/AppIcon.iconset"
 
 cleanup() {
@@ -13,15 +13,15 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
-cp "$ROOT/macos/AIPRO/Info.plist" "$BUNDLE/Contents/Info.plist"
+cp "$ROOT/macos/James/Info.plist" "$BUNDLE/Contents/Info.plist"
 
 /usr/bin/xcrun swiftc -parse-as-library -O \
-  "$ROOT/macos/AIPRO/AIPRO.swift" \
+  "$ROOT/macos/James/James.swift" \
   -framework AppKit -framework WebKit \
-  -o "$BUNDLE/Contents/MacOS/AIPRO"
-chmod 755 "$BUNDLE/Contents/MacOS/AIPRO"
+  -o "$BUNDLE/Contents/MacOS/James"
+chmod 755 "$BUNDLE/Contents/MacOS/James"
 
-/usr/bin/xcrun swift "$ROOT/macos/AIPRO/GenerateIcon.swift" "$ICONSET"
+/usr/bin/xcrun swift "$ROOT/macos/James/GenerateIcon.swift" "$ICONSET"
 /usr/bin/iconutil -c icns "$ICONSET" -o "$BUNDLE/Contents/Resources/AppIcon.icns"
 
 /usr/bin/codesign --force --deep --sign - "$BUNDLE"
@@ -50,6 +50,6 @@ LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchS
 /usr/bin/mdimport "$DESTINATION" >/dev/null 2>&1 || true
 
 echo "$DESTINATION"
-if [[ "${AIPRO_APP_OPEN:-1}" == "1" ]]; then
+if [[ "${JAMES_APP_OPEN:-1}" == "1" ]]; then
   /usr/bin/open "$DESTINATION"
 fi

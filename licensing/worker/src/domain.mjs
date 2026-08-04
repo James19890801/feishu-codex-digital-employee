@@ -250,7 +250,7 @@ export class InvitationService {
     }
     const license = {
       version: 1,
-      product: 'AIPRO',
+      product: 'James',
       licenseId,
       edition: invitationPreview.edition,
       issuerId: invitationPreview.issuerId,

@@ -16,7 +16,7 @@ const now = new Date('2026-08-02T12:00:00.000Z');
 
 const founderToken = signEnvelope({
   version: 1,
-  product: 'AIPRO',
+  product: 'James',
   licenseId: 'license-founder-james',
   edition: 'Founder',
   issuerId: 'issuer-james',
@@ -57,7 +57,7 @@ const remote = {
     return {
       entitlement: signEnvelope({
         version: 1,
-        product: 'AIPRO',
+        product: 'James',
         licenseId: 'license-business',
         edition: 'Business',
         deviceKeyHash,
@@ -93,7 +93,7 @@ const api = new LicensingDashboardApi({
   store: founderStore,
   client: remote,
   publicKey: authority.publicKey,
-  product: 'AIPRO',
+  product: 'James',
   enforced: true,
   now: () => now,
 });
@@ -132,7 +132,7 @@ const ordinaryApi = new LicensingDashboardApi({
   store: ordinaryStore,
   client: remote,
   publicKey: authority.publicKey,
-  product: 'AIPRO',
+  product: 'James',
   enforced: true,
   now: () => now,
 });

@@ -1,8 +1,8 @@
-# AIPRO Identity Narrative and Developer Contact Design
+# James Identity Narrative and Developer Contact Design
 
 ## Goal
 
-Explain AIPRO's defining product capability—an AI agent operating through the owner's explicitly authorized real social identity—and give every user a clear, safe way to contact James Feng for an invitation code.
+Explain James's defining product capability—an AI agent operating through the owner's explicitly authorized real social identity—and give every user a clear, safe way to contact James Feng for an invitation code.
 
 ## Product narrative
 
@@ -20,17 +20,17 @@ The factual product descriptor is:
 
 > An AI agent platform that works through your authorized social identity.
 
-Supporting copy explains that AIPRO connects only to accounts the owner authorizes, operates inside existing conversations and relationships, and preserves human control:
+Supporting copy explains that James connects only to accounts the owner authorizes, operates inside existing conversations and relationships, and preserves human control:
 
 > 连接你已授权的飞书、钉钉与个人微信，让 AI 在真实关系和真实会话中理解请求、协同工作并及时回应。
 
-> Connect AIPRO to the IM accounts you authorize, so it can understand requests, coordinate work, and respond within the conversations and relationships you already have.
+> Connect James to the IM accounts you authorize, so it can understand requests, coordinate work, and respond within the conversations and relationships you already have.
 
 The trust statement is mandatory on activation and product-information surfaces:
 
-> 身份始终属于你，重要判断仍由你做。AIPRO 只在你明确授权的边界内行动。
+> 身份始终属于你，重要判断仍由你做。James 只在你明确授权的边界内行动。
 
-> Your identity remains yours. Important decisions remain yours. AIPRO acts only within the boundaries you authorize.
+> Your identity remains yours. Important decisions remain yours. James acts only within the boundaries you authorize.
 
 The English interface uses **AI agent** for functional descriptions. It does not use the awkward phrase **real human identity** or imply that every optional channel has the same identity model. Channel-level descriptions continue to distinguish human-identity channels from official bot channels.
 
@@ -46,11 +46,11 @@ Every dashboard state has a small contact control beside the language control.
 
 The contact surface identifies:
 
-- James Feng（詹老师）
-- Co-developer · Authorized invitation issuer
+- 阿充（James Feng）
+- Sole developer · Authorized invitation issuer
 - 联合开发者 · 授权邀请码签发人
 
-It instructs the user to scan with WeChat, add James, and send **AIPRO invitation / 申请 AIPRO 邀请码**. It also states that James will never request an account password, SMS verification code, device private key, or recovery key.
+It instructs the user to scan with WeChat, add James, and send **James invitation / 申请 James 邀请码**. It also states that James will never request an account password, SMS verification code, device private key, or recovery key.
 
 The dialog supports keyboard focus management, `Escape`, a visible close control, backdrop dismissal, localized labels, and a retry state when the contact card cannot be loaded.
 

@@ -1,4 +1,4 @@
-name = "aipro-licensing"
+name = "james-licensing"
 main = "src/index.mjs"
 compatibility_date = "2026-08-02"
 compatibility_flags = ["nodejs_compat"]
@@ -9,7 +9,7 @@ CONTACT_CARD_CONTENT_TYPE = "image/jpeg"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "aipro-licensing"
+database_name = "james-licensing"
 database_id = "fa256eee-d5e9-4395-a561-44af64bb6290"
 
 [[kv_namespaces]]

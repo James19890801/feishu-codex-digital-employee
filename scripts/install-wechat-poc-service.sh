@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-NODE="${AIPRO_NODE_BIN:-$(command -v node)}"
-LABEL="com.local.aipro-wechat-poc"
+NODE="${JAMES_NODE_BIN:-$(command -v node)}"
+LABEL="com.local.james-wechat-poc"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 mkdir -p "$HOME/Library/LaunchAgents"
 mkdir -p "$ROOT/data/wechat-poc/bin"
@@ -19,7 +19,7 @@ import sys
 
 plist, root, node = sys.argv[1:]
 payload = {
-    'Label': 'com.local.aipro-wechat-poc',
+    'Label': 'com.local.james-wechat-poc',
     'ProgramArguments': [node, f'{root}/src/wechat-poc/worker.mjs'],
     'WorkingDirectory': root,
     'RunAtLoad': True,

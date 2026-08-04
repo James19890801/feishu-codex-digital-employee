@@ -50,10 +50,9 @@ for (const endpoint of [
 assert.match(html, /<html lang="en">/);
 assert.match(html, /id="languageToggle"/);
 assert.equal((html.match(/Personal Digital Human · Local Runtime/g) || []).length, 1);
-assert.doesNotMatch(html, /James|詹老师|Zhao Yingzhi|赵颖知/);
+assert.match(html, /Sole developer · Achong \(James Feng\)/);
 assert.match(html, /class="brand-mark" role="img" aria-label="Personal digital human emblem"/);
 assert.match(html, /<h1 data-i18n="brandName">Personal Digital Human<\/h1>/);
-assert.doesNotMatch(html, /Achong|阿充/);
 assert.match(app, /data\.operator\?\.brandName/);
 assert.match(css, /grid-template-columns:[^;]*minmax\(260px,[^;]*minmax\(280px,/);
 assert.doesNotMatch(html, /<div class="brand">[\s\S]{0,900}data-i18n="brandCredit"/);

@@ -15,7 +15,7 @@ if (config.licensingEnforced === true) {
     enforced: true,
     store: new LicensingStore(),
     publicKey: String(config.licensingPublicKey || ''),
-    product: String(config.licensingProductId || 'AIPRO'),
+    product: String(config.licensingProductId || 'James'),
   });
   if (!license.allowed) {
     console.log(JSON.stringify({

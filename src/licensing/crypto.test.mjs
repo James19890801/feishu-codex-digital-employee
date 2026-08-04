@@ -25,7 +25,7 @@ assert.equal(publicKeyFingerprint(issuer.publicKey), publicKeyFingerprint(issuer
 
 const payload = {
   version: 1,
-  product: 'AIPRO',
+  product: 'James',
   licenseId: 'lic_test',
   edition: 'Founder',
   deviceKeyHash: publicKeyFingerprint(generateSigningKeyPair().publicKey),
@@ -52,7 +52,7 @@ assert.throws(
 );
 
 assert.deepEqual(evaluateEntitlement(payload, {
-  product: 'AIPRO',
+  product: 'James',
   deviceKeyHash: payload.deviceKeyHash,
   now: new Date('2026-08-02T00:00:00.000Z'),
 }), { valid: true, reason: 'valid' });
@@ -62,22 +62,22 @@ assert.deepEqual(evaluateEntitlement(payload, {
   now: new Date('2026-08-02T00:00:00.000Z'),
 }), { valid: false, reason: 'wrong_product' });
 assert.deepEqual(evaluateEntitlement(payload, {
-  product: 'AIPRO',
+  product: 'James',
   deviceKeyHash: 'sha256:another-device',
   now: new Date('2026-08-02T00:00:00.000Z'),
 }), { valid: false, reason: 'wrong_device' });
 assert.deepEqual(evaluateEntitlement(payload, {
-  product: 'AIPRO',
+  product: 'James',
   deviceKeyHash: payload.deviceKeyHash,
   now: new Date('2026-07-01T00:00:00.000Z'),
 }), { valid: false, reason: 'not_yet_valid' });
 assert.deepEqual(evaluateEntitlement(payload, {
-  product: 'AIPRO',
+  product: 'James',
   deviceKeyHash: payload.deviceKeyHash,
   now: new Date('2027-08-01T00:00:00.001Z'),
 }), { valid: false, reason: 'expired' });
 assert.deepEqual(evaluateEntitlement({ ...payload, expiresAt: 'bad-date' }, {
-  product: 'AIPRO',
+  product: 'James',
   deviceKeyHash: payload.deviceKeyHash,
   now: new Date('2026-08-02T00:00:00.000Z'),
 }), { valid: false, reason: 'invalid_time' });

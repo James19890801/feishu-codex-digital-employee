@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { A1Synchronizer } from './a1-sync.mjs';
 import { AgentState } from './state.mjs';
 
-const dir = mkdtempSync(join(tmpdir(), 'aipro-a1-sync-'));
+const dir = mkdtempSync(join(tmpdir(), 'james-a1-sync-'));
 const state = new AgentState(join(dir, 'state.sqlite'));
 try {
   state.registerA1Subscription({

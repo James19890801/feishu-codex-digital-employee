@@ -1,4 +1,4 @@
-# AIPRO Mechanism Acceptance Matrix
+# James Mechanism Acceptance Matrix
 
 This suite turns recently added product rules into repeatable, non-production test contracts. Run it with:
 

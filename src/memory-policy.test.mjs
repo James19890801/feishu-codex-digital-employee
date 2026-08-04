@@ -30,7 +30,7 @@ assert.equal(validateMemoryCandidate({
   kind: 'unknown', subject: '未知', content: '内容', sourceRefs: ['chat:1'],
 }).accepted, false);
 
-const directory = await mkdtemp(join(tmpdir(), 'aipro-memory-policy-'));
+const directory = await mkdtemp(join(tmpdir(), 'james-memory-policy-'));
 const state = new AgentState(join(directory, 'state.sqlite'));
 try {
   state.upsertMemoryItem({

@@ -155,7 +155,7 @@ const channelPlan = assistant.createChangePlan({
   }, {
     target: 'config',
     key: 'wecomBotId',
-    value: 'bot-aipro',
+    value: 'bot-james',
   }],
 }, documents);
 assert.equal(channelPlan.confirmationLevel, 'double');
@@ -174,7 +174,7 @@ const wechatPlan = assistant.createChangePlan({
   }, {
     target: 'config',
     key: 'gewePublicCallbackBaseUrl',
-    value: 'https://aipro.example.com',
+    value: 'https://james.example.com',
   }, {
     target: 'config',
     key: 'geweEnabled',

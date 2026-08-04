@@ -1,8 +1,8 @@
-# AIPRO Owner-only IM 反馈闭环设计
+# James Owner-only IM 反馈闭环设计
 
 ## 背景与决策
 
-当前 AIPRO 允许任意合法到达 IM 会话的联系人预览并确认 Multica 创建、更新和评论；“处理 ISSUE”入口还会直接把 Issue 改为 `in_progress` 并启动本地执行。这与 MYS-6 的 Owner-only 要求冲突。
+当前 James 允许任意合法到达 IM 会话的联系人预览并确认 Multica 创建、更新和评论；“处理 ISSUE”入口还会直接把 Issue 改为 `in_progress` 并启动本地执行。这与 MYS-6 的 Owner-only 要求冲突。
 
 已批准方案 A：非 Owner 不能调用任何通用 Multica 写入口。唯一例外是受控反馈登记流程，它只能代建未指派的 `backlog` Issue、订阅来源会话，不能派发或执行。Owner 反馈也先安全登记，再自动派发给“詹老师的开发团伙”。
 

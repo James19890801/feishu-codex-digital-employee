@@ -34,12 +34,15 @@ assert.doesNotThrow(() => runtime.validateFeishuConfiguration({
   ownerOpenId: 'ou_abc123',
 }));
 
-assert.doesNotThrow(() => runtime.validateDingTalkConfiguration({
-  dingtalkEnabled: true,
-  multicaEnabled: false,
-  dingtalkTransport: 'wukong-polling',
-  dingtalkOwnerOpenId: '',
-}));
+assert.throws(
+  () => runtime.validateDingTalkConfiguration({
+    dingtalkEnabled: true,
+    multicaEnabled: false,
+    dingtalkTransport: 'wukong-polling',
+    dingtalkOwnerOpenId: '',
+  }),
+  /event-stream.*Wukong|Wukong.*event-stream/,
+);
 assert.doesNotThrow(() => runtime.validateDingTalkConfiguration({
   dingtalkEnabled: true,
   multicaEnabled: false,

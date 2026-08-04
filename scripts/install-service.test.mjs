@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const directory = await mkdtemp(join(tmpdir(), 'aipro-install-service-'));
+const directory = await mkdtemp(join(tmpdir(), 'james-install-service-'));
 const binDirectory = join(directory, 'bin');
 const logPath = join(directory, 'launchctl.log');
 
@@ -27,7 +27,7 @@ try {
       HOME: directory,
       PATH: `${binDirectory}:/usr/local/bin:/usr/bin:/bin`,
       LAUNCHCTL_LOG: logPath,
-      AIPRO_SERVICE_LOCK_PATH: join(directory, 'service.lock'),
+      JAMES_SERVICE_LOCK_PATH: join(directory, 'service.lock'),
     },
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);

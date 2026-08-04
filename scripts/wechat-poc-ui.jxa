@@ -283,7 +283,7 @@ function currentAnalysis(payload) {
   let info;
   try { info = JSON.parse(shell(shellQuote(helper) + ' window-info')); }
   catch (error) { throw new Error('window_info:' + String(error.message || error)); }
-  const temporary = '/tmp/aipro-wechat-poc-' + String(new Date().getTime()) + '-' + String(Math.floor(Math.random() * 1000000)) + '.png';
+  const temporary = '/tmp/james-wechat-poc-' + String(new Date().getTime()) + '-' + String(Math.floor(Math.random() * 1000000)) + '.png';
   try {
     try { shell('/usr/sbin/screencapture -x -o -l ' + Number(info.windowId) + ' ' + shellQuote(temporary)); }
     catch (error) { throw new Error('capture:' + String(error.message || error)); }

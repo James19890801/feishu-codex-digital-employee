@@ -13,6 +13,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
+import { resolveStandaloneDws } from './dws-deployment-policy.mjs';
 
 const packageRoot = resolve(process.argv[2] || '.');
 const payloadRoot = join(packageRoot, 'payload');
@@ -102,6 +103,10 @@ async function initializeUserState(stageRoot) {
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     config.nodeBin = dirname(process.execPath);
     config.pythonBin = join(installRoot, '.venv', 'bin', 'python3');
+    config.dingtalkBin = await resolveStandaloneDws({
+      explicitPath: process.env.JAMES_DWS_BIN || '',
+      home: installHome,
+    });
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   }
 }
@@ -168,7 +173,7 @@ async function verifyDashboard() {
 assertSafeInstallRoot(installRoot);
 await verifyChecksums();
 await mkdir(dirname(installRoot), { recursive: true });
-const stageRoot = await mkdtemp(join(dirname(installRoot), '.aipro-stage-'));
+const stageRoot = await mkdtemp(join(dirname(installRoot), '.james-stage-'));
 const backupRoot = `${installRoot}.previous-${process.pid}`;
 let previousExists = false;
 let switched = false;

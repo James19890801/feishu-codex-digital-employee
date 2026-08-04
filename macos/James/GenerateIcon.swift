@@ -32,7 +32,7 @@ func render(size: Int, to url: URL) throws {
         bytesPerRow: bytesPerRow,
         space: colorSpace,
         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    ) else { throw NSError(domain: "AIPROIcon", code: 1) }
+    ) else { throw NSError(domain: "JamesIcon", code: 1) }
 
     context.setAllowsAntialiasing(true)
     context.setShouldAntialias(true)
@@ -76,10 +76,10 @@ func render(size: Int, to url: URL) throws {
     guard let image = context.makeImage(),
           let destination = CGImageDestinationCreateWithURL(
             url as CFURL, UTType.png.identifier as CFString, 1, nil
-          ) else { throw NSError(domain: "AIPROIcon", code: 2) }
+          ) else { throw NSError(domain: "JamesIcon", code: 2) }
     CGImageDestinationAddImage(destination, image, nil)
     guard CGImageDestinationFinalize(destination) else {
-        throw NSError(domain: "AIPROIcon", code: 3)
+        throw NSError(domain: "JamesIcon", code: 3)
     }
 }
 

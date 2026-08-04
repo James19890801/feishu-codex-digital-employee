@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-export const LICENSING_KEYCHAIN_SERVICE = 'com.aipro.licensing';
+export const LICENSING_KEYCHAIN_SERVICE = 'com.james.licensing';
 
 const ACCOUNT_PATTERN = /^[a-z0-9][a-z0-9.-]{1,79}$/;
 

@@ -41,7 +41,7 @@ export class LicensingDashboardApi {
     store,
     client,
     publicKey,
-    product = 'AIPRO',
+    product = 'James',
     enforced = false,
     now = () => new Date(),
   }) {

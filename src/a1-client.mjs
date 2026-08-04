@@ -137,7 +137,7 @@ export class A1Client {
   }
 
   async withBodyFile(body, callback) {
-    const directory = await mkdtemp(join(tmpdir(), 'aipro-a1-'));
+    const directory = await mkdtemp(join(tmpdir(), 'james-a1-'));
     const path = join(directory, 'requirement.md');
     try {
       await writeFile(path, requiredText(body, 'body'), { encoding: 'utf8', mode: 0o600 });

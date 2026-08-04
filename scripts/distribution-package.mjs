@@ -14,6 +14,7 @@ import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 
 const ROOT_FILES = new Set([
   'AI_CODING_INSTALL.md',
+  'README.md',
   'config.distribution.json',
   'package.json',
   'pnpm-lock.yaml',
@@ -24,6 +25,7 @@ const ROOT_FILES = new Set([
 const SCRIPT_FILES = new Set([
   'scripts/check-config.mjs',
   'scripts/check-python.mjs',
+  'scripts/dws-deployment-policy.mjs',
   'scripts/health-check.mjs',
   'scripts/install-aicoding.mjs',
   'scripts/install-dashboard-service.sh',
@@ -47,7 +49,7 @@ const FORBIDDEN_PATH_PATTERNS = [
   /(^|\/)knowledge-(?:catalog|source-manifest)\.json$/u,
   /\.test\.[cm]?[jt]s$/u,
   /\.(?:sqlite|sqlite-wal|sqlite-shm|log)$/iu,
-  /(?:recovery|founder-recovery|\.aipro-license)/iu,
+  /(?:recovery|founder-recovery|\.james-license)/iu,
 ];
 
 const SECRET_PATTERNS = [
@@ -57,6 +59,13 @@ const SECRET_PATTERNS = [
   /\bBearer\s+[A-Za-z0-9._~+\/-]{20,}/iu,
   /\bAKID[A-Za-z0-9]{12,}\b/u,
 ];
+
+const PUBLIC_DEVELOPER_IDENTIFIERS = new Set([
+  '阿充',
+  'James',
+  'James Feng',
+  'Achong',
+]);
 
 function portablePath(root, target) {
   return relative(root, target).split(sep).join('/');
@@ -161,13 +170,16 @@ async function localForbiddenValues(root) {
       'multicaOwnerSquad', 'codexProxyUrl', 'licensingServiceUrl', 'licensingPublicKey',
     ]);
     const values = [];
+    const append = value => {
+      const normalized = String(value || '').trim();
+      if (normalized.length < 4 || PUBLIC_DEVELOPER_IDENTIFIERS.has(normalized)) return;
+      values.push(normalized);
+    };
     for (const [key, value] of Object.entries(local)) {
       if (!sensitiveKeys.has(key)) continue;
-      if (typeof value === 'string' && value.trim().length >= 4) values.push(value.trim());
+      if (typeof value === 'string') append(value);
       if (Array.isArray(value)) {
-        for (const item of value) {
-          if (typeof item === 'string' && item.trim().length >= 4) values.push(item.trim());
-        }
+        for (const item of value) if (typeof item === 'string') append(item);
       }
     }
     return values;
@@ -179,6 +191,11 @@ async function localForbiddenValues(root) {
 export async function buildDistribution({ root, outputDir, version }) {
   const sourceRoot = resolve(root);
   const targetRoot = resolve(outputDir);
+  const packageMetadata = JSON.parse(await readFile(join(sourceRoot, 'package.json'), 'utf8'));
+  const developer = String(packageMetadata.author || '').trim();
+  if (developer !== '阿充') {
+    throw new Error('Distribution developer must be 阿充');
+  }
   const normalizedVersion = String(version || '').trim();
   if (!/^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/u.test(normalizedVersion)) {
     throw new Error('Distribution version must be a semantic version');
@@ -220,6 +237,7 @@ export async function buildDistribution({ root, outputDir, version }) {
   const releaseManifest = {
     formatVersion: 1,
     product: 'Personal Digital Human',
+    developers: [developer],
     version: normalizedVersion,
     fileCount: payloadEntries.length,
     bytes,

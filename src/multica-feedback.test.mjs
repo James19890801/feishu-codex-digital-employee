@@ -11,7 +11,7 @@ import {
   looksLikeMulticaFeedback,
 } from './multica-feedback.mjs';
 
-assert.equal(looksLikeMulticaFeedback('AIPRO 回复偶尔报错，我要反馈一个 Bug'), true);
+assert.equal(looksLikeMulticaFeedback('James 回复偶尔报错，我要反馈一个 Bug'), true);
 assert.equal(looksLikeMulticaFeedback('给数字人提个功能需求：支持状态回传'), true);
 assert.equal(looksLikeMulticaFeedback('查一下 MYS-6'), false);
 assert.equal(looksLikeMulticaFeedback('今天天气怎么样'), false);
@@ -21,7 +21,7 @@ assert.equal(isFeedbackCancellation('不用登记了。'), true);
 assert.equal(isFeedbackCancellation('补充验收标准'), false);
 
 function fixture({ failDispatch = false, existingIssues = [] } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'aipro-feedback-'));
+  const dir = mkdtempSync(join(tmpdir(), 'james-feedback-'));
   const state = new AgentState(join(dir, 'state.sqlite'));
   const creates = [];
   const updates = [];
@@ -124,7 +124,7 @@ const forgedSelfChatContext = {
   const test = fixture();
   try {
     const started = test.workflow.begin({
-      text: 'AIPRO 发消息时偶尔报错',
+      text: 'James 发消息时偶尔报错',
       sourceMessageId: 'message-non-owner',
       context: nonOwnerContext,
     });
@@ -147,7 +147,7 @@ const forgedSelfChatContext = {
     assert.equal(test.creates[0].assigneeId, undefined);
     assert.match(test.creates[0].description, /来源渠道：dingtalk/);
     assert.match(test.creates[0].description, /原会话：dingtalk:user:reporter/);
-    assert.match(test.creates[0].description, /原始需求：AIPRO 发消息时偶尔报错/);
+    assert.match(test.creates[0].description, /原始需求：James 发消息时偶尔报错/);
     assert.match(test.creates[0].description, /验收标准：连续发送 20 次均成功/);
     assert.match(registered.text, /MYS-1/);
     assert.match(registered.text, /https:\/\/multica\.ai\/my-space\/issues\/MYS-1/);
@@ -178,7 +178,7 @@ for (const [label, context] of [
   const test = fixture();
   try {
     const started = test.workflow.begin({
-      text: `AIPRO 功能需求：${label} 反馈`,
+      text: `James 功能需求：${label} 反馈`,
       sourceMessageId: `message-${label}`,
       context,
       ownerAuthorized: true,
@@ -201,7 +201,7 @@ for (const [label, context] of [
   const test = fixture();
   try {
     const started = test.workflow.begin({
-      text: 'AIPRO 功能需求：澄清完成时再次授权',
+      text: 'James 功能需求：澄清完成时再次授权',
       sourceMessageId: 'message-owner-clarification-reauth',
       context: ownerContext,
     });
@@ -265,7 +265,7 @@ for (const [label, context] of [
   const test = fixture({ failDispatch: true });
   try {
     const started = test.workflow.begin({
-      text: 'AIPRO 有个 Bug：状态不会回传',
+      text: 'James 有个 Bug：状态不会回传',
       sourceMessageId: 'message-dispatch-failure',
       context: ownerContext,
     });
@@ -300,7 +300,7 @@ await assert.rejects(async () => {
   const test = fixture();
   try {
     const started = test.workflow.begin({
-      text: 'AIPRO 有个 Bug',
+      text: 'James 有个 Bug',
       sourceMessageId: 'message-context',
       context: ownerContext,
     });

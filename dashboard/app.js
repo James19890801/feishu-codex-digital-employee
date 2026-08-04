@@ -109,7 +109,7 @@ let latestChannelReport = null;
 let selectedChannel = '';
 let channelBusy = false;
 let wechatPocBusy = false;
-let locale = normalizeLocale(localStorage.getItem('aipro.locale'));
+let locale = normalizeLocale(localStorage.getItem('james.locale'));
 let latestStatusData = null;
 let latestConfigPayload = null;
 let licensingSessionToken = '';
@@ -182,7 +182,7 @@ function applyOperatorBrand(data) {
 
 function setLocale(value, { persist = true } = {}) {
   locale = normalizeLocale(value);
-  if (persist) localStorage.setItem('aipro.locale', locale);
+  if (persist) localStorage.setItem('james.locale', locale);
   applyStaticTranslations();
   if (latestStatusData) render(latestStatusData);
   if (latestConfigPayload) {
@@ -493,7 +493,7 @@ function startOperationsConsole() {
   refreshTimer = setInterval(refresh, 5000);
 }
 
-async function activateAipro(event) {
+async function activateJames(event) {
   event.preventDefault();
   const code = normalizeInvitationCode($('activationCode').value);
   if (code.length !== 10) {
@@ -562,7 +562,7 @@ function downloadInvitations() {
   const blob = new Blob([invitationCsv(activeInvitationCodes)], { type: 'text/csv;charset=utf-8' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = `aipro-invitations-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.download = `james-invitations-${new Date().toISOString().slice(0, 10)}.csv`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 0);
 }
@@ -1223,7 +1223,7 @@ $('languageToggle').addEventListener('click', () => setLocale(locale === 'en' ? 
 $('contactDeveloperButton').addEventListener('click', openContactDialog);
 $('contactDialogClose').addEventListener('click', () => $('contactDialog').close());
 $('contactCardRetry').addEventListener('click', () => loadContactCard({ force: true }));
-$('activationForm').addEventListener('submit', activateAipro);
+$('activationForm').addEventListener('submit', activateJames);
 $('activationCode').addEventListener('input', event => {
   const normalized = normalizeInvitationCode(event.target.value);
   if (normalized || event.target.value === '') event.target.value = normalized;

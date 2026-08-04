@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { AgentState } from './state.mjs';
 import { createVerifiedDatabaseBackup } from './database-backup.mjs';
 
-const dir = mkdtempSync(join(tmpdir(), 'aipro-backup-'));
+const dir = mkdtempSync(join(tmpdir(), 'james-backup-'));
 try {
   const state = new AgentState(join(dir, 'state.sqlite'));
   state.audit('backup-test', { detail: { ok: true } });

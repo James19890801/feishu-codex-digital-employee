@@ -209,7 +209,7 @@ export function createWorker({
 
         if (url.pathname === '/v1/health') {
           if (request.method !== 'GET') return methodNotAllowed('GET', requestId);
-          return jsonResponse(200, { ok: true, service: 'aipro-licensing' }, requestId);
+          return jsonResponse(200, { ok: true, service: 'james-licensing' }, requestId);
         }
 
         if (url.pathname === '/v1/activate') {
@@ -323,7 +323,7 @@ export function createWorker({
           if (!recovered) throw new DomainError('recovery_failed', 'Founder recovery failed.');
           const founder = {
             version: 1,
-            product: 'AIPRO',
+            product: 'James',
             licenseId: `license_${crypto.randomUUID()}`,
             edition: 'Founder',
             issuerId: newIssuer.id,

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WeChatPocControlStore } from './control-store.mjs';
 
-const directory = await mkdtemp(join(tmpdir(), 'aipro-wechat-control-'));
+const directory = await mkdtemp(join(tmpdir(), 'james-wechat-control-'));
 const fixedNow = '2026-08-01T03:00:00.000Z';
 
 try {

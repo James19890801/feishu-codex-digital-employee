@@ -21,7 +21,7 @@ assert.equal(parsed[1].itemType, 4);
 assert.equal(parsed[2].chatName, '54103319902@chatroom');
 assert.equal(parsed[2].wordCount, 56);
 
-const directory = await mkdtemp(join(tmpdir(), 'aipro-wechat-telemetry-'));
+const directory = await mkdtemp(join(tmpdir(), 'james-wechat-telemetry-'));
 try {
   await writeFile(join(directory, 'key_fixture_input.statistic'), `${selection}\u0018${send}`);
   const telemetry = new WeChatNativeTelemetry({ directory, timeoutMs: 50, pollMs: 5 });

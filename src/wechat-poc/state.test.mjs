@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WeChatPocState } from './state.mjs';
 
-const directory = await mkdtemp(join(tmpdir(), 'aipro-wechat-state-'));
+const directory = await mkdtemp(join(tmpdir(), 'james-wechat-state-'));
 const databasePath = join(directory, 'state.sqlite');
 const event = {
   messageId: 'abc123',

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WeChatPocWorker } from './worker.mjs';
 
-const directory = await mkdtemp(join(tmpdir(), 'aipro-wechat-worker-'));
+const directory = await mkdtemp(join(tmpdir(), 'james-wechat-worker-'));
 const statusPath = join(directory, 'status.json');
 let resolveTick;
 let tickCalls = 0;

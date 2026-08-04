@@ -23,5 +23,5 @@ export function invitationCsv(codes) {
   const safeCodes = Array.isArray(codes)
     ? codes.filter(code => /^\d{10}$/.test(String(code)))
     : [];
-  return `AIPRO invitation code\n${safeCodes.join('\n')}\n`;
+  return `James invitation code\n${safeCodes.join('\n')}\n`;
 }

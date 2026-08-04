@@ -1,4 +1,4 @@
-# AIPRO Personal WeChat POC Design
+# James Personal WeChat POC Design
 
 Date: 2026-08-01  
 Status: Approved  
@@ -6,7 +6,7 @@ Scope: Personal WeChat text-message proof of concept on macOS
 
 ## 1. Objective
 
-Prove that AIPRO can receive a new message addressed to the operator's already logged-in personal WeChat account, send the message through the existing Codex response pipeline, and return the generated text through that same personal WeChat account.
+Prove that James can receive a new message addressed to the operator's already logged-in personal WeChat account, send the message through the existing Codex response pipeline, and return the generated text through that same personal WeChat account.
 
 The POC prioritizes proving the real end-to-end path. It is not represented as an official WeChat API integration or as production-ready personal-account automation.
 
@@ -22,7 +22,7 @@ The POC prioritizes proving the real end-to-end path. It is not represented as a
 
 ### 3.1 Vendor-neutral protocol plus simulator
 
-This is the safest way to validate AIPRO's internal contract, queue, retries, memory, audit, and dashboard without touching a real WeChat account. It remains part of the implementation and test strategy, but by itself does not satisfy the real-account POC.
+This is the safest way to validate James's internal contract, queue, retries, memory, audit, and dashboard without touching a real WeChat account. It remains part of the implementation and test strategy, but by itself does not satisfy the real-account POC.
 
 ### 3.2 WeChat iLink bot bridge
 
@@ -36,13 +36,13 @@ This route is fragile with respect to WeChat UI changes and is approved only as 
 
 ## 4. Isolation architecture
 
-The POC runs as a third channel in a separate `aipro-wechat-poc` process.
+The POC runs as a third channel in a separate `james-wechat-poc` process.
 
 ```text
 Official WeChat.app
         |
         v
-aipro-wechat-poc process
+james-wechat-poc process
   - discovery loop
   - UI adapter
   - channel-local queue
@@ -50,7 +50,7 @@ aipro-wechat-poc process
   - send guard
         |
         v
-Versioned localhost AIPRO channel contract
+Versioned localhost James channel contract
         |
         v
 WeChat-dedicated Codex session / quota
@@ -63,7 +63,7 @@ Isolation requirements:
 
 - Separate process, configuration namespace, state directory, logs, queue, health state, and lifecycle controls.
 - No changes to Feishu or DingTalk credentials, listeners, polling cursors, WebSocket connections, or recovery loops.
-- WeChat startup failure must not fail AIPRO startup.
+- WeChat startup failure must not fail James startup.
 - WeChat channel work has bounded concurrency and lower scheduling priority than Feishu and DingTalk.
 - The POC cannot backpressure the primary-channel queues.
 - Stopping or removing the POC requires no restart or configuration change in the primary channels.
@@ -138,7 +138,7 @@ The dashboard adds a WeChat-only master switch labelled `Personal WeChat auto-re
 
 ### Fail-closed lifecycle
 
-- AIPRO restart, WeChat bridge restart, unreadable control state, lost UI permission, screen lock, or WeChat logout starts or transitions the channel to disabled.
+- James restart, WeChat bridge restart, unreadable control state, lost UI permission, screen lock, or WeChat logout starts or transitions the channel to disabled.
 - The operator must explicitly enable it again from the dashboard.
 - Turning the switch off should prevent subsequent sends within one second. A message already accepted by WeChat cannot be recalled by this control.
 

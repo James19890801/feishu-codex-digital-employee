@@ -95,7 +95,7 @@ const env = {
 const worker = createWorker({ repository });
 
 const contactResponse = await worker.fetch(
-  new Request('https://license.aipro.test/v1/contact-card'),
+  new Request('https://license.james.test/v1/contact-card'),
   env,
   {},
 );
@@ -106,7 +106,7 @@ assert.equal(contactResponse.headers.has('access-control-allow-origin'), false);
 assert.deepEqual([...new Uint8Array(await contactResponse.arrayBuffer())], [0xff, 0xd8, 0xff, 0xd9]);
 
 async function call(path, { method = 'GET', body, headers = {} } = {}) {
-  const request = new Request(`https://license.aipro.test${path}`, {
+  const request = new Request(`https://license.james.test${path}`, {
     method,
     headers: body === undefined ? headers : { 'content-type': 'application/json', ...headers },
     body: body === undefined ? undefined : JSON.stringify(body),

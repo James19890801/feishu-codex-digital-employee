@@ -54,14 +54,14 @@ export async function provisionFounderFromRecoveryFile({
 
 export async function runFounderCli(argv = process.argv.slice(2), env = process.env) {
   const [inputPath, outputPath] = argv;
-  const serviceUrl = env.AIPRO_LICENSING_SERVICE_URL;
-  const publicKey = env.AIPRO_LICENSE_PUBLIC_KEY;
+  const serviceUrl = env.JAMES_LICENSING_SERVICE_URL;
+  const publicKey = env.JAMES_LICENSE_PUBLIC_KEY;
   if (!inputPath || !outputPath || !serviceUrl || !publicKey) {
     throw new Error('Usage: set licensing environment, then pass input and rotated recovery-kit files.');
   }
   const client = new LicensingClient({
     serviceUrl,
-    proxyUrl: env.AIPRO_LICENSING_PROXY_URL || '',
+    proxyUrl: env.JAMES_LICENSING_PROXY_URL || '',
   });
   const provisioned = await provisionFounderFromRecoveryFile({
     inputPath,
@@ -70,7 +70,7 @@ export async function runFounderCli(argv = process.argv.slice(2), env = process.
     verifyEntitlement: async (token, device) => {
       const entitlement = verifyEnvelope(token, publicKey);
       const evaluation = evaluateEntitlement(entitlement, {
-        product: 'AIPRO',
+        product: 'James',
         deviceKeyHash: device.keyHash,
       });
       return { ...evaluation, edition: entitlement.edition };

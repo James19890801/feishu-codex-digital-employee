@@ -32,7 +32,6 @@ export async function generateProvisioningMaterial(directory) {
   const createdAt = new Date().toISOString();
   const holders = [
     { holder: 'james-feng', issuerId: 'issuer-james', displayName: 'James Feng', file: 'james-founder-recovery.json' },
-    { holder: 'zhao-yingzhi', issuerId: 'issuer-zhao', displayName: 'Zhao Yingzhi', file: 'zhao-founder-recovery.json' },
   ].map(item => ({
     ...item,
     recoveryKit: { id: `recovery_${randomUUID()}`, secret: randomSecret(36) },

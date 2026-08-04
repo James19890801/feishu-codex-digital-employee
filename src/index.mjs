@@ -1335,7 +1335,7 @@ async function handleMulticaRequest(message, senderOpenId, cleanText, metadata =
     await sendText(
       null,
       message.chat_id,
-      '只有经过验证的 Owner 在飞书或钉钉 self-chat 中才能创建、更新、评论或派发 Multica Issue。当前会话仍可查询，或反馈 AIPRO 的 Bug、整改意见和功能需求；反馈会先追问并仅登记为未指派 backlog。',
+      '只有经过验证的 Owner 在飞书或钉钉 self-chat 中才能创建、更新、评论或派发 Multica Issue。当前会话仍可查询，或反馈 James 的 Bug、整改意见和功能需求；反馈会先追问并仅登记为未指派 backlog。',
       `multica-owner-required-${message.message_id}`,
     );
     audit('multica_write_denied', message, senderOpenId, {
@@ -1656,7 +1656,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
     const greeting = buildFirstTakeoverGreeting({ ownerLabel: OPERATOR_PROFILE.ownerLabel });
     remember(message.chat_id, senderOpenId, 'user', cleanText || `发送了${message.message_type}`);
     remember(message.chat_id, senderOpenId, 'assistant', greeting);
-    await sendText(client, message.chat_id, greeting, `aipro-introduction-${message.message_id}`);
+    await sendText(client, message.chat_id, greeting, `james-introduction-${message.message_id}`);
     audit('assistant_first_takeover_introduction', message, senderOpenId, { answerChars: greeting.length });
     return;
   }

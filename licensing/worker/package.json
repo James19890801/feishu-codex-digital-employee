@@ -1,5 +1,5 @@
 {
-  "name": "@aipro/licensing-worker",
+  "name": "@james/licensing-worker",
   "version": "1.0.0",
   "private": true,
   "type": "module",

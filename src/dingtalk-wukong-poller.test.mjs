@@ -53,7 +53,7 @@ const payloads = await fetchDingTalkWukongWindow({
     calls.push({ bin, args, options });
     return { stdout: JSON.stringify(pages[calls.length - 1]), stderr: '' };
   },
-  runOptions: { cwd: '/srv/aipro', timeoutMs: 45_000 },
+  runOptions: { cwd: '/srv/james', timeoutMs: 45_000 },
 });
 
 assert.deepEqual(payloads.map(item => item.message.message_id), [
@@ -64,7 +64,7 @@ assert.equal(calls.length, 2);
 assert.equal(calls[0].bin, '/opt/wukong/dws');
 assert.equal(calls[0].args[calls[0].args.indexOf('--cursor') + 1], '0');
 assert.equal(calls[1].args[calls[1].args.indexOf('--cursor') + 1], 'cursor-page-2');
-assert.deepEqual(calls[1].options, { cwd: '/srv/aipro', timeoutMs: 45_000 });
+assert.deepEqual(calls[1].options, { cwd: '/srv/james', timeoutMs: 45_000 });
 
 await assert.rejects(
   fetchDingTalkWukongWindow({

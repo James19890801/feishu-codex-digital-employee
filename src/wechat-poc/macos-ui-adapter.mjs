@@ -136,7 +136,7 @@ export class MacOsWeChatUiAdapter {
     }
     if (!info) throw lastError || new Error('wechat_window_unavailable');
     if (info?.ok !== true) throw new Error(info?.error || 'wechat_window_unavailable');
-    const imagePath = join(tmpdir(), `aipro-wechat-poc-${process.pid}-${randomUUID()}.png`);
+    const imagePath = join(tmpdir(), `james-wechat-poc-${process.pid}-${randomUUID()}.png`);
     try {
       await this.runner('/usr/sbin/screencapture', [
         '-x', '-o', '-l', String(info.windowId), imagePath,

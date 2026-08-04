@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WeChatPocDashboardControl } from './dashboard-control.mjs';
 
-const directory = await mkdtemp(join(tmpdir(), 'aipro-wechat-dashboard-'));
+const directory = await mkdtemp(join(tmpdir(), 'james-wechat-dashboard-'));
 const audits = [];
 const controller = new WeChatPocDashboardControl({
   directory,

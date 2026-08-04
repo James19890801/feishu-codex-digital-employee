@@ -188,14 +188,14 @@ import {
   assert.equal(calls[0].options.headers['X-GEWE-TOKEN'], 'super-secret-token');
   assert.deepEqual(JSON.parse(calls[0].options.body), { appId: 'device-a' });
 
-  await channel.setCallback('https://aipro.example.com/webhooks/gewe/callback_secret_1234567890123456');
+  await channel.setCallback('https://james.example.com/webhooks/gewe/callback_secret_1234567890123456');
   assert.equal(calls[1].url, 'https://api.geweapi.com/gewe/v2/api/login/setCallback');
   assert.deepEqual(JSON.parse(calls[1].options.body), {
     token: 'super-secret-token',
-    callbackUrl: 'https://aipro.example.com/webhooks/gewe/callback_secret_1234567890123456',
+    callbackUrl: 'https://james.example.com/webhooks/gewe/callback_secret_1234567890123456',
   });
   await assert.rejects(
-    channel.setCallback('http://aipro.example.com/webhooks/gewe/insecure'),
+    channel.setCallback('http://james.example.com/webhooks/gewe/insecure'),
     /https/i,
   );
 
