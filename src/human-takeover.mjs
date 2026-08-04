@@ -7,6 +7,14 @@ function normalizeControlText(text) {
     .replace(/[。！!？?，,；;]+$/g, '');
 }
 
+function isGeneratedDingTalkCalendarCard(text) {
+  const content = String(text || '');
+  return content.includes('dingtalk://dingtalkclient/action/switchtab?')
+    && content.includes('type=calendar')
+    && content.includes('dingtalk://dingtalkclient/page/calendar_detail?uniqueId=')
+    && content.split(/\r?\n/).some(line => line.trim() === '21001');
+}
+
 export function matchHumanTakeoverCommand(text) {
   const normalized = normalizeControlText(text);
   if (/^(数字人请退场|数字人停止|数字人先不要你了|暂停接管|暂停回复|我来回复)$/.test(normalized)) {
@@ -192,12 +200,15 @@ export function applyOwnerActivityHistory(messages, {
         || message?.sender?.id
         || '',
       ).trim();
-      if (senderId !== expectedOwnerId || isAssistantMessage(message)) return [];
+      const content = message?.content || message?.text || '';
+      if (senderId !== expectedOwnerId
+        || isAssistantMessage(message)
+        || isGeneratedDingTalkCalendarCard(content)) return [];
       const messageId = String(message?.openMessageId || message?.messageId || message?.message_id || '');
       const occurredAtMs = Number(parseTime(message?.createTime || message?.create_time || ''));
       if (!messageId || !Number.isFinite(occurredAtMs)) return [];
       return [{
-        command: matchHumanTakeoverCommand(message?.content || message?.text || ''),
+        command: matchHumanTakeoverCommand(content),
         messageId,
         occurredAtMs,
       }];

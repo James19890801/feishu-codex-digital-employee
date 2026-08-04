@@ -213,6 +213,53 @@ assert.equal(activityApplied.activities.length, 1);
 assert.equal(activityApplied.state.reason, 'owner_manual_activity');
 assert.equal(activityApplied.state.pausedUntilMs, Date.parse('2026-08-01T16:15:00+08:00'));
 
+const generatedCalendarCardIgnored = applyOwnerActivityHistory([
+  {
+    content: [
+      '0',
+      '和谢冰雪吃饭',
+      'Asia/Shanghai',
+      'dingtalk://dingtalkclient/action/switchtab?index=1&name=ding&type=calendar&targetDateTime=1786075200000',
+      '21001',
+      '周五中午和谢冰雪吃饭',
+      'dingtalk://dingtalkclient/page/calendar_detail?uniqueId=eDFtQ04xWU5xTUlmVkZPQ0ZXNnZCQT09&corpId=dingd8e1123006514592&from=im_card',
+      'eDFtQ04xWU5xTUlmVkZPQ0ZXNnZCQT09',
+    ].join('\n'),
+    createTime: '2026-08-03 16:35:13',
+    openMessageId: 'calendar-card-1',
+    senderOpenDingTalkId: 'owner-id',
+  },
+], {
+  ownerId: 'owner-id',
+  current: null,
+  nowMs: Date.parse('2026-08-03T16:36:00+08:00'),
+  parseTime: value => Date.parse(String(value).replace(' ', 'T') + '+08:00'),
+});
+assert.equal(
+  generatedCalendarCardIgnored.changed,
+  false,
+  'a DingTalk-generated calendar card must not look like owner manual activity',
+);
+assert.deepEqual(generatedCalendarCardIgnored.activities, []);
+assert.equal(generatedCalendarCardIgnored.active, false);
+
+const manuallySharedCalendarLinkStillPauses = applyOwnerActivityHistory([
+  {
+    content: '这个日程你看下：dingtalk://dingtalkclient/page/calendar_detail?uniqueId=manual-share',
+    createTime: '2026-08-03 16:37:00',
+    openMessageId: 'manual-calendar-link-1',
+    senderOpenDingTalkId: 'owner-id',
+  },
+], {
+  ownerId: 'owner-id',
+  current: null,
+  nowMs: Date.parse('2026-08-03T16:38:00+08:00'),
+  parseTime: value => Date.parse(String(value).replace(' ', 'T') + '+08:00'),
+});
+assert.equal(manuallySharedCalendarLinkStillPauses.changed, true);
+assert.equal(manuallySharedCalendarLinkStillPauses.activities.length, 1);
+assert.equal(manuallySharedCalendarLinkStillPauses.state.reason, 'owner_manual_activity');
+
 const activityNoReplay = applyOwnerActivityHistory([
   {
     content: '我先来跟你说', createTime: '2026-08-01 16:10:00',
