@@ -41,6 +41,20 @@ const directMessage = {
   sender: { id: 'ou_friend', sender_type: 'user' },
 };
 
+const directImage = {
+  ...directMessage,
+  message_id: 'om_direct_image',
+  msg_type: 'image',
+  content: '[Image: img_v3_abc123]',
+};
+
+const directFile = {
+  ...directMessage,
+  message_id: 'om_direct_file',
+  msg_type: 'file',
+  content: '<file key="file_v3_xyz" name="产品说明.pdf"/>',
+};
+
 const selfDirectMessage = {
   ...directMessage,
   message_id: 'om_self_chat',
@@ -53,6 +67,8 @@ const selfDirectMessage = {
 {
   const selected = selectInboundMessages([
     directMessage,
+    directImage,
+    directFile,
     groupMention,
     { ...groupMention, message_id: 'om_other_at', mentions: [{ id: 'ou_other' }] },
     { ...directMessage, message_id: 'om_self', sender: { id: ownerOpenId, sender_type: 'user' } },
@@ -67,6 +83,8 @@ const selfDirectMessage = {
   assert.deepEqual(selected.map(item => item.message_id), [
     'om_group',
     'om_direct',
+    'om_direct_file',
+    'om_direct_image',
     'om_self_chat',
   ]);
 }
@@ -132,6 +150,21 @@ const selfDirectMessage = {
   assert.equal(message.mentions[0].id, ownerOpenId);
   assert.equal(sender.sender_id.open_id, 'ou_colleague');
   assert.equal(sender.sender_type, 'user');
+}
+
+{
+  const { message } = normalizeSearchMessage(directImage);
+  assert.equal(message.message_type, 'image');
+  assert.deepEqual(JSON.parse(message.content), { image_key: 'img_v3_abc123' });
+}
+
+{
+  const { message } = normalizeSearchMessage(directFile);
+  assert.equal(message.message_type, 'file');
+  assert.deepEqual(JSON.parse(message.content), {
+    file_key: 'file_v3_xyz',
+    file_name: '产品说明.pdf',
+  });
 }
 
 {
