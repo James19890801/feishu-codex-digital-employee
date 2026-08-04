@@ -8,11 +8,14 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..', '..');
 const sourcePath = join(here, 'James.swift');
+const transcriberSourcePath = join(here, 'JamesTranscribe.swift');
 const installerPath = join(root, 'scripts', 'install-james-macos-app.sh');
 await access(sourcePath, constants.R_OK);
+await access(transcriberSourcePath, constants.R_OK);
 await access(installerPath, constants.R_OK | constants.X_OK);
 
 const source = await readFile(sourcePath, 'utf8');
+const installer = await readFile(installerPath, 'utf8');
 assert.match(source, /http:\/\/127\.0\.0\.1:17655\//);
 assert.match(source, /com\.local\.feishu-codex-dashboard/);
 assert.match(source, /com\.local\.feishu-codex-digital-employee/);
@@ -23,6 +26,9 @@ assert.match(
   /func applicationShouldHandleReopen\(_ sender: NSApplication, hasVisibleWindows flag: Bool\) -> Bool/,
   'clicking the Dock icon while James is already running must be handled',
 );
+assert.match(installer, /JamesTranscribe\.swift/);
+assert.match(installer, /Contents\/MacOS\/JamesTranscribe/);
+assert.match(installer, /show-sdk-version/);
 assert.match(
   source,
   /private func openDashboardInBrowser\(\)[\s\S]*OpenConfiguration\(\)[\s\S]*activates = true[\s\S]*withApplicationAt[\s\S]*NSApp\.terminate/,
@@ -37,6 +43,9 @@ assert.match(
 const bundle = process.env.JAMES_APP_BUNDLE;
 if (bundle) {
   await access(join(bundle, 'Contents', 'MacOS', 'James'), constants.X_OK);
+  if (process.env.JAMES_EXPECT_TRANSCRIBER === '1') {
+    await access(join(bundle, 'Contents', 'MacOS', 'JamesTranscribe'), constants.X_OK);
+  }
   await access(join(bundle, 'Contents', 'Resources', 'AppIcon.icns'), constants.R_OK);
   const value = key => execFileSync('/usr/libexec/PlistBuddy', [
     '-c', `Print :${key}`, join(bundle, 'Contents', 'Info.plist'),

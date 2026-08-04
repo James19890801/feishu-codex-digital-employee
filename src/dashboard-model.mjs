@@ -42,6 +42,8 @@ export function buildOperatorView(input) {
   const backupAgeMs = input.backupRequired && input.lastBackupAt
     ? Math.max(0, input.nowMs - new Date(input.lastBackupAt).getTime())
     : null;
+  const webReaderAvailable = input.webReaderEnabled === true;
+  const audioTranscriberAvailable = input.audioTranscriberAvailable === true;
   if (!input.processAlive) issues.push('process_not_running');
   if (feishuEnabled && (pollAgeMs === null || pollAgeMs > input.maxPollAgeMs)) {
     issues.push('poll_cursor_stale');
@@ -146,6 +148,13 @@ export function buildOperatorView(input) {
         transport: feishuEnabled ? 'polling + websocket' : 'disabled',
         lastReadyAt: input.lastPollSuccessAt || '',
         lastError: input.lastPollError || null,
+        capabilities: {
+          text: feishuEnabled && Boolean(input.processAlive),
+          image: feishuEnabled && Boolean(input.processAlive) && !input.credentialBlocked,
+          audio: feishuEnabled && Boolean(input.processAlive)
+            && !input.credentialBlocked && audioTranscriberAvailable,
+          link: feishuEnabled && Boolean(input.processAlive) && webReaderAvailable,
+        },
       },
       dingtalk: {
         enabled: Boolean(dingtalkChannel.enabled),
@@ -158,6 +167,14 @@ export function buildOperatorView(input) {
         transport: dingtalkChannel.transport || 'websocket',
         lastReadyAt: dingtalkChannel.lastReadyAt || '',
         lastError: dingtalkChannel.lastError || null,
+        capabilities: {
+          text: Boolean(dingtalkChannel.enabled && dingtalkChannel.connected),
+          image: Boolean(dingtalkChannel.enabled && dingtalkChannel.connected),
+          audio: Boolean(dingtalkChannel.enabled && dingtalkChannel.connected
+            && audioTranscriberAvailable),
+          link: Boolean(dingtalkChannel.enabled && dingtalkChannel.connected
+            && webReaderAvailable),
+        },
       },
       wecom: {
         enabled: Boolean(wecomChannel.enabled),
@@ -170,6 +187,13 @@ export function buildOperatorView(input) {
         transport: wecomChannel.transport || 'websocket',
         lastReadyAt: wecomChannel.lastReadyAt || '',
         lastError: wecomChannel.lastError || null,
+        capabilities: {
+          text: Boolean(wecomChannel.enabled && wecomChannel.connected),
+          image: false,
+          audio: false,
+          link: Boolean(wecomChannel.enabled && wecomChannel.connected
+            && webReaderAvailable),
+        },
       },
       wechat: {
         enabled: Boolean(geweChannel.enabled),
@@ -183,6 +207,13 @@ export function buildOperatorView(input) {
         lastReadyAt: geweChannel.lastReadyAt || '',
         lastError: geweChannel.lastError || null,
         risk: 'third-party-unofficial-wechat-api',
+        capabilities: {
+          text: Boolean(geweChannel.enabled && geweChannel.connected),
+          image: false,
+          audio: false,
+          link: Boolean(geweChannel.enabled && geweChannel.connected
+            && webReaderAvailable),
+        },
       },
     },
     codex: {

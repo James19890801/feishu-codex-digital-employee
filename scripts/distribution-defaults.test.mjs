@@ -35,6 +35,12 @@ assert.equal(defaults.ownerOpenId, '');
 assert.equal(defaults.dingtalkOwnerOpenId, '');
 assert.equal(defaults.aiRuntime, 'auto');
 assert.deepEqual(defaults.automaticCommunicationBlocklist, []);
+assert.equal(defaults.webReaderEnabled, true);
+assert.equal(defaults.webReaderMaxUrls, 2);
+assert.equal(defaults.audioTranscriptionCommand, '');
+assert.deepEqual(defaults.audioTranscriptionArgs, ['{input}', 'zh-CN']);
+assert.equal(example.webReaderEnabled, true);
+assert.equal(example.webReaderMaxUrls, 2);
 
 const fixture = await mkdtemp(join(tmpdir(), 'james-safe-setup-'));
 await mkdir(join(fixture, 'scripts'), { recursive: true });

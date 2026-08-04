@@ -85,6 +85,7 @@ const staticFiles = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+  ['/capability-ui.js', ['capability-ui.js', 'text/javascript; charset=utf-8']],
   ['/config-ui.js', ['config-ui.js', 'text/javascript; charset=utf-8']],
   ['/i18n.js', ['i18n.js', 'text/javascript; charset=utf-8']],
   ['/licensing-ui.js', ['licensing-ui.js', 'text/javascript; charset=utf-8']],
@@ -363,6 +364,10 @@ async function collectStatus() {
     codexProxyReachable,
     credentialBlocked: isCredentialAccessBlocked(database.lastPollError),
     codexModel: config.codexModel,
+    webReaderEnabled: config.webReaderEnabled,
+    audioTranscriberAvailable: Boolean(
+      config.audioTranscriptionCommand && existsSync(config.audioTranscriptionCommand)
+    ),
     aiRuntime,
     a1Enabled: config.a1Enabled,
     maxA1SyncAgeMs: Math.max(600_000, config.a1SyncIntervalMs * 3),

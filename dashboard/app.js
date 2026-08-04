@@ -11,6 +11,7 @@ import {
   wechatPocRequestHeaders,
 } from './config-ui.js';
 import { normalizeLocale, translate } from './i18n.js';
+import { formatChannelCapabilities } from './capability-ui.js';
 import {
   canShowInviteStudio,
   invitationCsv,
@@ -236,7 +237,8 @@ function renderChannel(prefix, channel, fallbackMeta) {
   }
   if (channel.connected) {
     status.textContent = tr('online');
-    meta.textContent = `${fallbackMeta} · ${formatDate(channel.lastReadyAt, true)}`;
+    const capabilities = formatChannelCapabilities(channel, locale);
+    meta.textContent = `${fallbackMeta} · ${formatDate(channel.lastReadyAt, true)}${capabilities ? ` · ${capabilities}` : ''}`;
     dot.className = 'good';
     return;
   }
