@@ -5,6 +5,10 @@ import { config, validateCoreConfiguration } from '../config.mjs';
 assert.equal(typeof config.licensingEnforced, 'boolean');
 assert.equal(typeof config.licensingServiceUrl, 'string');
 assert.equal(typeof config.licensingPublicKey, 'string');
+assert.equal(typeof config.webReaderEnabled, 'boolean');
+assert.equal(typeof config.webReaderMaxUrls, 'number');
+assert.equal(typeof config.audioTranscriptionCommand, 'string');
+assert.equal(Array.isArray(config.audioTranscriptionArgs), true);
 
 assert.throws(
   () => validateCoreConfiguration({

@@ -78,6 +78,15 @@ export const config = {
   rateLimitMaxMessages: boundedInteger(raw.rateLimitMaxMessages, {
     name: 'rateLimitMaxMessages', fallback: 10, min: 1, max: 100,
   }),
+  webReaderEnabled: raw.webReaderEnabled !== false,
+  webReaderMaxUrls: boundedInteger(raw.webReaderMaxUrls, {
+    name: 'webReaderMaxUrls', fallback: 2, min: 1, max: 3,
+  }),
+  audioTranscriptionCommand: String(raw.audioTranscriptionCommand
+    || join(home, 'Applications', 'James.app', 'Contents', 'MacOS', 'JamesTranscribe')).trim(),
+  audioTranscriptionArgs: Array.isArray(raw.audioTranscriptionArgs)
+    ? raw.audioTranscriptionArgs.map(value => String(value)).slice(0, 20)
+    : ['{input}', 'zh-CN'],
   aiRuntime: raw.aiRuntime || 'auto',
   dingtalkEnabled: raw.dingtalkEnabled === true,
   dingtalkTransport: String(raw.dingtalkTransport || 'event-stream').trim(),

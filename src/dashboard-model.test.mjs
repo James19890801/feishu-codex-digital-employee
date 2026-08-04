@@ -38,11 +38,44 @@ const base = {
   assert.equal(view.healthy, true);
   assert.equal(view.process.pid, 123);
   assert.equal(view.channels.feishu.healthy, true);
+  assert.deepEqual(view.channels.feishu.capabilities, {
+    text: true,
+    image: true,
+    audio: false,
+    link: false,
+  });
   assert.equal(view.channels.dingtalk.enabled, false);
   assert.equal(view.channels.wecom.enabled, false);
   assert.equal(view.channels.wechat.enabled, false);
   assert.deepEqual(view.operator, {
     displayName: '新用户', role: '产品经理', brandName: '新用户的数字人',
+  });
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    webReaderEnabled: true,
+    audioTranscriberAvailable: true,
+    dingtalkChannel: {
+      enabled: true,
+      installed: true,
+      authenticated: true,
+      connected: true,
+      identityMode: 'user',
+    },
+  });
+  assert.deepEqual(view.channels.dingtalk.capabilities, {
+    text: true,
+    image: true,
+    audio: true,
+    link: true,
+  });
+  assert.deepEqual(view.channels.wecom.capabilities, {
+    text: false,
+    image: false,
+    audio: false,
+    link: false,
   });
 }
 

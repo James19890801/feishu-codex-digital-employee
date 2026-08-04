@@ -58,6 +58,7 @@ assert.match(css, /grid-template-columns:[^;]*minmax\(260px,[^;]*minmax\(280px,/
 assert.doesNotMatch(html, /<div class="brand">[\s\S]{0,900}data-i18n="brandCredit"/);
 assert.doesNotMatch(html, /<span class="brand-mark">AI<\/span>/);
 assert.match(server, /\['\/i18n\.js', \['i18n\.js', 'text\/javascript; charset=utf-8'\]\]/);
+assert.match(server, /\['\/capability-ui\.js', \['capability-ui\.js', 'text\/javascript; charset=utf-8'\]\]/);
 assert.doesNotMatch(html, /[\u3400-\u9fff]/, 'default server-rendered UI must be English');
 assert.match(css, /--accent:\s*#9a5b4d/);
 assert.match(css, /\.brand-arch-outer\s*\{[\s\S]*stroke:\s*var\(--accent\)/);

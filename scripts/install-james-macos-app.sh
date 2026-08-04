@@ -21,6 +21,17 @@ cp "$ROOT/macos/James/Info.plist" "$BUNDLE/Contents/Info.plist"
   -o "$BUNDLE/Contents/MacOS/James"
 chmod 755 "$BUNDLE/Contents/MacOS/James"
 
+SDK_MAJOR="$(/usr/bin/xcrun --show-sdk-version | /usr/bin/awk -F. '{print $1}')"
+if [[ "$SDK_MAJOR" -ge 26 ]]; then
+  /usr/bin/xcrun swiftc -parse-as-library -O \
+    "$ROOT/macos/James/JamesTranscribe.swift" \
+    -framework AVFoundation -framework Speech \
+    -o "$BUNDLE/Contents/MacOS/JamesTranscribe"
+  chmod 755 "$BUNDLE/Contents/MacOS/JamesTranscribe"
+else
+  echo "James audio transcription helper requires the macOS 26 SDK; skipping it." >&2
+fi
+
 /usr/bin/xcrun swift "$ROOT/macos/James/GenerateIcon.swift" "$ICONSET"
 /usr/bin/iconutil -c icns "$ICONSET" -o "$BUNDLE/Contents/Resources/AppIcon.icns"
 
