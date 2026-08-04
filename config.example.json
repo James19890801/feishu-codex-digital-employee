@@ -24,7 +24,7 @@
   "codexTimeoutMs": 120000,
   "helperTimeoutMs": 30000,
   "rateLimitWindowMs": 300000,
-  "rateLimitMaxMessages": 10,
+  "rateLimitMaxMessages": 60,
   "webReaderEnabled": true,
   "webReaderMaxUrls": 2,
   "audioTranscriptionCommand": "",

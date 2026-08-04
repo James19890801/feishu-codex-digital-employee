@@ -32,6 +32,12 @@ import {
   hasSelfChatOutboundMarker,
   markSelfChatOutbound,
 } from './self-chat-guard.mjs';
+import {
+  AUTOMATION_PEER_TERMINATION_TEXT,
+  AutomationPeerGuard,
+  handleAutomationPeerInbound,
+  sendWithAutomationPeerTracking,
+} from './automation-peer-guard.mjs';
 import { decideWorkflow, workflowInstruction } from './bible.mjs';
 import { PendingActionStore } from './pending-actions.mjs';
 import { rotateLogIfNeeded } from './log-maintenance.mjs';
@@ -243,6 +249,7 @@ const AI_RUNTIME_CLIENT = new AiRuntimeClient({
 });
 const singletonLock = await acquireSingletonLock(join(WORKDIR, 'data', 'service.lock'));
 const state = new AgentState(STATE_PATH);
+const automationPeerGuard = new AutomationPeerGuard({ state });
 const pendingActions = new PendingActionStore(state);
 const chatQueues = new SerialKeyQueue();
 const DINGTALK_PROFILE_USER_ID = String(config.dingtalkProfile || '').split(':').at(-1)?.trim() || '';
@@ -762,17 +769,35 @@ async function sendText(client, chatId, text, uuid, {
   const target = parseChannelChatId(chatId);
   if (target?.channel === 'dingtalk') {
     if (!dingTalkChannel) throw new Error('DingTalk channel is not available');
-    return sendWithEchoGuard(chatId, outboundText, () => dingTalkChannel.send(target, outboundText, uuid, {
-        atOpenDingTalkIds: mention.atOpenDingTalkIds,
-      }));
+    return sendWithAutomationPeerTracking({
+      guard: automationPeerGuard,
+      chatId,
+      text: outboundText,
+      send: () => sendWithEchoGuard(chatId, outboundText, () => dingTalkChannel.send(
+        target,
+        outboundText,
+        uuid,
+        { atOpenDingTalkIds: mention.atOpenDingTalkIds },
+      )),
+    });
   }
   if (target?.channel === 'wecom') {
     if (!weComChannel) throw new Error('WeCom channel is not available');
-    return weComChannel.send(target, outboundText, uuid);
+    return sendWithAutomationPeerTracking({
+      guard: automationPeerGuard,
+      chatId,
+      text: outboundText,
+      send: () => weComChannel.send(target, outboundText, uuid),
+    });
   }
   if (target?.channel === 'wechat') {
     if (!geWeChannel) throw new Error('Personal WeChat channel is not available');
-    return geWeChannel.send(target, outboundText);
+    return sendWithAutomationPeerTracking({
+      guard: automationPeerGuard,
+      chatId,
+      text: outboundText,
+      send: () => geWeChannel.send(target, outboundText),
+    });
   }
   const labeledText = labelDigitalTwin(outboundText);
   const args = [
@@ -780,7 +805,12 @@ async function sendText(client, chatId, text, uuid, {
     '--text', labeledText, '--format', 'json',
   ];
   if (uuid) args.push('--idempotency-key', uuid.slice(0, 50));
-  return sendWithEchoGuard(chatId, labeledText, () => runLarkCli(args));
+  return sendWithAutomationPeerTracking({
+    guard: automationPeerGuard,
+    chatId,
+    text: labeledText,
+    send: () => sendWithEchoGuard(chatId, labeledText, () => runLarkCli(args)),
+  });
 }
 
 async function createConfirmedTask(client, draft) {
@@ -1555,7 +1585,8 @@ async function syncRecentDingTalkTakeover(message, metadata = {}) {
 }
 
 async function processIncoming(client, message, sender, metadata = {}) {
-  if (sender?.sender_type === 'app') return;
+  const platformAutomation = sender?.sender_type === 'app';
+  if (platformAutomation && message.chat_type !== 'p2p') return;
   if (!config.allowAllChats && !AUTHORIZED_CHAT_IDS.has(message.chat_id)) return;
   if (!['text', 'image', 'post', 'file', 'audio', 'video', 'media'].includes(message.message_type)) {
     console.log(`[ignore] ${message.message_id}: unsupported ${message.message_type}`);
@@ -1654,6 +1685,47 @@ async function processIncoming(client, message, sender, metadata = {}) {
 
   if (message.chat_type === 'group'
     && (!Array.isArray(message.mentions) || message.mentions.length === 0)) return;
+
+  const automationPeerResult = await handleAutomationPeerInbound({
+    guard: automationPeerGuard,
+    chatId: message.chat_id,
+    senderId: senderOpenId,
+    chatType: message.chat_type,
+    text: cleanText,
+    messageId: message.message_id,
+    isOwner: senderOpenId === OWNER_OPEN_ID,
+    selfChat: metadata.selfChat === true,
+    knownAutomation: platformAutomation,
+    sendTermination: terminationText => sendText(
+      client,
+      message.chat_id,
+      terminationText,
+      `automation-peer-stop-${message.message_id}`,
+      { chatType: message.chat_type },
+    ),
+    onHandled: ({ name, decision: automationDecision }) => audit(
+      name,
+      message,
+      senderOpenId,
+      {
+        reason: automationDecision.reason,
+        evidence: automationDecision.evidence,
+        rapidRounds: automationDecision.rapidRounds,
+      },
+    ),
+  });
+  if (automationPeerResult.handled) {
+    if (automationPeerResult.notified) {
+      remember(message.chat_id, senderOpenId, 'user', cleanText || '对端声明为数字人');
+      remember(
+        message.chat_id,
+        senderOpenId,
+        'assistant',
+        AUTOMATION_PEER_TERMINATION_TEXT,
+      );
+    }
+    return;
+  }
 
   if (config.multicaEnabled
     && await applyPendingFeedback(message, senderOpenId, cleanText, metadata)) return;
