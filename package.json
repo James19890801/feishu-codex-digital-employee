@@ -12,6 +12,7 @@
     "start": "node src/index.mjs",
     "dashboard": "node src/dashboard-server.mjs",
     "test:install-service": "node scripts/install-service.test.mjs",
+    "test:multimodal": "node src/multimodal-content.test.mjs && node src/web-reader.test.mjs",
     "test:operator-profile": "node src/operator-profile.test.mjs",
     "test:communication-blocklist": "node src/communication-blocklist.test.mjs",
     "test:dws-deployment-policy": "node scripts/dws-deployment-policy.test.mjs",
