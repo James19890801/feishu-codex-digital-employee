@@ -27,6 +27,7 @@ import {
   stripHighlight,
   tokenFromSearchResult,
 } from './knowledge.mjs';
+import { localWikiContext, searchLocalWiki } from './local-wiki.mjs';
 import { AgentState } from './state.mjs';
 import {
   hasSelfChatOutboundMarker,
@@ -226,6 +227,7 @@ const CODEX_HOME_DIR = join(WORKDIR, 'data', 'codex-home');
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_DOC_CHARS = 40_000;
 const KNOWLEDGE_CATALOG_PATH = join(WORKDIR, 'knowledge-catalog.json');
+const LOCAL_KNOWLEDGE_INDEX_PATH = join(WORKDIR, 'data', 'knowledge-wiki', 'index.json');
 const KNOWLEDGE_CATALOG = JSON.parse(await readFile(KNOWLEDGE_CATALOG_PATH, 'utf8'));
 const KNOWLEDGE_SOURCES = normalizeKnowledgeCatalog(KNOWLEDGE_CATALOG).sources;
 await mkdir(CODEX_RUNTIME_DIR, { recursive: true });
@@ -2123,6 +2125,15 @@ async function processIncoming(client, message, sender, metadata = {}) {
     }
     return;
   }
+  const ownerKnowledgeIds = [OWNER_OPEN_ID, config.dingtalkOwnerOpenId, DINGTALK_PROFILE_USER_ID].filter(Boolean);
+  const localKnowledgeRecords = !imageRefs.length && !fileRef
+    && ['text', 'post'].includes(message.message_type) && looksLikeKnowledgeRequest(cleanText)
+    ? await searchLocalWiki(cleanText, {
+        indexPath: LOCAL_KNOWLEDGE_INDEX_PATH,
+        senderId: senderOpenId,
+        ownerId: ownerKnowledgeIds.includes(senderOpenId) ? senderOpenId : OWNER_OPEN_ID,
+      })
+    : [];
   const knowledgeResult = !imageRefs.length && !fileRef && ['text', 'post'].includes(message.message_type)
     ? await searchFeishuKnowledge(client, cleanText, senderOpenId)
     : null;
@@ -2135,12 +2146,12 @@ async function processIncoming(client, message, sender, metadata = {}) {
     kind: taskKind,
     fileName: fileRef?.fileName || fileName,
   });
-  if (knowledgeResult?.denied) {
+  if (knowledgeResult?.denied && !localKnowledgeRecords.length) {
     task = knowledgeResult.reason === 'reader_not_allowed'
       ? '对方请求读取一份没有向其开放的飞书资料。请简短说明这份资料目前没有向他开放，不要泄露内容。'
       : '没有找到对方有权限读取的相关飞书资料。请自然说明没有查到已授权资料，并建议对方补充更具体的标题或日期。';
   }
-  if (knowledgeResult?.unavailable) {
+  if (knowledgeResult?.unavailable && !localKnowledgeRecords.length) {
     task = '飞书资料搜索暂时不可用。请自然说明刚刚没有搜索成功，让对方稍后再试，不要让对方重新上传已经在飞书里的资料。';
   }
   task = effectiveTask(task, { messageType: message.message_type });
@@ -2148,7 +2159,8 @@ async function processIncoming(client, message, sender, metadata = {}) {
     `[receive] ${message.message_id}: ${message.message_type}`
       + ` request=${cleanText.slice(0, 100)}`
       + ` files=${fileRef ? 1 : 0} images=${imageRefs.length}`
-      + ` documents=${knowledgeResult?.documents?.length || 0}`,
+      + ` documents=${knowledgeResult?.documents?.length || 0}`
+      + ` localKnowledge=${localKnowledgeRecords.length}`,
   );
 
   let tempDir = '';
@@ -2362,6 +2374,9 @@ async function processIncoming(client, message, sender, metadata = {}) {
       } else {
         task = '找到了相关资料，但读取原文失败。请自然说明刚刚没能打开资料，让对方稍后再试。';
       }
+    }
+    if (localKnowledgeRecords.length) {
+      task += `\n\n下面是只对账号本人开放的 AIPR0S 本地知识库资料。请只依据资料回答，不要编造，并保留来源：\n\n${localWikiContext(localKnowledgeRecords)}`;
     }
     const target = parseChannelChatId(message.chat_id);
     const history = target?.channel === 'dingtalk'
