@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
 import { multicaIssueUrl } from './multica-links.mjs';
+import {
+  desiredIssueStatusForRunState,
+  summarizeMulticaRuns,
+} from './multica-run-progress.mjs';
 
 const STATUS_LABELS = {
   backlog: '需求池',
@@ -111,12 +115,96 @@ function uniqueRecipients(items) {
   });
 }
 
+function normalizedChannel(value) {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text) return '';
+  if (['feishu', 'lark', '飞书'].includes(text)) return 'feishu';
+  if (['dingtalk', 'ding', '钉钉'].includes(text)) return 'dingtalk';
+  if (['wecom', 'work-wechat', '企业微信'].includes(text)) return 'wecom';
+  if (['wechat', '微信'].includes(text)) return 'wechat';
+  return '';
+}
+
+function recipientChannel(recipient) {
+  const explicit = normalizedChannel(recipient?.channel);
+  if (explicit) return explicit;
+  for (const value of [recipient?.chatId, recipient?.senderId]) {
+    const match = String(value || '').match(/^(dingtalk|wecom|wechat):/i);
+    if (match) return match[1].toLowerCase();
+  }
+  return recipient?.chatId ? 'feishu' : '';
+}
+
+function declaredIssueChannel(issue) {
+  const metadata = issue?.metadata && typeof issue.metadata === 'object'
+    ? issue.metadata
+    : {};
+  for (const value of [
+    issue?.source_channel,
+    metadata.source_channel,
+    metadata.channel,
+    firstStructuredValue(issue?.description, ['来源渠道', '来源平台']),
+  ]) {
+    const channel = normalizedChannel(value);
+    if (channel) return channel;
+  }
+  return '';
+}
+
+function channelBoundRecipients({
+  issue,
+  origin,
+  issueSubscribers,
+  globalSubscribers,
+  ownerRecipient,
+}) {
+  const normalizedOrigin = origin?.chatId ? {
+    ...origin,
+    channel: recipientChannel(origin),
+  } : null;
+  const normalizedIssueSubscribers = issueSubscribers.map(item => ({
+    ...item,
+    channel: recipientChannel(item),
+  }));
+  const normalizedGlobalSubscribers = globalSubscribers.map(item => ({
+    ...item,
+    channel: recipientChannel(item),
+  }));
+  const normalizedOwner = ownerRecipient ? {
+    ...ownerRecipient,
+    channel: recipientChannel(ownerRecipient),
+  } : null;
+  const channel = normalizedOrigin?.channel
+    || declaredIssueChannel(issue)
+    || normalizedIssueSubscribers.find(item => item.channel)?.channel
+    || normalizedOwner?.channel
+    || normalizedGlobalSubscribers.find(item => item.channel)?.channel
+    || '';
+  return {
+    channel,
+    recipients: uniqueRecipients([
+      ...(normalizedOrigin ? [normalizedOrigin] : []),
+      ...normalizedIssueSubscribers,
+      ...normalizedGlobalSubscribers,
+      ...(normalizedOwner ? [normalizedOwner] : []),
+    ].filter(item => !channel || item.channel === channel)),
+  };
+}
+
 function notificationKey(issue, chatId) {
   const digest = createHash('sha256')
     .update(`${issue.id}\0${issue.updated_at || ''}\0${chatId}`)
     .digest('hex')
     .slice(0, 18);
   return `multica-sync-${digest}`;
+}
+
+function runNotificationKey(issue, fingerprint, chatId) {
+  const digest = createHash('sha256')
+    .update(`${issue.id}\0${fingerprint}\0${chatId}`)
+    .digest('hex')
+    .slice(0, 18);
+  return `multica-run-${digest}`;
 }
 
 export function formatMulticaChange(change, { appUrl, detailed = false } = {}) {
@@ -189,6 +277,7 @@ export class MulticaSynchronizer {
       chatId: String(ownerRecipient.chatId),
       senderId: String(ownerRecipient.senderId || ''),
       chatType: String(ownerRecipient.chatType || 'p2p'),
+      channel: recipientChannel(ownerRecipient),
       isOwner: true,
     } : null;
   }
@@ -255,14 +344,18 @@ export class MulticaSynchronizer {
 
     const globalSubscribers = this.state.multicaGlobalSubscribers();
     for (const change of changes) {
-      const issueSubscribers = change.isNew
+      const origin = this.state.multicaIssueOrigin(change.after.id);
+      const issueSubscribers = change.isNew && !origin
         ? []
         : this.state.multicaIssueSubscribers(change.after.id);
-      const recipients = uniqueRecipients([
-        ...(this.ownerRecipient ? [this.ownerRecipient] : []),
-        ...issueSubscribers,
-        ...globalSubscribers,
-      ]);
+      const routed = channelBoundRecipients({
+        issue: change.after,
+        origin,
+        issueSubscribers,
+        globalSubscribers,
+        ownerRecipient: this.ownerRecipient,
+      });
+      const recipients = routed.recipients;
       for (const recipient of recipients) {
         const message = formatMulticaChange(change, {
           appUrl: this.appUrl,
@@ -284,9 +377,92 @@ export class MulticaSynchronizer {
         workspaceId: change.after.workspace_id,
         isNew: change.isNew,
         changedFields: change.changedFields,
+        sourceChannel: routed.channel,
         recipients: recipients.length,
         ownerNotified: recipients.some(item => item.isOwner === true),
       });
+    }
+
+    let runChanges = 0;
+    const trackedIssueIds = new Set(this.state.trackedMulticaIssueIds());
+    for (const issue of issues.filter(item => trackedIssueIds.has(item.id))) {
+      try {
+        const runs = await this.client.listIssueRuns(issue.id, issue.workspace_id);
+        const origin = this.state.multicaIssueOrigin(issue.id);
+        let effectiveIssue = issue;
+        let summary = summarizeMulticaRuns(effectiveIssue, runs, { appUrl: this.appUrl });
+        const desiredStatus = origin
+          ? desiredIssueStatusForRunState(summary.state, issue.status)
+          : '';
+        let statusReconciled = false;
+        if (desiredStatus) {
+          const updated = await this.client.updateIssue(issue.id, {
+            workspaceId: issue.workspace_id,
+            status: desiredStatus,
+          });
+          effectiveIssue = {
+            ...issue,
+            ...updated,
+            workspace_name: issue.workspace_name || '',
+            workspace_slug: issue.workspace_slug || '',
+          };
+          this.state.upsertMulticaIssue(effectiveIssue, now.toISOString());
+          summary = summarizeMulticaRuns(effectiveIssue, runs, { appUrl: this.appUrl });
+          statusReconciled = true;
+          this.audit('multica_run_status_reconciled', {
+            issueId: issue.id,
+            identifier: issue.identifier,
+            beforeStatus: issue.status,
+            afterStatus: desiredStatus,
+            runState: summary.state,
+          });
+        }
+        const runChange = this.state.upsertMulticaIssueRunSummary(
+          issue.id,
+          summary,
+          now.toISOString(),
+        );
+        if (!runChange.changed && !statusReconciled) continue;
+        runChanges += 1;
+        const issueSubscribers = this.state.multicaIssueSubscribers(issue.id);
+        const routed = channelBoundRecipients({
+          issue: effectiveIssue,
+          origin,
+          issueSubscribers,
+          globalSubscribers,
+          ownerRecipient: this.ownerRecipient,
+        });
+        for (const recipient of routed.recipients) {
+          this.state.enqueueMulticaNotification({
+            notificationKey: runNotificationKey(
+              effectiveIssue,
+              `${summary.fingerprint}:${effectiveIssue.status || ''}`,
+              recipient.chatId,
+            ),
+            issueId: issue.id,
+            chatId: recipient.chatId,
+            senderId: recipient.senderId,
+            chatType: recipient.chatType,
+            content: `Multica 任务进度：\n${summary.text}`,
+            availableAt: now.toISOString(),
+          });
+        }
+        this.audit('multica_run_progress_changed', {
+          issueId: issue.id,
+          identifier: issue.identifier,
+          state: summary.state,
+          runCount: summary.runCount,
+          statusReconciled,
+          sourceChannel: routed.channel,
+          recipients: routed.recipients.length,
+        });
+      } catch (error) {
+        this.audit('multica_run_progress_check_failed', {
+          issueId: issue.id,
+          identifier: issue.identifier,
+          error: String(error?.message || error).slice(0, 500),
+        });
+      }
     }
     const delivery = await this.deliverNotifications(now);
     this.state.set('multica_sync', 'last_success_at', now.toISOString());
@@ -298,6 +474,7 @@ export class MulticaSynchronizer {
       scanned: issues.length,
       ...delivery,
       changes: changes.length,
+      runChanges,
     };
   }
 }

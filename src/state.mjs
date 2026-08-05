@@ -25,10 +25,18 @@ export class AgentState {
       PRAGMA busy_timeout = 5000;
       CREATE TABLE IF NOT EXISTS conversation (
         id INTEGER PRIMARY KEY, chat_id TEXT NOT NULL, sender_id TEXT NOT NULL,
-        role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL
+        role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL,
+        source_message_id TEXT NOT NULL DEFAULT ''
       );
       CREATE INDEX IF NOT EXISTS conversation_lookup
         ON conversation(chat_id, sender_id, id DESC);
+      CREATE TABLE IF NOT EXISTS multica_conversation_context (
+        chat_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        issue_snapshot TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(chat_id, sender_id)
+      );
       CREATE TABLE IF NOT EXISTS settings (
         scope TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
         updated_at TEXT NOT NULL, PRIMARY KEY(scope, key)
@@ -80,11 +88,18 @@ export class AgentState {
       );
       CREATE INDEX IF NOT EXISTS multica_issue_cache_workspace
         ON multica_issue_cache(workspace_id, issue_updated_at DESC);
+      CREATE TABLE IF NOT EXISTS multica_issue_run_cache (
+        issue_id TEXT PRIMARY KEY,
+        fingerprint TEXT NOT NULL,
+        snapshot TEXT NOT NULL,
+        seen_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS multica_issue_subscription (
         issue_id TEXT NOT NULL,
         chat_id TEXT NOT NULL,
         sender_id TEXT NOT NULL,
         chat_type TEXT NOT NULL DEFAULT '',
+        channel TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         PRIMARY KEY(issue_id, chat_id, sender_id)
       );
@@ -92,8 +107,17 @@ export class AgentState {
         chat_id TEXT NOT NULL,
         sender_id TEXT NOT NULL,
         chat_type TEXT NOT NULL DEFAULT '',
+        channel TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         PRIMARY KEY(chat_id, sender_id)
+      );
+      CREATE TABLE IF NOT EXISTS multica_issue_origin (
+        issue_id TEXT PRIMARY KEY,
+        channel TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        chat_type TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS multica_notification_outbox (
         notification_key TEXT PRIMARY KEY,
@@ -147,6 +171,16 @@ export class AgentState {
       CREATE INDEX IF NOT EXISTS mutation_execution_status
         ON mutation_execution(status, updated_at);
     `);
+    const conversationColumns = new Set(
+      this.db.prepare('PRAGMA table_info(conversation)').all().map(row => row.name),
+    );
+    if (!conversationColumns.has('source_message_id')) {
+      this.db.exec(`ALTER TABLE conversation
+        ADD COLUMN source_message_id TEXT NOT NULL DEFAULT ''`);
+    }
+    this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS conversation_source_once
+      ON conversation(chat_id, sender_id, role, source_message_id)
+      WHERE source_message_id <> ''`);
     const notificationColumns = new Set(
       this.db.prepare('PRAGMA table_info(multica_notification_outbox)')
         .all()
@@ -173,6 +207,10 @@ export class AgentState {
       this.db.exec(`ALTER TABLE multica_issue_subscription
         ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''`);
     }
+    if (!issueSubscriptionColumns.has('channel')) {
+      this.db.exec(`ALTER TABLE multica_issue_subscription
+        ADD COLUMN channel TEXT NOT NULL DEFAULT ''`);
+    }
     const globalSubscriptionColumns = new Set(
       this.db.prepare('PRAGMA table_info(multica_global_subscription)')
         .all()
@@ -182,21 +220,71 @@ export class AgentState {
       this.db.exec(`ALTER TABLE multica_global_subscription
         ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''`);
     }
+    if (!globalSubscriptionColumns.has('channel')) {
+      this.db.exec(`ALTER TABLE multica_global_subscription
+        ADD COLUMN channel TEXT NOT NULL DEFAULT ''`);
+    }
   }
 
-  remember(chatId, senderId, role, content) {
-    this.db.prepare(`INSERT INTO conversation
-      (chat_id, sender_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`)
-      .run(chatId, senderId || '', role, String(content).slice(0, 4000), new Date().toISOString());
+  remember(chatId, senderId, role, content, { sourceMessageId = '', createdAt = '' } = {}) {
+    const normalizedSourceMessageId = String(sourceMessageId || '').slice(0, 500);
+    const result = this.db.prepare(`${normalizedSourceMessageId ? 'INSERT OR IGNORE' : 'INSERT'} INTO conversation
+      (chat_id, sender_id, role, content, created_at, source_message_id)
+      VALUES (?, ?, ?, ?, ?, ?)`).run(
+      chatId,
+      senderId || '',
+      role,
+      String(content).slice(0, 4000),
+      createdAt || new Date().toISOString(),
+      normalizedSourceMessageId,
+    );
     this.db.prepare(`DELETE FROM conversation WHERE chat_id = ? AND sender_id = ? AND id NOT IN
-      (SELECT id FROM conversation WHERE chat_id = ? AND sender_id = ? ORDER BY id DESC LIMIT 24)`)
+      (SELECT id FROM conversation WHERE chat_id = ? AND sender_id = ? ORDER BY id DESC LIMIT 120)`)
       .run(chatId, senderId || '', chatId, senderId || '');
+    return result.changes > 0;
   }
 
-  history(chatId, senderId, limit = 12) {
-    return this.db.prepare(`SELECT role, content FROM conversation
-      WHERE chat_id = ? AND sender_id = ? ORDER BY id DESC LIMIT ?`)
+  history(chatId, senderId, limit = 30) {
+    return this.db.prepare(`SELECT role, content, source_message_id AS sourceMessageId
+      FROM conversation WHERE chat_id = ? AND sender_id = ? ORDER BY id DESC LIMIT ?`)
       .all(chatId, senderId || '', limit).reverse();
+  }
+
+  bindConversationIssue(chatId, senderId, issue) {
+    if (!issue?.id || !issue?.identifier) throw new Error('Conversation Issue binding is invalid');
+    const snapshot = {
+      id: String(issue.id),
+      identifier: String(issue.identifier),
+      title: String(issue.title || ''),
+      description: String(issue.description || '').slice(0, 10_000),
+      workspace_id: String(issue.workspace_id || ''),
+    };
+    this.db.prepare(`INSERT INTO multica_conversation_context
+      (chat_id, sender_id, issue_snapshot, updated_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(chat_id, sender_id) DO UPDATE SET
+        issue_snapshot=excluded.issue_snapshot, updated_at=excluded.updated_at`)
+      .run(chatId, senderId || '', JSON.stringify(snapshot), new Date().toISOString());
+  }
+
+  conversationIssue(chatId, senderId) {
+    const row = this.db.prepare(`SELECT issue_snapshot FROM multica_conversation_context
+      WHERE chat_id = ? AND sender_id = ?`).get(chatId, senderId || '');
+    if (row) {
+      try { return JSON.parse(row.issue_snapshot); } catch { /* fall back to legacy origin */ }
+    }
+    const legacy = this.db.prepare(`SELECT cache.snapshot AS issue_snapshot
+      FROM multica_issue_origin origin
+      JOIN multica_issue_cache cache ON cache.issue_id = origin.issue_id
+      WHERE origin.chat_id = ? AND origin.sender_id = ?
+      ORDER BY origin.created_at DESC LIMIT 1`).get(chatId, senderId || '');
+    if (!legacy) return null;
+    try {
+      const issue = JSON.parse(legacy.issue_snapshot);
+      this.bindConversationIssue(chatId, senderId, issue);
+      return this.conversationIssue(chatId, senderId);
+    } catch {
+      return null;
+    }
   }
 
   set(scope, key, value) {
@@ -566,15 +654,51 @@ export class AgentState {
     try { return JSON.parse(row.snapshot); } catch { return null; }
   }
 
+  trackedMulticaIssueIds() {
+    return this.db.prepare(`SELECT issue_id FROM (
+      SELECT issue_id FROM multica_issue_origin
+      UNION
+      SELECT issue_id FROM multica_issue_subscription
+    ) ORDER BY issue_id`).all().map(row => row.issue_id);
+  }
+
+  upsertMulticaIssueRunSummary(issueId, summary, seenAt = new Date().toISOString()) {
+    const normalizedIssueId = String(issueId || '').trim();
+    const fingerprint = String(summary?.fingerprint || '').trim();
+    if (!normalizedIssueId || !fingerprint) {
+      throw new Error('Multica run summary requires issue ID and fingerprint');
+    }
+    const prior = this.db.prepare(`SELECT fingerprint, snapshot
+      FROM multica_issue_run_cache WHERE issue_id = ?`).get(normalizedIssueId);
+    let before = null;
+    try { before = prior ? JSON.parse(prior.snapshot) : null; } catch { before = null; }
+    const after = structuredClone(summary);
+    this.db.prepare(`INSERT INTO multica_issue_run_cache
+      (issue_id, fingerprint, snapshot, seen_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(issue_id) DO UPDATE SET
+        fingerprint=excluded.fingerprint,
+        snapshot=excluded.snapshot,
+        seen_at=excluded.seen_at`)
+      .run(normalizedIssueId, fingerprint, JSON.stringify(after), seenAt);
+    return {
+      isNew: !prior,
+      changed: Boolean(prior && prior.fingerprint !== fingerprint),
+      before,
+      after,
+    };
+  }
+
   subscribeMulticaIssue(issueId, chatId, senderId, options = {}) {
     const legacyCreatedAt = typeof options === 'string' ? options : '';
     const chatType = typeof options === 'object' ? String(options.chatType || '') : '';
+    const channel = typeof options === 'object' ? String(options.channel || '') : '';
     const createdAt = legacyCreatedAt || options.createdAt || new Date().toISOString();
     this.db.prepare(`INSERT INTO multica_issue_subscription
-      (issue_id, chat_id, sender_id, chat_type, created_at) VALUES (?, ?, ?, ?, ?)
+      (issue_id, chat_id, sender_id, chat_type, channel, created_at) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(issue_id, chat_id, sender_id) DO UPDATE SET
-        chat_type=CASE WHEN excluded.chat_type <> '' THEN excluded.chat_type ELSE chat_type END`)
-      .run(issueId, chatId, senderId || '', chatType, createdAt);
+        chat_type=CASE WHEN excluded.chat_type <> '' THEN excluded.chat_type ELSE chat_type END,
+        channel=CASE WHEN excluded.channel <> '' THEN excluded.channel ELSE channel END`)
+      .run(issueId, chatId, senderId || '', chatType, channel, createdAt);
   }
 
   unsubscribeMulticaIssue(issueId, chatId, senderId) {
@@ -584,25 +708,69 @@ export class AgentState {
   }
 
   multicaIssueSubscribers(issueId) {
-    return this.db.prepare(`SELECT chat_id, sender_id, chat_type
+    return this.db.prepare(`SELECT chat_id, sender_id, chat_type, channel
       FROM multica_issue_subscription WHERE issue_id = ? ORDER BY created_at, chat_id`)
       .all(issueId)
       .map(row => ({
         chatId: row.chat_id,
         senderId: row.sender_id,
         chatType: row.chat_type,
+        channel: row.channel,
       }));
+  }
+
+  bindMulticaIssueOrigin(issueId, {
+    channel,
+    chatId,
+    senderId = '',
+    chatType = '',
+    createdAt = new Date().toISOString(),
+  } = {}) {
+    const normalizedIssueId = String(issueId || '').trim();
+    const normalizedChannel = String(channel || '').trim().toLowerCase();
+    const normalizedChatId = String(chatId || '').trim();
+    if (!normalizedIssueId || !normalizedChannel || !normalizedChatId) {
+      throw new Error('Multica Issue origin requires issue, channel, and chat IDs');
+    }
+    return this.db.prepare(`INSERT OR IGNORE INTO multica_issue_origin
+      (issue_id, channel, chat_id, sender_id, chat_type, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(
+        normalizedIssueId,
+        normalizedChannel,
+        normalizedChatId,
+        String(senderId || ''),
+        String(chatType || ''),
+        createdAt,
+      ).changes === 1;
+  }
+
+  multicaIssueOrigin(issueId) {
+    const row = this.db.prepare(`SELECT issue_id, channel, chat_id, sender_id,
+      chat_type, created_at FROM multica_issue_origin WHERE issue_id = ?`)
+      .get(String(issueId || ''));
+    if (!row) return null;
+    return {
+      issueId: row.issue_id,
+      channel: row.channel,
+      chatId: row.chat_id,
+      senderId: row.sender_id,
+      chatType: row.chat_type,
+      createdAt: row.created_at,
+    };
   }
 
   subscribeMulticaGlobal(chatId, senderId, options = {}) {
     const legacyCreatedAt = typeof options === 'string' ? options : '';
     const chatType = typeof options === 'object' ? String(options.chatType || '') : '';
+    const channel = typeof options === 'object' ? String(options.channel || '') : '';
     const createdAt = legacyCreatedAt || options.createdAt || new Date().toISOString();
     this.db.prepare(`INSERT INTO multica_global_subscription
-      (chat_id, sender_id, chat_type, created_at) VALUES (?, ?, ?, ?)
+      (chat_id, sender_id, chat_type, channel, created_at) VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(chat_id, sender_id) DO UPDATE SET
-        chat_type=CASE WHEN excluded.chat_type <> '' THEN excluded.chat_type ELSE chat_type END`)
-      .run(chatId, senderId || '', chatType, createdAt);
+        chat_type=CASE WHEN excluded.chat_type <> '' THEN excluded.chat_type ELSE chat_type END,
+        channel=CASE WHEN excluded.channel <> '' THEN excluded.channel ELSE channel END`)
+      .run(chatId, senderId || '', chatType, channel, createdAt);
   }
 
   unsubscribeMulticaGlobal(chatId, senderId) {
@@ -611,13 +779,14 @@ export class AgentState {
   }
 
   multicaGlobalSubscribers() {
-    return this.db.prepare(`SELECT chat_id, sender_id, chat_type
+    return this.db.prepare(`SELECT chat_id, sender_id, chat_type, channel
       FROM multica_global_subscription ORDER BY created_at, chat_id`)
       .all()
       .map(row => ({
         chatId: row.chat_id,
         senderId: row.sender_id,
         chatType: row.chat_type,
+        channel: row.channel,
       }));
   }
 

@@ -101,7 +101,19 @@ import {
   MulticaWorkLifecycle,
   parseMulticaWorkRequest,
 } from './multica-work-lifecycle.mjs';
+import {
+  applyCreateRoute,
+  buildSquadQuestion,
+  buildWorkspaceQuestion,
+  parseSquadSelection,
+  parseWorkspaceSelection,
+  resolveContextualWorkRequest,
+} from './multica-task-routing.mjs';
 import { multicaIssueUrl } from './multica-links.mjs';
+import {
+  looksLikeMulticaProgressRequest,
+  summarizeMulticaRuns,
+} from './multica-run-progress.mjs';
 import {
   buildPrivacyBoundary,
   knowledgeMemoryLabel,
@@ -282,6 +294,7 @@ const MULTICA_SYNCHRONIZER = MULTICA_CLIENT
             chatId: `dingtalk:user:${config.dingtalkOwnerOpenId}`,
             senderId: `dingtalk:${config.dingtalkOwnerOpenId}`,
             chatType: 'p2p',
+            channel: 'dingtalk',
           }
         : null,
     })
@@ -303,14 +316,17 @@ let geWeChannel = null;
 let geWeWebhookServer = null;
 const shutdownDelay = new InterruptibleDelay();
 
-function remember(chatId, senderOpenId, role, content) {
-  state.remember(chatId, senderOpenId, role, content);
+function remember(chatId, senderOpenId, role, content, options) {
+  state.remember(chatId, senderOpenId, role, content, options);
 }
 
-function formatHistory(chatId, senderOpenId) {
-  const history = state.history(chatId, senderOpenId, 12);
+function formatHistory(chatId, senderOpenId, { excludeSourceMessageId = '' } = {}) {
+  const history = state.history(chatId, senderOpenId, excludeSourceMessageId ? 31 : 30)
+    .filter(item => item.sourceMessageId !== excludeSourceMessageId)
+    .slice(-30);
   if (!history.length) return '（这是当前运行周期内的第一条消息）';
-  return history.map(item => `${item.role === 'user' ? '对方' : '助理'}：${item.content}`).join('\n');
+  return history.map(item => `${item.role === 'user' ? '对方' : '助理'}：${item.content.slice(0, 1800)}`)
+    .join('\n');
 }
 
 function multicaContext(message, senderOpenId, metadata = {}) {
@@ -997,7 +1013,6 @@ async function applyPendingFeedback(message, senderOpenId, cleanText, metadata =
       context: multicaContext(message, senderOpenId, metadata),
     });
     pendingActions.delete('multica_feedback', message.chat_id, senderOpenId);
-    remember(message.chat_id, senderOpenId, 'user', cleanText);
     remember(message.chat_id, senderOpenId, 'assistant', result.text);
     await sendText(
       null,
@@ -1049,7 +1064,6 @@ async function startMulticaFeedback(message, senderOpenId, cleanText, metadata =
     senderOpenId,
     started.pending,
   );
-  remember(message.chat_id, senderOpenId, 'user', cleanText);
   remember(message.chat_id, senderOpenId, 'assistant', started.text);
   await sendText(
     null,
@@ -1126,10 +1140,15 @@ async function applyPendingMultica(message, senderOpenId, cleanText, metadata = 
     return true;
   }
   const result = execution.result;
-  await sendText(null, message.chat_id, result.text, `multica-applied-${message.message_id}`);
+  const routeReceipt = pending.createRoute
+    ? `\n执行方式：${pending.createRoute.selection.mode === 'squad'
+      ? `已选中小队 ${pending.createRoute.selection.squad.name}`
+      : '仅创建，未启动小队'}`
+    : '';
+  const answer = `${result.text}${routeReceipt}`;
+  await sendText(null, message.chat_id, answer, `multica-applied-${message.message_id}`);
   pendingActions.delete('multica', message.chat_id, senderOpenId);
-  remember(message.chat_id, senderOpenId, 'user', cleanText);
-  remember(message.chat_id, senderOpenId, 'assistant', result.text);
+  remember(message.chat_id, senderOpenId, 'assistant', answer);
   audit('multica_mutation_applied', message, senderOpenId, {
     action: pending.pending.plan.action,
     issueId: result.issue?.id || '',
@@ -1137,6 +1156,221 @@ async function applyPendingMultica(message, senderOpenId, cleanText, metadata = 
     replayed: execution.replayed,
   });
   return true;
+}
+
+async function prepareMulticaConfirmation(
+  message,
+  senderOpenId,
+  plan,
+  context,
+  { createRoute = null } = {},
+) {
+  const prepared = await MULTICA_CAPABILITY.prepareMutation(plan, context);
+  const confirmationCode = plan.confirmationLevel === 'double'
+    ? String(randomInt(100000, 1000000))
+    : '';
+  pendingActions.set('multica', message.chat_id, senderOpenId, {
+    pending: prepared.pending,
+    confirmationCode,
+    createRoute,
+  });
+  const confirmation = plan.confirmationLevel === 'double'
+    ? `\n\n这是敏感变更。请回复“确认 ${confirmationCode}”执行，或回复“取消”。`
+    : '\n\n请回复“确认”执行，或回复“取消”。';
+  const routeLines = createRoute
+    ? `\n执行方式：${createRoute.selection.mode === 'squad'
+      ? `选中小队 ${createRoute.selection.squad.name}`
+      : '仅创建 Issue，不启动小队'}`
+    : '';
+  const previewText = createRoute?.selection?.mode === 'squad'
+    ? prepared.text.split('\n').filter(line => !/^负责人 ID：/.test(line)).join('\n')
+    : prepared.text;
+  const answer = `${previewText}${routeLines}${confirmation}`;
+  remember(message.chat_id, senderOpenId, 'assistant', answer);
+  await sendText(
+    null,
+    message.chat_id,
+    answer,
+    `multica-preview-${message.message_id}`,
+  );
+  audit('multica_mutation_previewed', message, senderOpenId, {
+    action: plan.action,
+    confirmationLevel: plan.confirmationLevel,
+    workspaceId: plan.workspaceId || '',
+    squadId: createRoute?.selection?.squad?.id || '',
+  });
+  return true;
+}
+
+async function startMulticaCreateRouting(message, senderOpenId, cleanText, plan) {
+  const workspaces = await MULTICA_CLIENT.listWorkspaces();
+  const answer = buildWorkspaceQuestion(workspaces, plan.workspaceId);
+  pendingActions.set('multica_create_route', message.chat_id, senderOpenId, {
+    stage: 'workspace',
+    originalRequest: cleanText,
+    plan: structuredClone(plan),
+    workspaces,
+  });
+  remember(message.chat_id, senderOpenId, 'assistant', answer);
+  await sendText(null, message.chat_id, answer, `multica-workspace-select-${message.message_id}`);
+  audit('multica_create_workspace_requested', message, senderOpenId, {
+    workspaceCount: workspaces.length,
+    suggestedWorkspaceId: plan.workspaceId || '',
+  });
+  return true;
+}
+
+async function startExistingIssueSquadRouting(message, senderOpenId, issue, metadata = {}) {
+  const context = multicaContext(message, senderOpenId, metadata);
+  if (!context.ownerAuthorized) return false;
+  const liveIssue = await MULTICA_CLIENT.getIssue(issue.identifier, issue.workspace_id);
+  const workspaces = await MULTICA_CLIENT.listWorkspaces();
+  const matchedWorkspace = workspaces.find(item => item.id === liveIssue.workspace_id);
+  const squads = await MULTICA_CLIENT.listSquads(liveIssue.workspace_id);
+  const workspace = {
+    id: liveIssue.workspace_id,
+    name: matchedWorkspace?.name || liveIssue.workspace_name || liveIssue.workspace_id,
+    slug: matchedWorkspace?.slug || liveIssue.workspace_slug || '',
+  };
+  const answer = buildSquadQuestion(workspace, squads);
+  pendingActions.set('multica_create_route', message.chat_id, senderOpenId, {
+    stage: 'existing_squad',
+    issue: liveIssue,
+    workspace,
+    squads,
+  });
+  remember(message.chat_id, senderOpenId, 'assistant', answer);
+  await sendText(null, message.chat_id, answer, `multica-existing-squad-select-${message.message_id}`);
+  audit('multica_existing_squad_requested', message, senderOpenId, {
+    issueId: liveIssue.id,
+    identifier: liveIssue.identifier,
+    squadCount: squads.length,
+  });
+  return true;
+}
+
+async function handleMulticaProgressRequest(message, senderOpenId) {
+  if (!MULTICA_CLIENT) return false;
+  const activeIssue = state.conversationIssue(message.chat_id, senderOpenId);
+  if (!activeIssue) {
+    const answer = '当前对话还没有关联到具体 Issue。请告诉我 Issue 编号，我就能查专家团是否已开始、正在做什么和最新结果。';
+    remember(message.chat_id, senderOpenId, 'assistant', answer);
+    await sendText(null, message.chat_id, answer, `multica-progress-no-context-${message.message_id}`);
+    return true;
+  }
+  const [liveIssue, workspaces] = await Promise.all([
+    MULTICA_CLIENT.getIssue(activeIssue.identifier, activeIssue.workspace_id),
+    MULTICA_CLIENT.listWorkspaces(),
+  ]);
+  const workspace = workspaces.find(item => item.id === liveIssue.workspace_id);
+  const issue = {
+    ...liveIssue,
+    workspace_name: workspace?.name || activeIssue.workspace_name || '',
+    workspace_slug: workspace?.slug || activeIssue.workspace_slug || '',
+  };
+  const runs = await MULTICA_CLIENT.listIssueRuns(issue.id, issue.workspace_id);
+  const summary = summarizeMulticaRuns(issue, runs, { appUrl: config.multicaAppUrl });
+  const answer = `查到了：\n${summary.text}`;
+  state.bindConversationIssue(message.chat_id, senderOpenId, issue);
+  remember(message.chat_id, senderOpenId, 'assistant', answer);
+  await sendText(null, message.chat_id, answer, `multica-progress-${message.message_id}`);
+  audit('multica_progress_replied', message, senderOpenId, {
+    issueId: issue.id,
+    identifier: issue.identifier,
+    state: summary.state,
+    runCount: summary.runCount,
+  });
+  return true;
+}
+
+async function applyPendingMulticaCreateRoute(message, senderOpenId, cleanText, metadata = {}) {
+  const pending = pendingActions.get('multica_create_route', message.chat_id, senderOpenId);
+  if (!pending) return false;
+  if (/^(?:取消|不用了|不创建了|放弃)[。！! ]*$/.test(cleanText)) {
+    pendingActions.delete('multica_create_route', message.chat_id, senderOpenId);
+    const answer = '好的，这次 Multica 创建或小队选择已经取消。';
+    remember(message.chat_id, senderOpenId, 'assistant', answer);
+    await sendText(null, message.chat_id, answer, `multica-route-cancel-${message.message_id}`);
+    return true;
+  }
+  const context = multicaContext(message, senderOpenId, metadata);
+  if (!context.ownerAuthorized) {
+    pendingActions.delete('multica_create_route', message.chat_id, senderOpenId);
+    await sendText(null, message.chat_id, 'Owner 自聊授权已经失效，本次选择已取消，没有写入 Multica。', `multica-route-owner-required-${message.message_id}`);
+    return true;
+  }
+  if (pending.stage === 'workspace') {
+    const workspace = parseWorkspaceSelection(cleanText, pending.workspaces);
+    if (!workspace) {
+      const answer = `没有匹配到唯一空间。\n${buildWorkspaceQuestion(pending.workspaces, pending.plan.workspaceId)}`;
+      remember(message.chat_id, senderOpenId, 'assistant', answer);
+      await sendText(null, message.chat_id, answer, `multica-workspace-invalid-${message.message_id}`);
+      return true;
+    }
+    const squads = await MULTICA_CLIENT.listSquads(workspace.id);
+    const answer = buildSquadQuestion(workspace, squads);
+    pendingActions.set('multica_create_route', message.chat_id, senderOpenId, {
+      ...pending,
+      stage: 'squad',
+      workspace,
+      squads,
+    });
+    remember(message.chat_id, senderOpenId, 'assistant', answer);
+    await sendText(null, message.chat_id, answer, `multica-squad-select-${message.message_id}`);
+    audit('multica_create_workspace_selected', message, senderOpenId, {
+      workspaceId: workspace.id,
+      squadCount: squads.length,
+    });
+    return true;
+  }
+  if (pending.stage === 'squad') {
+    const selection = parseSquadSelection(cleanText, pending.squads);
+    if (!selection) {
+      const answer = `没有匹配到唯一小队。\n${buildSquadQuestion(pending.workspace, pending.squads)}`;
+      remember(message.chat_id, senderOpenId, 'assistant', answer);
+      await sendText(null, message.chat_id, answer, `multica-squad-invalid-${message.message_id}`);
+      return true;
+    }
+    const routedPlan = applyCreateRoute(pending.plan, {
+      workspace: pending.workspace,
+      selection,
+    });
+    const handled = await prepareMulticaConfirmation(message, senderOpenId, routedPlan, context, {
+      createRoute: { workspace: pending.workspace, selection },
+    });
+    pendingActions.delete('multica_create_route', message.chat_id, senderOpenId);
+    return handled;
+  }
+  if (pending.stage === 'existing_squad') {
+    const selection = parseSquadSelection(cleanText, pending.squads);
+    if (!selection) {
+      const answer = `没有匹配到唯一小队。\n${buildSquadQuestion(pending.workspace, pending.squads)}`;
+      remember(message.chat_id, senderOpenId, 'assistant', answer);
+      await sendText(null, message.chat_id, answer, `multica-existing-squad-invalid-${message.message_id}`);
+      return true;
+    }
+    if (selection.mode === 'create_only') {
+      pendingActions.delete('multica_create_route', message.chat_id, senderOpenId);
+      const answer = `${pending.issue.identifier} 已存在；本次不选小队，也不改变 Issue。`;
+      remember(message.chat_id, senderOpenId, 'assistant', answer);
+      await sendText(null, message.chat_id, answer, `multica-existing-no-squad-${message.message_id}`);
+      return true;
+    }
+    const plan = {
+      action: 'update',
+      issue: pending.issue.identifier,
+      summary: `为 ${pending.issue.identifier} 选中执行小队 ${selection.squad.name}`,
+      confirmationLevel: 'double',
+      fields: { assigneeId: selection.squad.id, status: 'todo' },
+    };
+    const handled = await prepareMulticaConfirmation(message, senderOpenId, plan, context, {
+      createRoute: { workspace: pending.workspace, selection },
+    });
+    pendingActions.delete('multica_create_route', message.chat_id, senderOpenId);
+    return handled;
+  }
+  pendingActions.delete('multica_create_route', message.chat_id, senderOpenId);
+  return false;
 }
 
 async function handleMulticaRequest(message, senderOpenId, cleanText, metadata = {}) {
@@ -1149,7 +1383,9 @@ async function handleMulticaRequest(message, senderOpenId, cleanText, metadata =
     );
     return true;
   }
-  const history = formatHistory(message.chat_id, senderOpenId);
+  const history = formatHistory(message.chat_id, senderOpenId, {
+    excludeSourceMessageId: message.message_id,
+  });
   const plan = await runCodexMulticaPlan(cleanText, history);
   const context = multicaContext(message, senderOpenId, metadata);
   audit('multica_plan_created', message, senderOpenId, {
@@ -1160,7 +1396,6 @@ async function handleMulticaRequest(message, senderOpenId, cleanText, metadata =
   });
   if (plan.confirmationLevel === 'none') {
     const result = await MULTICA_CAPABILITY.execute(plan, context);
-    remember(message.chat_id, senderOpenId, 'user', cleanText);
     remember(message.chat_id, senderOpenId, 'assistant', result.text);
     await sendText(null, message.chat_id, result.text, `multica-read-${message.message_id}`);
     audit('multica_action_completed', message, senderOpenId, {
@@ -1183,28 +1418,10 @@ async function handleMulticaRequest(message, senderOpenId, cleanText, metadata =
     });
     return true;
   }
-  const prepared = await MULTICA_CAPABILITY.prepareMutation(plan, context);
-  const confirmationCode = plan.confirmationLevel === 'double'
-    ? String(randomInt(100000, 1000000))
-    : '';
-  pendingActions.set('multica', message.chat_id, senderOpenId, {
-    pending: prepared.pending,
-    confirmationCode,
-  });
-  const confirmation = plan.confirmationLevel === 'double'
-    ? `\n\n这是敏感变更。请回复“确认 ${confirmationCode}”执行，或回复“取消”。`
-    : '\n\n请回复“确认”执行，或回复“取消”。';
-  await sendText(
-    null,
-    message.chat_id,
-    `${prepared.text}${confirmation}`,
-    `multica-preview-${message.message_id}`,
-  );
-  audit('multica_mutation_previewed', message, senderOpenId, {
-    action: plan.action,
-    confirmationLevel: plan.confirmationLevel,
-  });
-  return true;
+  if (plan.action === 'create') {
+    return startMulticaCreateRouting(message, senderOpenId, cleanText, plan);
+  }
+  return prepareMulticaConfirmation(message, senderOpenId, plan, context);
 }
 
 async function handleMulticaWorkRequest(message, senderOpenId, request, decision, metadata = {}) {
@@ -1228,7 +1445,9 @@ async function handleMulticaWorkRequest(message, senderOpenId, request, decision
     audit('multica_work_denied', message, senderOpenId, { issue: request.issue });
     return true;
   }
-  const history = formatHistory(message.chat_id, senderOpenId);
+  const history = formatHistory(message.chat_id, senderOpenId, {
+    excludeSourceMessageId: message.message_id,
+  });
   audit('multica_work_requested', message, senderOpenId, {
     issue: request.issue,
     task: request.task.slice(0, 500),
@@ -1257,7 +1476,6 @@ async function handleMulticaWorkRequest(message, senderOpenId, request, decision
       decision,
     ),
     deliver: async answer => {
-      remember(message.chat_id, senderOpenId, 'user', `处理 ${request.issue}：${request.task}`);
       remember(message.chat_id, senderOpenId, 'assistant', answer);
       await sendText(
         null,
@@ -1483,20 +1701,46 @@ async function processIncoming(client, message, sender, metadata = {}) {
   if (message.chat_type === 'group'
     && (!Array.isArray(message.mentions) || message.mentions.length === 0)) return;
 
+  const existingHistory = state.history(message.chat_id, senderOpenId, 30);
+  remember(
+    message.chat_id,
+    senderOpenId,
+    'user',
+    cleanText || `发送了${message.message_type}`,
+    { sourceMessageId: message.message_id },
+  );
+
+  if (looksLikeMulticaProgressRequest(cleanText)) {
+    try {
+      await handleMulticaProgressRequest(message, senderOpenId);
+    } catch (error) {
+      console.error(`[multica-progress-error] ${message.message_id}:`, error);
+      await sendText(
+        null,
+        message.chat_id,
+        `任务进度暂时没有查成功：${processFailureSummary(error)}`,
+        `multica-progress-error-${message.message_id}`,
+      );
+      audit('multica_progress_failed', message, senderOpenId, {
+        error: String(error?.message || error).slice(0, 1000),
+      });
+    }
+    return;
+  }
+
+  if (await applyPendingMulticaCreateRoute(message, senderOpenId, cleanText, metadata)) return;
   if (await applyPendingFeedback(message, senderOpenId, cleanText, metadata)) return;
   if (looksLikeMulticaFeedback(cleanText)) {
     await startMulticaFeedback(message, senderOpenId, cleanText, metadata);
     return;
   }
 
-  const existingHistory = state.history(message.chat_id, senderOpenId, 12);
   if (shouldIntroduceAssistant({
     chatType: message.chat_type,
     isOwner: senderOpenId === OWNER_OPEN_ID || metadata.selfChat === true,
     history: existingHistory,
   })) {
     const greeting = buildFirstTakeoverGreeting();
-    remember(message.chat_id, senderOpenId, 'user', cleanText || `发送了${message.message_type}`);
     remember(message.chat_id, senderOpenId, 'assistant', greeting);
     await sendText(client, message.chat_id, greeting, `aipro-introduction-${message.message_id}`);
     audit('assistant_first_takeover_introduction', message, senderOpenId, { answerChars: greeting.length });
@@ -1552,7 +1796,6 @@ async function processIncoming(client, message, sender, metadata = {}) {
   }
   if (isBareMention(cleanText, message.message_type)) {
     const answer = '我在，想让我帮你看什么？';
-    remember(message.chat_id, senderOpenId, 'user', '只 @ 了我');
     remember(message.chat_id, senderOpenId, 'assistant', answer);
     await sendText(client, message.chat_id, answer, `xiaozhao-${message.message_id}`);
     audit('message_replied', message, senderOpenId, {
@@ -1593,6 +1836,33 @@ async function processIncoming(client, message, sender, metadata = {}) {
     }
   }
   if (await applyPendingMultica(message, senderOpenId, cleanText, metadata)) return;
+  const contextualWorkRequest = resolveContextualWorkRequest(
+    cleanText,
+    state.conversationIssue(message.chat_id, senderOpenId),
+  );
+  if (contextualWorkRequest) {
+    try {
+      await startExistingIssueSquadRouting(
+        message,
+        senderOpenId,
+        state.conversationIssue(message.chat_id, senderOpenId),
+        metadata,
+      );
+    } catch (error) {
+      console.error(`[multica-contextual-work-error] ${message.message_id}:`, error);
+      await sendText(
+        null,
+        message.chat_id,
+        `没有完成小队选择：${processFailureSummary(error)}`,
+        `multica-contextual-work-error-${message.message_id}`,
+      );
+      audit('multica_contextual_work_failed', message, senderOpenId, {
+        issue: contextualWorkRequest.issue,
+        error: String(error?.message || error).slice(0, 1000),
+      });
+    }
+    return;
+  }
   const multicaWorkRequest = parseMulticaWorkRequest(cleanText);
   if (multicaWorkRequest) {
     try {
@@ -2099,13 +2369,14 @@ async function processIncoming(client, message, sender, metadata = {}) {
         task = '找到了相关资料，但读取原文失败。请自然说明刚刚没能打开资料，让对方稍后再试。';
       }
     }
-    const history = formatHistory(message.chat_id, senderOpenId);
+    const history = formatHistory(message.chat_id, senderOpenId, {
+      excludeSourceMessageId: message.message_id,
+    });
     const historyLabel = knowledgeResult?.documents?.length
       ? knowledgeMemoryLabel({ request: cleanText, documents: knowledgeResult.documents })
       : fileRef
         ? `${cleanText || '请求读取文件'}：${fileRef.fileName || '未命名文件'}`
         : imageRefs.length ? `${cleanText || '发送了图片'}（含图片）` : task;
-    remember(message.chat_id, senderOpenId, 'user', historyLabel);
     const answer = await runCodex(task, history, imagePaths, decision);
     remember(message.chat_id, senderOpenId, 'assistant', answer);
     await sendText(client, message.chat_id, answer, `xiaozhao-${message.message_id}`);

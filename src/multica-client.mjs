@@ -47,10 +47,30 @@ function validateWorkspace(item) {
   };
 }
 
+function validateSquad(item, workspaceId) {
+  if (!item || typeof item !== 'object' || typeof item.id !== 'string'
+    || typeof item.name !== 'string') {
+    throw new Error('Multica returned an invalid squad');
+  }
+  return {
+    ...structuredClone(item),
+    workspace_id: String(item.workspace_id || workspaceId || ''),
+    member_count: Math.max(0, Number(item.member_count || 0)),
+  };
+}
+
 function validateIssue(item) {
   if (!item || typeof item !== 'object' || typeof item.id !== 'string'
     || typeof item.identifier !== 'string' || typeof item.workspace_id !== 'string') {
     throw new Error('Multica returned an invalid issue');
+  }
+  return structuredClone(item);
+}
+
+function validateIssueRun(item) {
+  if (!item || typeof item !== 'object' || typeof item.id !== 'string'
+    || typeof item.status !== 'string') {
+    throw new Error('Multica returned an invalid issue run');
   }
   return structuredClone(item);
 }
@@ -125,6 +145,20 @@ export class MulticaClient {
     });
     if (!Array.isArray(result)) throw new Error('Multica workspace list must be an array');
     return result.map(validateWorkspace);
+  }
+
+  async listSquads(workspaceId) {
+    const targetWorkspace = requiredText(
+      workspaceId || this.defaultWorkspaceId,
+      'Workspace ID',
+      200,
+    );
+    const result = await this.runJson(['squad', 'list', '--output', 'json'], {
+      workspaceId: targetWorkspace,
+      operation: 'squad list',
+    });
+    if (!Array.isArray(result)) throw new Error('Multica squad list must be an array');
+    return result.map(item => validateSquad(item, targetWorkspace));
   }
 
   async resolveWorkspace(reference = '') {
@@ -235,6 +269,16 @@ export class MulticaClient {
       ...(matchedIssue?.workspace_name ? { workspace_name: matchedIssue.workspace_name } : {}),
       ...(matchedIssue?.workspace_slug ? { workspace_slug: matchedIssue.workspace_slug } : {}),
     };
+  }
+
+  async listIssueRuns(reference, workspaceId = '') {
+    const normalized = requiredText(reference, 'Issue reference', 200);
+    const result = await this.runJson(
+      ['issue', 'runs', normalized, '--output', 'json'],
+      { workspaceId, operation: 'issue runs', retries: 1 },
+    );
+    if (!Array.isArray(result)) throw new Error('Multica issue runs must be an array');
+    return result.map(validateIssueRun);
   }
 
   async createIssue({

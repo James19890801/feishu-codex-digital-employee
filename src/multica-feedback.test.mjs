@@ -155,7 +155,28 @@ const forgedSelfChatContext = {
       chatId: nonOwnerContext.chatId,
       senderId: nonOwnerContext.senderId,
       chatType: 'p2p',
+      channel: 'dingtalk',
     }]);
+    const origin = test.state.multicaIssueOrigin('issue-1');
+    assert.ok(origin, 'feedback-created Issue must retain its originating IM route');
+    assert.deepEqual({
+      issueId: origin.issueId,
+      chatId: origin.chatId,
+      senderId: origin.senderId,
+      chatType: origin.chatType,
+      channel: origin.channel,
+    }, {
+      issueId: 'issue-1',
+      chatId: nonOwnerContext.chatId,
+      senderId: nonOwnerContext.senderId,
+      chatType: 'p2p',
+      channel: 'dingtalk',
+    });
+    assert.equal(
+      test.state.conversationIssue(nonOwnerContext.chatId, nonOwnerContext.senderId)?.identifier,
+      'MYS-1',
+      'feedback-created Issues must become the active Issue in their source conversation',
+    );
 
     const replay = await test.workflow.register(
       started.pending,

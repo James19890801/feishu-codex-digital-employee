@@ -9,7 +9,7 @@
   "actionItemDocumentToken": "",
   "digitalTwinLabel": "",
   "eventTransport": "lark-cli",
-  "pollIntervalMs": 5000,
+  "pollIntervalMs": 15000,
   "pollOverlapMs": 180000,
   "pollInitialLookbackMs": 900000,
   "pollMaxCatchupMs": 86400000,

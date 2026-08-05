@@ -181,7 +181,7 @@ export function pollFailureDelayMs(error, failures, {
   ].join(' ').toLowerCase();
   const rateLimited = /too many request|rate.?limit|http\s*429|\b429\b/.test(detail);
   const baseDelay = rateLimited
-    ? 60_000
+    ? Math.min(5 * 60_000, 60_000 * (2 ** Math.max(0, Math.min(3, Number(failures) - 1))))
     : Math.max(
         Math.max(1_000, Number(baseIntervalMs) || 5_000),
         1_000 * (2 ** Math.min(Math.max(1, Number(failures) || 1), 9)),

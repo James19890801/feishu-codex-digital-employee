@@ -46,10 +46,13 @@ function previewValue(key, value) {
 
 function requireContext(context) {
   if (!context?.chatId) throw new Error('IM chat context is required');
+  const configuredChannel = String(context.metadata?.channel || '').trim().toLowerCase();
+  const prefixedChannel = String(context.chatId).match(/^(dingtalk|wecom|wechat):/)?.[1];
   return {
     chatId: String(context.chatId),
     senderId: String(context.senderId || ''),
     chatType: String(context.chatType || ''),
+    channel: configuredChannel || prefixedChannel || 'feishu',
   };
 }
 
@@ -100,11 +103,21 @@ export class MulticaCapability {
   follow(issue, context) {
     this.state.subscribeMulticaIssue(issue.id, context.chatId, context.senderId, {
       chatType: context.chatType,
+      channel: context.channel,
     });
+    this.state.bindConversationIssue?.(context.chatId, context.senderId, issue);
   }
 
-  cacheAndFollow(issue, context) {
+  cacheAndFollow(issue, context, { bindOrigin = false } = {}) {
     this.state.upsertMulticaIssue(issue);
+    if (bindOrigin) {
+      this.state.bindMulticaIssueOrigin(issue.id, {
+        chatId: context.chatId,
+        senderId: context.senderId,
+        chatType: context.chatType,
+        channel: context.channel,
+      });
+    }
     this.follow(issue, context);
   }
 
@@ -179,6 +192,7 @@ export class MulticaCapability {
     if (plan.action === 'sync_here') {
       this.state.subscribeMulticaGlobal(context.chatId, context.senderId, {
         chatType: context.chatType,
+        channel: context.channel,
       });
       return {
         kind: 'reply',
@@ -265,7 +279,7 @@ export class MulticaCapability {
         workspace_name: pending.resolvedWorkspaceName,
         workspace_slug: pending.resolvedWorkspaceSlug,
       };
-      this.cacheAndFollow(decoratedIssue, context);
+      this.cacheAndFollow(decoratedIssue, context, { bindOrigin: true });
       return {
         kind: 'reply',
         text: `Issue 已创建：\n${issueLines(decoratedIssue, {

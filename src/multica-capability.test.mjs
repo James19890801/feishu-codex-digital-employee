@@ -5,6 +5,8 @@ import { isAuthorizedMulticaOwner } from './multica-access.mjs';
 const subscriptions = [];
 const globalSubscriptions = [];
 const cached = [];
+const origins = new Map();
+const conversationIssues = [];
 const state = {
   subscribeMulticaIssue: (issueId, chatId, senderId, options) => {
     subscriptions.push({ issueId, chatId, senderId, options });
@@ -15,6 +17,15 @@ const state = {
   },
   unsubscribeMulticaGlobal: () => {},
   upsertMulticaIssue: issue => cached.push(issue),
+  bindMulticaIssueOrigin: (issueId, value) => {
+    if (origins.has(issueId)) return false;
+    origins.set(issueId, { issueId, ...value });
+    return true;
+  },
+  multicaIssueOrigin: issueId => origins.get(issueId) || null,
+  bindConversationIssue: (chatId, senderId, issue) => {
+    conversationIssues.push({ chatId, senderId, issue: structuredClone(issue) });
+  },
 };
 const baseIssue = {
   id: 'issue-1',
@@ -112,7 +123,7 @@ assert.deepEqual(subscriptions[0], {
   issueId: 'issue-1',
   chatId: 'chat-1',
   senderId: 'ou_owner',
-  options: { chatType: 'p2p' },
+  options: { chatType: 'p2p', channel: 'feishu' },
 });
 
 const searchResult = await capability.execute({
@@ -133,6 +144,7 @@ assert.deepEqual(globalSubscriptions[0], {
   chatId: 'chat-1',
   senderId: 'ou_owner',
   chatType: 'p2p',
+  channel: 'feishu',
 });
 
 const createPreview = await capability.prepareMutation({
@@ -156,6 +168,15 @@ assert.match(createResult.text, /MYS-2/);
 assert.match(createResult.text, /https:\/\/multica\.ai\/my-space\/issues\/MYS-2/);
 assert.equal(cached.some(item => item.identifier === 'MYS-2'), true);
 assert.equal(subscriptions.some(item => item.issueId === 'issue-new'), true);
+assert.deepEqual(state.multicaIssueOrigin('issue-new'), {
+  issueId: 'issue-new',
+  chatId: 'chat-1',
+  senderId: 'ou_owner',
+  chatType: 'p2p',
+  channel: 'feishu',
+});
+assert.equal(conversationIssues.at(-1).issue.identifier, 'MYS-2');
+assert.equal(conversationIssues.at(-1).chatId, 'chat-1');
 
 const unauthorizedContext = {
   ...context,
