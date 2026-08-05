@@ -63,6 +63,17 @@ git diff --check
 - 审计仅记录成功文档数、失败数、not-found 和 unavailable 布尔值，不记录正文或凭证。
 - 功能保持只读，不修改文档、权限或对外转发。
 
-## 尚待同次交付完成的运行态证据
+## 运行态部署验证
 
-本记录提交后将从主项目目录合并并重装 LaunchAgent，再执行运行态健康检查和 Codeup 远端 SHA 回读。若运行态或远端回读失败，不得把本次交付报告为完成。
+- 从主项目目录执行 `scripts/install-service.sh`，LaunchAgent 重启成功。
+- LaunchAgent `WorkingDirectory` 与入口文件均指向主项目目录，不指向隔离工作树。
+- `launchctl` 状态为 `running`，进程已启动且没有历史退出码。
+- `npm run health` 退出码为 0：`healthy=true`、`issues=[]`、SQLite integrity 为 `ok`，Codex proxy 可达。
+- 钉钉通道：`enabled=true`、`installed=true`、`authenticated=true`、`connected=true`、`identityMode=user`。
+- 飞书通道在本部署中为禁用状态。
+
+遗留的 `npm run event-health` 是飞书专用检查，固定调用本机不存在的 `lark-cli`，因此以 `ENOENT` 退出。该脚本没有检查钉钉；钉钉事件流状态由通用健康检查确认已连接。此项作为非阻断遗留检查缺口保留，不将其记为通过。
+
+## Codeup 回读
+
+Codeup 推送后必须确认同名远端分支 SHA 与本地 HEAD 完全一致；远端回读结果在最终交付回复中报告，不记录访问凭证。
