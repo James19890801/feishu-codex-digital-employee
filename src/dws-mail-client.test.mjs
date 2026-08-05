@@ -37,6 +37,38 @@ assert.deepEqual(calls.at(-1).args, [
   '--profile', 'corp:user', 'mail', 'mailbox', 'list', '--format', 'json',
 ]);
 
+responses.push({ success: true, result: { users: [{ id: 'u1', email: 'zhang@example.com', name: '张三' }] } });
+assert.deepEqual(await client.searchMailUsers({ email: 'owner@example.com', keyword: '张三', limit: 10 }), [
+  { id: 'u1', email: 'zhang@example.com', name: '张三' },
+]);
+assert.deepEqual(calls.at(-1).args, [
+  '--profile', 'corp:user', 'mail', 'user', 'search', '--email', 'owner@example.com',
+  '--keyword', '张三', '--limit', '10', '--format', 'json',
+]);
+
+responses.push({ success: true, result: { users: [{ userId: 'u2', email: 'li@example.com', name: '李四' }] } });
+assert.deepEqual(await client.searchContactUsers({ query: '李四' }), [
+  { id: 'u2', email: 'li@example.com', name: '李四' },
+]);
+
+responses.push({ success: true, result: { messageId: 'reply-1', internetMessageId: '<reply@example.com>' } });
+await client.replyMessage({ from: 'owner@example.com', id: 'message-1', content: '收到' });
+assert.deepEqual(calls.at(-1).args, [
+  '--profile', 'corp:user', 'mail', 'message', 'reply', '--from', 'owner@example.com',
+  '--id', 'message-1', '--content', '收到', '--yes', '--format', 'json',
+]);
+
+responses.push({ success: true, result: { messageId: 'reply-all-1' } });
+await client.replyAllMessage({ from: 'owner@example.com', id: 'message-1', content: '谢谢大家' });
+assert.equal(calls.at(-1).args.includes('reply-all'), true);
+
+responses.push({ success: true, result: { messageId: 'forward-1' } });
+await client.forwardMessage({ from: 'owner@example.com', id: 'message-1', to: ['li@example.com'], content: '请看' });
+assert.deepEqual(calls.at(-1).args, [
+  '--profile', 'corp:user', 'mail', 'message', 'forward', '--from', 'owner@example.com',
+  '--id', 'message-1', '--to', 'li@example.com', '--content', '请看', '--yes', '--format', 'json',
+]);
+
 responses.push({
   success: true,
   result: {

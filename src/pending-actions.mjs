@@ -1,5 +1,6 @@
 const KINDS = new Set([
   'task', 'calendar', 'task_batch', 'multica', 'multica_feedback', 'a1_requirement',
+  'mail_write',
 ]);
 
 function revive(kind, value) {
@@ -24,9 +25,10 @@ function revive(kind, value) {
 }
 
 export class PendingActionStore {
-  constructor(state, { ttlMs = 24 * 60 * 60_000 } = {}) {
+  constructor(state, { ttlMs = 24 * 60 * 60_000, kindTtlMs = {} } = {}) {
     this.state = state;
     this.ttlMs = ttlMs;
+    this.kindTtlMs = { ...kindTtlMs };
   }
 
   key(kind, chatId, senderId) {
@@ -36,7 +38,7 @@ export class PendingActionStore {
 
   set(kind, chatId, senderId, value, nowMs = Date.now()) {
     this.state.set('pending_action', this.key(kind, chatId, senderId), {
-      expiresAt: nowMs + this.ttlMs,
+      expiresAt: nowMs + (this.kindTtlMs[kind] || this.ttlMs),
       value,
     });
   }

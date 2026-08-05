@@ -8,7 +8,10 @@ import { AgentState } from './state.mjs';
 const dir = mkdtempSync(join(tmpdir(), 'xiaozhao-pending-'));
 try {
   const state = new AgentState(join(dir, 'state.sqlite'));
-  const pending = new PendingActionStore(state, { ttlMs: 60_000 });
+  const pending = new PendingActionStore(state, {
+    ttlMs: 60_000,
+    kindTtlMs: { mail_write: 15 * 60_000 },
+  });
   const due = new Date('2026-07-30T03:00:00.000Z');
   pending.set('task', 'oc_1', 'ou_1', { summary: '整理材料', due }, 1_000);
   const restored = pending.get('task', 'oc_1', 'ou_1', 30_000);
@@ -54,6 +57,21 @@ try {
       4_001,
     ).originalRequest,
     '创建一个培训课件 Issue',
+  );
+
+  pending.set('mail_write', 'dingtalk:user:owner', 'dingtalk:owner', {
+    operation: 'send',
+    to: ['target@example.com'],
+    subject: '周报',
+    content: '完成 A',
+  }, 5_000);
+  assert.equal(
+    pending.get('mail_write', 'dingtalk:user:owner', 'dingtalk:owner', 5_000 + 15 * 60_000 - 1).subject,
+    '周报',
+  );
+  assert.equal(
+    pending.get('mail_write', 'dingtalk:user:owner', 'dingtalk:owner', 5_000 + 15 * 60_000 + 1),
+    null,
   );
   console.log('PENDING_ACTIONS_TEST_OK');
 } finally {

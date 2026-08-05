@@ -110,6 +110,19 @@ function normalizeWrite(root) {
   };
 }
 
+function normalizeUsers(root) {
+  const body = unwrap(root);
+  const items = body.users || body.items || body.list || [];
+  if (!Array.isArray(items)) {
+    throw new DwsMailError('DWS user response has no user list', 'DWS_MAIL_INVALID_RESPONSE');
+  }
+  return items.map(item => ({
+    id: String(item?.id || item?.userId || item?.userid || '').trim(),
+    email: String(item?.email || item?.mail || '').trim(),
+    name: String(item?.name || item?.nickname || item?.displayName || '').trim(),
+  })).filter(item => item.id || item.email);
+}
+
 export function normalizeDeliveryStatus(root) {
   const value = String(
     root?.result?.message?.sendStatus
@@ -245,6 +258,21 @@ export class DwsMailClient {
     ], normalizeMessage);
   }
 
+  searchMailUsers({ email, keyword, limit = 10 } = {}) {
+    return this._run('user_search', [
+      'mail', 'user', 'search',
+      '--email', required(email, 'email'),
+      '--keyword', required(keyword, 'user keyword'),
+      '--limit', String(boundedLimit(limit)),
+    ], normalizeUsers);
+  }
+
+  searchContactUsers({ query } = {}) {
+    return this._run('contact_search', [
+      'contact', 'user', 'search', '--query', required(query, 'contact query'),
+    ], normalizeUsers);
+  }
+
   sendMessage({ from, to = [], cc = [], subject, content } = {}) {
     const recipientsTo = (Array.isArray(to) ? to : [to]).map(String).map(value => value.trim()).filter(Boolean);
     const recipientsCc = (Array.isArray(cc) ? cc : [cc]).map(String).map(value => value.trim()).filter(Boolean);
@@ -259,6 +287,35 @@ export class DwsMailClient {
       '--subject', required(subject, 'subject'),
       '--content', required(content, 'content'),
       '--yes',
+    ], normalizeWrite);
+  }
+
+  replyMessage({ from, id, content, subject = '' } = {}) {
+    return this._run('reply', [
+      'mail', 'message', 'reply', '--from', required(from, 'sender'),
+      '--id', required(id, 'message id'),
+      ...(subject ? ['--subject', String(subject)] : []),
+      '--content', required(content, 'content'), '--yes',
+    ], normalizeWrite);
+  }
+
+  replyAllMessage({ from, id, content, subject = '' } = {}) {
+    return this._run('reply_all', [
+      'mail', 'message', 'reply-all', '--from', required(from, 'sender'),
+      '--id', required(id, 'message id'),
+      ...(subject ? ['--subject', String(subject)] : []),
+      '--content', required(content, 'content'), '--yes',
+    ], normalizeWrite);
+  }
+
+  forwardMessage({ from, id, to = [], content = '', subject = '' } = {}) {
+    const recipientList = (Array.isArray(to) ? to : [to]).map(String).map(value => value.trim()).filter(Boolean);
+    if (!recipientList.length) throw new DwsMailError('DWS mail recipients are required', 'DWS_MAIL_INVALID_INPUT');
+    return this._run('forward', [
+      'mail', 'message', 'forward', '--from', required(from, 'sender'),
+      '--id', required(id, 'message id'), '--to', recipientList.join(','),
+      ...(subject ? ['--subject', String(subject)] : []),
+      ...(content ? ['--content', String(content)] : []), '--yes',
     ], normalizeWrite);
   }
 
