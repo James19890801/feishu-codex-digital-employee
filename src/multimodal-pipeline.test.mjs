@@ -101,4 +101,17 @@ assert.deepEqual(await readPublicWebContext('https://docs.example.test/one', {
   readPage: async () => { throw new Error('must not run'); },
 }), { context: '', pages: [], failures: [] });
 
+const internalDocumentReads = [];
+assert.deepEqual(await readPublicWebContext(
+  'https://alidocs.dingtalk.com/i/nodes/nodeABC123',
+  {
+    enabled: true,
+    readPage: async url => {
+      internalDocumentReads.push(url);
+      throw new Error('DingTalk document must use DWS');
+    },
+  },
+), { context: '', pages: [], failures: [] });
+assert.deepEqual(internalDocumentReads, []);
+
 console.log('MULTIMODAL_PIPELINE_TEST_OK');

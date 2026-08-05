@@ -14,6 +14,14 @@ assert.deepEqual(extractHttpUrls(
   '先看 https://one.example/a，再看 https://one.example/a，最后 https://two.example/b。',
   2,
 ), ['https://one.example/a', 'https://two.example/b']);
+assert.deepEqual(extractHttpUrls(
+  '文档 https://alidocs.dingtalk.com/i/nodes/nodeABC123 官网 https://example.com/guide',
+  2,
+), ['https://example.com/guide']);
+assert.deepEqual(extractHttpUrls(
+  '伪造地址 https://alidocs.dingtalk.com.evil.test/i/nodes/nodeABC123',
+  2,
+), ['https://alidocs.dingtalk.com.evil.test/i/nodes/nodeABC123']);
 assert.equal(isPublicAddress('127.0.0.1'), false);
 assert.equal(isPublicAddress('169.254.169.254'), false);
 assert.equal(isPublicAddress('10.0.0.8'), false);

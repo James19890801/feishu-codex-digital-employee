@@ -10,6 +10,17 @@ const ALLOWED_CONTENT_TYPES = new Set([
 ]);
 const TRAILING_PUNCTUATION = /[，。！？；：、）】》”’.,!?;:)\]}>'"]+$/;
 
+function isDingTalkDocumentUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    return url.protocol === 'https:'
+      && url.hostname.toLowerCase() === 'alidocs.dingtalk.com'
+      && /^\/i\/nodes\/[A-Za-z0-9_-]{8,256}\/?$/u.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
 function ipv4Parts(address) {
   const parts = String(address).split('.').map(Number);
   return parts.length === 4 && parts.every(part => Number.isInteger(part) && part >= 0 && part <= 255)
@@ -49,6 +60,7 @@ export function extractHttpUrls(text = '', limit = 3) {
   const matches = String(text || '').match(/https?:\/\/[^\s<>，。！？；：、（）【】《》“”‘’]+/gi) || [];
   return [...new Set(matches.map(value => value.replace(TRAILING_PUNCTUATION, '')))]
     .filter(Boolean)
+    .filter(value => !isDingTalkDocumentUrl(value))
     .slice(0, Math.max(0, Number(limit) || 0));
 }
 
