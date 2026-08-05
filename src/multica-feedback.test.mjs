@@ -172,6 +172,11 @@ const forgedSelfChatContext = {
       chatType: 'p2p',
       channel: 'dingtalk',
     });
+    assert.equal(
+      test.state.conversationIssue(nonOwnerContext.chatId, nonOwnerContext.senderId)?.identifier,
+      'MYS-1',
+      'feedback-created Issues must become the active Issue in their source conversation',
+    );
 
     const replay = await test.workflow.register(
       started.pending,

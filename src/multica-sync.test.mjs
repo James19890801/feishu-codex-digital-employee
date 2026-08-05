@@ -26,11 +26,25 @@ try {
     updated_at: '2026-07-30T10:00:00Z',
   };
   let issues = [issue1];
+  let runs = [];
   const notices = [];
   const audits = [];
+  const statusUpdates = [];
   let failChat = '';
   const synchronizer = new MulticaSynchronizer({
-    client: { listAllIssues: async () => structuredClone(issues) },
+    client: {
+      listAllIssues: async () => structuredClone(issues),
+      listIssueRuns: async () => structuredClone(runs),
+      updateIssue: async (id, fields) => {
+        statusUpdates.push({ id, fields: structuredClone(fields) });
+        issues = issues.map(issue => issue.id === id ? {
+          ...issue,
+          ...fields,
+          updated_at: '2026-07-30T10:01:11Z',
+        } : issue);
+        return structuredClone(issues.find(issue => issue.id === id));
+      },
+    },
     state,
     ownerRecipient: {
       chatId: 'dingtalk:user:owner-open-id',
@@ -63,6 +77,11 @@ try {
     chatType: 'group',
     channel: 'feishu',
   });
+  runs = [{
+    id: 'run-1',
+    status: 'QUEUED',
+    created_at: '2026-07-30T10:00:30Z',
+  }];
   issues = [{
     ...issue1,
     status: 'in_progress',
@@ -89,6 +108,22 @@ try {
   const unchanged = await synchronizer.cycle();
   assert.equal(unchanged.changes, 0);
   assert.equal(unchanged.notified, 0);
+
+  runs = [{
+    id: 'run-1',
+    status: 'COMPLETED',
+    created_at: '2026-07-30T10:00:30Z',
+    completed_at: '2026-07-30T10:01:10Z',
+    result: { output: '已交付报名提升方案。' },
+  }];
+  const runCompleted = await synchronizer.cycle();
+  assert.equal(runCompleted.changes, 0);
+  assert.equal(runCompleted.runChanges, 1);
+  assert.equal(runCompleted.notified, 2);
+  assert.equal(notices.filter(item => /专家执行/.test(item.text)).length, 2);
+  assert.equal(statusUpdates.at(-1).fields.status, 'done');
+  assert.equal(issues[0].status, 'done');
+  notices.length = 0;
 
   issues = [{
     ...issues[0],
@@ -118,7 +153,10 @@ try {
     availableAt: new Date().toISOString(),
   });
   const suppressedSynchronizer = new MulticaSynchronizer({
-    client: { listAllIssues: async () => structuredClone(issues) },
+    client: {
+      listAllIssues: async () => structuredClone(issues),
+      listIssueRuns: async () => structuredClone(runs),
+    },
     state,
     notify: async () => ({ suppressed: true, reason: 'self_chat_circuit_open' }),
   });
@@ -177,7 +215,10 @@ try {
   });
   failChat = 'chat-dead';
   const deadSynchronizer = new MulticaSynchronizer({
-    client: { listAllIssues: async () => structuredClone(issues) },
+    client: {
+      listAllIssues: async () => structuredClone(issues),
+      listIssueRuns: async () => structuredClone(runs),
+    },
     state,
     notify: async () => {
       throw new Error('permanent Feishu failure');

@@ -105,6 +105,7 @@ export class MulticaCapability {
       chatType: context.chatType,
       channel: context.channel,
     });
+    this.state.bindConversationIssue?.(context.chatId, context.senderId, issue);
   }
 
   cacheAndFollow(issue, context, { bindOrigin = false } = {}) {

@@ -11,6 +11,32 @@ try {
   state.remember('chat', 'user', 'user', '第一条');
   state.remember('chat', 'user', 'assistant', '第二条');
   assert.deepEqual(state.history('chat', 'user').map(x => x.content), ['第一条', '第二条']);
+  for (let index = 3; index <= 35; index += 1) {
+    state.remember('chat', 'user', index % 2 ? 'user' : 'assistant', `第${index}条`);
+  }
+  assert.equal(state.history('chat', 'user').length, 30, '每轮默认应取最近 30 条会话');
+  assert.equal(state.history('chat', 'user')[0].content, '第6条');
+  state.remember('chat', 'user', 'user', '只记一次', { sourceMessageId: 'message-once' });
+  state.remember('chat', 'user', 'user', '只记一次', { sourceMessageId: 'message-once' });
+  assert.equal(
+    state.history('chat', 'user', 120).filter(item => item.content === '只记一次').length,
+    1,
+    '轮询和 WebSocket 重复投递不能重复写入记忆',
+  );
+  state.bindConversationIssue('chat', 'user', {
+    id: 'issue-active',
+    identifier: 'MYS-8',
+    title: '制定北京公开课报名人数提升策略',
+    description: '当前 20 人，目标 40 人。',
+    workspace_id: 'ws-1',
+  });
+  assert.deepEqual(state.conversationIssue('chat', 'user'), {
+    id: 'issue-active',
+    identifier: 'MYS-8',
+    title: '制定北京公开课报名人数提升策略',
+    description: '当前 20 人，目标 40 人。',
+    workspace_id: 'ws-1',
+  });
   state.set('chat', 'paused', true);
   assert.equal(state.get('chat', 'paused'), true);
   state.audit('test', { chatId: 'chat', detail: { ok: true } });
@@ -200,6 +226,37 @@ try {
     channel: 'feishu',
     createdAt: now,
   });
+  assert.deepEqual(state.trackedMulticaIssueIds(), [issue.id]);
+  const runBaseline = state.upsertMulticaIssueRunSummary(issue.id, {
+    state: 'queued',
+    fingerprint: 'fingerprint-queued',
+    runCount: 1,
+    latestUpdatedAt: now,
+  }, now);
+  assert.equal(runBaseline.isNew, true);
+  assert.equal(runBaseline.changed, false);
+  const runUnchanged = state.upsertMulticaIssueRunSummary(issue.id, {
+    state: 'queued',
+    fingerprint: 'fingerprint-queued',
+    runCount: 1,
+    latestUpdatedAt: now,
+  }, now);
+  assert.equal(runUnchanged.changed, false);
+  const runChanged = state.upsertMulticaIssueRunSummary(issue.id, {
+    state: 'completed',
+    fingerprint: 'fingerprint-completed',
+    runCount: 2,
+    latestUpdatedAt: '2026-07-29T14:05:00.000Z',
+  }, '2026-07-29T14:05:00.000Z');
+  assert.equal(runChanged.isNew, false);
+  assert.equal(runChanged.changed, true);
+  assert.equal(runChanged.before.state, 'queued');
+  assert.equal(runChanged.after.state, 'completed');
+  assert.equal(
+    state.conversationIssue('chat-origin-feishu', 'user-owner')?.identifier,
+    'MYS-1',
+    'existing Issue origins must backfill active conversation context after upgrades',
+  );
 
   assert.equal(state.bindMulticaFeedbackRegistration({
     registrationKey: 'feedback-key-1',

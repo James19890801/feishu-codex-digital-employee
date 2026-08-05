@@ -55,6 +55,16 @@ try {
     ).originalRequest,
     '创建一个培训课件 Issue',
   );
+
+  pending.set('multica_create_route', 'oc_owner', 'ou_owner', {
+    stage: 'workspace',
+    plan: { action: 'create', fields: { title: '报名提升方案' } },
+    workspaces: [{ id: 'ws-1', name: '人机协同空间' }],
+  }, 5_000);
+  assert.equal(
+    pending.get('multica_create_route', 'oc_owner', 'ou_owner', 5_001).stage,
+    'workspace',
+  );
   console.log('PENDING_ACTIONS_TEST_OK');
 } finally {
   rmSync(dir, { recursive: true, force: true });

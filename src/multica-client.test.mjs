@@ -44,6 +44,14 @@ const runner = async (command, args, options) => {
       stderr: '',
     };
   }
+  if (args.includes('squad') && args.includes('list')) {
+    return {
+      stdout: JSON.stringify([
+        { id: 'squad-1', name: '詹老师的开发团伙', workspace_id: 'ws-1', member_count: 4 },
+      ]),
+      stderr: '',
+    };
+  }
   if (args.includes('issue') && args.includes('list')) {
     const workspaceId = args[args.indexOf('--workspace-id') + 1];
     const offset = args[args.indexOf('--offset') + 1];
@@ -62,6 +70,21 @@ const runner = async (command, args, options) => {
       stderr: '',
     };
   }
+  if (args.includes('issue') && args.includes('runs')) {
+    return {
+      stdout: JSON.stringify([
+        {
+          id: 'run-1',
+          issue_id: 'issue-1',
+          status: 'COMPLETED',
+          created_at: '2026-08-05T16:17:57.000Z',
+          completed_at: '2026-08-05T16:19:16.000Z',
+          result: { output: '负责人已接单并委派需求管理数字人。' },
+        },
+      ]),
+      stderr: '',
+    };
+  }
   throw new Error(`unexpected command: ${args.join(' ')}`);
 };
 
@@ -75,6 +98,17 @@ const client = new MulticaClient({
 
 const workspaces = await client.listWorkspaces();
 assert.deepEqual(workspaces.map(item => item.id), ['ws-1', 'ws-2']);
+const squads = await client.listSquads('ws-1');
+assert.deepEqual(squads, [{
+  id: 'squad-1',
+  name: '詹老师的开发团伙',
+  workspace_id: 'ws-1',
+  member_count: 4,
+}]);
+const squadCall = calls.find(call => call.args.includes('squad'));
+assert.deepEqual(squadCall.args.slice(0, 4), [
+  '--profile', 'desktop-api.multica.ai', '--workspace-id', 'ws-1',
+]);
 
 const issues = await client.listAllIssues();
 assert.deepEqual(issues.map(item => item.identifier), ['MYS-1', 'MYS-2', 'MYS-3', 'WS-15']);
@@ -83,12 +117,21 @@ assert.equal(calls.filter(call => call.args.includes('list') && call.args.includ
 const search = await client.searchIssues('growth');
 assert.deepEqual(search.map(item => item.identifier), ['WS-15']);
 
+const runs = await client.listIssueRuns('issue-1', 'ws-1');
+assert.equal(runs[0].status, 'COMPLETED');
+const runsCall = calls.find(call => call.args.includes('runs'));
+assert.deepEqual(runsCall.args, [
+  '--profile', 'desktop-api.multica.ai', '--workspace-id', 'ws-1',
+  'issue', 'runs', 'issue-1', '--output', 'json',
+]);
+
 const created = await client.createIssue({
   workspaceId: 'ws-1',
   title: 'New commercial task',
   description: 'Line 1\nLine 2',
   status: 'todo',
   priority: 'high',
+  assigneeId: 'squad-1',
 });
 assert.equal(created.identifier, 'MYS-4');
 const createCall = calls.find(call => call.args.includes('create'));
@@ -96,6 +139,8 @@ assert.deepEqual(createCall.args.slice(0, 4), [
   '--profile', 'desktop-api.multica.ai', '--workspace-id', 'ws-1',
 ]);
 assert.equal(createCall.args.includes('--description-stdin'), true);
+assert.equal(createCall.args.includes('--assignee-id'), true);
+assert.equal(createCall.args.includes('squad-1'), true);
 assert.equal(createCall.args.includes('Line 1\nLine 2'), false);
 assert.equal(createCall.options.input, 'Line 1\nLine 2');
 

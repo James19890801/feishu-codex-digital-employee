@@ -254,7 +254,7 @@ const selfDirectMessage = {
       baseIntervalMs: 5_000,
       random: () => 0.5,
     }),
-    65_000,
+    245_000,
   );
   assert.equal(
     pollFailureDelayMs(new Error('temporary DNS failure'), 1, {

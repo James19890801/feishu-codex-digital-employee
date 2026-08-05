@@ -6,6 +6,7 @@ const subscriptions = [];
 const globalSubscriptions = [];
 const cached = [];
 const origins = new Map();
+const conversationIssues = [];
 const state = {
   subscribeMulticaIssue: (issueId, chatId, senderId, options) => {
     subscriptions.push({ issueId, chatId, senderId, options });
@@ -22,6 +23,9 @@ const state = {
     return true;
   },
   multicaIssueOrigin: issueId => origins.get(issueId) || null,
+  bindConversationIssue: (chatId, senderId, issue) => {
+    conversationIssues.push({ chatId, senderId, issue: structuredClone(issue) });
+  },
 };
 const baseIssue = {
   id: 'issue-1',
@@ -171,6 +175,8 @@ assert.deepEqual(state.multicaIssueOrigin('issue-new'), {
   chatType: 'p2p',
   channel: 'feishu',
 });
+assert.equal(conversationIssues.at(-1).issue.identifier, 'MYS-2');
+assert.equal(conversationIssues.at(-1).chatId, 'chat-1');
 
 const unauthorizedContext = {
   ...context,
