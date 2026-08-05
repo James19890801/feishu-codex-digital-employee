@@ -6,6 +6,7 @@ import {
   isMailConfirmation,
   parseMailIntent,
   parseMailWriteDraft,
+  redactMailAuditText,
 } from './mail-intent.mjs';
 
 const now = new Date('2026-08-05T03:00:00.000Z');
@@ -97,5 +98,8 @@ for (const value of ['确认', '确认发送。', '发送']) assert.equal(isMail
 for (const value of ['取消', '不发了！', '算了']) assert.equal(isMailCancellation(value), true);
 assert.equal(isMailConfirmation('确认创建日程'), false);
 assert.equal(isMailCancellation('取消日程'), false);
+assert.equal(redactMailAuditText('给 张三 发邮件，主题：薪酬，正文：机密内容'), '[mail request redacted]');
+assert.equal(redactMailAuditText('看看今天未读邮件'), '[mail request redacted]');
+assert.equal(redactMailAuditText('普通聊天'), '普通聊天');
 
 console.log('MAIL_INTENT_TEST_OK');

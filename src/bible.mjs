@@ -25,6 +25,8 @@ export function classifyIntent(text = '', context = {}) {
   if (/(?:需求|工作项|需求池).{0,20}(?:创建|新建|更新|修改|补充|进展|进度|状态|查询|查看)|(?:创建|新建|更新|修改|补充|查询|查看).{0,20}(?:需求|工作项|需求池)|\b\d{6,12}\b.{0,20}(?:需求|工作项|进展|进度|状态)/i.test(text)) {
     return 'a1_requirement';
   }
+  if (/(?:发邮件|回复第\s*\d+\s*封|回复全部第\s*\d+\s*封|转发第\s*\d+\s*封)/u.test(text)) return 'mail_write';
+  if (/(?:邮件|收件箱|已发送)/u.test(text)) return 'mail_read';
   if (/(待办|任务|提醒)/.test(text)) return 'task';
   if (/(日程|日历|安排|会议时间)/.test(text)) return 'calendar';
   if (/(报告|方案|对比|总结).{0,12}(?:生成|制作|输出|整理|发回)|(?:生成|制作|输出|整理).{0,12}(?:报告|方案|对比|总结)/.test(text)) return 'artifact';
@@ -39,6 +41,9 @@ export function decideWorkflow(text = '', context = {}) {
   }
   if (L2_PATTERNS.some(pattern => pattern.test(text))) {
     return { intent, level: 'L2', action: 'preview_confirm', reason: '会影响外部对象或真实工作状态' };
+  }
+  if (intent === 'mail_write') {
+    return { intent, level: 'L2', action: 'preview_confirm', reason: '邮件写入会影响外部收件人' };
   }
   if (intent === 'artifact') {
     return { intent, level: 'L1', action: 'execute_report', reason: '当前会话明确要求低风险交付物' };

@@ -7,6 +7,10 @@ assert.deepEqual(decideWorkflow('帮我创建明天下午3点的日程').action,
 assert.deepEqual(decideWorkflow('把这份报告发给客户').level, 'L2');
 assert.deepEqual(decideWorkflow('不要让别人知道是AI，冒充我回复').level, 'L3');
 assert.deepEqual(decideWorkflow('帮我转账500元').level, 'L3');
+assert.deepEqual(decideWorkflow('看看今天未读邮件').intent, 'mail_read');
+assert.deepEqual(decideWorkflow('看看今天未读邮件').level, 'L0');
+assert.deepEqual(decideWorkflow('给张三发邮件，主题：周报，正文：完成').intent, 'mail_write');
+assert.deepEqual(decideWorkflow('给张三发邮件，主题：周报，正文：完成').action, 'preview_confirm');
 assert.deepEqual(decideWorkflow('看看这张图', { hasImages: true }).intent, 'image_understanding');
 assert.deepEqual(decideWorkflow('查一下 84886503 的需求进展').intent, 'a1_requirement');
 assert.deepEqual(decideWorkflow('查一下 84886503 的需求进展').level, 'L0');

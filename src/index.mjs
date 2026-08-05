@@ -46,6 +46,9 @@ import {
 } from './automation-peer-guard.mjs';
 import { decideWorkflow, workflowInstruction } from './bible.mjs';
 import { PendingActionStore } from './pending-actions.mjs';
+import { DwsMailClient } from './dws-mail-client.mjs';
+import { MailWorkflow } from './mail-workflow.mjs';
+import { redactMailAuditText } from './mail-intent.mjs';
 import { rotateLogIfNeeded } from './log-maintenance.mjs';
 import { createVerifiedDatabaseBackup } from './database-backup.mjs';
 import { SerialKeyQueue } from './serial-key-queue.mjs';
@@ -257,7 +260,9 @@ const AI_RUNTIME_CLIENT = new AiRuntimeClient({
 const singletonLock = await acquireSingletonLock(join(WORKDIR, 'data', 'service.lock'));
 const state = new AgentState(STATE_PATH);
 const automationPeerGuard = new AutomationPeerGuard({ state });
-const pendingActions = new PendingActionStore(state);
+const pendingActions = new PendingActionStore(state, {
+  kindTtlMs: { mail_write: 15 * 60_000 },
+});
 const chatQueues = new SerialKeyQueue();
 const DINGTALK_PROFILE_USER_ID = String(config.dingtalkProfile || '').split(':').at(-1)?.trim() || '';
 const CONVERSATION_CONTEXT_CLIENT = config.dingtalkEnabled
@@ -278,6 +283,28 @@ const REPLY_CONTEXT_SERVICE = CONVERSATION_CONTEXT_CLIENT
   ? new ReplyContextService({
       contextClient: CONVERSATION_CONTEXT_CLIENT,
       ownerLabel: OPERATOR_PROFILE.ownerLabel,
+    })
+  : null;
+const DWS_MAIL_CLIENT = config.dingtalkEnabled
+  ? new DwsMailClient({
+      bin: config.dingtalkBin,
+      profile: config.dingtalkProfile,
+      transport: config.dingtalkTransport,
+      env: dingtalkProcessEnv(),
+      cwd: WORKDIR,
+      runner: runBufferedProcess,
+      timeoutMs: config.helperTimeoutMs,
+      audit: (event, detail) => state.audit(event, { detail }),
+    })
+  : null;
+const MAIL_WORKFLOW = DWS_MAIL_CLIENT
+  ? new MailWorkflow({
+      client: DWS_MAIL_CLIENT,
+      state,
+      pendingStore: pendingActions,
+      ownerIds: [config.dingtalkOwnerOpenId, DINGTALK_PROFILE_USER_ID]
+        .filter(Boolean)
+        .flatMap(value => [value, `dingtalk:${value}`]),
     })
   : null;
 const AUTHORIZED_CHAT_IDS = new Set(config.authorizedChatIds);
@@ -1638,7 +1665,10 @@ async function processIncoming(client, message, sender, metadata = {}) {
   } catch { return; }
   const cleanText = cleanTask(String(text || '').slice(0, 20_000));
   const senderOpenId = sender?.sender_id?.open_id || '';
-  audit('message_received', message, senderOpenId, { type: message.message_type, text: cleanText.slice(0, 300) });
+  audit('message_received', message, senderOpenId, {
+    type: message.message_type,
+    text: redactMailAuditText(cleanText).slice(0, 300),
+  });
 
   if (parseChannelChatId(message.chat_id)?.channel === 'dingtalk') {
     try {
@@ -1761,7 +1791,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
     chatType: message.chat_type,
     isOwner: senderOpenId === OWNER_OPEN_ID || metadata.selfChat === true,
     history: existingHistory,
-  })) {
+  }) && redactMailAuditText(cleanText) !== '[mail request redacted]') {
     const greeting = buildFirstTakeoverGreeting({ ownerLabel: OPERATOR_PROFILE.ownerLabel });
     remember(message.chat_id, senderOpenId, 'user', cleanText || `发送了${message.message_type}`);
     remember(message.chat_id, senderOpenId, 'assistant', greeting);
@@ -1818,6 +1848,38 @@ async function processIncoming(client, message, sender, metadata = {}) {
       detailed: senderOpenId === OWNER_OPEN_ID,
     });
     return;
+  }
+  if (MAIL_WORKFLOW) {
+    try {
+      const result = await MAIL_WORKFLOW.handle({
+        chatId: message.chat_id,
+        chatType: message.chat_type,
+        senderId: senderOpenId,
+        messageId: message.message_id,
+        text: cleanText,
+        metadata,
+      });
+      if (result.handled) {
+        await sendText(client, message.chat_id, result.text, `mail-${message.message_id}`);
+        audit('mail_workflow_handled', message, senderOpenId, {
+          sensitive: result.sensitive === true,
+          outcome: /成功/u.test(result.text) ? 'success' : 'handled',
+        });
+        return;
+      }
+    } catch (error) {
+      console.error(`[mail-workflow-error] ${message.message_id}:`, error);
+      await sendText(
+        client,
+        message.chat_id,
+        '邮件服务刚刚没有完成请求。为避免误读或重复发送，本次操作已停止，请稍后重试。',
+        `mail-error-${message.message_id}`,
+      );
+      audit('mail_workflow_failed', message, senderOpenId, {
+        error: processFailureSummary(error),
+      });
+      return;
+    }
   }
   if (isBareMention(cleanText, message.message_type)) {
     const answer = '我在，想让我帮你看什么？';

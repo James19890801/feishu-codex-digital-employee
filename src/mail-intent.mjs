@@ -96,3 +96,10 @@ export function isMailConfirmation(input) {
 export function isMailCancellation(input) {
   return /^(?:取消|不发了|算了)[。！!]?$/u.test(String(input).trim());
 }
+
+export function redactMailAuditText(input) {
+  const text = String(input || '');
+  return /(?:邮件|收件箱|已发送|回复第\s*\d+\s*封|转发第\s*\d+\s*封)/u.test(text)
+    ? '[mail request redacted]'
+    : text;
+}

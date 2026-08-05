@@ -23,6 +23,7 @@ import {
 import { isAuthorizedMulticaOwner } from './multica-access.mjs';
 import { notificationEvent } from './notification-policy.mjs';
 import { PendingActionStore } from './pending-actions.mjs';
+import { isAuthorizedMailOwner } from './mail-workflow.mjs';
 import { selectInboundMessages, shouldRetryMessage } from './polling.mjs';
 import { validateInboundPayload } from './reliability.mjs';
 import {
@@ -62,6 +63,26 @@ const identities = {
   ownerOpenId: 'ou_owner',
   dingtalkOwnerOpenId: 'dt_owner',
 };
+
+contract('mail-authorization', 'Can only the verified DingTalk Owner self-chat read mail?', () => {
+  const base = {
+    senderId: 'dingtalk:dt_owner', chatType: 'p2p',
+    metadata: { channel: 'dingtalk', selfChat: true },
+  };
+  assert.equal(isAuthorizedMailOwner(base, ['dingtalk:dt_owner']), true);
+  assert.equal(isAuthorizedMailOwner({ ...base, chatType: 'group' }, ['dingtalk:dt_owner']), false);
+  assert.equal(isAuthorizedMailOwner({ ...base, senderId: 'dingtalk:other' }, ['dingtalk:dt_owner']), false);
+});
+
+contract('mail-confirmation', 'Does mail confirmation use a 15-minute same-chat lease?', () => {
+  withState('james-acceptance-mail-', state => {
+    const pending = new PendingActionStore(state, { kindTtlMs: { mail_write: 15 * 60_000 } });
+    pending.set('mail_write', 'self-chat', 'owner', { operation: 'send' }, 1_000);
+    assert.equal(pending.get('mail_write', 'other-chat', 'owner', 2_000), null);
+    assert.equal(pending.get('mail_write', 'self-chat', 'other', 2_000), null);
+    assert.equal(pending.get('mail_write', 'self-chat', 'owner', 901_001), null);
+  });
+});
 
 contract('licensing', 'Does development mode preserve the existing service path?', async () => {
   const result = await evaluateLicenseGuard({ enforced: false });
