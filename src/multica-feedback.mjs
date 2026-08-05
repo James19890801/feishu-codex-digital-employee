@@ -160,8 +160,15 @@ export class MulticaFeedbackWorkflow {
 
   cacheAndFollow(issue, context) {
     this.state.upsertMulticaIssue(issue);
+    this.state.bindMulticaIssueOrigin(issue.id, {
+      chatId: context.chatId,
+      senderId: context.senderId,
+      chatType: context.chatType,
+      channel: sourceChannel(context),
+    });
     this.state.subscribeMulticaIssue(issue.id, context.chatId, context.senderId, {
       chatType: context.chatType,
+      channel: sourceChannel(context),
     });
   }
 

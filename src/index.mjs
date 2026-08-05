@@ -282,6 +282,7 @@ const MULTICA_SYNCHRONIZER = MULTICA_CLIENT
             chatId: `dingtalk:user:${config.dingtalkOwnerOpenId}`,
             senderId: `dingtalk:${config.dingtalkOwnerOpenId}`,
             chatType: 'p2p',
+            channel: 'dingtalk',
           }
         : null,
     })

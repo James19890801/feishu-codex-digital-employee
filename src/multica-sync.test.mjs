@@ -36,6 +36,7 @@ try {
       chatId: 'dingtalk:user:owner-open-id',
       senderId: 'dingtalk:owner-open-id',
       chatType: 'p2p',
+      channel: 'dingtalk',
     },
     notify: async (chatId, text, idempotencyKey, recipient) => {
       if (chatId === failChat) throw new Error('temporary Feishu failure');
@@ -48,9 +49,20 @@ try {
   assert.deepEqual(baseline, { baseline: true, scanned: 1, notified: 0, changes: 0 });
   assert.equal(notices.length, 0);
 
-  state.subscribeMulticaGlobal('chat-global', 'owner');
-  state.subscribeMulticaIssue('issue-1', 'chat-issue', 'user', { chatType: 'group' });
-  state.subscribeMulticaIssue('issue-1', 'chat-global', 'another-user');
+  state.subscribeMulticaGlobal('chat-global', 'owner', { channel: 'feishu' });
+  state.subscribeMulticaIssue('issue-1', 'chat-issue', 'user', {
+    chatType: 'group',
+    channel: 'feishu',
+  });
+  state.subscribeMulticaIssue('issue-1', 'chat-global', 'another-user', {
+    channel: 'feishu',
+  });
+  state.bindMulticaIssueOrigin('issue-1', {
+    chatId: 'chat-issue',
+    senderId: 'user',
+    chatType: 'group',
+    channel: 'feishu',
+  });
   issues = [{
     ...issue1,
     status: 'in_progress',
@@ -59,11 +71,10 @@ try {
   const changed = await synchronizer.cycle();
   assert.equal(changed.baseline, false);
   assert.equal(changed.changes, 1);
-  assert.equal(changed.notified, 3);
+  assert.equal(changed.notified, 2);
   assert.deepEqual(notices.map(item => item.chatId).sort(), [
     'chat-global',
     'chat-issue',
-    'dingtalk:user:owner-open-id',
   ]);
   assert.match(notices[0].text, /MYS-1/);
   assert.match(notices[0].text, /待处理 → 进行中/);
@@ -72,10 +83,7 @@ try {
     notices.find(item => item.chatId === 'chat-issue').recipient,
     { senderId: 'user', chatType: 'group' },
   );
-  assert.deepEqual(
-    notices.find(item => item.chatId === 'dingtalk:user:owner-open-id').recipient,
-    { senderId: 'dingtalk:owner-open-id', chatType: 'p2p' },
-  );
+  assert.equal(notices.some(item => item.chatId === 'dingtalk:user:owner-open-id'), false);
 
   notices.length = 0;
   const unchanged = await synchronizer.cycle();
@@ -90,7 +98,7 @@ try {
   failChat = 'chat-issue';
   const partiallyDelivered = await synchronizer.cycle();
   assert.equal(partiallyDelivered.changes, 1);
-  assert.equal(partiallyDelivered.notified, 2);
+  assert.equal(partiallyDelivered.notified, 1);
   assert.equal(partiallyDelivered.failed, 1);
   assert.equal(partiallyDelivered.pending, 1);
   failChat = '';
@@ -147,9 +155,8 @@ try {
   ];
   const created = await synchronizer.cycle();
   assert.equal(created.changes, 1);
-  assert.equal(created.notified, 2);
+  assert.equal(created.notified, 1);
   assert.deepEqual(notices.map(item => item.chatId).sort(), [
-    'chat-global',
     'dingtalk:user:owner-open-id',
   ]);
   const ownerNotice = notices.find(item => item.chatId === 'dingtalk:user:owner-open-id');

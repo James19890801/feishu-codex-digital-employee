@@ -85,6 +85,7 @@ export class AgentState {
         chat_id TEXT NOT NULL,
         sender_id TEXT NOT NULL,
         chat_type TEXT NOT NULL DEFAULT '',
+        channel TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         PRIMARY KEY(issue_id, chat_id, sender_id)
       );
@@ -92,8 +93,17 @@ export class AgentState {
         chat_id TEXT NOT NULL,
         sender_id TEXT NOT NULL,
         chat_type TEXT NOT NULL DEFAULT '',
+        channel TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         PRIMARY KEY(chat_id, sender_id)
+      );
+      CREATE TABLE IF NOT EXISTS multica_issue_origin (
+        issue_id TEXT PRIMARY KEY,
+        channel TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        chat_type TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS multica_notification_outbox (
         notification_key TEXT PRIMARY KEY,
@@ -173,6 +183,10 @@ export class AgentState {
       this.db.exec(`ALTER TABLE multica_issue_subscription
         ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''`);
     }
+    if (!issueSubscriptionColumns.has('channel')) {
+      this.db.exec(`ALTER TABLE multica_issue_subscription
+        ADD COLUMN channel TEXT NOT NULL DEFAULT ''`);
+    }
     const globalSubscriptionColumns = new Set(
       this.db.prepare('PRAGMA table_info(multica_global_subscription)')
         .all()
@@ -181,6 +195,10 @@ export class AgentState {
     if (!globalSubscriptionColumns.has('chat_type')) {
       this.db.exec(`ALTER TABLE multica_global_subscription
         ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!globalSubscriptionColumns.has('channel')) {
+      this.db.exec(`ALTER TABLE multica_global_subscription
+        ADD COLUMN channel TEXT NOT NULL DEFAULT ''`);
     }
   }
 
@@ -569,12 +587,14 @@ export class AgentState {
   subscribeMulticaIssue(issueId, chatId, senderId, options = {}) {
     const legacyCreatedAt = typeof options === 'string' ? options : '';
     const chatType = typeof options === 'object' ? String(options.chatType || '') : '';
+    const channel = typeof options === 'object' ? String(options.channel || '') : '';
     const createdAt = legacyCreatedAt || options.createdAt || new Date().toISOString();
     this.db.prepare(`INSERT INTO multica_issue_subscription
-      (issue_id, chat_id, sender_id, chat_type, created_at) VALUES (?, ?, ?, ?, ?)
+      (issue_id, chat_id, sender_id, chat_type, channel, created_at) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(issue_id, chat_id, sender_id) DO UPDATE SET
-        chat_type=CASE WHEN excluded.chat_type <> '' THEN excluded.chat_type ELSE chat_type END`)
-      .run(issueId, chatId, senderId || '', chatType, createdAt);
+        chat_type=CASE WHEN excluded.chat_type <> '' THEN excluded.chat_type ELSE chat_type END,
+        channel=CASE WHEN excluded.channel <> '' THEN excluded.channel ELSE channel END`)
+      .run(issueId, chatId, senderId || '', chatType, channel, createdAt);
   }
 
   unsubscribeMulticaIssue(issueId, chatId, senderId) {
@@ -584,25 +604,69 @@ export class AgentState {
   }
 
   multicaIssueSubscribers(issueId) {
-    return this.db.prepare(`SELECT chat_id, sender_id, chat_type
+    return this.db.prepare(`SELECT chat_id, sender_id, chat_type, channel
       FROM multica_issue_subscription WHERE issue_id = ? ORDER BY created_at, chat_id`)
       .all(issueId)
       .map(row => ({
         chatId: row.chat_id,
         senderId: row.sender_id,
         chatType: row.chat_type,
+        channel: row.channel,
       }));
+  }
+
+  bindMulticaIssueOrigin(issueId, {
+    channel,
+    chatId,
+    senderId = '',
+    chatType = '',
+    createdAt = new Date().toISOString(),
+  } = {}) {
+    const normalizedIssueId = String(issueId || '').trim();
+    const normalizedChannel = String(channel || '').trim().toLowerCase();
+    const normalizedChatId = String(chatId || '').trim();
+    if (!normalizedIssueId || !normalizedChannel || !normalizedChatId) {
+      throw new Error('Multica Issue origin requires issue, channel, and chat IDs');
+    }
+    return this.db.prepare(`INSERT OR IGNORE INTO multica_issue_origin
+      (issue_id, channel, chat_id, sender_id, chat_type, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(
+        normalizedIssueId,
+        normalizedChannel,
+        normalizedChatId,
+        String(senderId || ''),
+        String(chatType || ''),
+        createdAt,
+      ).changes === 1;
+  }
+
+  multicaIssueOrigin(issueId) {
+    const row = this.db.prepare(`SELECT issue_id, channel, chat_id, sender_id,
+      chat_type, created_at FROM multica_issue_origin WHERE issue_id = ?`)
+      .get(String(issueId || ''));
+    if (!row) return null;
+    return {
+      issueId: row.issue_id,
+      channel: row.channel,
+      chatId: row.chat_id,
+      senderId: row.sender_id,
+      chatType: row.chat_type,
+      createdAt: row.created_at,
+    };
   }
 
   subscribeMulticaGlobal(chatId, senderId, options = {}) {
     const legacyCreatedAt = typeof options === 'string' ? options : '';
     const chatType = typeof options === 'object' ? String(options.chatType || '') : '';
+    const channel = typeof options === 'object' ? String(options.channel || '') : '';
     const createdAt = legacyCreatedAt || options.createdAt || new Date().toISOString();
     this.db.prepare(`INSERT INTO multica_global_subscription
-      (chat_id, sender_id, chat_type, created_at) VALUES (?, ?, ?, ?)
+      (chat_id, sender_id, chat_type, channel, created_at) VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(chat_id, sender_id) DO UPDATE SET
-        chat_type=CASE WHEN excluded.chat_type <> '' THEN excluded.chat_type ELSE chat_type END`)
-      .run(chatId, senderId || '', chatType, createdAt);
+        chat_type=CASE WHEN excluded.chat_type <> '' THEN excluded.chat_type ELSE chat_type END,
+        channel=CASE WHEN excluded.channel <> '' THEN excluded.channel ELSE channel END`)
+      .run(chatId, senderId || '', chatType, channel, createdAt);
   }
 
   unsubscribeMulticaGlobal(chatId, senderId) {
@@ -611,13 +675,14 @@ export class AgentState {
   }
 
   multicaGlobalSubscribers() {
-    return this.db.prepare(`SELECT chat_id, sender_id, chat_type
+    return this.db.prepare(`SELECT chat_id, sender_id, chat_type, channel
       FROM multica_global_subscription ORDER BY created_at, chat_id`)
       .all()
       .map(row => ({
         chatId: row.chat_id,
         senderId: row.sender_id,
         chatType: row.chat_type,
+        channel: row.channel,
       }));
   }
 

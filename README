@@ -820,6 +820,13 @@ the initial baseline. The baseline does not flood Feishu with existing Issues.
 Notification idempotency keys prevent duplicate deliveries after retries or
 restarts.
 
+Every Issue created through an IM conversation is bound to an immutable origin
+route in SQLite. Feishu-originated Issues report creation and later changes only
+through Feishu recipients; DingTalk-originated Issues do the same through
+DingTalk. Global subscriptions and the Owner fallback are filtered to the
+origin channel, and queued retries retain the original chat destination. This
+prevents one Issue event from being broadcast across both IM identities.
+
 Commercial reliability controls include:
 
     Bounded pagination and a configurable maximum Issue count

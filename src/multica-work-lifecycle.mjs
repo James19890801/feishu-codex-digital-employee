@@ -11,10 +11,13 @@ export function parseMulticaWorkRequest(value) {
 
 function contextValue(context) {
   if (!context?.chatId) throw new Error('IM chat context is required');
+  const configuredChannel = String(context.metadata?.channel || '').trim().toLowerCase();
+  const prefixedChannel = String(context.chatId).match(/^(dingtalk|wecom|wechat):/)?.[1];
   return {
     chatId: String(context.chatId),
     senderId: String(context.senderId || ''),
     chatType: String(context.chatType || ''),
+    channel: configuredChannel || prefixedChannel || 'feishu',
   };
 }
 
@@ -40,6 +43,7 @@ export class MulticaWorkLifecycle {
     }
     this.state.subscribeMulticaIssue(issue.id, context.chatId, context.senderId, {
       chatType: context.chatType,
+      channel: context.channel,
     });
     if (issue.status !== 'in_progress') {
       issue = await this.client.updateIssue(issue.id, {

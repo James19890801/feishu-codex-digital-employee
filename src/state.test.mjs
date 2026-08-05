@@ -144,29 +144,62 @@ try {
 
   state.subscribeMulticaIssue(issue.id, 'chat-1', 'user-1', {
     chatType: 'group',
+    channel: 'feishu',
     createdAt: now,
   });
   state.subscribeMulticaIssue(issue.id, 'chat-1', 'user-1', {
     chatType: 'group',
+    channel: 'feishu',
     createdAt: now,
   });
   assert.deepEqual(state.multicaIssueSubscribers(issue.id), [{
     chatId: 'chat-1',
     senderId: 'user-1',
     chatType: 'group',
+    channel: 'feishu',
   }]);
   state.unsubscribeMulticaIssue(issue.id, 'chat-1', 'user-1');
   assert.deepEqual(state.multicaIssueSubscribers(issue.id), []);
 
-  state.subscribeMulticaGlobal('chat-2', 'user-2', now);
-  state.subscribeMulticaGlobal('chat-2', 'user-2', now);
+  state.subscribeMulticaGlobal('chat-2', 'user-2', {
+    channel: 'dingtalk',
+    createdAt: now,
+  });
+  state.subscribeMulticaGlobal('chat-2', 'user-2', {
+    channel: 'dingtalk',
+    createdAt: now,
+  });
   assert.deepEqual(state.multicaGlobalSubscribers(), [{
     chatId: 'chat-2',
     senderId: 'user-2',
     chatType: '',
+    channel: 'dingtalk',
   }]);
   state.unsubscribeMulticaGlobal('chat-2', 'user-2');
   assert.deepEqual(state.multicaGlobalSubscribers(), []);
+
+  assert.equal(state.bindMulticaIssueOrigin(issue.id, {
+    chatId: 'chat-origin-feishu',
+    senderId: 'user-owner',
+    chatType: 'p2p',
+    channel: 'feishu',
+    createdAt: now,
+  }), true);
+  assert.equal(state.bindMulticaIssueOrigin(issue.id, {
+    chatId: 'dingtalk:user:owner',
+    senderId: 'dingtalk:owner',
+    chatType: 'p2p',
+    channel: 'dingtalk',
+    createdAt: now,
+  }), false);
+  assert.deepEqual(state.multicaIssueOrigin(issue.id), {
+    issueId: issue.id,
+    chatId: 'chat-origin-feishu',
+    senderId: 'user-owner',
+    chatType: 'p2p',
+    channel: 'feishu',
+    createdAt: now,
+  });
 
   assert.equal(state.bindMulticaFeedbackRegistration({
     registrationKey: 'feedback-key-1',

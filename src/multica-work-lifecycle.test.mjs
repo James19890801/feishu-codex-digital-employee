@@ -80,7 +80,7 @@ const context = {
     issueId: 'issue-9',
     chatId: 'oc-work',
     senderId: 'ou-owner',
-    options: { chatType: 'p2p' },
+    options: { chatType: 'p2p', channel: 'feishu' },
   });
 
   const completed = await test.lifecycle.complete(binding);

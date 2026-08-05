@@ -111,6 +111,82 @@ function uniqueRecipients(items) {
   });
 }
 
+function normalizedChannel(value) {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text) return '';
+  if (['feishu', 'lark', '飞书'].includes(text)) return 'feishu';
+  if (['dingtalk', 'ding', '钉钉'].includes(text)) return 'dingtalk';
+  if (['wecom', 'work-wechat', '企业微信'].includes(text)) return 'wecom';
+  if (['wechat', '微信'].includes(text)) return 'wechat';
+  return '';
+}
+
+function recipientChannel(recipient) {
+  const explicit = normalizedChannel(recipient?.channel);
+  if (explicit) return explicit;
+  for (const value of [recipient?.chatId, recipient?.senderId]) {
+    const match = String(value || '').match(/^(dingtalk|wecom|wechat):/i);
+    if (match) return match[1].toLowerCase();
+  }
+  return recipient?.chatId ? 'feishu' : '';
+}
+
+function declaredIssueChannel(issue) {
+  const metadata = issue?.metadata && typeof issue.metadata === 'object'
+    ? issue.metadata
+    : {};
+  for (const value of [
+    issue?.source_channel,
+    metadata.source_channel,
+    metadata.channel,
+    firstStructuredValue(issue?.description, ['来源渠道', '来源平台']),
+  ]) {
+    const channel = normalizedChannel(value);
+    if (channel) return channel;
+  }
+  return '';
+}
+
+function channelBoundRecipients({
+  issue,
+  origin,
+  issueSubscribers,
+  globalSubscribers,
+  ownerRecipient,
+}) {
+  const normalizedOrigin = origin?.chatId ? {
+    ...origin,
+    channel: recipientChannel(origin),
+  } : null;
+  const normalizedIssueSubscribers = issueSubscribers.map(item => ({
+    ...item,
+    channel: recipientChannel(item),
+  }));
+  const normalizedGlobalSubscribers = globalSubscribers.map(item => ({
+    ...item,
+    channel: recipientChannel(item),
+  }));
+  const normalizedOwner = ownerRecipient ? {
+    ...ownerRecipient,
+    channel: recipientChannel(ownerRecipient),
+  } : null;
+  const channel = normalizedOrigin?.channel
+    || declaredIssueChannel(issue)
+    || normalizedIssueSubscribers.find(item => item.channel)?.channel
+    || normalizedOwner?.channel
+    || normalizedGlobalSubscribers.find(item => item.channel)?.channel
+    || '';
+  return {
+    channel,
+    recipients: uniqueRecipients([
+      ...(normalizedOrigin ? [normalizedOrigin] : []),
+      ...normalizedIssueSubscribers,
+      ...normalizedGlobalSubscribers,
+      ...(normalizedOwner ? [normalizedOwner] : []),
+    ].filter(item => !channel || item.channel === channel)),
+  };
+}
+
 function notificationKey(issue, chatId) {
   const digest = createHash('sha256')
     .update(`${issue.id}\0${issue.updated_at || ''}\0${chatId}`)
@@ -189,6 +265,7 @@ export class MulticaSynchronizer {
       chatId: String(ownerRecipient.chatId),
       senderId: String(ownerRecipient.senderId || ''),
       chatType: String(ownerRecipient.chatType || 'p2p'),
+      channel: recipientChannel(ownerRecipient),
       isOwner: true,
     } : null;
   }
@@ -255,14 +332,18 @@ export class MulticaSynchronizer {
 
     const globalSubscribers = this.state.multicaGlobalSubscribers();
     for (const change of changes) {
-      const issueSubscribers = change.isNew
+      const origin = this.state.multicaIssueOrigin(change.after.id);
+      const issueSubscribers = change.isNew && !origin
         ? []
         : this.state.multicaIssueSubscribers(change.after.id);
-      const recipients = uniqueRecipients([
-        ...(this.ownerRecipient ? [this.ownerRecipient] : []),
-        ...issueSubscribers,
-        ...globalSubscribers,
-      ]);
+      const routed = channelBoundRecipients({
+        issue: change.after,
+        origin,
+        issueSubscribers,
+        globalSubscribers,
+        ownerRecipient: this.ownerRecipient,
+      });
+      const recipients = routed.recipients;
       for (const recipient of recipients) {
         const message = formatMulticaChange(change, {
           appUrl: this.appUrl,
@@ -284,6 +365,7 @@ export class MulticaSynchronizer {
         workspaceId: change.after.workspace_id,
         isNew: change.isNew,
         changedFields: change.changedFields,
+        sourceChannel: routed.channel,
         recipients: recipients.length,
         ownerNotified: recipients.some(item => item.isOwner === true),
       });
