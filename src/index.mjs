@@ -50,6 +50,7 @@ import {
   markSelfChatMessages,
   normalizeSearchMessage,
   pollFailureDelayMs,
+  runPacedPollingRequests,
   retryDelayMs,
   selectOwnerActivityMessages,
   selectInboundMessages,
@@ -2587,12 +2588,12 @@ function triggerDrain(client = businessClient) {
 async function fetchUserInboundMessages(startMs, endMs) {
   const start = toLarkSearchIso(new Date(startMs));
   const end = toLarkSearchIso(new Date(endMs));
-  const [groupResult, p2pResult, selfResult, ownerControlResult] = await Promise.all([
-    runLarkCli(buildPollingSearchArgs('group', start, end)),
-    runLarkCli(buildPollingSearchArgs('p2p', start, end)),
-    runLarkCli(buildSelfChatPollingArgs(OWNER_OPEN_ID, start, end)),
-    runLarkCli(buildOwnerControlPollingArgs(OWNER_OPEN_ID, start, end)),
-  ]);
+  const [groupResult, p2pResult, selfResult, ownerControlResult] = await runPacedPollingRequests([
+    () => runLarkCli(buildPollingSearchArgs('group', start, end)),
+    () => runLarkCli(buildPollingSearchArgs('p2p', start, end)),
+    () => runLarkCli(buildSelfChatPollingArgs(OWNER_OPEN_ID, start, end)),
+    () => runLarkCli(buildOwnerControlPollingArgs(OWNER_OPEN_ID, start, end)),
+  ], { gapMs: 750, wait });
   const selfMessages = markSelfChatMessages(selfResult);
   const regular = selectInboundMessages([
     ...assertCompleteSearchResult(groupResult, 'group'),

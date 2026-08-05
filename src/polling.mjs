@@ -195,6 +195,19 @@ export function pollFailureDelayMs(error, failures, {
   return Math.min(5 * 60_000, baseDelay + jitter);
 }
 
+export async function runPacedPollingRequests(requests, {
+  gapMs = 750,
+  wait = ms => new Promise(resolve => setTimeout(resolve, ms)),
+} = {}) {
+  const operations = Array.isArray(requests) ? requests : [];
+  const results = [];
+  for (let index = 0; index < operations.length; index += 1) {
+    if (index > 0) await wait(Math.max(0, Number(gapMs) || 0));
+    results.push(await operations[index]());
+  }
+  return results;
+}
+
 export function shouldRetryMessage(attemptNumber, maxAttempts = 3) {
   return Number(attemptNumber) < Number(maxAttempts);
 }
