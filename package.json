@@ -26,7 +26,7 @@
     "test:memory": "node src/memory-policy.test.mjs && node src/knowledge.test.mjs && node src/dingtalk-knowledge.test.mjs && node src/knowledge-router.test.mjs",
     "test:a1": "node src/a1-requirements.test.mjs && node src/a1-client.test.mjs && node src/a1-spec-planner.test.mjs && node src/a1-workflow.test.mjs && node src/a1-sync.test.mjs",
     "test:conversation-context": "node src/conversation-context.test.mjs && node src/conversation-context-client.test.mjs",
-    "test:mail": "node src/dws-mail-client.test.mjs",
+    "test:mail": "node src/dws-mail-client.test.mjs && node src/mail-intent.test.mjs",
     "test:alibaba-language": "node src/alibaba-language.test.mjs",
     "test:reply-context": "node src/reply-context.test.mjs",
     "test:inventory": "node scripts/build-knowledge-inventory.test.mjs",
