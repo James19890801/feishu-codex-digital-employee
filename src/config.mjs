@@ -31,7 +31,7 @@ export const config = {
   digitalTwinLabel: raw.digitalTwinLabel ?? '【AI数字分身】',
   eventTransport: raw.eventTransport || 'lark-cli',
   pollIntervalMs: boundedInteger(raw.pollIntervalMs, {
-    name: 'pollIntervalMs', fallback: 15000, min: 1000, max: 60000,
+    name: 'pollIntervalMs', fallback: 30000, min: 1000, max: 60000,
   }),
   pollOverlapMs: boundedInteger(raw.pollOverlapMs, {
     name: 'pollOverlapMs', fallback: 180000, min: 60000, max: 3600000,

@@ -10,6 +10,7 @@ import {
   markSelfChatMessages,
   normalizeSearchMessage,
   pollFailureDelayMs,
+  runPacedPollingRequests,
   retryDelayMs,
   selectOwnerControlMessages,
   selectOwnerActivityMessages,
@@ -17,6 +18,22 @@ import {
   shouldRetryMessage,
   toLarkSearchIso,
 } from './polling.mjs';
+
+{
+  const events = [];
+  const results = await runPacedPollingRequests([
+    async () => { events.push('request-1'); return 'one'; },
+    async () => { events.push('request-2'); return 'two'; },
+    async () => { events.push('request-3'); return 'three'; },
+  ], {
+    gapMs: 750,
+    wait: async ms => events.push(`wait-${ms}`),
+  });
+  assert.deepEqual(results, ['one', 'two', 'three']);
+  assert.deepEqual(events, [
+    'request-1', 'wait-750', 'request-2', 'wait-750', 'request-3',
+  ]);
+}
 
 const ownerOpenId = 'ou_owner';
 
