@@ -27,6 +27,11 @@ import {
   stripHighlight,
   tokenFromSearchResult,
 } from './knowledge.mjs';
+import { retrieveDingTalkKnowledge } from './dingtalk-knowledge.mjs';
+import {
+  groundDingTalkKnowledgeTask,
+  resolveRealtimeKnowledge,
+} from './knowledge-router.mjs';
 import { localWikiContext, searchLocalWiki } from './local-wiki.mjs';
 import { AgentState } from './state.mjs';
 import {
@@ -632,6 +637,21 @@ async function readAllowedFeishuDoc(client, documentId) {
     throw new Error(`Feishu doc read failed: ${response.code ?? 'unknown'} ${response.msg || ''}`);
   }
   return response.data.content.slice(0, MAX_DOC_CHARS);
+}
+
+async function runConfiguredDwsJson(args) {
+  const { stdout } = await runBufferedProcess(config.dingtalkBin, args, {
+    cwd: WORKDIR,
+    env: dingtalkProcessEnv(),
+    timeoutMs: config.larkCliTimeoutMs,
+    maxStdoutBytes: 8 * 1024 * 1024,
+    maxStderrBytes: 1024 * 1024,
+  });
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    throw new Error('DingTalk knowledge command returned invalid JSON');
+  }
 }
 
 async function searchFeishuKnowledge(client, text, senderOpenId) {
@@ -2134,9 +2154,36 @@ async function processIncoming(client, message, sender, metadata = {}) {
         ownerId: ownerKnowledgeIds.includes(senderOpenId) ? senderOpenId : OWNER_OPEN_ID,
       })
     : [];
+  const knowledgeChannel = String(
+    metadata.channel || parseChannelChatId(message.chat_id)?.channel || (client ? 'feishu' : ''),
+  ).trim();
   const knowledgeResult = !imageRefs.length && !fileRef && ['text', 'post'].includes(message.message_type)
-    ? await searchFeishuKnowledge(client, cleanText, senderOpenId)
+    ? await resolveRealtimeKnowledge({
+        channel: knowledgeChannel,
+        resolveDingTalk: () => retrieveDingTalkKnowledge({
+          text: cleanText,
+          senderId: senderOpenId,
+          ownerIds: ownerKnowledgeIds,
+          catalog: KNOWLEDGE_CATALOG,
+          profile: config.dingtalkProfile,
+          runDws: runConfiguredDwsJson,
+          maxDocumentChars: MAX_DOC_CHARS,
+          maxTotalChars: 60_000,
+        }),
+        resolveFeishu: async () => {
+          const result = await searchFeishuKnowledge(client, cleanText, senderOpenId);
+          return result ? { ...result, source: 'feishu' } : null;
+        },
+      })
     : null;
+  if (knowledgeResult?.source === 'dingtalk') {
+    audit('dingtalk_knowledge_resolved', message, senderOpenId, {
+      documents: knowledgeResult.documents?.length || 0,
+      failures: knowledgeResult.failures?.length || 0,
+      notFound: knowledgeResult.notFound === true,
+      unavailable: knowledgeResult.unavailable === true,
+    });
+  }
   const inboundMediaKind = metadata.media?.kind || message.message_type;
   const taskKind = imageRefs.length ? 'image'
     : fileRef ? 'file'
@@ -2146,13 +2193,16 @@ async function processIncoming(client, message, sender, metadata = {}) {
     kind: taskKind,
     fileName: fileRef?.fileName || fileName,
   });
-  if (knowledgeResult?.denied && !localKnowledgeRecords.length) {
+  if (knowledgeResult?.source === 'feishu' && knowledgeResult.denied && !localKnowledgeRecords.length) {
     task = knowledgeResult.reason === 'reader_not_allowed'
       ? '对方请求读取一份没有向其开放的飞书资料。请简短说明这份资料目前没有向他开放，不要泄露内容。'
       : '没有找到对方有权限读取的相关飞书资料。请自然说明没有查到已授权资料，并建议对方补充更具体的标题或日期。';
   }
-  if (knowledgeResult?.unavailable && !localKnowledgeRecords.length) {
+  if (knowledgeResult?.source === 'feishu' && knowledgeResult.unavailable && !localKnowledgeRecords.length) {
     task = '飞书资料搜索暂时不可用。请自然说明刚刚没有搜索成功，让对方稍后再试，不要让对方重新上传已经在飞书里的资料。';
+  }
+  if (knowledgeResult?.source === 'dingtalk') {
+    task = groundDingTalkKnowledgeTask({ task, result: knowledgeResult });
   }
   task = effectiveTask(task, { messageType: message.message_type });
   console.log(
@@ -2359,7 +2409,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
         audit('web_page_read_failed', message, senderOpenId, { count: webContext.failures.length });
       }
     }
-    if (knowledgeResult?.documents?.length) {
+    if (knowledgeResult?.source === 'feishu' && knowledgeResult.documents?.length) {
       const materials = [];
       for (const document of knowledgeResult.documents) {
         try {
