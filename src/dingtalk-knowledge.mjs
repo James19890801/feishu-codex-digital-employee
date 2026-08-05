@@ -129,9 +129,16 @@ function isOwner(senderId, ownerIds) {
 function authorizedCatalogReference(text, catalog, senderId, ownerIds) {
   const normalizedText = normalizeKnowledgeText(text);
   const ownerId = (Array.isArray(ownerIds) ? ownerIds : [])[0] || '';
+  const normalizedSources = normalizeKnowledgeCatalog(catalog).sources.map(source => ({
+    ...source,
+    ownerId: normalizedActorId(source?.ownerId),
+    readerIds: Array.isArray(source?.readerIds)
+      ? source.readerIds.map(normalizedActorId)
+      : [],
+  }));
   const sources = filterKnowledgeSources(
-    normalizeKnowledgeCatalog(catalog).sources,
-    { senderId, ownerId },
+    normalizedSources,
+    { senderId: normalizedActorId(senderId), ownerId: normalizedActorId(ownerId) },
   );
   const source = sources.find(item => item?.type === 'dingtalk_doc'
     && [item.title, ...(item.aliases || [])]

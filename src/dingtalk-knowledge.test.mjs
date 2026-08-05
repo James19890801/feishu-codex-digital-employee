@@ -199,7 +199,7 @@ assert.equal(nonOwnerCalls.length, 0);
 const catalogCalls = [];
 const catalogKnowledge = await retrieveDingTalkKnowledge({
   text: '请总结允许分享的接口说明文档',
-  senderId: 'colleague',
+  senderId: 'dingtalk:colleague',
   ownerIds: ['owner'],
   catalog: {
     version: 2,
