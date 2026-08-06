@@ -105,6 +105,10 @@ export const config = {
   multicaMaxIssues: boundedInteger(raw.multicaMaxIssues, {
     name: 'multicaMaxIssues', fallback: 5000, min: 100, max: 20000,
   }),
+  dailyLearningEnabled: raw.dailyLearningEnabled !== false,
+  dailyLearningHour: boundedInteger(raw.dailyLearningHour, {
+    name: 'dailyLearningHour', fallback: 1, min: 0, max: 23,
+  }),
   dashboardPort: boundedInteger(raw.dashboardPort, {
     name: 'dashboardPort', fallback: 17655, min: 1024, max: 65535,
   }),

@@ -57,6 +57,34 @@ The platform combines:
     macOS process supervision and recovery
 
 
+DAILY SELF-LEARNING
+
+AIPRO runs one local learning cycle every day at 01:00 Asia/Shanghai. The cycle
+reviews the conversations already ingested by AIPRO, structured audit events,
+recent files inside the AIPRO workspace, and the installed Codex skill catalog.
+It extracts reusable task methods, skill-selection guidance, and—most
+importantly—mistakes that must become future safeguards. The resulting redacted
+memory is included in later AI responses.
+
+The operations dashboard shows the current learning stage, next scheduled run,
+cumulative completed days, task/skill/error counts, daily summaries, and recent
+lessons. The Learn now control queues a cycle through the protected loopback API;
+the browser never executes shell commands directly.
+
+Learning is privacy-bounded. It does not read Keychain, credentials, hidden
+configuration, browser storage, private keys, caches, binary files, the macOS
+Library directory, or arbitrary home-directory content. Raw files and chat
+transcripts are not copied into long-term memory. Sensitive identifiers are
+redacted before reasoning, and only compact learned conclusions are persisted.
+File scanning runs in an isolated subprocess with hard time, directory, input,
+and output limits, so a slow filesystem cannot interrupt Feishu or DingTalk.
+
+macOS protects Desktop, Documents, and other personal folders with TCC. A
+background LaunchAgent must never bypass that control. The default scheduled
+cycle therefore reads only the AIPRO workspace; broader content roots should be
+added only after the operator explicitly grants the corresponding macOS access.
+
+
 ACTIVATION AND INVITATION CONTROL
 
 A clean AIPRO installation opens the local dashboard but does not start any IM

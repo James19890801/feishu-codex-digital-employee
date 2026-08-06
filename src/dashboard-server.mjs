@@ -125,6 +125,94 @@ function parseSetting(db, scope, key, fallback = null) {
   try { return JSON.parse(row.value); } catch { return fallback; }
 }
 
+function tableExists(db, name) {
+  return Boolean(db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(name));
+}
+
+function readLearningDashboardState(db) {
+  const settingStatus = parseSetting(db, 'learning', 'status', { state: 'scheduled' });
+  const manualRequestedAt = parseSetting(db, 'learning', 'manual_requested_at', '');
+  const base = {
+    enabled: config.dailyLearningEnabled,
+    scheduledHour: config.dailyLearningHour,
+    status: settingStatus?.state === 'running'
+      ? 'running'
+      : manualRequestedAt ? 'queued' : String(settingStatus?.state || 'scheduled'),
+    stage: String(settingStatus?.stage || ''),
+    nextRunAt: parseSetting(db, 'learning', 'next_run_at', ''),
+    manualRequestedAt,
+    totals: { completed: 0, tasks: 0, skills: 0, errors: 0 },
+    recentRuns: [],
+  };
+  if (!tableExists(db, 'learning_run') || !tableExists(db, 'learning_item')) return base;
+  const totals = db.prepare(`SELECT COUNT(*) AS completed,
+    COALESCE(SUM(tasks_learned), 0) AS tasks,
+    COALESCE(SUM(skills_learned), 0) AS skills,
+    COALESCE(SUM(errors_learned), 0) AS errors
+    FROM learning_run WHERE status='completed'`).get();
+  const rows = db.prepare(`SELECT id, learning_date, status, started_at, completed_at,
+    files_scanned, chats_reviewed, tasks_learned, skills_learned, errors_learned,
+    summary, error FROM learning_run ORDER BY learning_date DESC LIMIT 14`).all();
+  const itemQuery = db.prepare(`SELECT category, title, lesson FROM learning_item
+    WHERE run_id=? ORDER BY id ASC LIMIT 12`);
+  return {
+    ...base,
+    totals: {
+      completed: Number(totals?.completed || 0),
+      tasks: Number(totals?.tasks || 0),
+      skills: Number(totals?.skills || 0),
+      errors: Number(totals?.errors || 0),
+    },
+    recentRuns: rows.map(row => ({
+      id: row.id,
+      learningDate: row.learning_date,
+      status: row.status,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+      filesScanned: Number(row.files_scanned || 0),
+      chatsReviewed: Number(row.chats_reviewed || 0),
+      tasksLearned: Number(row.tasks_learned || 0),
+      skillsLearned: Number(row.skills_learned || 0),
+      errorsLearned: Number(row.errors_learned || 0),
+      summary: String(row.summary || '').slice(0, 4000),
+      error: String(row.error || '').slice(0, 500),
+      items: itemQuery.all(row.id).map(item => ({
+        category: item.category,
+        title: String(item.title || '').slice(0, 200),
+        lesson: String(item.lesson || '').slice(0, 1000),
+      })),
+    })),
+  };
+}
+
+function requestDailyLearning() {
+  const requestedAt = new Date().toISOString();
+  const db = new DatabaseSync(DB_PATH);
+  try {
+    if (!tableExists(db, 'settings') || !tableExists(db, 'audit')) {
+      throw new Error('AIPRO state database is not initialized');
+    }
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const upsert = db.prepare(`INSERT INTO settings(scope,key,value,updated_at)
+        VALUES('learning',?,?,?) ON CONFLICT(scope,key) DO UPDATE SET
+        value=excluded.value, updated_at=excluded.updated_at`);
+      upsert.run('manual_requested_at', JSON.stringify(requestedAt), requestedAt);
+      upsert.run('status', JSON.stringify({ state: 'queued', requestedAt }), requestedAt);
+      db.prepare(`INSERT INTO audit(event,message_id,chat_id,sender_id,detail,created_at)
+        VALUES('daily_learning_manual_requested','','','',?,?)`)
+        .run(JSON.stringify({ reason: 'manual' }), requestedAt);
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+  } finally {
+    db.close();
+  }
+  return requestedAt;
+}
+
 function safeDetail(value) {
   try {
     const detail = JSON.parse(value || '{}');
@@ -135,6 +223,8 @@ function safeDetail(value) {
       'action', 'identifier', 'issueId', 'workspaceId', 'changedFields',
       'recipients', 'changes', 'notified', 'scanned',
       'dead', 'replayed', 'uncertain', 'channel',
+      'learningDate', 'reason', 'filesScanned', 'chatsReviewed',
+      'tasksLearned', 'skillsLearned', 'errorsLearned',
     ]) {
       if (detail[key] !== undefined) allowed[key] = detail[key];
     }
@@ -277,6 +367,16 @@ async function collectStatus() {
     },
     inboxCounts: {},
     recentEvents: [],
+    learning: {
+      enabled: config.dailyLearningEnabled,
+      scheduledHour: config.dailyLearningHour,
+      status: 'scheduled',
+      stage: '',
+      nextRunAt: '',
+      manualRequestedAt: '',
+      totals: { completed: 0, tasks: 0, skills: 0, errors: 0 },
+      recentRuns: [],
+    },
   };
   let database = defaults;
   try {
@@ -332,6 +432,7 @@ async function collectStatus() {
             at: row.created_at,
             detail: safeDetail(row.detail),
           })),
+        learning: readLearningDashboardState(db),
       };
     } finally {
       db.close();
@@ -399,6 +500,7 @@ async function collectStatus() {
   }));
   view.wechatPoc = wechatPoc;
   view.channels = { ...view.channels, wechatPoc };
+  view.learning = database.learning;
   return view;
 }
 
@@ -853,6 +955,24 @@ const server = createServer(async (request, response) => {
     }
     if (request.method === 'GET' && url.pathname === '/api/status') {
       sendJson(response, 200, await collectStatus());
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/learning/run') {
+      if (!allowedConfigAction(request, 'learning-run')) {
+        sendJson(response, 403, { ok: false, error: 'learning action rejected' });
+        return;
+      }
+      if (!config.dailyLearningEnabled) {
+        sendJson(response, 409, { ok: false, error: 'daily learning is disabled' });
+        return;
+      }
+      const body = await readDashboardJson(request);
+      if (Object.keys(body).length) {
+        sendJson(response, 400, { ok: false, error: 'learning request body must be empty' });
+        return;
+      }
+      const requestedAt = requestDailyLearning();
+      sendJson(response, 202, { ok: true, queued: true, requestedAt });
       return;
     }
     if (request.method === 'GET' && url.pathname === '/api/licensing/status') {

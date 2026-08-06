@@ -195,6 +195,34 @@ export class AgentState {
       );
       CREATE INDEX IF NOT EXISTS mutation_execution_status
         ON mutation_execution(status, updated_at);
+      CREATE TABLE IF NOT EXISTS learning_run (
+        id TEXT PRIMARY KEY,
+        learning_date TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT NOT NULL DEFAULT '',
+        source_from_at TEXT NOT NULL,
+        source_to_at TEXT NOT NULL,
+        files_scanned INTEGER NOT NULL DEFAULT 0,
+        chats_reviewed INTEGER NOT NULL DEFAULT 0,
+        tasks_learned INTEGER NOT NULL DEFAULT 0,
+        skills_learned INTEGER NOT NULL DEFAULT 0,
+        errors_learned INTEGER NOT NULL DEFAULT 0,
+        summary TEXT NOT NULL DEFAULT '',
+        error TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS learning_run_date
+        ON learning_run(learning_date DESC);
+      CREATE TABLE IF NOT EXISTS learning_item (
+        id INTEGER PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        category TEXT NOT NULL,
+        title TEXT NOT NULL,
+        lesson TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS learning_item_run
+        ON learning_item(run_id, id);
     `);
     const conversationColumns = new Set(
       this.db.prepare('PRAGMA table_info(conversation)').all().map(row => row.name),
@@ -335,6 +363,116 @@ export class AgentState {
     this.db.prepare(`INSERT INTO audit
       (event, chat_id, sender_id, message_id, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
       .run(event, chatId, senderId, messageId, JSON.stringify(detail), createdAt);
+  }
+
+  learningEvidence(fromAt, toAt, { conversationLimit = 1200, auditLimit = 1600 } = {}) {
+    const conversations = this.db.prepare(`SELECT role, content, created_at AS createdAt
+      FROM conversation WHERE created_at >= ? AND created_at < ?
+      ORDER BY created_at ASC LIMIT ?`).all(fromAt, toAt, conversationLimit);
+    const audits = this.db.prepare(`SELECT event, detail, created_at AS createdAt
+      FROM audit WHERE created_at >= ? AND created_at < ?
+      ORDER BY created_at ASC LIMIT ?`).all(fromAt, toAt, auditLimit).map(row => {
+      let detail = {};
+      try { detail = JSON.parse(row.detail || '{}'); } catch { detail = {}; }
+      return { event: row.event, detail, createdAt: row.createdAt };
+    });
+    return { conversations, audits };
+  }
+
+  startLearningRun({ id, learningDate, startedAt, sourceFromAt, sourceToAt }) {
+    this.db.prepare(`INSERT INTO learning_run
+      (id, learning_date, status, started_at, source_from_at, source_to_at)
+      VALUES (?, ?, 'running', ?, ?, ?)
+      ON CONFLICT(learning_date) DO UPDATE SET
+        id=excluded.id, status='running', started_at=excluded.started_at,
+        completed_at='', source_from_at=excluded.source_from_at,
+        source_to_at=excluded.source_to_at, error=''`)
+      .run(id, learningDate, startedAt, sourceFromAt, sourceToAt);
+    this.db.prepare('DELETE FROM learning_item WHERE run_id = ?').run(id);
+    this.set('learning', 'status', { state: 'running', runId: id, startedAt });
+  }
+
+  completeLearningRun(runId, {
+    completedAt = new Date().toISOString(), summary = '', memory = '',
+    filesScanned = 0, chatsReviewed = 0, tasksLearned = 0,
+    skillsLearned = 0, errorsLearned = 0, items = [],
+  } = {}) {
+    const result = this.db.prepare(`UPDATE learning_run SET
+      status='completed', completed_at=?, files_scanned=?, chats_reviewed=?,
+      tasks_learned=?, skills_learned=?, errors_learned=?, summary=?, error=''
+      WHERE id=?`).run(
+      completedAt, filesScanned, chatsReviewed, tasksLearned,
+      skillsLearned, errorsLearned, String(summary).slice(0, 4000), runId,
+    );
+    if (result.changes !== 1) throw new Error('Daily learning run does not exist');
+    this.db.prepare('DELETE FROM learning_item WHERE run_id = ?').run(runId);
+    const insert = this.db.prepare(`INSERT INTO learning_item
+      (run_id, category, title, lesson, created_at) VALUES (?, ?, ?, ?, ?)`);
+    for (const item of items.slice(0, 60)) {
+      if (!['task', 'skill', 'error'].includes(item?.category)) continue;
+      insert.run(
+        runId, item.category, String(item.title || '').slice(0, 200),
+        String(item.lesson || '').slice(0, 1000), completedAt,
+      );
+    }
+    this.set('learning', 'memory', String(memory || '').slice(0, 12_000));
+    this.set('learning', 'last_completed_date', this.db.prepare(
+      'SELECT learning_date FROM learning_run WHERE id = ?',
+    ).get(runId)?.learning_date || '');
+    this.set('learning', 'status', { state: 'completed', runId, completedAt });
+    this.unset('learning', 'manual_requested_at');
+  }
+
+  failLearningRun(runId, error, failedAt = new Date().toISOString()) {
+    this.db.prepare(`UPDATE learning_run SET status='failed', completed_at=?, error=? WHERE id=?`)
+      .run(failedAt, String(error || '').slice(0, 2000), runId);
+    this.set('learning', 'status', {
+      state: 'failed', runId, failedAt, error: String(error || '').slice(0, 1000),
+    });
+  }
+
+  learningStatus(limit = 14) {
+    const rows = this.db.prepare(`SELECT id, learning_date, status, started_at, completed_at,
+      source_from_at, source_to_at, files_scanned, chats_reviewed, tasks_learned,
+      skills_learned, errors_learned, summary, error
+      FROM learning_run ORDER BY learning_date DESC LIMIT ?`).all(limit);
+    const itemQuery = this.db.prepare(`SELECT category, title, lesson
+      FROM learning_item WHERE run_id = ? ORDER BY id ASC`);
+    const mapRun = row => ({
+      id: row.id,
+      learningDate: row.learning_date,
+      status: row.status,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+      sourceFromAt: row.source_from_at,
+      sourceToAt: row.source_to_at,
+      filesScanned: Number(row.files_scanned),
+      chatsReviewed: Number(row.chats_reviewed),
+      tasksLearned: Number(row.tasks_learned),
+      skillsLearned: Number(row.skills_learned),
+      errorsLearned: Number(row.errors_learned),
+      summary: row.summary,
+      error: row.error,
+      items: itemQuery.all(row.id),
+    });
+    const totals = this.db.prepare(`SELECT COUNT(*) AS total_runs,
+      COALESCE(SUM(tasks_learned), 0) AS tasks,
+      COALESCE(SUM(skills_learned), 0) AS skills,
+      COALESCE(SUM(errors_learned), 0) AS errors
+      FROM learning_run WHERE status='completed'`).get();
+    const recentRuns = rows.map(mapRun);
+    return {
+      totalRuns: Number(totals.total_runs || 0),
+      totals: {
+        tasks: Number(totals.tasks || 0),
+        skills: Number(totals.skills || 0),
+        errors: Number(totals.errors || 0),
+      },
+      lastRun: recentRuns[0] || null,
+      recentRuns,
+      status: this.get('learning', 'status', { state: 'scheduled' }),
+      memoryUpdated: Boolean(this.get('learning', 'memory', '')),
+    };
   }
 
   enqueueInbound(messageId, source, payload, now = new Date().toISOString()) {

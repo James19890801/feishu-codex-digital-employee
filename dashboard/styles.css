@@ -658,6 +658,7 @@ h1 {
 #issueList span { color: var(--ink-soft); font-size: 11px; }
 
 .channel-console,
+.learning-console,
 .runtime-console,
 .config-console,
 .panel {
@@ -670,10 +671,12 @@ h1 {
 }
 
 .channel-console,
+.learning-console,
 .runtime-console,
 .config-console { margin-top: 20px; padding: 30px; }
 
 .channel-heading,
+.learning-heading,
 .runtime-heading,
 .console-heading,
 .panel-title,
@@ -686,6 +689,7 @@ h1 {
 }
 
 .channel-heading h3,
+.learning-heading h3,
 .runtime-heading h3,
 .console-heading h3,
 .panel-title h3,
@@ -699,6 +703,7 @@ h1 {
 }
 
 .channel-heading p,
+.learning-heading p,
 .runtime-heading p,
 .console-heading p {
   max-width: 790px;
@@ -914,6 +919,36 @@ h1 {
 .queue-row div { padding: 13px 15px; background: rgba(255,255,255,.58); }
 .queue-row strong { display: block; font-family: var(--serif); font-size: 21px; font-weight: 400; }
 .queue-row small { display: block; margin-top: 3px; color: var(--muted); font-size: 8px; }
+
+.learning-heading { align-items: center; }
+.learning-heading > .button { flex: 0 0 auto; min-width: 116px; }
+.learning-overview {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 24px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--line);
+}
+.learning-overview div { min-height: 76px; padding: 15px; background: rgba(255,255,255,.58); }
+.learning-overview span,
+.learning-summary-card > span,
+.learning-history-card > span { color: var(--muted); font-size: 8px; letter-spacing: .03em; }
+.learning-overview strong { display: block; margin-top: 8px; font-family: var(--serif); font-size: 20px; font-weight: 400; }
+.learning-body { display: grid; grid-template-columns: minmax(240px,.7fr) minmax(360px,1.3fr); gap: 11px; margin-top: 11px; }
+.learning-summary-card,
+.learning-history-card { min-height: 166px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.46); }
+.learning-summary-card p { margin: 13px 0 0; color: var(--ink-soft); font-family: var(--serif); font-size: 18px; line-height: 1.55; }
+.learning-history { display: grid; gap: 8px; margin-top: 13px; }
+.learning-run { display: grid; grid-template-columns: minmax(110px,.7fr) minmax(150px,1.3fr) auto; gap: 12px; align-items: start; padding-top: 9px; border-top: 1px solid var(--line); }
+.learning-run:first-child { padding-top: 0; border-top: 0; }
+.learning-run strong { font-size: 9px; }
+.learning-run p { margin: 2px 0 0; color: var(--muted); font-size: 8px; line-height: 1.45; }
+.learning-run time { color: var(--muted); font-family: var(--mono); font-size: 8px; white-space: nowrap; }
+.learning-lessons { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.learning-lessons span { padding: 4px 7px; border: 1px solid rgba(154,91,77,.16); border-radius: 99px; color: var(--accent-dark); font-size: 7px; background: var(--accent-soft); }
 
 .runtime-heading { align-items: center; }
 
@@ -1216,6 +1251,7 @@ h1 {
   .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metric-card.wide { grid-column: span 2; }
   .runtime-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .learning-overview { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .assistant-workbench { grid-template-columns: 1fr; }
   .change-inspector { min-height: 520px; }
 }
@@ -1232,6 +1268,7 @@ h1 {
   .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metric-card.wide { grid-column: span 2; }
   .config-overview { grid-template-columns: repeat(2, 1fr); }
+  .learning-body { grid-template-columns: 1fr; }
   .lower-grid { grid-template-columns: 1fr; }
   .event { grid-template-columns: 8px minmax(100px,.45fr) minmax(120px,1fr) auto; }
   .activation-gate { grid-template-columns: 1fr; min-height: auto; padding: 56px 42px; }
@@ -1260,12 +1297,16 @@ h1 {
   .hero-actions { align-items: stretch; }
   .button { flex: 1 1 auto; }
   .last-check { flex: 1 0 100%; margin: 2px 0 0; }
-  .channel-console, .runtime-console, .config-console, .panel { padding: 20px 17px; }
-  .channel-heading, .runtime-heading, .console-heading { display: block; }
+  .channel-console, .learning-console, .runtime-console, .config-console, .panel { padding: 20px 17px; }
+  .channel-heading, .learning-heading, .runtime-heading, .console-heading { display: block; }
   .channel-heading > b, .console-state { display: inline-block; margin-top: 14px; text-align: left; }
   .channel-grid, .metrics-grid, .runtime-grid { grid-template-columns: 1fr; }
   .channel-card.wechat-poc-card, .metric-card.wide { grid-column: span 1; }
   .queue-row { grid-template-columns: repeat(2, 1fr); }
+  .learning-heading > .button { width: 100%; margin-top: 14px; }
+  .learning-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .learning-run { grid-template-columns: 1fr auto; }
+  .learning-run > div:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
   .config-overview { grid-template-columns: 1fr; }
   .assistant-chat, .change-inspector { padding: 14px; }
   .assistant-log { height: 260px; }

@@ -197,6 +197,12 @@ import {
   normalizeFeishuBusyIntervals,
   normalizeFeishuCalendarEvents,
 } from './calendar-access.mjs';
+import {
+  DailyLearningEngine,
+  nextDailyLearningAt,
+  shouldRunDailyLearning,
+} from './daily-learning.mjs';
+import { runLearningFileScan } from './daily-learning-scan-runner.mjs';
 
 const CORE_LICENSE_GUARD = await evaluateLicenseGuard({
   enforced: config.licensingEnforced,
@@ -229,12 +235,14 @@ const PRIVACY_BOUNDARY_TEXT = buildPrivacyBoundary({
 const STATE_PATH = join(WORKDIR, 'data', 'agent-state.sqlite');
 const CODEX_RUNTIME_DIR = join(WORKDIR, 'data', 'codex-runtime');
 const CODEX_HOME_DIR = join(WORKDIR, 'data', 'codex-home');
+const DAILY_LEARNING_RUNTIME_DIR = join(WORKDIR, 'data', 'daily-learning-runtime');
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_DOC_CHARS = 40_000;
 const KNOWLEDGE_CATALOG_PATH = join(WORKDIR, 'knowledge-catalog.json');
 const KNOWLEDGE_CATALOG = JSON.parse(await readFile(KNOWLEDGE_CATALOG_PATH, 'utf8'));
 await mkdir(CODEX_RUNTIME_DIR, { recursive: true });
 await mkdir(CODEX_HOME_DIR, { recursive: true, mode: 0o700 });
+await mkdir(DAILY_LEARNING_RUNTIME_DIR, { recursive: true, mode: 0o700 });
 await mkdir(MULTICA_ARTIFACT_ROOT, { recursive: true, mode: 0o700 });
 const isolatedAuthPath = join(CODEX_HOME_DIR, 'auth.json');
 try {
@@ -355,6 +363,7 @@ let multicaSyncPromise = null;
 let dingTalkSupervisorPromise = null;
 let dingTalkSelfPollingPromise = null;
 let geWeMonitorPromise = null;
+let dailyLearningPromise = null;
 let businessClient = null;
 let sdkAppSecret = '';
 let dingTalkChannel = null;
@@ -1049,6 +1058,7 @@ async function runAiRuntime(prompt, options) {
 
 async function runCodex(task, history, imagePaths = [], decision = null) {
   const lengthPolicy = replyLengthPolicy(task);
+  const learnedMemory = state.get('learning', 'memory', '');
   const prompt = `
 ${PERSONA_TEXT}
 
@@ -1074,6 +1084,9 @@ ${BIBLE_TEXT}
 全局隐私与决策底线：
 ${PRIVACY_BOUNDARY_TEXT}
 
+每日自体学习形成的长期记忆（仅作行为改进，不得向对方披露记忆来源或私人数据）：
+${learnedMemory || '（尚未完成首次每日学习）'}
+
 本次工作流决策：
 ${decision ? workflowInstruction(decision) : '未指定，按 Bible 判断。'}
 
@@ -1093,6 +1106,62 @@ ${task}
     maxStderrBytes: 1024 * 1024,
   });
   return enforceReplyLength(text, task);
+}
+
+const DAILY_LEARNING_ENGINE = new DailyLearningEngine({
+  state,
+  home: process.env.HOME || WORKDIR,
+  workdir: WORKDIR,
+  scanFiles: options => runLearningFileScan(options),
+  runAi: prompt => runAiRuntime(prompt, {
+    cwd: DAILY_LEARNING_RUNTIME_DIR,
+    model: SELECTED_AI_RUNTIME.id === 'codex' ? config.codexModel : '',
+    timeoutMs: Math.max(config.codexTimeoutMs, 180_000),
+    maxStdoutBytes: 512 * 1024,
+    maxStderrBytes: 1024 * 1024,
+  }),
+});
+
+async function runDailyLearningLoop() {
+  if (!config.dailyLearningEnabled) {
+    state.set('learning', 'status', { state: 'disabled' });
+    return;
+  }
+  let retryAtMs = 0;
+  while (!stopping) {
+    const now = new Date();
+    const nextRun = nextDailyLearningAt(now, config.dailyLearningHour);
+    state.set('learning', 'next_run_at', nextRun.toISOString());
+    const manualRequestedAt = state.get('learning', 'manual_requested_at', '');
+    const scheduledDue = shouldRunDailyLearning({
+      now,
+      lastCompletedDate: state.get('learning', 'last_completed_date', ''),
+      hour: config.dailyLearningHour,
+    });
+    if ((manualRequestedAt || scheduledDue) && now.getTime() >= retryAtMs) {
+      try {
+        await DAILY_LEARNING_ENGINE.execute({
+          now,
+          reason: manualRequestedAt ? 'manual' : 'scheduled',
+        });
+        retryAtMs = 0;
+        console.log(`[daily-learning] completed for ${now.toISOString().slice(0, 10)}`);
+      } catch (error) {
+        retryAtMs = Date.now() + 10 * 60_000;
+        console.error('[daily-learning-error]', error);
+      }
+    }
+    const delayMs = Math.min(
+      60_000,
+      Math.max(
+        1_000,
+        retryAtMs > Date.now()
+          ? retryAtMs - Date.now()
+          : nextRun.getTime() - Date.now(),
+      ),
+    );
+    await wait(delayMs);
+  }
 }
 
 async function runCodexActionItems(documentText) {
@@ -3895,6 +3964,8 @@ async function main() {
     const recovered = state.recoverProcessingInbound(new Date().toISOString());
     if (recovered) console.log(`[inbound] recovered ${recovered} stale message(s)`);
     await runMaintenance();
+    dailyLearningPromise = runDailyLearningLoop()
+      .catch(error => console.error('[daily-learning-fatal]', error));
     const maintenanceTimer = setInterval(() => { runMaintenance(); }, 6 * 60 * 60_000);
     maintenanceTimer.unref();
     if (RUNTIME_MODE.feishuEnabled) {
@@ -3952,6 +4023,7 @@ async function main() {
     if (dingTalkSupervisorPromise) await dingTalkSupervisorPromise.catch(() => {});
     if (dingTalkSelfPollingPromise) await dingTalkSelfPollingPromise.catch(() => {});
     if (geWeMonitorPromise) await geWeMonitorPromise.catch(() => {});
+    if (dailyLearningPromise) await dailyLearningPromise.catch(() => {});
   } finally {
     try {
       state.close();

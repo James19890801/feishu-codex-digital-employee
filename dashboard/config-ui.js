@@ -41,6 +41,10 @@ export function wechatPocRequestHeaders(action, sessionToken) {
   return assistantRequestHeaders(action, sessionToken);
 }
 
+export function dailyLearningRequestHeaders(sessionToken) {
+  return assistantRequestHeaders('learning-run', sessionToken);
+}
+
 export function channelSubmitLabel(channel, locale = 'en') {
   return channelSubmitText(locale, channel);
 }
