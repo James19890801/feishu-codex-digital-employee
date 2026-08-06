@@ -41,6 +41,44 @@ try {
   assert.equal(state.get('chat', 'paused'), true);
   state.audit('test', { chatId: 'chat', detail: { ok: true } });
 
+  state.remember('learning-chat', 'learning-user', 'user', '修复消息重复问题', {
+    createdAt: '2026-08-06T14:00:00.000Z',
+  });
+  state.audit('poller_error', {
+    detail: { error: 'too many request' },
+    createdAt: '2026-08-06T14:01:00.000Z',
+  });
+  const learningEvidence = state.learningEvidence(
+    '2026-08-06T00:00:00.000Z',
+    '2026-08-07T00:00:00.000Z',
+  );
+  assert.equal(learningEvidence.conversations.some(item => item.content === '修复消息重复问题'), true);
+  assert.equal(learningEvidence.audits.some(item => item.event === 'poller_error'), true);
+  state.startLearningRun({
+    id: 'learning-2026-08-07',
+    learningDate: '2026-08-07',
+    startedAt: '2026-08-06T17:00:00.000Z',
+    sourceFromAt: '2026-08-05T17:00:00.000Z',
+    sourceToAt: '2026-08-06T17:00:00.000Z',
+  });
+  state.completeLearningRun('learning-2026-08-07', {
+    completedAt: '2026-08-06T17:01:00.000Z',
+    summary: '完成每日复盘',
+    memory: '回复前先读上下文',
+    filesScanned: 8,
+    chatsReviewed: 12,
+    tasksLearned: 2,
+    skillsLearned: 3,
+    errorsLearned: 4,
+    items: [{ category: 'error', title: '轮询限流', lesson: '合并重复搜索' }],
+  });
+  const learningStatus = state.learningStatus();
+  assert.equal(learningStatus.totalRuns, 1);
+  assert.equal(learningStatus.lastRun.status, 'completed');
+  assert.equal(learningStatus.lastRun.errorsLearned, 4);
+  assert.equal(learningStatus.recentRuns[0].items[0].title, '轮询限流');
+  assert.equal(state.get('learning', 'memory'), '回复前先读上下文');
+
   const now = '2026-07-29T14:00:00.000Z';
   assert.equal(state.enqueueInbound('om_1', 'poll', { hello: 'world' }, now), true);
   assert.equal(state.hasInbound('om_1'), true);

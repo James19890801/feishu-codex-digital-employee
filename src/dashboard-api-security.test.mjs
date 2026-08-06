@@ -42,5 +42,6 @@ for (const route of [
 }
 assert.equal(dashboardServer.includes("allowedConfigAction(request, 'licensing-activate')"), true);
 assert.equal(dashboardServer.includes("allowedConfigAction(request, 'licensing-generate')"), true);
+assert.equal(dashboardServer.includes("allowedConfigAction(request, 'learning-run')"), true);
 
 console.log('DASHBOARD_API_SECURITY_TEST_OK');

@@ -182,6 +182,37 @@
       </article>
     </section>
 
+    <section class="learning-console" id="learningConsole">
+      <div class="learning-heading">
+        <div>
+          <span data-i18n="learningEyebrow">DAILY SELF-LEARNING / LOCAL MEMORY</span>
+          <h3 data-i18n="learningTitle">Daily learning</h3>
+          <p data-i18n="learningDescription">At 01:00 Asia/Shanghai, AIPRO reviews its own conversations, audit trail, recent work, and installed skills. Sensitive source material stays local and only redacted lessons are retained.</p>
+        </div>
+        <button class="button secondary" id="learningRunButton" type="button" data-i18n="learnNow">Learn now</button>
+      </div>
+      <div class="learning-overview">
+        <div><span data-i18n="learningRuns">Learning cycles</span><strong id="learningTotal">0</strong></div>
+        <div><span data-i18n="learningNext">Next run</span><strong id="learningNext">—</strong></div>
+        <div><span data-i18n="learningLast">Latest run</span><strong id="learningStatus">—</strong></div>
+        <div><span data-i18n="learningTasks">Tasks learned</span><strong id="learningTasks">0</strong></div>
+        <div><span data-i18n="learningSkills">Skills reviewed</span><strong id="learningSkills">0</strong></div>
+        <div><span data-i18n="learningErrors">Errors converted to safeguards</span><strong id="learningErrors">0</strong></div>
+      </div>
+      <div class="learning-body">
+        <article class="learning-summary-card">
+          <span data-i18n="learningLast">Latest run</span>
+          <p id="learningSummary" data-i18n="learningWaiting">Waiting for the first learning cycle.</p>
+        </article>
+        <article class="learning-history-card">
+          <span data-i18n="learningHistory">Learning record</span>
+          <div id="learningHistory" class="learning-history" aria-live="polite">
+            <p class="empty" data-i18n="learningNoLessons">No lessons recorded yet.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
     <section class="runtime-console" id="runtimeConsole">
       <div class="runtime-heading">
         <div>

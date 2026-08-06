@@ -3,6 +3,7 @@ import {
   channelNeedsCredential,
   channelRequestHeaders,
   channelSubmitLabel,
+  dailyLearningRequestHeaders,
   formatAssistantValue,
   planCanApply,
   rollbackConfirmation,
@@ -50,6 +51,10 @@ const eventLabelKeys = {
   sdk_client_unavailable: 'eventCredentialsMissing',
   message_rate_limited: 'eventRateLimited',
   maintenance_error: 'eventMaintenanceError',
+  daily_learning_started: 'eventDailyLearningStarted',
+  daily_learning_completed: 'eventDailyLearningCompleted',
+  daily_learning_failed: 'eventDailyLearningFailed',
+  daily_learning_manual_requested: 'eventDailyLearningRequested',
 };
 
 const issueLabelKeys = {
@@ -313,6 +318,82 @@ function renderEvents(events) {
   }).join('');
 }
 
+function learningStateText(status) {
+  return tr({
+    scheduled: 'learningScheduled',
+    queued: 'learningQueued',
+    running: 'learningRunning',
+    completed: 'learningCompleted',
+    failed: 'learningFailed',
+  }[status] || 'learningScheduled');
+}
+
+function renderLearning(learning = {}) {
+  const totals = learning.totals || {};
+  const runs = Array.isArray(learning.recentRuns) ? learning.recentRuns : [];
+  const latest = runs[0];
+  $('learningTotal').textContent = totals.completed || 0;
+  $('learningNext').textContent = formatDate(learning.nextRunAt);
+  $('learningStatus').textContent = latest
+    ? `${learningStateText(latest.status)} · ${formatDate(latest.completedAt || latest.startedAt)}`
+    : learningStateText(learning.status || 'scheduled');
+  if (learning.status === 'running' && learning.stage) {
+    $('learningStatus').textContent = tr({
+      history: 'learningHistoryStage',
+      files: 'learningScanning',
+      skills: 'learningSkillsStage',
+      analyzing: 'learningAnalyzing',
+    }[learning.stage] || 'learningRunning');
+  }
+  $('learningTasks').textContent = totals.tasks || 0;
+  $('learningSkills').textContent = totals.skills || 0;
+  $('learningErrors').textContent = totals.errors || 0;
+  $('learningSummary').textContent = latest?.summary || tr('learningWaiting');
+  $('learningRunButton').disabled = learning.enabled === false
+    || ['queued', 'running'].includes(learning.status);
+
+  const history = $('learningHistory');
+  history.replaceChildren();
+  if (!runs.length) {
+    const empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent = tr('learningNoLessons');
+    history.append(empty);
+    return;
+  }
+  for (const run of runs.slice(0, 7)) {
+    const row = document.createElement('div');
+    row.className = 'learning-run';
+    const identity = document.createElement('div');
+    const title = document.createElement('strong');
+    title.textContent = `${run.learningDate || '—'} · ${learningStateText(run.status)}`;
+    const evidence = document.createElement('p');
+    evidence.textContent = tr('learningEvidence', {
+      files: run.filesScanned || 0,
+      chats: run.chatsReviewed || 0,
+    });
+    identity.append(title, evidence);
+
+    const lessons = document.createElement('div');
+    lessons.className = 'learning-lessons';
+    for (const item of (run.items || []).slice(0, 9)) {
+      const lesson = document.createElement('span');
+      lesson.textContent = item.title || item.category;
+      lesson.title = item.lesson || '';
+      lessons.append(lesson);
+    }
+    if (!lessons.childElementCount) {
+      const none = document.createElement('p');
+      none.textContent = run.error || tr('learningNoLessons');
+      lessons.append(none);
+    }
+    const time = document.createElement('time');
+    time.textContent = formatDate(run.completedAt || run.startedAt, true);
+    row.append(identity, lessons, time);
+    history.append(row);
+  }
+}
+
 function escapeHtml(value) {
   const node = document.createElement('span');
   node.textContent = String(value);
@@ -399,6 +480,7 @@ function render(data) {
     : tr('abnormal');
   setDot('databaseDot', data.database.healthy);
 
+  renderLearning(data.learning);
   $('credentialGuide').classList.toggle('hidden', !data.maintenance?.credentialBlocked);
   renderEvents(data.recentEvents);
   lastFetchedAt = Date.now();
@@ -633,6 +715,25 @@ async function ensureDashboardSession() {
   if (!configSessionToken) throw new Error(locale === 'zh'
     ? '控制会话尚未就绪，请刷新页面'
     : 'The control session is not ready. Refresh the page.');
+}
+
+async function requestDailyLearning() {
+  await ensureDashboardSession();
+  $('learningRunButton').disabled = true;
+  try {
+    const payload = await responseJson(await fetch('/api/learning/run', {
+      method: 'POST',
+      headers: dailyLearningRequestHeaders(configSessionToken),
+      body: JSON.stringify({}),
+    }));
+    if (!payload.queued) throw new Error(payload.error || 'Learning request was not queued');
+    showToast(tr('learningRunQueued'));
+    if (latestStatusData?.learning) latestStatusData.learning.status = 'queued';
+    setTimeout(refresh, 1_500);
+  } catch (error) {
+    showToast(`${tr('learningRunFailed')}: ${error.message}`);
+    $('learningRunButton').disabled = false;
+  }
 }
 
 async function postWeChatPoc(path, action, body = {}) {
@@ -1236,6 +1337,7 @@ $('copyInvitesButton').addEventListener('click', () => {
 $('downloadInvitesButton').addEventListener('click', downloadInvitations);
 $('refreshButton').addEventListener('click', refresh);
 $('restartButton').addEventListener('click', restart);
+$('learningRunButton').addEventListener('click', requestDailyLearning);
 $('wechatPocToggle').addEventListener('change', toggleWeChatPoc);
 $('wechatPocEmergencyStop').addEventListener('click', emergencyStopWeChatPoc);
 $('wechatPocOpenClient').addEventListener('click', openWeChatClient);

@@ -27,6 +27,16 @@ for (const requiredId of [
   'languageToggle',
   'contactDeveloperButton',
   'contactDeveloperLabel',
+  'learningConsole',
+  'learningRunButton',
+  'learningTotal',
+  'learningNext',
+  'learningStatus',
+  'learningTasks',
+  'learningSkills',
+  'learningErrors',
+  'learningSummary',
+  'learningHistory',
 ]) {
   assert.equal(uniqueIds.has(requiredId), true, `required control #${requiredId} must remain mounted`);
 }
@@ -43,6 +53,7 @@ for (const endpoint of [
   '/api/wechat-poc/control',
   '/api/wechat-poc/emergency-stop',
   '/api/wechat-poc/open-client',
+  '/api/learning/run',
 ]) {
   assert.match(app, new RegExp(endpoint.replaceAll('/', '\\/')), `existing endpoint ${endpoint} must remain wired`);
 }
