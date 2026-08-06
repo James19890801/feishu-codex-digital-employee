@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { A1RequirementWorkflow } from './a1-workflow.mjs';
+import { normalizeDingTalkSelfMessages } from './im-channels.mjs';
 
 class FakePendingStore {
   constructor() { this.items = new Map(); }
@@ -74,6 +75,13 @@ const external = {
   metadata: { channel: 'dingtalk', senderName: '需求同学' },
 };
 
+const ownerSelfChat = {
+  chatId: 'dingtalk:user:owner', senderId: 'dingtalk:owner', chatType: 'p2p',
+  messageId: 'self-1', requester: 'dingtalk:owner',
+  history: '（这是当前运行周期内的第一条消息）',
+  metadata: { channel: 'dingtalk', selfChat: true, ownerLabel: '阿充' },
+};
+
 {
   const { workflow, calls, subscriptions, prepared } = buildWorkflow();
   const created = await workflow.handle({
@@ -109,6 +117,48 @@ const external = {
   });
   assert.match(created.text, /已创建需求/);
   assert.equal(calls.find(call => call.operation === 'create').input.assignee, '');
+}
+
+{
+  const { workflow, calls } = buildWorkflow();
+  const created = await workflow.handle({
+    ...ownerSelfChat,
+    text: '帮我建一个 WebAgent 的 A1 需求：支持阿里钉自聊直接建需求',
+  });
+  assert.match(created.text, /已创建需求/);
+  assert.deepEqual(
+    calls.map(call => call.operation),
+    ['create', 'get'],
+    '钉钉自聊需求应直接创建并回读，不应经过确认卡控',
+  );
+  assert.match(calls[0].input.body, /提出人：阿充（钉钉自聊）/);
+}
+
+{
+  const [payload] = normalizeDingTalkSelfMessages({
+    result: {
+      messages: [{
+        openMessageId: 'self-dws-1',
+        senderOpenDingTalkId: 'open-owner',
+        openConversationId: 'cid-owner-self',
+        createTime: '2026-08-06 17:00:00',
+        content: '帮我建一个 WebAgent 需求：自聊也能创建 A1',
+      }],
+    },
+  });
+  const { workflow, calls } = buildWorkflow();
+  const created = await workflow.handle({
+    chatId: payload.message.chat_id,
+    senderId: payload.sender.sender_id.open_id,
+    chatType: payload.message.chat_type,
+    messageId: payload.message.message_id,
+    text: JSON.parse(payload.message.content).text,
+    requester: payload.sender.sender_id.open_id,
+    metadata: { ...payload.metadata, ownerLabel: '阿充' },
+  });
+  assert.match(created.text, /已创建需求/);
+  assert.equal(payload.metadata.selfChat, true);
+  assert.deepEqual(calls.map(call => call.operation), ['create', 'get']);
 }
 
 {

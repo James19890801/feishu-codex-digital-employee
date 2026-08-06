@@ -2,7 +2,7 @@
 
 ## Goal
 
-Reliably accept a complete requirement from DingTalk, preserve its conversation context and requester, and create or update an A1 requirement immediately without an approval gate.
+Reliably accept a complete requirement from DingTalk, including the Owner's DingTalk self-chat, preserve its conversation context and requester, and create or update an A1 requirement immediately without an approval gate.
 
 ## Architecture
 
@@ -12,7 +12,7 @@ The workflow carries requester, requested assignee, product route, source messag
 
 ## Data Flow
 
-1. DingTalk receives a message and loads recent per-sender conversation history.
+1. DingTalk receives a message and loads recent per-sender conversation history. Owner self-chat is read through the dedicated DWS self-chat poller because the personal event stream filters self-sent messages.
 2. A1 intake runs before first-contact greeting so a requirement is not swallowed by the introduction.
 3. The workflow classifies create, update, and progress intents from current text plus history.
 4. A missing product is clarified and persisted; a missing assignee does not block creation.
@@ -24,6 +24,7 @@ The workflow carries requester, requested assignee, product route, source messag
 - Only configured A1 projects are valid mutation targets.
 - Unknown products never default to WebAgent.
 - No authorization or confirmation preview blocks a recognized request.
+- A DingTalk P2P message marked `selfChat=true` follows the same direct mutation path and records the requester as `阿充（钉钉自聊）` instead of an opaque OpenID.
 - An exact workitem ID with update language updates that item.
 - Create and update receipts always come from authoritative A1 readback.
 
@@ -41,6 +42,7 @@ The workflow carries requester, requested assignee, product route, source messag
 - Conversation history is passed into requirement planning.
 - Unknown products cannot create in WebAgent by fallback.
 - External users can create or update A1 directly without Owner confirmation.
+- The Owner can create A1 requirements from DingTalk self-chat with one message and receives the authoritative readback receipt.
 - Assignee and priority are passed to A1 mutation calls.
 - Repository search failure does not lose an actionable intake.
 - Every successful mutation returns authoritative A1 readback.

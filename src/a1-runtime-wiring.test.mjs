@@ -10,7 +10,7 @@ assert.ok(intakeCall < greetingGate, 'A1 intake must run before the first-contac
 const helperStart = source.indexOf('async function handleA1Requirement(');
 const helperEnd = source.indexOf('\n}\n', helperStart);
 const helper = source.slice(helperStart, helperEnd);
-for (const token of ['history: formatHistory(', 'requester:', 'metadata,']) {
+for (const token of ['history: formatHistory(', 'requester:', 'ownerLabel: OPERATOR_PROFILE.ownerLabel', 'metadata: workflowMetadata']) {
   assert.match(helper, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 }
 

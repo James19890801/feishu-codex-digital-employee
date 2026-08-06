@@ -15,6 +15,7 @@
 - Unknown products never default to WebAgent.
 - A1 mutations must include assignee when specified and return authoritative readback.
 - Repository search failure must not discard an otherwise actionable request.
+- DingTalk self-chat must use the same direct create/readback path, without confirmation, and attribute the requester as the Owner self-chat rather than an OpenID.
 
 ---
 
@@ -79,3 +80,15 @@
 - [ ] Run `npm test`.
 - [ ] Inspect `git diff --check` and the scoped diff.
 - [ ] Run `a1 skill report a1 --location /Users/fengzhouchong.fzc/.agents/skills`.
+
+### Task 5: DingTalk self-chat direct intake
+
+**Files:**
+- Modify: `src/a1-workflow.test.mjs`
+- Modify: `src/a1-workflow.mjs`
+- Modify: `src/a1-runtime-wiring.test.mjs`
+- Modify: `src/index.mjs`
+
+- [x] Prove a normalized DWS self-chat message directly executes A1 create and readback.
+- [x] Keep the self-chat path free of confirmation and authorization gates.
+- [x] Record the requester as `阿充（钉钉自聊）` rather than a DingTalk OpenID.

@@ -472,19 +472,22 @@ function audit(event, message, senderOpenId, detail = {}) {
 async function handleA1Requirement(message, senderOpenId, cleanText, metadata = {}) {
   if (!A1_WORKFLOW) return false;
   try {
+    const workflowMetadata = metadata.channel === 'dingtalk' && metadata.selfChat === true
+      ? { ...metadata, ownerLabel: OPERATOR_PROFILE.ownerLabel }
+      : metadata;
     const workflowContext = {
       chatId: message.chat_id,
       senderId: senderOpenId,
       chatType: message.chat_type,
-      metadata,
+      metadata: workflowMetadata,
     };
     const result = await A1_WORKFLOW.handle({
       ...workflowContext,
       messageId: message.message_id,
       text: cleanText,
       history: formatHistory(message.chat_id, senderOpenId),
-      requester: metadata.senderName || senderOpenId,
-      metadata,
+      requester: workflowMetadata.senderName || senderOpenId,
+      metadata: workflowMetadata,
     });
     if (!result.handled) return false;
     remember(message.chat_id, senderOpenId, 'user', cleanText);

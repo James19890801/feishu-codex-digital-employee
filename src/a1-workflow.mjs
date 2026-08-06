@@ -43,10 +43,19 @@ function combinedRequest(text, history = '') {
   return `${context}\n当前请求：${current}`.slice(-20_000);
 }
 
+function sourceRequester(context) {
+  const metadata = context.metadata || {};
+  if (metadata.channel === 'dingtalk' && metadata.selfChat === true) {
+    const ownerLabel = cleanLabel(metadata.ownerLabel, context.requester || context.senderId || 'Owner');
+    return `${ownerLabel}（钉钉自聊）`;
+  }
+  return cleanLabel(context.requester, context.senderId || '未知');
+}
+
 function sourceSection(context, assignee) {
   return `## 来源与责任
 
-- 提出人：${cleanLabel(context.requester, context.senderId || '未知')}
+- 提出人：${sourceRequester(context)}
 - A1 负责人：${cleanLabel(assignee, '未显式指定，使用需求池默认规则')}
 - 来源渠道：${cleanLabel(context.metadata?.channel, 'dingtalk')}
 - 来源消息：${cleanLabel(context.messageId, '未提供')}`;
