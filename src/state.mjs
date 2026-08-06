@@ -1122,6 +1122,19 @@ export class AgentState {
     ).run(notificationKey).changes === 1;
   }
 
+  deferMulticaNotification(notificationKey, reason, availableAt) {
+    const now = new Date().toISOString();
+    return this.db.prepare(`UPDATE multica_notification_outbox
+      SET available_at = ?, last_error = ?, updated_at = ?
+      WHERE notification_key = ? AND status = 'pending'`)
+      .run(
+        availableAt,
+        `deferred: ${String(reason || 'temporarily_unavailable').slice(0, 900)}`,
+        now,
+        notificationKey,
+      ).changes === 1;
+  }
+
   failMulticaNotification(notificationKey, error, availableAt, maxAttempts = 10) {
     const row = this.db.prepare(`SELECT attempts, status
       FROM multica_notification_outbox WHERE notification_key = ?`).get(notificationKey);

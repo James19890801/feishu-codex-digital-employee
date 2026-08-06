@@ -183,8 +183,15 @@ try {
   });
   const suppressedDelivery = await suppressedSynchronizer.deliverNotifications(new Date());
   assert.equal(suppressedDelivery.notified, 0);
-  assert.equal(suppressedDelivery.failed, 1);
+  assert.equal(suppressedDelivery.failed, 0);
   assert.equal(suppressedDelivery.pending, 1);
+  const deferred = state.db.prepare(`SELECT attempts, status, last_error, available_at
+    FROM multica_notification_outbox WHERE notification_key = ?`)
+    .get('temporarily-suppressed-notification');
+  assert.equal(deferred.attempts, 0);
+  assert.equal(deferred.status, 'pending');
+  assert.equal(deferred.last_error, 'deferred: self_chat_circuit_open');
+  assert.ok(new Date(deferred.available_at).getTime() > Date.now());
   state.completeMulticaNotification('temporarily-suppressed-notification');
 
   notices.length = 0;

@@ -305,6 +305,21 @@ export class MulticaSynchronizer {
           chatType: item.chatType,
         });
         if (result?.suppressed === true) {
+          if (result.reason === 'self_chat_circuit_open') {
+            const delayMs = 5 * 60_000;
+            this.state.deferMulticaNotification(
+              item.notificationKey,
+              result.reason,
+              new Date(now.getTime() + delayMs).toISOString(),
+            );
+            this.audit('multica_sync_notification_deferred', {
+              issueId: item.issueId,
+              chatId: item.chatId,
+              delayMs,
+              reason: result.reason,
+            });
+            continue;
+          }
           throw new Error(`notification suppressed: ${result.reason || 'unknown reason'}`);
         }
         this.state.completeMulticaNotification(item.notificationKey);
