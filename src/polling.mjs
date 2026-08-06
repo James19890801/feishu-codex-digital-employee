@@ -162,6 +162,15 @@ export function buildPollingSearchArgs(chatType, start, end) {
   return args;
 }
 
+export function buildUnifiedPollingSearchArgs(start, end) {
+  return [
+    'im', '+messages-search', '--as', 'user', '--query', '',
+    '--sender-type', 'user',
+    '--start', start, '--end', end,
+    '--page-size', '50', '--page-all', '--no-reactions', '--format', 'json',
+  ];
+}
+
 export function buildOwnerControlPollingArgs(ownerOpenId, start, end) {
   return [
     'im', '+messages-search', '--as', 'user', '--query', '',

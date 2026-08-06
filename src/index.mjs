@@ -43,9 +43,8 @@ import {
   shouldRetrySupervisor,
 } from './event-consumer.mjs';
 import {
-  buildOwnerControlPollingArgs,
-  buildPollingSearchArgs,
   buildSelfChatPollingArgs,
+  buildUnifiedPollingSearchArgs,
   comparePollingItems,
   isExplicitBotMention,
   markSelfChatMessages,
@@ -2998,16 +2997,13 @@ function triggerDrain(client = businessClient) {
 async function fetchUserInboundMessages(startMs, endMs) {
   const start = toLarkSearchIso(new Date(startMs));
   const end = toLarkSearchIso(new Date(endMs));
-  const [groupResult, p2pResult, selfResult, ownerControlResult] = await runPacedPollingRequests([
-    () => runLarkCli(buildPollingSearchArgs('group', start, end)),
-    () => runLarkCli(buildPollingSearchArgs('p2p', start, end)),
+  const [unifiedResult, selfResult] = await runPacedPollingRequests([
+    () => runLarkCli(buildUnifiedPollingSearchArgs(start, end)),
     () => runLarkCli(buildSelfChatPollingArgs(OWNER_OPEN_ID, start, end)),
-    () => runLarkCli(buildOwnerControlPollingArgs(OWNER_OPEN_ID, start, end)),
-  ], { gapMs: 750, wait });
-  const groupMessages = assertCompleteSearchResult(groupResult, 'group');
-  const p2pMessages = assertCompleteSearchResult(p2pResult, 'p2p');
+  ], { gapMs: 1_000, wait });
+  const allMessages = assertCompleteSearchResult(unifiedResult, 'all-chats');
   const botDiscovery = await discoverBotP2pChats({
-    messages: p2pMessages,
+    messages: allMessages,
     ownerOpenId: OWNER_OPEN_ID,
     readAsBot: messageIds => runLarkCli([
       'im', '+messages-mget', '--as', 'bot',
@@ -3032,13 +3028,12 @@ async function fetchUserInboundMessages(startMs, endMs) {
   }
   const selfMessages = markSelfChatMessages(selfResult);
   const regular = selectInboundMessages([
-    ...groupMessages,
-    ...p2pMessages.map(markBotChat),
+    ...allMessages.map(markBotChat),
     ...selfMessages,
   ], OWNER_OPEN_ID, APP_ID);
   const selfMessageIds = new Set(selfMessages.map(item => item.message_id));
   const ownerActivity = selectOwnerActivityMessages(
-    assertCompleteSearchResult(ownerControlResult, 'owner-activity').map(markBotChat),
+    allMessages.map(markBotChat),
     OWNER_OPEN_ID,
     APP_ID,
   ).filter(item => !selfMessageIds.has(item.message_id));

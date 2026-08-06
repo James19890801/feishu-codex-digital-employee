@@ -7,6 +7,7 @@ import {
   comparePollingItems,
   buildPollingSearchArgs,
   buildSelfChatPollingArgs,
+  buildUnifiedPollingSearchArgs,
   markSelfChatMessages,
   normalizeSearchMessage,
   pollFailureDelayMs,
@@ -259,6 +260,17 @@ const ownerBotMention = {
   );
   assert.equal(p2pArgs.includes('--is-at-me'), false);
   assert.equal(p2pArgs.includes('--sender-type'), true);
+
+  const unifiedArgs = buildUnifiedPollingSearchArgs(
+    '2026-07-29T22:30:00+08:00',
+    '2026-07-29T22:35:00+08:00',
+  );
+  assert.deepEqual(unifiedArgs.slice(0, 5), [
+    'im', '+messages-search', '--as', 'user', '--query',
+  ]);
+  assert.equal(unifiedArgs.includes('--chat-type'), false);
+  assert.equal(unifiedArgs.includes('--is-at-me'), false);
+  assert.equal(unifiedArgs.includes('--sender-type'), true);
 
   const selfArgs = buildSelfChatPollingArgs(
     ownerOpenId,
