@@ -143,6 +143,14 @@ function tr(key, variables) {
   return translate(locale, key, variables);
 }
 
+function localizeExternalDetail(value) {
+  const text = String(value || '');
+  if (locale !== 'en' || !/[\u3400-\u9fff]/.test(text)) return text;
+  return /(?:登录|授权|认证|auth|token)/i.test(text)
+    ? tr('channelReauthorizationRequired')
+    : tr('externalDiagnosticLocalized');
+}
+
 function applyStaticTranslations() {
   document.documentElement.lang = locale === 'zh' ? 'zh-CN' : 'en';
   document.title = tr('pageTitle');
@@ -245,7 +253,7 @@ function renderChannel(prefix, channel, fallbackMeta) {
   }
   status.textContent = channel.authenticated ? tr('reconnecting') : tr('authenticationRequired');
   meta.textContent = channel.lastError?.error
-    ? String(channel.lastError.error).slice(0, 120)
+    ? localizeExternalDetail(channel.lastError.error).slice(0, 160)
     : fallbackMeta;
   dot.className = channel.authenticated ? 'warn' : 'bad';
 }
@@ -291,9 +299,10 @@ function renderEvents(events) {
   $('timeline').innerHTML = events.map(item => {
     const error = /error|failed|dead|unavailable/.test(item.event);
     const success = /replied|created|resumed|ready/.test(item.event);
-    const detail = item.detail?.error
+    const rawDetail = item.detail?.error
       ? String(item.detail.error).slice(0, 180)
       : Object.keys(item.detail || {}).length ? JSON.stringify(item.detail) : tr('routineRecord');
+    const detail = localizeExternalDetail(rawDetail);
     return `
       <div class="event ${error ? 'error' : success ? 'success' : ''}">
         <i class="event-dot"></i>
