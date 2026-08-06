@@ -36,7 +36,14 @@ export function selectOwnerControlMessages(messages, ownerOpenId) {
       || a.message_id.localeCompare(b.message_id));
 }
 
-export function selectOwnerActivityMessages(messages, ownerOpenId) {
+export function isExplicitBotMention(message, appId) {
+  return message?.chat_type === 'group'
+    && Boolean(appId)
+    && Array.isArray(message?.mentions)
+    && message.mentions.some(mention => mention?.id === appId);
+}
+
+export function selectOwnerActivityMessages(messages, ownerOpenId, appId = '') {
   const seen = new Set();
   return (Array.isArray(messages) ? messages : [])
     .filter(message => {
@@ -44,6 +51,12 @@ export function selectOwnerActivityMessages(messages, ownerOpenId) {
       if (message.sender?.sender_type !== 'user' || message.sender?.id !== ownerOpenId) return false;
       if (!['group', 'p2p'].includes(message.chat_type)) return false;
       if (!['text', 'post'].includes(message.msg_type || 'text')) return false;
+      if (message.bot_chat === true) return false;
+      if (isExplicitBotMention(message, appId)) return false;
+      const compact = String(message.content || '').replace(/\s+/g, '');
+      if (/^(?:我接受了你的联系人申请[，,]?开始聊天吧[！!]?|你们已经成为联系人[，,]?可以开始聊天了[。.]?)$/.test(compact)) {
+        return false;
+      }
       seen.add(message.message_id);
       return true;
     })
@@ -57,17 +70,24 @@ export function selectOwnerActivityMessages(messages, ownerOpenId) {
       || a.message_id.localeCompare(b.message_id));
 }
 
-export function selectInboundMessages(messages, ownerOpenId) {
+export function selectInboundMessages(messages, ownerOpenId, appId = '') {
   const seen = new Set();
   return (Array.isArray(messages) ? messages : [])
     .filter(message => {
       if (!message?.message_id || seen.has(message.message_id) || message.deleted) return false;
       if (message.sender?.sender_type !== 'user') return false;
+      const explicitBotMention = isExplicitBotMention(message, appId);
+      const ownerBotDirect = message.sender?.id === ownerOpenId
+        && message.chat_type === 'p2p'
+        && message.bot_chat === true;
       if (message.sender?.id === ownerOpenId
+        && !explicitBotMention
+        && !ownerBotDirect
         && !(message.chat_type === 'p2p' && message.self_chat === true)) return false;
       if (!['text', 'post', 'image', 'file', 'audio', 'media'].includes(message.msg_type || 'text')) return false;
       if (message.chat_type === 'group') {
-        if (!message.mentions?.some(mention => mention?.id === ownerOpenId)) return false;
+        const ownerMentioned = message.mentions?.some(mention => mention?.id === ownerOpenId);
+        if (!ownerMentioned && !explicitBotMention) return false;
       } else if (message.chat_type !== 'p2p') {
         return false;
       }
@@ -113,12 +133,14 @@ export function normalizeSearchMessage(item) {
     },
     metadata: { channel: 'feishu' },
   };
-  if (item.self_chat === true || item.operator_control === true || item.owner_activity === true) {
+  if (item.self_chat === true || item.operator_control === true
+    || item.owner_activity === true || item.bot_chat === true) {
     payload.metadata = {
       channel: 'feishu',
       ...(item.self_chat === true ? { selfChat: true } : {}),
       ...(item.operator_control === true ? { operatorControl: true } : {}),
       ...(item.owner_activity === true ? { ownerActivity: true } : {}),
+      ...(item.bot_chat === true ? { botChat: true } : {}),
     };
   }
   return payload;
