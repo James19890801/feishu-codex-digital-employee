@@ -47,6 +47,7 @@ import {
   buildPollingSearchArgs,
   buildSelfChatPollingArgs,
   comparePollingItems,
+  isExplicitBotMention,
   markSelfChatMessages,
   normalizeSearchMessage,
   pollFailureDelayMs,
@@ -175,6 +176,28 @@ import {
   mediaFileExtension,
 } from './multimodal-content.mjs';
 import { extractHttpUrls, readPublicWebPage } from './web-reader.mjs';
+import {
+  discoverBotP2pChats,
+  isExpectedLarkCliResult,
+  resolveFeishuChatType,
+  sendFeishuTextWithExternalBotFallback,
+  shouldSendFeishuP2pAsBot,
+} from './feishu-external-bot-fallback.mjs';
+import {
+  assertOwnerFileRecipient,
+  buildDingTalkCalendarCreateArgs,
+  buildDingTalkCalendarListArgs,
+  buildFeishuCalendarCreateArgs,
+  buildFeishuFreebusyArgs,
+  calendarAccessPolicy,
+  formatCalendarAnswer,
+  hasCalendarConflict,
+  looksLikeAvailabilityQuery,
+  looksLikeMeetingBookingRequest,
+  normalizeDingTalkCalendarEvents,
+  normalizeFeishuBusyIntervals,
+  normalizeFeishuCalendarEvents,
+} from './calendar-access.mjs';
 
 const CORE_LICENSE_GUARD = await evaluateLicenseGuard({
   enforced: config.licensingEnforced,
@@ -417,8 +440,9 @@ async function runLarkCli(args, options = {}) {
   try { result = JSON.parse(stdout); } catch {
     throw new Error(`lark-cli returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
   }
-  if (!result.ok || result.identity !== 'user') {
-    throw new Error(`lark-cli user action failed: ${JSON.stringify(result.error || result).slice(0, 1000)}`);
+  const expectedIdentity = options.expectedIdentity || 'user';
+  if (!isExpectedLarkCliResult(result, expectedIdentity)) {
+    throw new Error(`lark-cli ${expectedIdentity} action failed: ${JSON.stringify(result.error || result).slice(0, 1000)}`);
   }
   return result;
 }
@@ -682,9 +706,11 @@ async function sendText(client, chatId, text, uuid, {
     }
     outboundText = markSelfChatOutbound(outboundText);
   }
+  const rememberedChat = state.get('feishu_chat', chatId, {});
+  const effectiveChatType = resolveFeishuChatType(chatType, rememberedChat?.chatType);
   const mention = prepareGroupMention({
     chatId,
-    chatType,
+    chatType: effectiveChatType,
     senderId: mentionSenderId,
     text: outboundText,
   });
@@ -705,12 +731,46 @@ async function sendText(client, chatId, text, uuid, {
     return geWeChannel.send(target, outboundText);
   }
   const labeledText = labelDigitalTwin(outboundText);
-  const args = [
+  const userArgs = [
     'im', '+messages-send', '--as', 'user', '--chat-id', chatId,
     '--text', labeledText, '--format', 'json',
   ];
-  if (uuid) args.push('--idempotency-key', uuid.slice(0, 50));
-  return sendWithEchoGuard(chatId, labeledText, () => runLarkCli(args));
+  const botArgs = [
+    'im', '+messages-send', '--as', 'bot', '--chat-id', chatId,
+    '--text', labeledText, '--format', 'json',
+  ];
+  if (uuid) {
+    userArgs.push('--idempotency-key', uuid.slice(0, 50));
+    botArgs.push('--idempotency-key', uuid.slice(0, 50));
+  }
+  if (shouldSendFeishuP2pAsBot({
+    chatType: effectiveChatType,
+    botChat: rememberedChat?.botChat === true,
+  })) {
+    return sendWithEchoGuard(chatId, labeledText, async () => {
+      const result = await runLarkCli(botArgs, { expectedIdentity: 'bot' });
+      state.audit('feishu_bot_p2p_sent', {
+        chatId,
+        detail: { identity: 'bot' },
+      });
+      return result;
+    });
+  }
+  return sendWithEchoGuard(chatId, labeledText, () => sendFeishuTextWithExternalBotFallback({
+    chatType: effectiveChatType,
+    sendAsUser: () => runLarkCli(userArgs),
+    sendAsBot: async error => {
+      const result = await runLarkCli(botArgs, { expectedIdentity: 'bot' });
+      state.audit('feishu_external_group_bot_fallback_sent', {
+        chatId,
+        detail: {
+          userApiError: processFailureSummary(error),
+          identity: 'bot',
+        },
+      });
+      return result;
+    },
+  }));
 }
 
 async function deliverMulticaArtifact(payload) {
@@ -721,6 +781,12 @@ async function deliverMulticaArtifact(payload) {
   if (!chatId || sourceChannel !== effectiveChannel) {
     throw new Error('Multica artifact source channel does not match its destination');
   }
+  assertOwnerFileRecipient({
+    channel: effectiveChannel,
+    senderId: payload?.senderId,
+    chatType: payload?.chatType,
+    identities: MULTICA_OWNER_IDENTITIES,
+  });
   const artifactPath = String(payload?.path || '');
   const artifactRelativePath = relative(WORKDIR, artifactPath);
   if (!artifactRelativePath || artifactRelativePath.startsWith('..')
@@ -785,7 +851,7 @@ async function createConfirmedTask(client, draft) {
 }
 
 function parseCalendarQuery(text) {
-  if (!/(安排|日程|日历)/.test(text) || !/(今天|明天|后天|上午|下午|晚上)/.test(text)) return null;
+  if (!looksLikeAvailabilityQuery(text)) return null;
   const start = new Date();
   start.setSeconds(0, 0);
   let dayOffset = 0;
@@ -805,16 +871,6 @@ function parseCalendarQuery(text) {
   }
   const dayLabel = dayOffset === 0 ? '今天' : dayOffset === 1 ? '明天' : '后天';
   return { start, end, label: `${dayLabel}${period === '全天' ? '' : period}` };
-}
-
-function formatEventTime(event) {
-  if (event.start_time?.date) return '全天';
-  const start = new Date(Number(event.start_time?.timestamp || 0) * 1000);
-  const end = new Date(Number(event.end_time?.timestamp || 0) * 1000);
-  const formatter = new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', hour12: false,
-  });
-  return `${formatter.format(start)}–${formatter.format(end)}`;
 }
 
 async function queryCalendarEvents(client, senderOpenId, window) {
@@ -841,9 +897,57 @@ async function queryCalendarEvents(client, senderOpenId, window) {
   return (response.data?.items || []).filter(event => event.status !== 'cancelled');
 }
 
+async function runDingTalkCalendarList(window) {
+  const args = buildDingTalkCalendarListArgs({
+    profile: config.dingtalkProfile,
+    start: window.start.toISOString(),
+    end: window.end.toISOString(),
+  });
+  const { stdout, stderr } = await runBufferedProcess(config.dingtalkBin, args, {
+    cwd: WORKDIR,
+    env: dingtalkProcessEnv(),
+    timeoutMs: config.larkCliTimeoutMs,
+    maxStdoutBytes: 4 * 1024 * 1024,
+    maxStderrBytes: 512 * 1024,
+  });
+  let payload;
+  try { payload = JSON.parse(stdout); } catch {
+    throw new Error(`dws calendar list returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
+  }
+  if (payload?.success === false || payload?.error) {
+    throw new Error(`dws calendar list failed: ${JSON.stringify(payload.error || payload).slice(0, 1000)}`);
+  }
+  return normalizeDingTalkCalendarEvents(payload);
+}
+
+async function queryChannelCalendar(client, message, senderOpenId, window, metadata = {}) {
+  const channel = messageChannel(message, metadata);
+  const policy = calendarAccessPolicy({
+    channel,
+    senderId: senderOpenId,
+    identities: MULTICA_OWNER_IDENTITIES,
+  });
+  if (channel === 'dingtalk') {
+    return { policy, events: await runDingTalkCalendarList(window) };
+  }
+  if (channel !== 'feishu') throw new Error(`Calendar is not available for ${channel}`);
+  if (policy.canViewDetails) {
+    if (!client) throw new Error('Feishu calendar SDK client is unavailable');
+    const events = await queryCalendarEvents(client, OWNER_OPEN_ID, window);
+    return { policy, events: normalizeFeishuCalendarEvents(events) };
+  }
+  const payload = await runLarkCli(buildFeishuFreebusyArgs({
+    ownerOpenId: OWNER_OPEN_ID,
+    start: window.start.toISOString(),
+    end: window.end.toISOString(),
+  }));
+  return { policy, events: normalizeFeishuBusyIntervals(payload) };
+}
+
 function parseCalendarDraft(text, senderOpenId) {
   const createIntent = /(?:帮我|请)?\s*(?:建|创建|新增)(?!议)/.test(text);
-  if (!/(日程|安排)/.test(text) || !createIntent) return null;
+  const bookingIntent = looksLikeMeetingBookingRequest(text);
+  if (!((/(日程|安排)/.test(text) && createIntent) || bookingIntent)) return null;
   const times = [...text.matchAll(/(上午|中午|下午|晚上)?\s*(\d{1,2})\s*[点时](半|\d{1,2}分)?/g)];
   if (!times.length) return { missingTime: true };
   const base = new Date();
@@ -867,6 +971,7 @@ function parseCalendarDraft(text, senderOpenId) {
   let summary = text.split(/[：:]/).slice(1).join(':').trim();
   if (!summary) summary = text.replace(/^.*?(?:日程|安排)[是为]?[：:]?/, '').trim();
   summary = summary.replace(/[。””！!]+$/, '').trim();
+  if (bookingIntent) summary = '与詹老师沟通';
   if (!summary) return { missingSummary: true };
   return { summary: summary.slice(0, 160), start, end, senderOpenId };
 }
@@ -878,30 +983,51 @@ function formatCalendarDraftTime(date) {
   }).format(date);
 }
 
-async function createConfirmedCalendarEvent(client, draft) {
-  const primary = await client.calendar.calendar.primary({
-    params: { user_id_type: 'open_id', op_user_id: draft.senderOpenId },
+async function createChannelCalendarEvent(message, draft, metadata = {}) {
+  const channel = messageChannel(message, metadata);
+  const policy = calendarAccessPolicy({
+    channel,
+    senderId: draft.senderOpenId,
+    identities: MULTICA_OWNER_IDENTITIES,
   });
-  const calendar = primary.data?.calendars?.[0]?.calendar;
-  if (primary.code !== 0 || !calendar?.calendar_id) {
-    throw new Error(`Primary calendar lookup failed: ${primary.code ?? 'unknown'} ${primary.msg || ''}`);
+  if (!policy.canRequestMeeting) throw new Error(`Calendar is not available for ${channel}`);
+  const common = {
+    summary: policy.isOwner ? draft.summary : '与詹老师沟通',
+    start: draft.start.toISOString(),
+    end: draft.end.toISOString(),
+    attendeeId: policy.isOwner ? '' : draft.senderOpenId,
+  };
+  if (channel === 'feishu') {
+    const payload = await runLarkCli(buildFeishuCalendarCreateArgs(common));
+    const event = payload?.data?.event || payload?.event || payload?.data || payload || {};
+    return {
+      event_id: String(event.event_id || event.eventId || event.id || ''),
+      summary: common.summary,
+    };
   }
-  const response = await client.calendar.calendarEvent.create({
-    path: { calendar_id: calendar.calendar_id },
-    params: { user_id_type: 'open_id' },
-    data: {
-      summary: draft.summary,
-      start_time: { timestamp: String(Math.floor(draft.start.getTime() / 1000)), timezone: 'Asia/Shanghai' },
-      end_time: { timestamp: String(Math.floor(draft.end.getTime() / 1000)), timezone: 'Asia/Shanghai' },
-      need_notification: false,
-      visibility: 'default',
-      free_busy_status: 'busy',
-    },
+  const args = buildDingTalkCalendarCreateArgs({
+    ...common,
+    profile: config.dingtalkProfile,
   });
-  if (response.code !== 0 || !response.data?.event?.event_id) {
-    throw new Error(`Calendar event create failed: ${response.code ?? 'unknown'} ${response.msg || ''}`);
+  const { stdout, stderr } = await runBufferedProcess(config.dingtalkBin, args, {
+    cwd: WORKDIR,
+    env: dingtalkProcessEnv(),
+    timeoutMs: config.larkCliTimeoutMs,
+    maxStdoutBytes: 2 * 1024 * 1024,
+    maxStderrBytes: 512 * 1024,
+  });
+  let payload;
+  try { payload = JSON.parse(stdout); } catch {
+    throw new Error(`dws calendar create returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
   }
-  return response.data.event;
+  if (payload?.success === false || payload?.error) {
+    throw new Error(`dws calendar create failed: ${JSON.stringify(payload.error || payload).slice(0, 1000)}`);
+  }
+  const event = payload?.result?.event || payload?.result || payload?.data || payload || {};
+  return {
+    event_id: String(event.eventId || event.event_id || event.id || ''),
+    summary: common.summary,
+  };
 }
 
 async function runAiRuntime(prompt, options) {
@@ -1851,6 +1977,14 @@ async function processIncoming(client, message, sender, metadata = {}) {
   } catch { return; }
   const cleanText = cleanTask(String(text || '').slice(0, 20_000));
   const senderOpenId = sender?.sender_id?.open_id || '';
+  if (message.chat_type === 'group' || message.chat_type === 'p2p') {
+    const rememberedChat = state.get('feishu_chat', message.chat_id, {});
+    state.set('feishu_chat', message.chat_id, {
+      chatType: message.chat_type,
+      botChat: metadata.botChat === true || rememberedChat?.botChat === true,
+      updatedAt: new Date().toISOString(),
+    });
+  }
   audit('message_received', message, senderOpenId, { type: message.message_type, text: cleanText.slice(0, 300) });
 
   if (parseChannelChatId(message.chat_id)?.channel === 'dingtalk') {
@@ -1874,7 +2008,10 @@ async function processIncoming(client, message, sender, metadata = {}) {
   }
 
   const nowMs = Date.now();
-  if (metadata.ownerActivity === true && senderOpenId === OWNER_OPEN_ID) {
+  const ownerMentionedBot = senderOpenId === OWNER_OPEN_ID
+    && isExplicitBotMention(message, APP_ID);
+  if (metadata.ownerActivity === true && senderOpenId === OWNER_OPEN_ID
+    && metadata.botChat !== true && !ownerMentionedBot) {
     const occurredAtMs = Number(message.create_time || nowMs);
     const applied = applyOwnerActivityHistory([{
       message_id: message.message_id,
@@ -2261,23 +2398,20 @@ async function processIncoming(client, message, sender, metadata = {}) {
   }
   const pendingCalendarEvent = pendingActions.get('calendar', message.chat_id, senderOpenId);
   if (pendingCalendarEvent && /^(确认|确认创建|可以|好|好哦)[。！! ]*$/.test(cleanText)) {
-    if (!client) {
-      await sendText(client, message.chat_id, '当前真人身份入口还没有配置日程创建凭证，暂时不能创建。', `digital-employee-calendar-unavailable-${message.message_id}`);
-      return;
-    }
+    const calendarChannel = messageChannel(message, metadata);
     let execution;
     try {
       execution = await executeMutationOnce({
         state,
         executionKey: `calendar:${message.message_id}`,
-        kind: 'feishu_calendar_create',
-        operation: () => createConfirmedCalendarEvent(client, pendingCalendarEvent),
+        kind: `${calendarChannel}_calendar_create`,
+        operation: () => createChannelCalendarEvent(message, pendingCalendarEvent, metadata),
       });
     } catch (error) {
       console.error(`[calendar-create-error] ${message.message_id}:`, error);
       pendingActions.delete('calendar', message.chat_id, senderOpenId);
       const answer = error instanceof MutationOutcomeAmbiguousError
-        ? '这个日程的创建结果不确定。为了避免重复创建，我已经停止自动重试。请先在飞书日历中核对；确认没有创建后，再重新发起。'
+        ? `这个日程的创建结果不确定。为了避免重复创建，我已经停止自动重试。请先在${calendarChannel === 'dingtalk' ? '钉钉' : '飞书'}日历中核对；确认没有创建后，再重新发起。`
         : '日程没有创建成功，请重新发起一次。';
       await sendText(client, message.chat_id, answer, `xiaozhao-event-error-${message.message_id}`);
       return;
@@ -2299,20 +2433,37 @@ async function processIncoming(client, message, sender, metadata = {}) {
   }
   const calendarDraft = parseCalendarDraft(cleanText, senderOpenId);
   if (calendarDraft) {
-    if (!canPerformMutation(senderOpenId, OWNER_OPEN_ID)) {
-      await sendText(client, message.chat_id, '我可以帮你整理日程内容，但不能代表账号本人创建日程。', `digital-employee-calendar-owner-only-${message.message_id}`);
-      return;
-    }
-    if (!client) {
-      await sendText(client, message.chat_id, '当前真人身份入口还没有配置日程创建凭证，暂时不能创建。', `digital-employee-calendar-unavailable-${message.message_id}`);
-      return;
-    }
     if (calendarDraft.missingTime || calendarDraft.missingSummary) {
       await sendText(client, message.chat_id, calendarDraft.missingTime ? '这个日程是几点到几点呀？' : '这个日程叫什么呀？', `xiaozhao-event-missing-${message.message_id}`);
       return;
     }
+    const calendarPolicy = calendarAccessPolicy({
+      channel: messageChannel(message, metadata),
+      senderId: senderOpenId,
+      identities: MULTICA_OWNER_IDENTITIES,
+    });
+    if (!calendarPolicy.canRequestMeeting) {
+      await sendText(client, message.chat_id, '这个通道暂时不支持日历预约。', `digital-employee-calendar-unavailable-${message.message_id}`);
+      return;
+    }
+    if (!calendarPolicy.isOwner) {
+      try {
+        const { events } = await queryChannelCalendar(client, message, senderOpenId, {
+          start: calendarDraft.start,
+          end: calendarDraft.end,
+        }, metadata);
+        if (hasCalendarConflict(events, calendarDraft)) {
+          await sendText(client, message.chat_id, '这个时段詹老师忙碌，我不会透露具体安排。你换一个时间，我再帮你查。', `aipro-calendar-conflict-${message.message_id}`);
+          return;
+        }
+      } catch (error) {
+        console.error(`[calendar-availability-error] ${message.message_id}:`, error);
+        await sendText(client, message.chat_id, '日历忙闲刚刚没查成功，为避免冲突，我暂时不会创建这个预约。', `aipro-calendar-safety-stop-${message.message_id}`);
+        return;
+      }
+    }
     pendingActions.set('calendar', message.chat_id, senderOpenId, calendarDraft);
-    await sendText(client, message.chat_id, `我先这样建：\n${calendarDraft.summary}\n${formatCalendarDraftTime(calendarDraft.start)}–${formatCalendarDraftTime(calendarDraft.end)}\n\n你回复“确认”后我再创建。`, `xiaozhao-event-preview-${message.message_id}`);
+    await sendText(client, message.chat_id, `我先这样${calendarPolicy.isOwner ? '建日程' : '发起预约'}：\n${calendarPolicy.isOwner ? calendarDraft.summary : '与詹老师沟通'}\n${formatCalendarDraftTime(calendarDraft.start)}–${formatCalendarDraftTime(calendarDraft.end)}\n\n你回复“确认”后我再创建。`, `xiaozhao-event-preview-${message.message_id}`);
     return;
   }
   const taskDraft = parseTaskDraft(cleanText, senderOpenId);
@@ -2335,16 +2486,21 @@ async function processIncoming(client, message, sender, metadata = {}) {
   }
   const calendarWindow = parseCalendarQuery(cleanText);
   if (calendarWindow) {
-    if (!client) {
-      await sendText(client, message.chat_id, '当前真人身份入口还没有配置日历读取凭证，暂时查不了日程。', `digital-employee-calendar-query-unavailable-${message.message_id}`);
-      return;
-    }
     try {
-      const events = await queryCalendarEvents(client, senderOpenId, calendarWindow);
-      const answer = events.length
-        ? `${calendarWindow.label}有这些安排：\n${events.map(event => `${formatEventTime(event)} ${event.summary || '未命名日程'}`).join('\n')}`
-        : `${calendarWindow.label}日历里没有安排哦。`;
+      const { policy, events } = await queryChannelCalendar(
+        client, message, senderOpenId, calendarWindow, metadata,
+      );
+      const answer = formatCalendarAnswer({
+        label: calendarWindow.label,
+        events,
+        canViewDetails: policy.canViewDetails,
+      });
       await sendText(client, message.chat_id, answer, `xiaozhao-calendar-${message.message_id}`);
+      audit('calendar_queried', message, senderOpenId, {
+        channel: messageChannel(message, metadata),
+        mode: policy.canViewDetails ? 'details' : 'freebusy',
+        eventCount: events.length,
+      });
     } catch (error) {
       console.error(`[calendar-error] ${message.message_id}:`, error);
       await sendText(client, message.chat_id, '日历刚刚没查成功，你稍后再问我一次哦。', `xiaozhao-calendar-error-${message.message_id}`);
@@ -2641,13 +2797,29 @@ function enqueueInbound(payload, source) {
     });
     return false;
   }
+  const websocketBotChat = payload.message.chat_type === 'p2p'
+    && (source === 'websocket-lark-cli' || source === 'websocket-sdk');
+  const botChat = payload.metadata?.botChat === true || websocketBotChat;
+  if (botChat && payload.metadata?.botChat !== true) {
+    payload = { ...payload, metadata: { ...(payload.metadata || {}), botChat: true } };
+  }
+  if (botChat) {
+    state.set('feishu_bot_chat', payload.message.chat_id, {
+      botChat: true,
+      updatedAt: new Date().toISOString(),
+    });
+  }
   const senderOpenId = payload.sender?.sender_id?.open_id || '';
   const selfChat = payload.metadata?.selfChat === true;
   const operatorControl = payload.metadata?.operatorControl === true;
   const ownerActivity = payload.metadata?.ownerActivity === true;
+  const ownerMentionedBot = senderOpenId === OWNER_OPEN_ID
+    && isExplicitBotMention(payload.message, APP_ID);
   if (selfChat) state.markSelfChat(payload.message.chat_id);
   if (senderOpenId === OWNER_OPEN_ID
     && !(selfChat && payload.message.chat_type === 'p2p')
+    && !botChat
+    && !ownerMentionedBot
     && !operatorControl
     && !ownerActivity) {
     state.audit('inbound_rejected', {
@@ -2832,16 +3004,43 @@ async function fetchUserInboundMessages(startMs, endMs) {
     () => runLarkCli(buildSelfChatPollingArgs(OWNER_OPEN_ID, start, end)),
     () => runLarkCli(buildOwnerControlPollingArgs(OWNER_OPEN_ID, start, end)),
   ], { gapMs: 750, wait });
+  const groupMessages = assertCompleteSearchResult(groupResult, 'group');
+  const p2pMessages = assertCompleteSearchResult(p2pResult, 'p2p');
+  const botDiscovery = await discoverBotP2pChats({
+    messages: p2pMessages,
+    ownerOpenId: OWNER_OPEN_ID,
+    readAsBot: messageIds => runLarkCli([
+      'im', '+messages-mget', '--as', 'bot',
+      '--message-ids', messageIds.join(','),
+      '--no-reactions', '--format', 'json',
+    ], { expectedIdentity: 'bot' }),
+  });
+  const botP2pChatIds = botDiscovery.chatIds;
+  if (botDiscovery.error) {
+    state.audit('feishu_bot_p2p_discovery_degraded', {
+      detail: { error: botDiscovery.error },
+    });
+  }
+  const markBotChat = item => botP2pChatIds.has(item?.chat_id)
+    ? { ...item, bot_chat: true }
+    : item;
+  for (const chatId of botP2pChatIds) {
+    state.set('feishu_bot_chat', chatId, {
+      botChat: true,
+      updatedAt: new Date().toISOString(),
+    });
+  }
   const selfMessages = markSelfChatMessages(selfResult);
   const regular = selectInboundMessages([
-    ...assertCompleteSearchResult(groupResult, 'group'),
-    ...assertCompleteSearchResult(p2pResult, 'p2p'),
+    ...groupMessages,
+    ...p2pMessages.map(markBotChat),
     ...selfMessages,
-  ], OWNER_OPEN_ID);
+  ], OWNER_OPEN_ID, APP_ID);
   const selfMessageIds = new Set(selfMessages.map(item => item.message_id));
   const ownerActivity = selectOwnerActivityMessages(
-    assertCompleteSearchResult(ownerControlResult, 'owner-activity'),
+    assertCompleteSearchResult(ownerControlResult, 'owner-activity').map(markBotChat),
     OWNER_OPEN_ID,
+    APP_ID,
   ).filter(item => !selfMessageIds.has(item.message_id));
   return [...regular, ...ownerActivity].sort(comparePollingItems);
 }
@@ -3478,7 +3677,11 @@ async function mainWithSdk(client) {
       const message = data?.message;
       const sender = data?.sender;
       if (!message?.message_id) return;
-      enqueueInbound({ message, sender }, 'websocket-sdk');
+      enqueueInbound({
+        message,
+        sender,
+        metadata: message.chat_type === 'p2p' ? { channel: 'feishu', botChat: true } : undefined,
+      }, 'websocket-sdk');
       triggerDrain(client);
     },
   });
@@ -3533,6 +3736,9 @@ function normalizeCliEvent(event) {
       sender_type: 'user',
       sender_id: { open_id: event.sender_id || '' },
     },
+    metadata: event.chat_type === 'p2p'
+      ? { channel: 'feishu', botChat: true }
+      : { channel: 'feishu' },
   };
 }
 

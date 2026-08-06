@@ -36,6 +36,7 @@ import {
 }
 
 const ownerOpenId = 'ou_owner';
+const appId = 'cli_app';
 
 const groupMention = {
   message_id: 'om_group',
@@ -82,6 +83,25 @@ const selfDirectMessage = {
   self_chat: true,
 };
 
+const ownerBotDirectMessage = {
+  ...directMessage,
+  message_id: 'om_owner_bot_direct',
+  chat_id: 'oc_owner_bot_direct',
+  content: '你全面介绍你自己一下',
+  create_time: '2026-07-29 22:36',
+  sender: { id: ownerOpenId, sender_type: 'user' },
+  bot_chat: true,
+};
+
+const ownerBotMention = {
+  ...groupMention,
+  message_id: 'om_owner_bot_mention',
+  content: '@James的飞书 CLI 表现不错，加个鸡腿',
+  create_time: '2026-07-29 22:37',
+  mentions: [{ id: appId, name: 'James的飞书 CLI' }],
+  sender: { id: ownerOpenId, sender_type: 'user' },
+};
+
 {
   const selected = selectInboundMessages([
     directMessage,
@@ -90,18 +110,22 @@ const selfDirectMessage = {
     { ...groupMention, message_id: 'om_other_at', mentions: [{ id: 'ou_other' }] },
     { ...directMessage, message_id: 'om_self', sender: { id: ownerOpenId, sender_type: 'user' } },
     selfDirectMessage,
+    ownerBotDirectMessage,
     { ...groupMention, message_id: 'om_owner_group', self_chat: true,
       sender: { id: ownerOpenId, sender_type: 'user' } },
+    ownerBotMention,
     { ...directMessage, message_id: 'om_app', sender: { id: 'cli_app', sender_type: 'app' } },
     { ...directMessage, message_id: 'om_deleted', deleted: true },
     groupMention,
-  ], ownerOpenId);
+  ], ownerOpenId, appId);
 
   assert.deepEqual(selected.map(item => item.message_id), [
     'om_group',
     'om_direct',
     'om_direct_image',
+    'om_owner_bot_direct',
     'om_self_chat',
+    'om_owner_bot_mention',
   ]);
 }
 
@@ -145,8 +169,12 @@ const selfDirectMessage = {
       sender: { id: ownerOpenId, sender_type: 'user' } },
     { ...directMessage, message_id: 'om_owner_stop_activity', content: '数字人停止',
       sender: { id: ownerOpenId, sender_type: 'user' } },
+    { ...directMessage, message_id: 'om_contact_accepted', content: '我接受了你的联系人申请，开始聊天吧！',
+      sender: { id: ownerOpenId, sender_type: 'user' } },
     { ...directMessage, message_id: 'om_other_activity', sender: { id: 'ou_other', sender_type: 'user' } },
-  ], ownerOpenId);
+    ownerBotDirectMessage,
+    ownerBotMention,
+  ], ownerOpenId, appId);
   assert.deepEqual(ownerActivity.map(item => item.message_id), [
     'om_owner_manual',
     'om_owner_stop_activity',
@@ -155,6 +183,11 @@ const selfDirectMessage = {
   assert.equal(ownerActivity[0].operator_control, false);
   assert.equal(ownerActivity[1].operator_control, true);
   assert.equal(normalizeSearchMessage(ownerActivity[0]).metadata.ownerActivity, true);
+}
+
+{
+  const normalized = normalizeSearchMessage(ownerBotDirectMessage);
+  assert.equal(normalized.metadata.botChat, true);
 }
 
 {

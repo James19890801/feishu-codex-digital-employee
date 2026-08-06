@@ -21,6 +21,10 @@ const boundary = buildPrivacyBoundary({ ownerContactPhone: '010-0000-0000' });
 assert.match(boundary, /不得代替阿充作出任何决定/);
 assert.match(boundary, /不得逐字照抄/);
 assert.match(boundary, /桌面、本机文件、聊天记录/);
+assert.match(boundary, /只有账号本人请求时才能交付文件/);
+assert.match(boundary, /且只能发到本人私聊/);
+assert.match(boundary, /其他人只能查询忙闲/);
+assert.match(boundary, /不得透露会议标题、参会人/);
 assert.match(boundary, /010-0000-0000/);
 assert.doesNotMatch(boundary, /詹老师/);
 
