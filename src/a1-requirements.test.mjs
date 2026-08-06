@@ -30,16 +30,19 @@ assert.deepEqual(resolveProductRoute('AI协同空间'), {
 });
 
 const other = resolveProductRoute('供应链预测系统');
-assert.equal(other.projectId, '2165415');
+assert.equal(other.projectId, '');
 assert.equal(other.classificationPending, true);
 assert.equal(other.inspectRepository, false);
-assert.equal(other.needsClarification, false);
+assert.equal(other.needsClarification, true);
 
 assert.equal(resolveProductRoute('').needsClarification, true);
 assert.throws(() => resolveProductRoute('ALT 平台'), /ALT/);
 
 assert.equal(classifyRequirementIntent('这个需求现在进展怎么样了？'), 'requirement_progress');
 assert.equal(classifyRequirementIntent('帮我新建一个需求'), 'requirement_create');
+assert.equal(classifyRequirementIntent('帮他建一个 1A 需求'), 'requirement_create');
+assert.equal(classifyRequirementIntent('帮别人建立一个 A1 工作项'), 'requirement_create');
+assert.equal(classifyRequirementIntent('哈喽阿充，我们这边有一个Web Agent需求澄清前端组件开发的需求，麻烦评估一下'), 'requirement_create');
 assert.equal(classifyRequirementIntent('把 84886503 的描述更新一下'), 'requirement_update');
 assert.equal(classifyRequirementIntent('今天天气怎么样'), 'none');
 

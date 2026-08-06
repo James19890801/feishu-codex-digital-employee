@@ -121,4 +121,17 @@ import {
   }), { startMs: 490_000, endMs: 790_000 });
 }
 
+{
+  assert.equal(typeof reliability.shouldRecycleAiRuntime, 'function');
+  assert.equal(reliability.shouldRecycleAiRuntime(
+    new Error('Codex CLI failed: Operation not permitted (os error 1)'),
+  ), true);
+  assert.equal(reliability.shouldRecycleAiRuntime(
+    new Error('Codex CLI failed: process timed out after 120000ms'),
+  ), false);
+  assert.equal(reliability.shouldRecycleAiRuntime(
+    new Error('DWS failed: Operation not permitted (os error 1)'),
+  ), false);
+}
+
 console.log('RELIABILITY_TEST_OK');

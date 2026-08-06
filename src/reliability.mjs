@@ -46,6 +46,12 @@ export function canPerformMutation(senderOpenId, ownerOpenId) {
   return Boolean(senderOpenId) && senderOpenId === ownerOpenId;
 }
 
+export function shouldRecycleAiRuntime(error) {
+  const message = String(error?.message || error || '');
+  return message.includes('Codex CLI failed:')
+    && message.includes('Operation not permitted (os error 1)');
+}
+
 export async function initializeOptionalPoller(initialize) {
   try {
     return { active: Boolean(await initialize()), error: null };

@@ -49,13 +49,13 @@ export function resolveProductRoute(product = '') {
   return {
     key: 'other',
     productName: input,
-    projectId: ROUTES.webagent.projectId,
-    projectName: ROUTES.webagent.projectName,
+    projectId: '',
+    projectName: '',
     repo: '',
     branch: '',
     inspectRepository: false,
     classificationPending: true,
-    needsClarification: false,
+    needsClarification: true,
   };
 }
 
@@ -68,7 +68,7 @@ export function classifyRequirementIntent(message = '') {
   if (/(?:更新|修改|补充|完善|变更).{0,20}(?:需求|工作项|\d{6,})|\d{6,}.{0,20}(?:更新|修改|补充|完善)/i.test(text)) {
     return 'requirement_update';
   }
-  if (/(?:新建|创建|提|登记|录入|帮我做).{0,20}(?:需求|工作项)|(?:有个|有一个|需要).{0,20}需求/i.test(text)) {
+  if (/(?:新建|创建|建立|提|登记|录入|帮(?:我|他|她|别人)?(?:建|建立|创建|做)?).{0,24}(?:(?:1|A)\s*1|1\s*A|需求|工作项)|(?:有个|有一个|需要).{0,30}需求/i.test(text)) {
     return 'requirement_create';
   }
   return 'none';

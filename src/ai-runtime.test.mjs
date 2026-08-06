@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import * as aiRuntime from './ai-runtime.mjs';
 import {
   AiRuntimeClient,
   buildAiRuntimeInvocation,
@@ -80,5 +81,23 @@ const result = await client.run('private prompt', {
 assert.equal(result.text, 'JAMES_RUNTIME_OK');
 assert.equal(calls[0].options.input, 'private prompt');
 assert.equal(calls[0].args.includes('private prompt'), false);
+
+assert.equal(typeof aiRuntime.runAiRuntimeStartupProbe, 'function');
+const probeClient = new AiRuntimeClient({
+  runtime: runtimes.find(item => item.id === 'qoder'),
+  runner: async () => ({ stdout: 'AIPR0S_RUNTIME_OK\n', stderr: '' }),
+});
+const probeResult = await aiRuntime.runAiRuntimeStartupProbe(probeClient, {
+  cwd: '/tmp/james-runtime',
+  timeoutMs: 30_000,
+});
+assert.equal(probeResult.text, 'AIPR0S_RUNTIME_OK');
+await assert.rejects(
+  () => aiRuntime.runAiRuntimeStartupProbe(client, {
+    cwd: '/tmp/james-runtime',
+    timeoutMs: 30_000,
+  }),
+  /unexpected response/i,
+);
 
 console.log('AI_RUNTIME_TEST_OK');

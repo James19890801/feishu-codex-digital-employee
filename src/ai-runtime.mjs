@@ -231,3 +231,15 @@ export class AiRuntimeClient {
     }
   }
 }
+
+export async function runAiRuntimeStartupProbe(client, options = {}) {
+  if (!client || typeof client.run !== 'function') {
+    throw new Error('AI runtime client is required for startup probe');
+  }
+  const expected = 'AIPR0S_RUNTIME_OK';
+  const result = await client.run(`这是启动健康探针。只回复：${expected}`, options);
+  if (String(result?.text || '').trim() !== expected) {
+    throw new Error('AI runtime startup probe returned an unexpected response');
+  }
+  return result;
+}

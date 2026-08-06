@@ -96,6 +96,7 @@ import {
   initializeOptionalPoller,
   isBareMention,
   planPollWindow,
+  shouldRecycleAiRuntime,
   validateInboundPayload,
 } from './reliability.mjs';
 import { MulticaClient } from './multica-client.mjs';
@@ -130,6 +131,7 @@ import {
 import {
   AiRuntimeClient,
   discoverAiRuntimes,
+  runAiRuntimeStartupProbe,
   selectAiRuntime,
 } from './ai-runtime.mjs';
 import {
@@ -173,6 +175,7 @@ import {
 import { buildIdentityInstruction } from './identity-policy.mjs';
 import { A1Client } from './a1-client.mjs';
 import { A1RequirementWorkflow } from './a1-workflow.mjs';
+import { prepareRequirementWithRepositoryEvidence } from './a1-requirement-preparer.mjs';
 import { A1Synchronizer } from './a1-sync.mjs';
 import {
   buildA1SpecPrompt,
@@ -422,6 +425,7 @@ let activeEventChild = null;
 let activeDingTalkChild = null;
 let activeSdkWsClient = null;
 let drainPromise = null;
+let aiRuntimeRecycleScheduled = false;
 let multicaSyncPromise = null;
 let a1SyncPromise = null;
 let dingTalkSupervisorPromise = null;
@@ -463,6 +467,47 @@ function audit(event, message, senderOpenId, detail = {}) {
     chatId: message?.chat_id || '', senderId: senderOpenId,
     messageId: message?.message_id || '', detail,
   });
+}
+
+async function handleA1Requirement(message, senderOpenId, cleanText, metadata = {}) {
+  if (!A1_WORKFLOW) return false;
+  try {
+    const workflowContext = {
+      chatId: message.chat_id,
+      senderId: senderOpenId,
+      chatType: message.chat_type,
+      metadata,
+    };
+    const result = await A1_WORKFLOW.handle({
+      ...workflowContext,
+      messageId: message.message_id,
+      text: cleanText,
+      history: formatHistory(message.chat_id, senderOpenId),
+      requester: metadata.senderName || senderOpenId,
+      metadata,
+    });
+    if (!result.handled) return false;
+    remember(message.chat_id, senderOpenId, 'user', cleanText);
+    remember(message.chat_id, senderOpenId, 'assistant', result.text);
+    await sendText(null, message.chat_id, result.text, `a1-requirement-${message.message_id}`);
+    audit('a1_requirement_handled', message, senderOpenId, {
+      workitemId: result.item?.id || '',
+      url: result.item?.url || '',
+    });
+    return true;
+  } catch (error) {
+    console.error(`[a1-requirement-error] ${message.message_id}:`, error);
+    await sendText(
+      null,
+      message.chat_id,
+      `1A 需求没有处理完成：${processFailureSummary(error)}`,
+      `a1-requirement-error-${message.message_id}`,
+    );
+    audit('a1_requirement_failed', message, senderOpenId, {
+      error: String(error?.message || error).slice(0, 1000),
+    });
+    return true;
+  }
 }
 
 function larkCliEnv() {
@@ -1084,49 +1129,16 @@ async function planA1Requirement(input) {
 }
 
 async function prepareA1Requirement({ request, route, clarification = '', existingBody = '' }) {
-  const initial = await planA1Requirement({
+  return prepareRequirementWithRepositoryEvidence({
     request,
     route,
     clarification,
     existingBody,
-    repositoryEvidence: '',
-  });
-  if (!route.inspectRepository) return { ...initial, codeEvidence: [] };
-
-  const searchTerm = initial.codeSearchTerms[0] || initial.title;
-  const repository = await A1_CLIENT.searchRepository({
-    repo: route.repo,
-    keyword: searchTerm,
-    branch: route.branch,
-  });
-  const paths = extractRepositoryPaths(repository.search).length
-    ? extractRepositoryPaths(repository.search)
-    : extractRepositoryPaths(repository.tree);
-  if (!paths.length) {
-    throw new Error(`已读取 ${route.repo}，但没有定位到与“${searchTerm}”相关的可读代码文件；需要补充功能入口或页面名称后再建需求`);
-  }
-  const inspected = [];
-  for (const path of paths.slice(0, 3)) {
-    const content = await A1_CLIENT.viewRepositoryFile({
-      repo: route.repo,
-      path,
-      branch: route.branch,
-      startLine: 1,
-      endLine: 240,
-    });
-    inspected.push({ path, content });
-  }
-  const repositoryEvidence = JSON.stringify({
-    repository: route.repo,
-    branch: route.branch || 'default',
-    files: inspected,
-  }).slice(0, 60_000);
-  return planA1Requirement({
-    request,
-    route,
-    clarification,
-    existingBody,
-    repositoryEvidence,
+  }, {
+    planRequirement: input => planA1Requirement(input),
+    searchRepository: input => A1_CLIENT.searchRepository(input),
+    viewRepositoryFile: input => A1_CLIENT.viewRepositoryFile(input),
+    extractPaths: input => extractRepositoryPaths(input),
   });
 }
 
@@ -1786,6 +1798,8 @@ async function processIncoming(client, message, sender, metadata = {}) {
     return;
   }
 
+  if (await handleA1Requirement(message, senderOpenId, cleanText, metadata)) return;
+
   const existingHistory = state.history(message.chat_id, senderOpenId, 12);
   if (shouldIntroduceAssistant({
     chatType: message.chat_type,
@@ -1921,39 +1935,6 @@ async function processIncoming(client, message, sender, metadata = {}) {
       fileRef = await findRecentFileRef(client, message, senderOpenId);
     } catch (error) {
       console.error(`[file-context-error] ${message.message_id}:`, error);
-    }
-  }
-  if (A1_WORKFLOW) {
-    try {
-      const result = await A1_WORKFLOW.handle({
-        chatId: message.chat_id,
-        senderId: senderOpenId,
-        chatType: message.chat_type,
-        messageId: message.message_id,
-        text: cleanText,
-      });
-      if (result.handled) {
-        remember(message.chat_id, senderOpenId, 'user', cleanText);
-        remember(message.chat_id, senderOpenId, 'assistant', result.text);
-        await sendText(client, message.chat_id, result.text, `a1-requirement-${message.message_id}`);
-        audit('a1_requirement_handled', message, senderOpenId, {
-          workitemId: result.item?.id || '',
-          url: result.item?.url || '',
-        });
-        return;
-      }
-    } catch (error) {
-      console.error(`[a1-requirement-error] ${message.message_id}:`, error);
-      await sendText(
-        client,
-        message.chat_id,
-        `1A 需求没有处理完成：${processFailureSummary(error)}`,
-        `a1-requirement-error-${message.message_id}`,
-      );
-      audit('a1_requirement_failed', message, senderOpenId, {
-        error: String(error?.message || error).slice(0, 1000),
-      });
-      return;
     }
   }
   if (config.multicaEnabled
@@ -2694,6 +2675,21 @@ async function processStoredInbound(item, client = null) {
           },
         });
         console.error(`[inbound-retry] ${message.message_id} at ${retryAt}:`, error);
+        if (shouldRecycleAiRuntime(error) && !aiRuntimeRecycleScheduled) {
+          aiRuntimeRecycleScheduled = true;
+          const recycleDelayMs = Math.max(1_000, Date.parse(retryAt) - Date.now() + 500);
+          state.audit('ai_runtime_recycle_scheduled', {
+            chatId: message.chat_id,
+            senderId: sender?.sender_id?.open_id || '',
+            messageId: message.message_id,
+            detail: { attemptNumber, retryAt, recycleDelayMs },
+          });
+          const recycleTimer = setTimeout(() => {
+            console.error('[ai-runtime] recycling service after fatal Codex permission failure');
+            process.kill(process.pid, 'SIGTERM');
+          }, recycleDelayMs);
+          recycleTimer.unref();
+        }
         return;
       }
 
@@ -3641,6 +3637,30 @@ async function main() {
       selected: SELECTED_AI_RUNTIME.id,
       label: SELECTED_AI_RUNTIME.label,
     });
+    try {
+      await runAiRuntimeStartupProbe(AI_RUNTIME_CLIENT, {
+        cwd: CODEX_RUNTIME_DIR,
+        model: SELECTED_AI_RUNTIME.id === 'codex' ? config.codexModel : '',
+        timeoutMs: Math.min(config.codexTimeoutMs, 90_000),
+        maxStdoutBytes: 64 * 1024,
+        maxStderrBytes: 256 * 1024,
+      });
+      state.set('health', 'last_ai_runtime_success_at', new Date().toISOString());
+      state.unset('health', 'last_ai_runtime_error');
+      state.audit('ai_runtime_startup_probe_succeeded', {
+        detail: { runtime: SELECTED_AI_RUNTIME.id },
+      });
+    } catch (error) {
+      const detail = {
+        at: new Date().toISOString(),
+        runtime: SELECTED_AI_RUNTIME.id,
+        error: processFailureSummary(error),
+      };
+      state.set('health', 'last_ai_runtime_error', detail);
+      state.audit('ai_runtime_error', { detail });
+      state.audit('ai_runtime_startup_probe_failed', { detail });
+      console.error('[ai-runtime-startup-probe]', error);
+    }
     state.set('health', 'websocket_connected', false);
     state.set('health', 'feishu_enabled', RUNTIME_MODE.feishuEnabled);
     const recovered = state.recoverProcessingInbound(new Date().toISOString());
