@@ -32,6 +32,15 @@ export function parseWorkspaceSelection(value, workspaces) {
   return numberedSelection(value, workspaces || []);
 }
 
+export function routeSelectionConsumesMessage(value, items) {
+  const text = normalized(value).replace(/[。！!]+$/, '').trim();
+  if (!text) return false;
+  if (/^(?:取消|不用了|不创建了|放弃)$/.test(text)) return true;
+  if (/^(?:0|仅创建|只创建|不执行|不启动小队|无需小队|不需要小队)$/.test(text)) return true;
+  if (text.length > 80 || /[，。！？!?；;\n]/.test(text)) return false;
+  return Boolean(numberedSelection(text, items || []));
+}
+
 export function buildSquadQuestion(workspace, squads) {
   if (!workspace?.id) throw new Error('A selected Multica workspace is required');
   const lines = [

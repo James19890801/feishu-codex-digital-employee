@@ -2,23 +2,32 @@ import { spawn } from 'node:child_process';
 
 const activeProcesses = new Map();
 
+function structuredProcessMessage(value) {
+  const output = String(value || '').trim();
+  if (!output) return '';
+  try {
+    const parsed = JSON.parse(output);
+    return String(parsed?.error?.message || parsed?.message || '').trim();
+  } catch {
+    const match = output.match(/"message"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/);
+    if (!match?.[1]) return '';
+    try { return JSON.parse(`"${match[1]}"`); } catch { return match[1]; }
+  }
+}
+
 export function processFailureSummary(error) {
   const stderr = String(error?.stderr || '').trim();
   if (stderr) {
-    try {
-      const parsed = JSON.parse(stderr);
-      const message = parsed?.error?.message || parsed?.message;
-      if (message) return String(message).slice(0, 1000);
-    } catch {
-      const match = stderr.match(/"message"\s*:\s*"([^"]+)"/);
-      if (match?.[1]) return match[1].slice(0, 1000);
-      const plain = stderr
-        .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
-        .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
-        .trim();
-      if (plain) return plain.slice(-1000);
-    }
+    const structured = structuredProcessMessage(stderr);
+    if (structured) return structured.slice(0, 1000);
+    const plain = stderr
+      .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+      .trim();
+    if (plain) return plain.slice(-1000);
   }
+  const stdoutMessage = structuredProcessMessage(error?.stdout);
+  if (stdoutMessage) return stdoutMessage.slice(0, 1000);
   return String(error?.message || error || 'unknown process failure').slice(0, 1000);
 }
 

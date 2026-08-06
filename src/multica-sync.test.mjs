@@ -27,14 +27,19 @@ try {
   };
   let issues = [issue1];
   let runs = [];
+  let runMessages = [];
   const notices = [];
   const audits = [];
   const statusUpdates = [];
+  const artifactSyncs = [];
   let failChat = '';
   const synchronizer = new MulticaSynchronizer({
     client: {
       listAllIssues: async () => structuredClone(issues),
       listIssueRuns: async () => structuredClone(runs),
+      listIssueRunMessages: async (taskId, options) => structuredClone(
+        runMessages.filter(item => Number(item.seq) > Number(options.since || 0)),
+      ),
       updateIssue: async (id, fields) => {
         statusUpdates.push({ id, fields: structuredClone(fields) });
         issues = issues.map(issue => issue.id === id ? {
@@ -57,6 +62,12 @@ try {
       notices.push({ chatId, text, idempotencyKey, recipient });
     },
     audit: (event, detail) => audits.push({ event, detail }),
+    artifactDelivery: {
+      syncIssue: async issue => {
+        artifactSyncs.push(issue.id);
+        return { delivered: 0, waiting: 0 };
+      },
+    },
   });
 
   const baseline = await synchronizer.cycle();
@@ -109,6 +120,15 @@ try {
   assert.equal(unchanged.changes, 0);
   assert.equal(unchanged.notified, 0);
 
+  runMessages = [{ seq: 2, type: 'text', content: '正在整理材料并生成 PDF。' }];
+  const liveProgress = await synchronizer.cycle();
+  assert.equal(liveProgress.notified, 2);
+  assert.equal(notices.filter(item => /实时进度/.test(item.text)).length, 2);
+  assert.equal(state.multicaRunMessageCursor('run-1'), 2);
+  notices.length = 0;
+  const liveProgressReplay = await synchronizer.cycle();
+  assert.equal(liveProgressReplay.notified, 0);
+
   runs = [{
     id: 'run-1',
     status: 'COMPLETED',
@@ -123,6 +143,7 @@ try {
   assert.equal(notices.filter(item => /专家执行/.test(item.text)).length, 2);
   assert.equal(statusUpdates.at(-1).fields.status, 'done');
   assert.equal(issues[0].status, 'done');
+  assert.equal(artifactSyncs.includes('issue-1'), true);
   notices.length = 0;
 
   issues = [{

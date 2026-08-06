@@ -18,6 +18,14 @@ assert.equal(
 );
 assert.equal(
   processFailureSummary({
+    message: 'process exited with code 3',
+    stderr: '',
+    stdout: 'uploading file\n{"ok":false,"error":{"message":"missing im:resource scope"}}',
+  }),
+  'missing im:resource scope',
+);
+assert.equal(
+  processFailureSummary({
     message: 'process exited with code 1',
     stderr: 'Authentication required. Run qodercli login.',
   }),

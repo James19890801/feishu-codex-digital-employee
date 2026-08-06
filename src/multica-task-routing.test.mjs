@@ -5,6 +5,7 @@ import {
   buildWorkspaceQuestion,
   parseSquadSelection,
   parseWorkspaceSelection,
+  routeSelectionConsumesMessage,
   resolveContextualWorkRequest,
 } from './multica-task-routing.mjs';
 
@@ -22,6 +23,11 @@ assert.match(buildWorkspaceQuestion(workspaces, 'ws-2'), /2\. 公开课项目.*�
 assert.equal(parseWorkspaceSelection('2', workspaces).id, 'ws-2');
 assert.equal(parseWorkspaceSelection('人机协程空间', workspaces).id, 'ws-1');
 assert.equal(parseWorkspaceSelection('不存在的空间', workspaces), null);
+assert.equal(routeSelectionConsumesMessage('1', workspaces), true);
+assert.equal(routeSelectionConsumesMessage('人机协程空间', workspaces), true);
+assert.equal(routeSelectionConsumesMessage('取消', workspaces), true);
+assert.equal(routeSelectionConsumesMessage('0', workspaces), true);
+assert.equal(routeSelectionConsumesMessage('我已经给过你了，我只需要你做就好，最多给我PDF'), false);
 
 assert.match(buildSquadQuestion(workspaces[0], squads), /0\. 仅创建 Issue，不启动小队/);
 assert.match(buildSquadQuestion(workspaces[0], squads), /1\. 詹老师的开发团伙（4 人）/);

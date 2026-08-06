@@ -55,6 +55,23 @@ const none = summarizeMulticaRuns(issue, [], {});
 assert.equal(none.state, 'not_started');
 assert.match(none.text, /还没有运行记录/);
 
+const recoveredAfterFailure = summarizeMulticaRuns(issue, [{
+  id: 'run-failed-old', status: 'FAILED', completed_at: '2026-08-05T10:00:00.000Z',
+}, {
+  id: 'run-completed-new', status: 'COMPLETED', completed_at: '2026-08-05T11:00:00.000Z',
+  result: { output: 'PDF 已生成并上传。' },
+}], {});
+assert.equal(recoveredAfterFailure.state, 'completed', 'latest terminal attempt must win');
+assert.match(recoveredAfterFailure.text, /PDF 已生成/);
+
+const failedWithReason = summarizeMulticaRuns(issue, [{
+  id: 'run-failed',
+  status: 'FAILED',
+  completed_at: '2026-08-06T03:00:00.000Z',
+  error: 'session/resume: Method not found',
+}], {});
+assert.equal(failedWithReason.latestError, 'session/resume: Method not found');
+
 assert.equal(desiredIssueStatusForRunState('running', 'todo'), 'in_progress');
 assert.equal(desiredIssueStatusForRunState('completed', 'in_progress'), 'done');
 assert.equal(desiredIssueStatusForRunState('completed', 'todo'), 'done');

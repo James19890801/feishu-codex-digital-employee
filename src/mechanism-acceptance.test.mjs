@@ -382,7 +382,6 @@ for (const [chatId, request] of [
   ['dingtalk:user:u1', '请给我出一份方案'],
   ['dingtalk:group:c1', '做一个数据分析表格'],
   ['oc_feishu', '整理一份项目复盘'],
-  ['wecom:user:u1', '生成 Word 报告'],
 ]) {
   contract('agent-routing', `${chatId}: ${request}`, () => {
     const plan = buildDeliveryPlan({ chatId, request });
@@ -391,6 +390,13 @@ for (const [chatId, request] of [
     assert.equal(typeof plan.provider, 'string');
   });
 }
+
+contract('agent-routing', 'explicit artifact remains source-channel bound', () => {
+  const plan = buildDeliveryPlan({ chatId: 'wecom:user:u1', request: '生成 Word 报告' });
+  assert.equal(plan.kind, 'artifact');
+  assert.equal(plan.provider, 'wecom');
+  assert.deepEqual(plan.formats, ['docx']);
+});
 
 for (const [request, expectedLevel, expectedAction] of [
   ['你好', 'L0', 'execute'],

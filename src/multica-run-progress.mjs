@@ -25,6 +25,15 @@ function resultText(run) {
   return text.length > 1200 ? `${text.slice(0, 1199).trimEnd()}…` : text;
 }
 
+function errorText(run) {
+  const error = run?.error || run?.last_error || run?.failure;
+  const value = typeof error === 'string'
+    ? error
+    : error?.message || error?.detail || error?.summary || '';
+  const text = String(value || '').trim();
+  return text.length > 800 ? `${text.slice(0, 799).trimEnd()}…` : text;
+}
+
 function chineseCount(value) {
   return ({ 1: '一次', 2: '两次', 3: '三次', 4: '四次', 5: '五次' })[value]
     || `${value} 次`;
@@ -59,14 +68,16 @@ export function summarizeMulticaRuns(issue, runs, { appUrl } = {}) {
   const normalizedRuns = Array.isArray(runs) ? runs.map(run => structuredClone(run)) : [];
   normalizedRuns.sort((a, b) => timestampOf(a).localeCompare(timestampOf(b)));
   const statuses = normalizedRuns.map(statusOf);
+  const latestStatus = statusOf(normalizedRuns.at(-1));
   let state = 'not_started';
   if (statuses.some(status => RUNNING.has(status))) state = 'running';
   else if (statuses.some(status => QUEUED.has(status))) state = 'queued';
-  else if (statuses.some(status => FAILED.has(status))) state = 'failed';
-  else if (statuses.length && statuses.every(status => COMPLETED.has(status))) state = 'completed';
+  else if (COMPLETED.has(latestStatus)) state = 'completed';
+  else if (FAILED.has(latestStatus)) state = 'failed';
   else if (statuses.length) state = 'unknown';
 
   const latest = normalizedRuns.at(-1) || null;
+  const latestError = errorText(latest);
   const latestResult = [...normalizedRuns].reverse().map(resultText).find(Boolean) || '';
   const identifier = String(issue?.identifier || '当前 Issue');
   const title = String(issue?.title || '未命名 Issue');
@@ -107,5 +118,6 @@ export function summarizeMulticaRuns(issue, runs, { appUrl } = {}) {
     fingerprint,
     runCount: normalizedRuns.length,
     latestUpdatedAt: timestampOf(latest),
+    latestError,
   };
 }

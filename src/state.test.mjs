@@ -399,6 +399,45 @@ try {
     0,
   );
 
+  state.upsertMulticaDeliveryContract({
+    issueId: issue.id,
+    workspaceId: issue.workspace_id,
+    channel: 'feishu',
+    chatId: 'chat-origin-feishu',
+    senderId: 'user-owner',
+    chatType: 'p2p',
+    formats: ['pdf', 'xlsx'],
+    request: '最终交付 PDF 和 Excel',
+    createdAt: now,
+  });
+  assert.deepEqual(state.multicaDeliveryContract(issue.id), {
+    issueId: issue.id,
+    workspaceId: issue.workspace_id,
+    channel: 'feishu',
+    chatId: 'chat-origin-feishu',
+    senderId: 'user-owner',
+    chatType: 'p2p',
+    formats: ['pdf', 'xlsx'],
+    request: '最终交付 PDF 和 Excel',
+    status: 'requested',
+    artifactIds: [],
+    attempts: 0,
+    lastError: '',
+    createdAt: now,
+    updatedAt: now,
+    deliveredAt: '',
+  });
+  state.updateMulticaDeliveryContract(issue.id, {
+    status: 'delivered', artifactIds: ['attachment-1'], deliveredAt: now,
+  }, now);
+  assert.equal(state.multicaDeliveryContract(issue.id).status, 'delivered');
+  assert.deepEqual(state.multicaDeliveryContract(issue.id).artifactIds, ['attachment-1']);
+  assert.equal(state.multicaRunMessageCursor('run-1'), 0);
+  state.advanceMulticaRunMessageCursor('run-1', issue.id, 7, now);
+  assert.equal(state.multicaRunMessageCursor('run-1'), 7);
+  state.advanceMulticaRunMessageCursor('run-1', issue.id, 4, now);
+  assert.equal(state.multicaRunMessageCursor('run-1'), 7, 'run cursor cannot move backwards');
+
   state.db.prepare(`INSERT INTO inbound_message
     (message_id, source, payload, status, attempts, available_at, first_seen_at, updated_at)
     VALUES (?, 'test', ?, 'pending', 0, ?, ?, ?)`)

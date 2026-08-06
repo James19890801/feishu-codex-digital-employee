@@ -4,6 +4,7 @@ import {
   desiredIssueStatusForRunState,
   summarizeMulticaRuns,
 } from './multica-run-progress.mjs';
+import { formatMulticaLiveProgress } from './multica-live-progress.mjs';
 
 const STATUS_LABELS = {
   backlog: '需求池',
@@ -207,6 +208,14 @@ function runNotificationKey(issue, fingerprint, chatId) {
   return `multica-run-${digest}`;
 }
 
+function liveNotificationKey(issue, taskId, maxSeq, chatId) {
+  const digest = createHash('sha256')
+    .update(`${issue.id}\0${taskId}\0${maxSeq}\0${chatId}`)
+    .digest('hex')
+    .slice(0, 18);
+  return `multica-live-${digest}`;
+}
+
 export function formatMulticaChange(change, { appUrl, detailed = false } = {}) {
   const issue = change.after;
   const link = multicaIssueUrl(issue, appUrl);
@@ -263,6 +272,7 @@ export class MulticaSynchronizer {
     maxNotificationAttempts = 10,
     appUrl,
     ownerRecipient,
+    artifactDelivery = null,
   }) {
     this.client = client;
     this.state = state;
@@ -273,6 +283,7 @@ export class MulticaSynchronizer {
       Math.min(50, Number(maxNotificationAttempts) || 10),
     );
     this.appUrl = appUrl;
+    this.artifactDelivery = artifactDelivery;
     this.ownerRecipient = ownerRecipient?.chatId ? {
       chatId: String(ownerRecipient.chatId),
       senderId: String(ownerRecipient.senderId || ''),
@@ -384,6 +395,10 @@ export class MulticaSynchronizer {
     }
 
     let runChanges = 0;
+    let liveProgressChanges = 0;
+    let artifactsDelivered = 0;
+    let artifactsWaiting = 0;
+    let artifactFailures = 0;
     const trackedIssueIds = new Set(this.state.trackedMulticaIssueIds());
     for (const issue of issues.filter(item => trackedIssueIds.has(item.id))) {
       try {
@@ -422,8 +437,6 @@ export class MulticaSynchronizer {
           summary,
           now.toISOString(),
         );
-        if (!runChange.changed && !statusReconciled) continue;
-        runChanges += 1;
         const issueSubscribers = this.state.multicaIssueSubscribers(issue.id);
         const routed = channelBoundRecipients({
           issue: effectiveIssue,
@@ -432,6 +445,71 @@ export class MulticaSynchronizer {
           globalSubscribers,
           ownerRecipient: this.ownerRecipient,
         });
+
+        if (typeof this.client.listIssueRunMessages === 'function') {
+          for (const run of runs.filter(item => /^(?:QUEUED|PENDING|RUNNING|IN_PROGRESS|PROCESSING|STARTED)$/i
+            .test(String(item?.status || '')))) {
+            const cursor = this.state.multicaRunMessageCursor(run.id);
+            const messages = await this.client.listIssueRunMessages(run.id, {
+              issue: issue.identifier || issue.id,
+              workspaceId: issue.workspace_id,
+              since: cursor,
+            });
+            const progress = formatMulticaLiveProgress(effectiveIssue, messages);
+            if (progress.maxSeq > cursor) {
+              this.state.advanceMulticaRunMessageCursor(
+                run.id,
+                issue.id,
+                progress.maxSeq,
+                now.toISOString(),
+              );
+            }
+            if (!progress.text) continue;
+            liveProgressChanges += 1;
+            for (const recipient of routed.recipients) {
+              this.state.enqueueMulticaNotification({
+                notificationKey: liveNotificationKey(
+                  effectiveIssue,
+                  run.id,
+                  progress.maxSeq,
+                  recipient.chatId,
+                ),
+                issueId: issue.id,
+                chatId: recipient.chatId,
+                senderId: recipient.senderId,
+                chatType: recipient.chatType,
+                content: progress.text,
+                availableAt: now.toISOString(),
+              });
+            }
+            this.audit('multica_live_progress_changed', {
+              issueId: issue.id,
+              identifier: issue.identifier,
+              taskId: run.id,
+              maxSeq: progress.maxSeq,
+              sourceChannel: routed.channel,
+              recipients: routed.recipients.length,
+            });
+          }
+        }
+
+        if (this.artifactDelivery) {
+          try {
+            const artifactResult = await this.artifactDelivery.syncIssue(effectiveIssue);
+            artifactsDelivered += Number(artifactResult?.delivered || 0);
+            artifactsWaiting += Number(artifactResult?.waiting || 0);
+          } catch (error) {
+            artifactFailures += 1;
+            this.audit('multica_artifact_sync_failed', {
+              issueId: issue.id,
+              identifier: issue.identifier,
+              error: String(error?.message || error).slice(0, 500),
+            });
+          }
+        }
+
+        if (!runChange.changed && !statusReconciled) continue;
+        runChanges += 1;
         for (const recipient of routed.recipients) {
           this.state.enqueueMulticaNotification({
             notificationKey: runNotificationKey(
@@ -475,6 +553,10 @@ export class MulticaSynchronizer {
       ...delivery,
       changes: changes.length,
       runChanges,
+      liveProgressChanges,
+      artifactsDelivered,
+      artifactsWaiting,
+      artifactFailures,
     };
   }
 }

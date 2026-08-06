@@ -159,6 +159,31 @@ export class AgentState {
       );
       CREATE INDEX IF NOT EXISTS multica_dispatch_due
         ON multica_dispatch_outbox(status, available_at, created_at);
+      CREATE TABLE IF NOT EXISTS multica_delivery_contract (
+        issue_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL DEFAULT '',
+        chat_type TEXT NOT NULL DEFAULT '',
+        formats TEXT NOT NULL,
+        request TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'requested',
+        artifact_ids TEXT NOT NULL DEFAULT '[]',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        delivered_at TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS multica_delivery_status
+        ON multica_delivery_contract(status, updated_at);
+      CREATE TABLE IF NOT EXISTS multica_run_message_cursor (
+        task_id TEXT PRIMARY KEY,
+        issue_id TEXT NOT NULL,
+        last_seq INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS mutation_execution (
         execution_key TEXT PRIMARY KEY,
         kind TEXT NOT NULL,
@@ -758,6 +783,132 @@ export class AgentState {
       chatType: row.chat_type,
       createdAt: row.created_at,
     };
+  }
+
+  upsertMulticaDeliveryContract({
+    issueId,
+    workspaceId,
+    channel,
+    chatId,
+    senderId = '',
+    chatType = '',
+    formats = [],
+    request = '',
+    createdAt = new Date().toISOString(),
+  }) {
+    const normalizedFormats = [...new Set((Array.isArray(formats) ? formats : [])
+      .map(value => String(value || '').trim().toLowerCase()).filter(Boolean))];
+    if (!issueId || !workspaceId || !channel || !chatId || !normalizedFormats.length) {
+      throw new Error('Multica delivery contract requires issue, workspace, channel, chat, and formats');
+    }
+    this.db.prepare(`INSERT INTO multica_delivery_contract
+      (issue_id, workspace_id, channel, chat_id, sender_id, chat_type, formats,
+       request, status, artifact_ids, attempts, last_error, created_at, updated_at, delivered_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'requested', '[]', 0, '', ?, ?, '')
+      ON CONFLICT(issue_id) DO UPDATE SET
+        workspace_id=excluded.workspace_id,
+        channel=excluded.channel,
+        chat_id=excluded.chat_id,
+        sender_id=excluded.sender_id,
+        chat_type=excluded.chat_type,
+        formats=excluded.formats,
+        request=excluded.request,
+        status=CASE
+          WHEN multica_delivery_contract.formats <> excluded.formats
+            OR multica_delivery_contract.request <> excluded.request
+          THEN 'requested' ELSE multica_delivery_contract.status END,
+        artifact_ids=CASE
+          WHEN multica_delivery_contract.formats <> excluded.formats
+            OR multica_delivery_contract.request <> excluded.request
+          THEN '[]' ELSE multica_delivery_contract.artifact_ids END,
+        attempts=CASE
+          WHEN multica_delivery_contract.formats <> excluded.formats
+            OR multica_delivery_contract.request <> excluded.request
+          THEN 0 ELSE multica_delivery_contract.attempts END,
+        last_error='',
+        updated_at=excluded.updated_at,
+        delivered_at=CASE
+          WHEN multica_delivery_contract.formats <> excluded.formats
+            OR multica_delivery_contract.request <> excluded.request
+          THEN '' ELSE multica_delivery_contract.delivered_at END`)
+      .run(
+        String(issueId), String(workspaceId), String(channel).toLowerCase(),
+        String(chatId), String(senderId), String(chatType),
+        JSON.stringify(normalizedFormats), String(request).slice(0, 4000),
+        createdAt, createdAt,
+      );
+    return this.multicaDeliveryContract(issueId);
+  }
+
+  multicaDeliveryContract(issueId) {
+    const row = this.db.prepare(`SELECT issue_id, workspace_id, channel, chat_id,
+      sender_id, chat_type, formats, request, status, artifact_ids, attempts,
+      last_error, created_at, updated_at, delivered_at
+      FROM multica_delivery_contract WHERE issue_id = ?`).get(String(issueId || ''));
+    if (!row) return null;
+    let formats = [];
+    let artifactIds = [];
+    try { formats = JSON.parse(row.formats); } catch { /* invalid rows fail closed */ }
+    try { artifactIds = JSON.parse(row.artifact_ids); } catch { /* invalid rows fail closed */ }
+    return {
+      issueId: row.issue_id,
+      workspaceId: row.workspace_id,
+      channel: row.channel,
+      chatId: row.chat_id,
+      senderId: row.sender_id,
+      chatType: row.chat_type,
+      formats: Array.isArray(formats) ? formats : [],
+      request: row.request,
+      status: row.status,
+      artifactIds: Array.isArray(artifactIds) ? artifactIds : [],
+      attempts: Number(row.attempts || 0),
+      lastError: row.last_error,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      deliveredAt: row.delivered_at,
+    };
+  }
+
+  updateMulticaDeliveryContract(issueId, fields = {}, now = new Date().toISOString()) {
+    const current = this.multicaDeliveryContract(issueId);
+    if (!current) return null;
+    const next = {
+      status: fields.status === undefined ? current.status : String(fields.status),
+      artifactIds: fields.artifactIds === undefined ? current.artifactIds : fields.artifactIds,
+      attempts: fields.attempts === undefined ? current.attempts : Number(fields.attempts),
+      lastError: fields.lastError === undefined ? current.lastError : String(fields.lastError).slice(0, 2000),
+      deliveredAt: fields.deliveredAt === undefined ? current.deliveredAt : String(fields.deliveredAt),
+    };
+    this.db.prepare(`UPDATE multica_delivery_contract SET
+      status = ?, artifact_ids = ?, attempts = ?, last_error = ?,
+      updated_at = ?, delivered_at = ? WHERE issue_id = ?`).run(
+      next.status,
+      JSON.stringify(Array.isArray(next.artifactIds) ? next.artifactIds : []),
+      Math.max(0, next.attempts || 0),
+      next.lastError,
+      now,
+      next.deliveredAt,
+      String(issueId),
+    );
+    return this.multicaDeliveryContract(issueId);
+  }
+
+  multicaRunMessageCursor(taskId) {
+    return Number(this.db.prepare(`SELECT last_seq FROM multica_run_message_cursor
+      WHERE task_id = ?`).get(String(taskId || ''))?.last_seq || 0);
+  }
+
+  advanceMulticaRunMessageCursor(taskId, issueId, lastSeq, now = new Date().toISOString()) {
+    const seq = Math.max(0, Math.floor(Number(lastSeq) || 0));
+    this.db.prepare(`INSERT INTO multica_run_message_cursor
+      (task_id, issue_id, last_seq, updated_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(task_id) DO UPDATE SET
+        issue_id=excluded.issue_id,
+        last_seq=MAX(multica_run_message_cursor.last_seq, excluded.last_seq),
+        updated_at=excluded.updated_at`).run(
+      String(taskId || ''), String(issueId || ''), seq, now,
+    );
+    return this.multicaRunMessageCursor(taskId);
   }
 
   subscribeMulticaGlobal(chatId, senderId, options = {}) {

@@ -98,6 +98,17 @@ import {
   MulticaFeedbackWorkflow,
 } from './multica-feedback.mjs';
 import { MulticaSynchronizer } from './multica-sync.mjs';
+import { buildDeliveryPlan } from './delivery-routing.mjs';
+import {
+  MulticaArtifactDelivery,
+  appendDeliveryRequirement,
+  looksLikeArtifactExecutionRequest,
+  looksLikeArtifactProgressRequest,
+} from './multica-artifact-delivery.mjs';
+import {
+  buildDingTalkArtifactSendArgs,
+  buildFeishuArtifactSendArgs,
+} from './artifact-channel-delivery.mjs';
 import {
   MulticaWorkLifecycle,
   parseMulticaWorkRequest,
@@ -108,6 +119,7 @@ import {
   buildWorkspaceQuestion,
   parseSquadSelection,
   parseWorkspaceSelection,
+  routeSelectionConsumesMessage,
   resolveContextualWorkRequest,
 } from './multica-task-routing.mjs';
 import { multicaIssueUrl } from './multica-links.mjs';
@@ -184,6 +196,7 @@ const WORKDIR = config.workdir;
 const BUNDLED_PYTHON = config.pythonBin;
 const FILE_EXTRACTOR = join(WORKDIR, 'src', 'extract_file_text.py');
 const DATABASE_BACKUP_DIR = join(WORKDIR, 'data', 'database-backups');
+const MULTICA_ARTIFACT_ROOT = join(WORKDIR, 'data', 'multica-artifacts');
 const LARK_CLI = config.larkCli;
 const BUNDLED_NODE_BIN = config.nodeBin;
 const BIBLE_TEXT = await readFile(join(WORKDIR, 'BIBLE.md'), 'utf8');
@@ -200,6 +213,7 @@ const KNOWLEDGE_CATALOG_PATH = join(WORKDIR, 'knowledge-catalog.json');
 const KNOWLEDGE_CATALOG = JSON.parse(await readFile(KNOWLEDGE_CATALOG_PATH, 'utf8'));
 await mkdir(CODEX_RUNTIME_DIR, { recursive: true });
 await mkdir(CODEX_HOME_DIR, { recursive: true, mode: 0o700 });
+await mkdir(MULTICA_ARTIFACT_ROOT, { recursive: true, mode: 0o700 });
 const isolatedAuthPath = join(CODEX_HOME_DIR, 'auth.json');
 try {
   await lstat(isolatedAuthPath);
@@ -274,6 +288,15 @@ const MULTICA_FEEDBACK_WORKFLOW = MULTICA_CLIENT
       audit: (event, detail) => state.audit(event, { detail }),
     })
   : null;
+const MULTICA_ARTIFACT_DELIVERY = MULTICA_CLIENT
+  ? new MulticaArtifactDelivery({
+      client: MULTICA_CLIENT,
+      state,
+      artifactRoot: MULTICA_ARTIFACT_ROOT,
+      deliver: deliverMulticaArtifact,
+      audit: (event, detail) => state.audit(event, { detail }),
+    })
+  : null;
 const MULTICA_SYNCHRONIZER = MULTICA_CLIENT
   ? new MulticaSynchronizer({
       client: MULTICA_CLIENT,
@@ -290,6 +313,7 @@ const MULTICA_SYNCHRONIZER = MULTICA_CLIENT
       ),
       audit: (event, detail) => state.audit(event, { detail }),
       appUrl: config.multicaAppUrl,
+      artifactDelivery: MULTICA_ARTIFACT_DELIVERY,
       ownerRecipient: config.dingtalkEnabled && config.dingtalkOwnerOpenId
         ? {
             chatId: `dingtalk:user:${config.dingtalkOwnerOpenId}`,
@@ -687,6 +711,56 @@ async function sendText(client, chatId, text, uuid, {
   ];
   if (uuid) args.push('--idempotency-key', uuid.slice(0, 50));
   return sendWithEchoGuard(chatId, labeledText, () => runLarkCli(args));
+}
+
+async function deliverMulticaArtifact(payload) {
+  const chatId = String(payload?.chatId || '').trim();
+  const sourceChannel = String(payload?.channel || '').trim().toLowerCase();
+  const target = parseChannelChatId(chatId);
+  const effectiveChannel = target?.channel || 'feishu';
+  if (!chatId || sourceChannel !== effectiveChannel) {
+    throw new Error('Multica artifact source channel does not match its destination');
+  }
+  const artifactPath = String(payload?.path || '');
+  const artifactRelativePath = relative(WORKDIR, artifactPath);
+  if (!artifactRelativePath || artifactRelativePath.startsWith('..')
+    || artifactRelativePath.startsWith('/')
+    || !artifactPath.startsWith(`${MULTICA_ARTIFACT_ROOT}/`)) {
+    throw new Error('Multica artifact is outside the isolated delivery directory');
+  }
+  if (effectiveChannel === 'feishu') {
+    const args = buildFeishuArtifactSendArgs({
+      chatId,
+      relativePath: artifactRelativePath,
+      uuid: payload.idempotencyKey,
+    });
+    return sendWithEchoGuard(chatId, payload.name || artifactRelativePath, () => runLarkCli(args));
+  }
+  if (effectiveChannel === 'dingtalk') {
+    const args = buildDingTalkArtifactSendArgs({
+      target,
+      path: artifactPath,
+      uuid: payload.idempotencyKey,
+    });
+    return sendWithEchoGuard(chatId, payload.name || artifactPath, async () => {
+      const { stdout, stderr } = await runBufferedProcess(config.dingtalkBin, args, {
+        cwd: WORKDIR,
+        env: dingtalkProcessEnv(),
+        timeoutMs: config.larkCliTimeoutMs,
+        maxStdoutBytes: 8 * 1024 * 1024,
+        maxStderrBytes: 1024 * 1024,
+      });
+      let result;
+      try { result = JSON.parse(stdout); } catch {
+        throw new Error(`dws file send returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
+      }
+      if (result.success === false || result.error) {
+        throw new Error(`dws file send failed: ${JSON.stringify(result.error || result).slice(0, 1000)}`);
+      }
+      return result;
+    });
+  }
+  throw new Error(`Artifact delivery is not implemented for ${effectiveChannel}`);
 }
 
 async function createConfirmedTask(client, draft) {
@@ -1141,6 +1215,16 @@ async function applyPendingMultica(message, senderOpenId, cleanText, metadata = 
     return true;
   }
   const result = execution.result;
+  if (pending.deliveryContract && result.issue?.id) {
+    state.upsertMulticaDeliveryContract({
+      issueId: result.issue.id,
+      workspaceId: result.issue.workspace_id,
+      ...pending.deliveryContract,
+    });
+  }
+  if (pending.rerunAfterApply && result.issue?.id && !execution.replayed) {
+    await MULTICA_CLIENT.rerunIssue(result.issue.id, result.issue.workspace_id);
+  }
   const routeReceipt = pending.createRoute
     ? `\n执行方式：${pending.createRoute.selection.mode === 'squad'
       ? `已选中小队 ${pending.createRoute.selection.squad.name}`
@@ -1164,7 +1248,7 @@ async function prepareMulticaConfirmation(
   senderOpenId,
   plan,
   context,
-  { createRoute = null } = {},
+  { createRoute = null, deliveryContract = null, rerunAfterApply = false } = {},
 ) {
   const prepared = await MULTICA_CAPABILITY.prepareMutation(plan, context);
   const confirmationCode = plan.confirmationLevel === 'double'
@@ -1174,6 +1258,8 @@ async function prepareMulticaConfirmation(
     pending: prepared.pending,
     confirmationCode,
     createRoute,
+    deliveryContract,
+    rerunAfterApply,
   });
   const confirmation = plan.confirmationLevel === 'double'
     ? `\n\n这是敏感变更。请回复“确认 ${confirmationCode}”执行，或回复“取消”。`
@@ -1203,7 +1289,13 @@ async function prepareMulticaConfirmation(
   return true;
 }
 
-async function startMulticaCreateRouting(message, senderOpenId, cleanText, plan) {
+async function startMulticaCreateRouting(
+  message,
+  senderOpenId,
+  cleanText,
+  plan,
+  deliveryContract = null,
+) {
   const workspaces = await MULTICA_CLIENT.listWorkspaces();
   const answer = buildWorkspaceQuestion(workspaces, plan.workspaceId);
   pendingActions.set('multica_create_route', message.chat_id, senderOpenId, {
@@ -1211,6 +1303,7 @@ async function startMulticaCreateRouting(message, senderOpenId, cleanText, plan)
     originalRequest: cleanText,
     plan: structuredClone(plan),
     workspaces,
+    deliveryContract,
   });
   remember(message.chat_id, senderOpenId, 'assistant', answer);
   await sendText(null, message.chat_id, answer, `multica-workspace-select-${message.message_id}`);
@@ -1246,6 +1339,103 @@ async function startExistingIssueSquadRouting(message, senderOpenId, issue, meta
     issueId: liveIssue.id,
     identifier: liveIssue.identifier,
     squadCount: squads.length,
+  });
+  return true;
+}
+
+function messageChannel(message, metadata = {}) {
+  return parseChannelChatId(message?.chat_id)?.channel
+    || String(metadata?.channel || '').trim().toLowerCase()
+    || 'feishu';
+}
+
+async function handleMulticaArtifactFollowup(message, senderOpenId, cleanText, metadata = {}) {
+  if (!MULTICA_CLIENT || !MULTICA_ARTIFACT_DELIVERY) return false;
+  const asksStatus = looksLikeArtifactProgressRequest(cleanText);
+  const asksExecution = looksLikeArtifactExecutionRequest(cleanText);
+  if (!asksStatus && !asksExecution) return false;
+  const activeIssue = state.conversationIssue(message.chat_id, senderOpenId);
+  if (!activeIssue) return false;
+  const issue = await MULTICA_CLIENT.getIssue(activeIssue.identifier, activeIssue.workspace_id);
+  const runs = await MULTICA_CLIENT.listIssueRuns(issue.id, issue.workspace_id);
+  const summary = summarizeMulticaRuns(issue, runs, { appUrl: config.multicaAppUrl });
+
+  if (asksStatus) {
+    try {
+      await MULTICA_ARTIFACT_DELIVERY.syncIssue(issue);
+    } catch (error) {
+      console.error(`[multica-artifact-status-sync-error] ${issue.identifier}:`, error);
+    }
+    const contract = state.multicaDeliveryContract(issue.id);
+    let answer;
+    if (contract?.status === 'delivered') {
+      answer = `${contract.formats.map(item => item.toUpperCase()).join('、')} 已生成，也已经回传到当前对话。`;
+    } else if (contract?.status === 'delivery_failed') {
+      answer = `${contract.formats.map(item => item.toUpperCase()).join('、')} 已经生成并上传到 Multica，但还没有成功回传到当前对话${contract.lastError ? `：${contract.lastError}` : '。'}`;
+    } else if (summary.state === 'failed') {
+      answer = `现在是“没有生成”，不是“生成了没交付”。最新执行已失败${summary.latestError ? `：${summary.latestError}` : '。'}`;
+    } else if (summary.state === 'completed' && contract?.status !== 'delivered') {
+      answer = '专家的文字任务已结束，但没有检测到已上传的最终文件，所以 PDF 还没有生成和交付。';
+    } else if (['running', 'queued'].includes(summary.state)) {
+      answer = `${summary.state === 'running' ? '正在生成' : '已排队等待生成'}，目前还没有可交付的文件。`;
+    } else {
+      answer = '目前没有可交付的 PDF，而且任务尚未真正启动生成流程。';
+    }
+    state.bindConversationIssue(message.chat_id, senderOpenId, issue);
+    remember(message.chat_id, senderOpenId, 'assistant', answer);
+    await sendText(null, message.chat_id, answer, `multica-artifact-status-${message.message_id}`);
+    audit('multica_artifact_status_replied', message, senderOpenId, {
+      issueId: issue.id,
+      state: summary.state,
+      deliveryStatus: contract?.status || 'missing_contract',
+    });
+    return true;
+  }
+
+  const context = multicaContext(message, senderOpenId, metadata);
+  if (!context.ownerAuthorized) {
+    await sendText(null, message.chat_id, '只有 Owner 自聊可以让已有 Issue 重新生成并交付文件。', `multica-artifact-owner-${message.message_id}`);
+    return true;
+  }
+  const deliveryPlan = buildDeliveryPlan({ chatId: message.chat_id, request: cleanText });
+  if (deliveryPlan.kind !== 'artifact') return false;
+  const updated = await MULTICA_CLIENT.updateIssue(issue.id, {
+    workspaceId: issue.workspace_id,
+    description: appendDeliveryRequirement(issue.description, {
+      formats: deliveryPlan.formats,
+      request: cleanText,
+    }),
+    status: 'todo',
+  });
+  const channel = messageChannel(message, metadata);
+  state.upsertMulticaDeliveryContract({
+    issueId: updated.id,
+    workspaceId: updated.workspace_id,
+    channel,
+    chatId: message.chat_id,
+    senderId: senderOpenId,
+    chatType: message.chat_type,
+    formats: deliveryPlan.formats,
+    request: cleanText,
+  });
+  state.bindMulticaIssueOrigin(updated.id, {
+    channel,
+    chatId: message.chat_id,
+    senderId: senderOpenId,
+    chatType: message.chat_type,
+  });
+  state.bindConversationIssue(message.chat_id, senderOpenId, updated);
+  state.upsertMulticaIssue(updated);
+  pendingActions.delete('multica_create_route', message.chat_id, senderOpenId);
+  const run = await MULTICA_CLIENT.rerunIssue(updated.id, updated.workspace_id);
+  const answer = `已经在 ${updated.identifier} 补上真实文件交付契约并重新启动。${deliveryPlan.formats.map(item => item.toUpperCase()).join('、')} 生成后会自动上传、下载校验，再回传到这个${channel === 'dingtalk' ? '钉钉' : '飞书'}对话。`;
+  remember(message.chat_id, senderOpenId, 'assistant', answer);
+  await sendText(null, message.chat_id, answer, `multica-artifact-rerun-${message.message_id}`);
+  audit('multica_artifact_rerun_started', message, senderOpenId, {
+    issueId: updated.id,
+    runId: run.id,
+    formats: deliveryPlan.formats,
+    channel,
   });
   return true;
 }
@@ -1294,6 +1484,8 @@ async function applyPendingMulticaCreateRoute(message, senderOpenId, cleanText, 
     await sendText(null, message.chat_id, answer, `multica-route-cancel-${message.message_id}`);
     return true;
   }
+  const routeItems = pending.stage === 'workspace' ? pending.workspaces : pending.squads;
+  if (!routeSelectionConsumesMessage(cleanText, routeItems)) return false;
   const context = multicaContext(message, senderOpenId, metadata);
   if (!context.ownerAuthorized) {
     pendingActions.delete('multica_create_route', message.chat_id, senderOpenId);
@@ -1338,6 +1530,7 @@ async function applyPendingMulticaCreateRoute(message, senderOpenId, cleanText, 
     });
     const handled = await prepareMulticaConfirmation(message, senderOpenId, routedPlan, context, {
       createRoute: { workspace: pending.workspace, selection },
+      deliveryContract: pending.deliveryContract || null,
     });
     pendingActions.delete('multica_create_route', message.chat_id, senderOpenId);
     return handled;
@@ -1387,7 +1580,27 @@ async function handleMulticaRequest(message, senderOpenId, cleanText, metadata =
   const history = formatHistory(message.chat_id, senderOpenId, {
     excludeSourceMessageId: message.message_id,
   });
-  const plan = await runCodexMulticaPlan(cleanText, history);
+  let plan = await runCodexMulticaPlan(cleanText, history);
+  const deliveryPlan = buildDeliveryPlan({ chatId: message.chat_id, request: cleanText });
+  const deliveryContract = plan.action === 'create' && deliveryPlan.kind === 'artifact'
+    ? {
+        channel: messageChannel(message, metadata),
+        chatId: message.chat_id,
+        senderId: senderOpenId,
+        chatType: message.chat_type,
+        formats: deliveryPlan.formats,
+        request: cleanText,
+      }
+    : null;
+  if (deliveryContract) {
+    plan = {
+      ...plan,
+      fields: {
+        ...plan.fields,
+        description: appendDeliveryRequirement(plan.fields?.description, deliveryContract),
+      },
+    };
+  }
   const context = multicaContext(message, senderOpenId, metadata);
   audit('multica_plan_created', message, senderOpenId, {
     action: plan.action,
@@ -1420,7 +1633,13 @@ async function handleMulticaRequest(message, senderOpenId, cleanText, metadata =
     return true;
   }
   if (plan.action === 'create') {
-    return startMulticaCreateRouting(message, senderOpenId, cleanText, plan);
+    return startMulticaCreateRouting(
+      message,
+      senderOpenId,
+      cleanText,
+      plan,
+      deliveryContract,
+    );
   }
   return prepareMulticaConfirmation(message, senderOpenId, plan, context);
 }
@@ -1710,6 +1929,25 @@ async function processIncoming(client, message, sender, metadata = {}) {
     cleanText || `发送了${message.message_type}`,
     { sourceMessageId: message.message_id },
   );
+
+  if (looksLikeArtifactProgressRequest(cleanText)
+    || looksLikeArtifactExecutionRequest(cleanText)) {
+    try {
+      if (await handleMulticaArtifactFollowup(message, senderOpenId, cleanText, metadata)) return;
+    } catch (error) {
+      console.error(`[multica-artifact-followup-error] ${message.message_id}:`, error);
+      await sendText(
+        null,
+        message.chat_id,
+        `文件交付链路刚才没有完成：${processFailureSummary(error)}`,
+        `multica-artifact-followup-error-${message.message_id}`,
+      );
+      audit('multica_artifact_followup_failed', message, senderOpenId, {
+        error: String(error?.message || error).slice(0, 1000),
+      });
+      return;
+    }
+  }
 
   if (looksLikeMulticaProgressRequest(cleanText)) {
     try {

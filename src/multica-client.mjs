@@ -1,4 +1,6 @@
 import { processFailureSummary, runBufferedProcess } from './process-runner.mjs';
+import { mkdir, readdir } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 
 const ISSUE_STATUSES = new Set([
   'backlog',
@@ -130,6 +132,34 @@ export class MulticaClient {
           maxStderrBytes: 1024 * 1024,
         });
         return parseJsonOutput(stdout, operation);
+      } catch (error) {
+        lastError = error;
+        if (attempt >= retries || !isTransientMulticaError(error)) break;
+        await this.retryDelay(Math.min(5_000, 250 * (2 ** attempt)));
+      }
+    }
+    throw new Error(`Multica ${operation} failed: ${processFailureSummary(lastError)}`);
+  }
+
+  async runRaw(commandArgs, {
+    workspaceId = '',
+    input,
+    cwd,
+    operation = commandArgs.join(' '),
+    retries = this.retries,
+  } = {}) {
+    const args = [...this.baseArgs(workspaceId), ...commandArgs];
+    let lastError;
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      try {
+        return await this.runner(this.bin, args, {
+          input,
+          cwd,
+          timeoutMs: this.timeoutMs,
+          killGraceMs: 2_000,
+          maxStdoutBytes: 8 * 1024 * 1024,
+          maxStderrBytes: 1024 * 1024,
+        });
       } catch (error) {
         lastError = error;
         if (attempt >= retries || !isTransientMulticaError(error)) break;
@@ -279,6 +309,79 @@ export class MulticaClient {
     );
     if (!Array.isArray(result)) throw new Error('Multica issue runs must be an array');
     return result.map(validateIssueRun);
+  }
+
+  async listIssueRunMessages(taskId, {
+    issue = '',
+    workspaceId = '',
+    since = 0,
+  } = {}) {
+    const id = requiredText(taskId, 'Multica task ID', 200);
+    const args = ['issue', 'run-messages', id];
+    if (issue) args.push('--issue', requiredText(issue, 'Issue reference', 200));
+    if (Number(since) > 0) args.push('--since', String(Math.floor(Number(since))));
+    args.push('--output', 'json');
+    const result = await this.runJson(args, {
+      workspaceId,
+      operation: 'issue run-messages',
+      retries: 1,
+    });
+    if (!Array.isArray(result)) throw new Error('Multica issue run messages must be an array');
+    return result.map(item => structuredClone(item));
+  }
+
+  async listIssueComments(reference, workspaceId = '') {
+    const normalized = requiredText(reference, 'Issue reference', 200);
+    const result = await this.runJson([
+      'issue', 'comment', 'list', normalized,
+      '--full', '--output', 'json',
+    ], {
+      workspaceId,
+      operation: 'issue comment list',
+      retries: 1,
+    });
+    if (!Array.isArray(result)) throw new Error('Multica issue comments must be an array');
+    return result.map(item => structuredClone(item));
+  }
+
+  async rerunIssue(reference, workspaceId = '') {
+    const normalized = requiredText(reference, 'Issue reference', 200);
+    const result = await this.runJson([
+      'issue', 'rerun', normalized, '--output', 'json',
+    ], {
+      workspaceId,
+      operation: 'issue rerun',
+      retries: 0,
+    });
+    return validateIssueRun(result);
+  }
+
+  async downloadAttachment(attachmentId, { outputDir, workspaceId = '' } = {}) {
+    const id = requiredText(attachmentId, 'Attachment ID', 300);
+    const directory = requiredText(outputDir, 'Attachment output directory', 2000);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const existing = (await readdir(directory, { withFileTypes: true }))
+      .filter(item => item.isFile());
+    if (existing.length === 1) {
+      const name = basename(existing[0].name);
+      return { name, path: join(directory, name) };
+    }
+    if (existing.length > 1) {
+      throw new Error(`Multica attachment directory contains ${existing.length} files`);
+    }
+    await this.runRaw(['attachment', 'download', id, '--output-dir', directory], {
+      workspaceId,
+      cwd: directory,
+      operation: 'attachment download',
+      retries: 1,
+    });
+    const after = await readdir(directory, { withFileTypes: true });
+    const created = after.filter(item => item.isFile());
+    if (created.length !== 1) {
+      throw new Error(`Multica attachment download produced ${created.length} files`);
+    }
+    const name = basename(created[0].name);
+    return { name, path: join(directory, name) };
   }
 
   async createIssue({
