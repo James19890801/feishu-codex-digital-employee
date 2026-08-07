@@ -1,0 +1,13 @@
+{
+  "name": "@aipros/cloud-failover-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node src/domain.test.mjs && node src/auth.test.mjs && node src/qoder-client.test.mjs && node src/repository-do.test.mjs && node src/index.test.mjs",
+    "deploy:dry": "wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "wrangler": "^4.28.1"
+  }
+}
