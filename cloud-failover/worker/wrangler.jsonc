@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "aipros-cloud-failover",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-08-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "HEARTBEAT_MS": "30000",
+    "MISS_THRESHOLD": "3",
+    "RECOVERY_THRESHOLD": "3"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "FAILOVER_COORDINATOR", "class_name": "FailoverCoordinator" },
+      { "name": "STANDBY_CONTAINER", "class_name": "StandbyContainer" }
+    ]
+  },
+  "containers": [
+    {
+      "class_name": "StandbyContainer",
+      "image": "../container/Dockerfile",
+      "max_instances": 1
+    }
+  ],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["FailoverCoordinator", "StandbyContainer"]
+    }
+  ]
+}
