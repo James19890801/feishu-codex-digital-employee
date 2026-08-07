@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { DomainError, FailoverCoordinatorService, InMemoryFailoverRepository } from './domain.mjs';
 
+const leaseRepository = new InMemoryFailoverRepository();
+const leaseService = new FailoverCoordinatorService({ repository: leaseRepository });
+const initialLease = await leaseService.lease(90_000);
+assert.equal(initialLease.state, 'TAKING_OVER');
+assert.equal(initialLease.generation, 1);
+
 const repository = new InMemoryFailoverRepository();
 const service = new FailoverCoordinatorService({ repository });
 await service.heartbeat({ at: 0, serviceStartId: 'start-1', dwsConnected: true, runtimeHealthy: true });
