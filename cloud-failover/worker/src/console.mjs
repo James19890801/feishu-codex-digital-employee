@@ -4,15 +4,16 @@ function escapeHtml(value) {
   })[character]);
 }
 
-export function consoleAuthorized(request, password) {
+export function consoleAuthorized(request, username, password) {
+  const expectedUsername = String(username || '');
   const expected = String(password || '');
-  if (!expected) return false;
+  if (!expectedUsername || !expected) return false;
   const authorization = request.headers.get('authorization') || '';
   if (!authorization.startsWith('Basic ')) return false;
   try {
     const decoded = atob(authorization.slice(6));
     const separator = decoded.indexOf(':');
-    return decoded.slice(0, separator) === 'aipros' && decoded.slice(separator + 1) === expected;
+    return decoded.slice(0, separator) === expectedUsername && decoded.slice(separator + 1) === expected;
   } catch {
     return false;
   }

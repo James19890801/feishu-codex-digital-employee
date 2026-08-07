@@ -9,7 +9,8 @@
   "vars": {
     "HEARTBEAT_MS": "30000",
     "MISS_THRESHOLD": "3",
-    "RECOVERY_THRESHOLD": "3"
+    "RECOVERY_THRESHOLD": "3",
+    "CLOUDFLARE_CONSOLE_USERNAME": "494161546@qq.com"
   },
   "durable_objects": {
     "bindings": [

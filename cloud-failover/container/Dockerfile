@@ -1,4 +1,4 @@
-FROM node:24.5.0-bookworm-slim@sha256:541f5d24f96be2bea3bd208a9aa06b0429a455b4b6fa07179e4e5f261be454d9
+FROM docker.m.daocloud.io/library/node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
 
 RUN npm install --global dingtalk-workspace-cli@1.0.56 \
   && npm cache clean --force
