@@ -74,12 +74,13 @@ export class FailoverCoordinatorService {
     const current = await this.repository.read();
     const age = current.lastHeartbeatAt === null ? Number.POSITIVE_INFINITY
       : Math.max(0, now - current.lastHeartbeatAt);
-    if (current.state === 'LOCAL_PRIMARY'
+    if (['LOCAL_PRIMARY', 'DEGRADED'].includes(current.state)
       && age >= this.heartbeatMs * this.missThreshold) {
       current.state = 'TAKING_OVER';
       current.generation += 1;
       current.containerReady = false;
       current.recoveryCount = 0;
+      current.lastErrorCode = '';
       await this.repository.write(current);
     } else if (current.state === 'DRAINING'
       && (current.inFlight === 0

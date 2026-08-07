@@ -45,4 +45,12 @@ assert.equal((await degradedService.heartbeat({
 const recoveredStatus = await degradedService.evaluate(260_001);
 assert.equal(recoveredStatus.state, 'LOCAL_PRIMARY');
 assert.equal(recoveredStatus.lastErrorCode, '');
+
+const railwayRecoveryRepository = new InMemoryFailoverRepository();
+const railwayRecoveryService = new FailoverCoordinatorService({ repository: railwayRecoveryRepository });
+await railwayRecoveryService.degrade('container_start_failed');
+const railwayLease = await railwayRecoveryService.lease(300_000);
+assert.equal(railwayLease.state, 'TAKING_OVER');
+assert.equal(railwayLease.generation, 1);
+assert.equal(railwayLease.lastErrorCode, '');
 console.log('FAILOVER_DOMAIN_TEST_OK');
