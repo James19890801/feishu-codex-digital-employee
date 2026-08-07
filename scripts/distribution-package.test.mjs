@@ -30,6 +30,10 @@ await put(fixture, 'package.json', '{"name":"fixture","version":"1.0.0","author"
 await put(fixture, 'pnpm-lock.yaml', 'lockfileVersion: 9\n');
 await put(fixture, 'pnpm-workspace.yaml', 'packages: []\n');
 await put(fixture, 'requirements.txt', 'pypdf==6.6.2\n');
+await put(fixture, 'cloud-failover/worker/src/index.mjs', 'export default {};\n');
+await put(fixture, 'cloud-failover/worker/src/index.test.mjs', 'private test\n');
+await put(fixture, 'cloud-failover/container/Dockerfile', 'FROM node:24\nUSER node\n');
+await put(fixture, 'cloud-failover/worker/.dev.vars', 'QODER_PAT=secret-value\n');
 await put(fixture, 'config.local.json', JSON.stringify({
   ownerDisplayName: '阿充',
   ownerAliases: ['James', 'James Feng', 'Achong'],
@@ -45,9 +49,12 @@ const files = await distributionFileList(fixture);
 assert.equal(files.includes('src/index.mjs'), true);
 assert.equal(files.includes('dashboard/index.html'), true);
 assert.equal(files.includes('README.md'), true);
+assert.equal(files.includes('cloud-failover/worker/src/index.mjs'), true);
+assert.equal(files.includes('cloud-failover/container/Dockerfile'), true);
 for (const forbidden of [
   'src/index.test.mjs', 'config.local.json', 'PERSONA.md', 'knowledge-catalog.json',
   'data/state.sqlite', 'docs/private.md', '.git/config',
+  'cloud-failover/worker/src/index.test.mjs', 'cloud-failover/worker/.dev.vars',
 ]) {
   assert.equal(files.includes(forbidden), false, `${forbidden} must not be distributed`);
 }

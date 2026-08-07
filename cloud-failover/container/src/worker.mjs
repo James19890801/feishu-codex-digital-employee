@@ -8,6 +8,14 @@ import {
   ownerHandoffReply, stableMessageUuid, validateContainerEnvironment,
 } from './policy.mjs';
 
+function isDwsAuthenticated(value) {
+  const candidate = value?.data || value;
+  return candidate?.authenticated === true
+    || candidate?.loggedIn === true
+    || candidate?.isLoggedIn === true
+    || ['authenticated', 'logged_in', '已登录'].includes(String(candidate?.status || ''));
+}
+
 function safeProcess(bin, args, { input = '', timeoutMs = 30_000 } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'], env: process.env });
@@ -105,7 +113,7 @@ export class StandbyDwsWorker {
       await this.runner(this.bin, ['auth', 'import', '-i', bundlePath, '--base64', '--force', ...this.commonArgs()]);
       const status = await this.runner(this.bin, ['auth', 'status', '--format', 'json', ...this.commonArgs()]);
       const parsed = JSON.parse(status.stdout);
-      if (parsed.authenticated !== true && parsed.loggedIn !== true && parsed.status !== 'authenticated') {
+      if (!isDwsAuthenticated(parsed)) {
         throw new Error('DWS auth status is not authenticated');
       }
       this.authenticated = true;
@@ -129,7 +137,8 @@ export class StandbyDwsWorker {
         ? ownerHandoffReply()
         : cloudReply((await this.coordinator.qoder({
             generation: this.generation, level: decision.level, prompt: message.text,
-            digest, purpose: 'whole_host_reply',
+            digest: messageDigest(message.text), bytes: Buffer.byteLength(message.text, 'utf8'),
+            purpose: 'whole_host_reply',
           })).result.text);
       await this.runner(this.bin, [
         'chat', 'message', 'send', '--group', message.chatId, '--text', reply,

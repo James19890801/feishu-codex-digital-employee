@@ -71,6 +71,7 @@ const issueLabelKeys = {
   wecom_channel_unavailable: 'issueWecomUnavailable',
   wechat_channel_unavailable: 'issueWechatUnavailable',
   self_chat_circuit_open: 'issueSelfChatCircuit',
+  cloud_failover_degraded: 'issueCloudFailoverDegraded',
 };
 
 const runtimeDescriptionKeys = {

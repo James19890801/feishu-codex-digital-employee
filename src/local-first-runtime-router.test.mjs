@@ -34,12 +34,14 @@ const result = await router.run(
   { timeoutMs: 120_000 },
   {
     level: 'L0',
+    cloudPrompt: '只回答当前问题 /Users/alice/private.txt marker cloud-secret-value',
     forbiddenValues: ['cloud-secret-value'],
   },
 );
 assert.equal(cloudCalls, 1);
 assert.deepEqual(attemptTimeouts, [40_000, 40_000, 40_000]);
 assert.equal(cloudInput.prompt.includes('/Users/alice'), false);
+assert.equal(cloudInput.prompt.includes('请读取'), false, 'the full local prompt must not enter cloud');
 assert.equal(cloudInput.prompt.includes('cloud-secret-value'), false);
 assert.match(cloudInput.digest, /^[a-f0-9]{64}$/);
 assert.deepEqual(result, {

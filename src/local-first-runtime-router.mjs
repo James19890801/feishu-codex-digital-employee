@@ -55,9 +55,12 @@ export class LocalFirstRuntimeRouter {
       }
     }
 
+    const candidatePrompt = context.cloudPrompt === undefined
+      ? prompt
+      : String(context.cloudPrompt || '');
     const eligibility = evaluateCloudEligibility({
       ...context,
-      prompt,
+      prompt: candidatePrompt,
       images: options.images,
       maxPromptChars: context.maxPromptChars,
     });
@@ -67,7 +70,7 @@ export class LocalFirstRuntimeRouter {
       error.code = 'cloud_failover_unavailable';
       throw error;
     }
-    const sanitized = sanitizeCloudPrompt(prompt, {
+    const sanitized = sanitizeCloudPrompt(candidatePrompt, {
       forbiddenValues: context.forbiddenValues,
       ownerPhone: context.ownerPhone,
       maxChars: context.maxPromptChars,
