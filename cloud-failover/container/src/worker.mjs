@@ -7,6 +7,7 @@ import {
   cloudReply, evaluateCloudMessage, messageDigest, normalizeDwsMessage,
   ownerHandoffReply, stableMessageUuid, validateContainerEnvironment,
 } from './policy.mjs';
+import { RailwayFailoverRuntime } from './runtime.mjs';
 
 function isDwsAuthenticated(value) {
   const candidate = value?.data || value;
@@ -67,21 +68,29 @@ function startDwsEventConsumer(bin, args, onMessage) {
 
 export class CoordinatorClient {
   constructor({ baseUrl, token, fetchImpl = globalThis.fetch }) {
-    this.baseUrl = baseUrl.replace(/\/$/, ''); this.token = token; this.fetchImpl = fetchImpl;
+    this.baseUrl = baseUrl.replace(/\/$/, '');
+    this.token = token;
+    this.fetchImpl = fetchImpl;
   }
-  async call(path, body) {
+
+  async call(path, body = {}) {
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       method: 'POST', body: JSON.stringify(body),
       headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
     });
     const result = await response.json();
-    if (!response.ok || result.ok !== true) throw new Error(result.error?.code || 'coordinator_failed');
+    if (!response.ok || result.ok !== true) {
+      const code = String(result.error?.code || 'coordinator_failed').slice(0, 64);
+      throw Object.assign(new Error(code), { code });
+    }
     return result;
   }
-  ready(generation) { return this.call('/internal/container/ready', { generation }); }
-  claim(input) { return this.call('/internal/container/claim', input); }
-  complete(input) { return this.call('/internal/container/complete', input); }
-  qoder(input) { return this.call('/internal/container/qoder', input); }
+
+  lease() { return this.call('/internal/runtime/lease'); }
+  ready(generation) { return this.call('/internal/runtime/ready', { generation }); }
+  claim(input) { return this.call('/internal/runtime/claim', input); }
+  complete(input) { return this.call('/internal/runtime/complete', input); }
+  qoder(input) { return this.call('/internal/runtime/qoder', input); }
 }
 
 export class StandbyDwsWorker {
@@ -96,8 +105,12 @@ export class StandbyDwsWorker {
     this.now = now;
     this.bin = bin;
     this.eventConsumer = eventConsumer;
-    this.generation = Number(env.AIPROS_GENERATION || 0);
+    this.generation = 0;
+    this.activeGeneration = 0;
+    this.backfilledGeneration = 0;
     this.authenticated = false;
+    this.eventChild = null;
+    this.initializationPromise = null;
   }
 
   commonArgs() {
@@ -113,30 +126,57 @@ export class StandbyDwsWorker {
       await this.runner(this.bin, ['auth', 'import', '-i', bundlePath, '--base64', '--force', ...this.commonArgs()]);
       const status = await this.runner(this.bin, ['auth', 'status', '--format', 'json', ...this.commonArgs()]);
       const parsed = JSON.parse(status.stdout);
-      if (!isDwsAuthenticated(parsed)) {
-        throw new Error('DWS auth status is not authenticated');
-      }
+      if (!isDwsAuthenticated(parsed)) throw new Error('DWS auth status is not authenticated');
       this.authenticated = true;
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   }
 
+  async initialize() {
+    if (this.authenticated && this.eventChild) return { authenticated: true };
+    if (this.initializationPromise) return this.initializationPromise;
+    this.initializationPromise = (async () => {
+      if (!this.authenticated) await this.authenticate();
+      if (!this.eventChild) {
+        const child = await this.eventConsumer(this.bin, [
+          'event', 'consume', '--flatten', '--ephemeral', '--format', 'ndjson',
+          ...this.commonArgs(),
+        ], message => this.processMessage(message));
+        this.eventChild = child;
+        child?.once?.('exit', () => {
+          if (this.eventChild === child) this.eventChild = null;
+          this.authenticated = false;
+          this.activeGeneration = 0;
+          this.backfilledGeneration = 0;
+        });
+      }
+      return { authenticated: true };
+    })();
+    try {
+      return await this.initializationPromise;
+    } finally {
+      this.initializationPromise = null;
+    }
+  }
+
   async processMessage(raw) {
+    const generation = this.activeGeneration;
+    if (!generation) return { skipped: 'standby' };
     const message = normalizeDwsMessage(raw);
     const decision = evaluateCloudMessage(message, {
-      ...this.policy, generation: this.generation, expectedGeneration: this.generation, now: this.now(),
+      ...this.policy, generation, expectedGeneration: this.activeGeneration, now: this.now(),
     });
     if (!decision.allowed) return { skipped: decision.reason };
     const digest = messageDigest(message.messageId);
-    const claim = await this.coordinator.claim({ generation: this.generation, messageDigest: digest });
+    const claim = await this.coordinator.claim({ generation, messageDigest: digest });
     if (!claim.accepted) return { skipped: 'duplicate' };
     let outcomeCode = 'failed';
     try {
       const reply = decision.handoff
         ? ownerHandoffReply()
         : cloudReply((await this.coordinator.qoder({
-            generation: this.generation, level: decision.level, prompt: message.text,
+            generation, level: decision.level, prompt: message.text,
             digest: messageDigest(message.text), bytes: Buffer.byteLength(message.text, 'utf8'),
             purpose: 'whole_host_reply',
           })).result.text);
@@ -147,19 +187,11 @@ export class StandbyDwsWorker {
       outcomeCode = decision.handoff ? 'owner_handoff_sent' : 'reply_sent';
       return { sent: true, outcomeCode };
     } finally {
-      await this.coordinator.complete({ generation: this.generation, messageDigest: digest, outcomeCode });
+      await this.coordinator.complete({ generation, messageDigest: digest, outcomeCode });
     }
   }
 
-  async bootstrap(generation) {
-    this.generation = Number(generation);
-    if (!this.authenticated) await this.authenticate();
-    this.eventChild = await this.eventConsumer(this.bin, [
-      'event', 'consume', '--flatten', '--ephemeral', '--format', 'ndjson',
-      ...this.commonArgs(),
-    ], message => this.processMessage(message));
-    this.eventChild?.once?.('exit', () => { this.authenticated = false; });
-    await this.coordinator.ready(this.generation);
+  async backfill(generation) {
     const cutoff = new Date(this.now() - 3 * 60_000).toISOString().replace('T', ' ').slice(0, 19);
     for (const chatId of this.policy.allowedChatIds) {
       const result = await this.runner(this.bin, [
@@ -171,40 +203,79 @@ export class StandbyDwsWorker {
       const items = parsed.items || parsed.messages || parsed.data?.items || [];
       for (const message of items) await this.processMessage(message);
     }
-    return { ready: true, generation: this.generation };
+    this.backfilledGeneration = generation;
+  }
+
+  async activate(generation, { announceReady = true } = {}) {
+    const nextGeneration = Number(generation);
+    if (!Number.isInteger(nextGeneration) || nextGeneration <= 0) throw new Error('Invalid generation');
+    await this.initialize();
+    if (this.activeGeneration !== nextGeneration) {
+      if (announceReady) await this.coordinator.ready(nextGeneration);
+      this.generation = nextGeneration;
+      this.activeGeneration = nextGeneration;
+    }
+    if (this.backfilledGeneration !== nextGeneration) await this.backfill(nextGeneration);
+    return { ready: true, generation: nextGeneration };
+  }
+
+  deactivate() {
+    this.activeGeneration = 0;
+    return { active: false };
+  }
+
+  async bootstrap(generation) {
+    return this.activate(generation);
   }
 }
 
 export function createHealthServer(worker, port = 8788) {
-  return createServer(async (request, response) => {
-    try {
-      if (request.url === '/health') {
-        response.writeHead(worker.authenticated ? 200 : 503, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ ok: worker.authenticated, generation: worker.generation }));
-        return;
-      }
-      if (request.url === '/generation' && request.method === 'POST') {
-        const chunks = [];
-        for await (const chunk of request) chunks.push(chunk);
-        const result = await worker.bootstrap(JSON.parse(Buffer.concat(chunks).toString()).generation);
-        response.writeHead(200, { 'content-type': 'application/json' });
-        response.end(JSON.stringify(result));
-        return;
-      }
-      response.writeHead(404); response.end();
-    } catch (error) {
-      response.writeHead(500, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ ok: false, error: String(error?.message || error).slice(0, 120) }));
+  return createServer((request, response) => {
+    if (request.url === '/live') {
+      response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      response.end(JSON.stringify({ ok: true }));
+      return;
     }
+    if (request.url === '/ready') {
+      response.writeHead(worker.authenticated ? 200 : 503, {
+        'content-type': 'application/json', 'cache-control': 'no-store',
+      });
+      response.end(JSON.stringify({ ok: worker.authenticated, active: worker.activeGeneration > 0 }));
+      return;
+    }
+    response.writeHead(404, { 'cache-control': 'no-store' });
+    response.end();
   }).listen(port, '0.0.0.0');
 }
 
-if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+async function runStandalone() {
   const coordinator = new CoordinatorClient({
     baseUrl: process.env.AIPROS_COORDINATOR_URL,
     token: process.env.AIPROS_CONTAINER_TOKEN,
   });
   const worker = new StandbyDwsWorker({ env: process.env, coordinator });
-  const server = createHealthServer(worker);
-  process.once('SIGTERM', () => server.close(() => process.exit(0)));
+  const runtime = new RailwayFailoverRuntime({ worker, coordinator });
+  const abortController = new AbortController();
+  const server = createHealthServer(worker, Number(process.env.PORT || 8788));
+  let shuttingDown = false;
+  const shutdown = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    abortController.abort();
+    worker.deactivate();
+    server.close(() => { process.exitCode = 0; });
+  };
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
+  await runtime.start({ signal: abortController.signal });
+}
+
+if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+  runStandalone().catch(error => {
+    console.error('railway_failover_start_failed', {
+      code: String(error?.code || error?.name || 'startup_error').slice(0, 64),
+      message: String(error?.message || error).slice(0, 160),
+    });
+    process.exitCode = 1;
+  });
 }
