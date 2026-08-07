@@ -38,7 +38,9 @@ const consoleResponse = await worker.fetch(new Request('https://failover.test/',
   headers: { authorization: `Basic ${btoa('owner@example.com:console-pass')}` },
 }), env);
 assert.equal(consoleResponse.status, 200);
-assert.match(await consoleResponse.text(), /LOCAL_PRIMARY/);
+const consoleHtml = await consoleResponse.text();
+assert.match(consoleHtml, /LOCAL_PRIMARY/);
+assert.match(consoleHtml, /云端运行时/);
 assert.equal(consoleResponse.headers.get('x-frame-options'), 'DENY');
 const oldUsernameResponse = await worker.fetch(new Request('https://failover.test/', {
   headers: { authorization: `Basic ${btoa('aipros:console-pass')}` },

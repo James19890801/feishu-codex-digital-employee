@@ -7,7 +7,8 @@ WORKDIR /app
 COPY --chown=node:node package.json ./
 COPY --chown=node:node src ./src
 
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+  PORT=8788
 USER node
 EXPOSE 8788
 CMD ["node", "src/worker.mjs"]
