@@ -238,6 +238,47 @@ const base = {
 {
   const view = buildOperatorView({
     ...base,
+    cloudFailover: {
+      enabled: true,
+      configured: true,
+      state: 'CLOUD_ACTIVE',
+      generation: 4,
+      lastHeartbeatAt: '2026-07-30T00:59:30.000Z',
+      lastCloudSuccessAt: '2026-07-30T00:59:35.000Z',
+      lastError: null,
+    },
+  });
+  assert.deepEqual(view.cloudFailover, {
+    enabled: true,
+    configured: true,
+    healthy: true,
+    state: 'CLOUD_ACTIVE',
+    generation: 4,
+    lastHeartbeatAt: '2026-07-30T00:59:30.000Z',
+    lastCloudSuccessAt: '2026-07-30T00:59:35.000Z',
+    lastError: null,
+  });
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    cloudFailover: {
+      enabled: true,
+      configured: true,
+      state: 'DEGRADED',
+      generation: 5,
+      lastError: { error: 'standby auth failed' },
+    },
+  });
+  assert.equal(view.state, 'degraded');
+  assert.equal(view.issues.includes('cloud_failover_degraded'), true);
+  assert.equal(view.cloudFailover.healthy, false);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
     aiRuntime: {
       configured: 'auto',
       selected: 'codex',

@@ -62,6 +62,7 @@ try {
   state.completeInbound('om_1', '2026-07-29T14:00:02.000Z');
   assert.equal(state.nextInboundAvailableAt(), null);
   assert.equal(state.claimInbound('om_1', '2026-07-29T14:05:00.000Z'), false);
+  assert.equal(state.latestCompletedInboundMessageId(), 'om_1');
 
   assert.equal(state.seedInbound('om_old', 'poll', { old: true }, now), true);
   assert.equal(state.claimInbound('om_old', '2026-07-29T14:10:00.000Z'), false);

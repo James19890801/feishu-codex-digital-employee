@@ -625,6 +625,12 @@ export class AgentState {
       .run(now, messageId);
   }
 
+  latestCompletedInboundMessageId() {
+    return String(this.db.prepare(`SELECT message_id FROM inbound_message
+      WHERE status = 'completed' ORDER BY updated_at DESC, rowid DESC LIMIT 1`)
+      .get()?.message_id || '');
+  }
+
   failInbound(messageId, error, retryAt, now = new Date().toISOString()) {
     this.db.prepare(`UPDATE inbound_message
       SET status = 'failed', available_at = ?, updated_at = ?, last_error = ?
