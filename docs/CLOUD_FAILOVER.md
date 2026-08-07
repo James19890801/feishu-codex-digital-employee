@@ -7,10 +7,10 @@
 | Local runtime fallback | Implemented and locally tested | Three bounded local attempts, deny-first policy, signed Cloudflare request |
 | Whole-Mac coordinator | Implemented and locally tested | 30s heartbeat, 90s takeover, generation fencing, claims, three-heartbeat drain |
 | Qoder adapter | Live provisioned and smoke-tested on 2026-08-07 | Tool-free Agent/Environment, Session, content-block event, SSE idle terminal, archive, 429/5xx retry |
-| Standby DWS container | Implemented; Worker bundle dry-run verified | Independent auth import, auth-status gate, 3-minute backfill, event stream, UUID send |
-| Container image build | Locally verified; registry upload blocked by account plan | Pinned `linux/amd64` Node image and DWS CLI layer build successfully; Cloudflare API requires Workers Paid before Container Registry access |
+| Railway standby DWS runtime | Implemented and locally tested | Always-warm event stream, independent auth import, 10s coordinator lease, 3-minute backfill, generation fencing and UUID send |
+| Railway image build | Locally verified | Pinned `linux/amd64` Node image and DWS CLI layer build successfully; Cloudflare Container Registry is no longer required |
 | Live Cloudflare/Qoder | Activated and smoke-tested on 2026-08-07 | Signed heartbeat and exact `AIPR0S_CLOUD_OK` response passed; metadata-only console published |
-| Live cloud DingTalk | Not activated | Requires dedicated cloud OAuth and DWS auth bundle; local Profile/Channel was not copied |
+| Live Railway DingTalk | Not activated | Requires Railway login/deploy plus dedicated cloud OAuth and DWS auth bundle; local Profile/Channel was not copied |
 | 7x24 availability | Not yet verified | Requires the controlled stop/reply/recovery acceptance below |
 
 ## Runtime contract
@@ -25,30 +25,37 @@
 
 ## Prerequisites
 
-- Cloudflare account with Workers, SQLite-backed Durable Objects and Containers available. Containers require a paid Workers plan.
-- Docker-compatible daemon for the first container-image build.
+- Cloudflare account with Workers and SQLite-backed Durable Objects. Cloudflare Containers are not used.
+- Railway account and service. Use a plan that supports `Always` restart before describing the runtime as verified 7x24.
+- Docker-compatible daemon for local container-image verification.
 - Tool-free Qoder Cloud Agent and Environment. Qoder Cloud Agent is experimental; pin and re-test its API contract on every upgrade.
 - Dedicated, revocable DingTalk OAuth authorization for cloud standby. Do not export the configured local DWS Profile/Channel.
 
 ## Secret names
 
-Provision these with `wrangler secret put`; never put values in `wrangler.jsonc`, `.dev.vars.example`, Git or logs:
+Provision coordinator and Qoder values with `wrangler secret put`; never put values in `wrangler.jsonc`, `.dev.vars.example`, Git or logs:
 
 ```text
 AIPROS_NODE_ID
 AIPROS_HMAC_SECRET
 AIPROS_CONTAINER_TOKEN
-AIPROS_INTERNAL_COORDINATOR_URL
-AIPROS_ALLOWED_CHAT_IDS
-AIPROS_ALLOWED_SENDER_IDS
 CLOUDFLARE_CONSOLE_PASSWORD
 QODER_PAT
 QODER_AGENT_ID
 QODER_AGENT_VERSION
 QODER_ENVIRONMENT_ID
+```
+
+Provision these as sealed Railway service variables. Read back names only, never values:
+
+```text
 DINGTALK_CLIENT_ID
 DINGTALK_CLIENT_SECRET
 DINGTALK_DWS_AUTH_BUNDLE_B64
+AIPROS_COORDINATOR_URL
+AIPROS_CONTAINER_TOKEN
+AIPROS_ALLOWED_CHAT_IDS
+AIPROS_ALLOWED_SENDER_IDS
 ```
 
 The same local HMAC value must be stored in macOS Keychain under the configured service/account:
@@ -74,7 +81,7 @@ dws auth status --format json \
 dws auth export --base64 > dws-auth.b64
 ```
 
-Before export, verify that this state contains only the dedicated cloud authorization and is not the local production Profile. Store the base64 output as `DINGTALK_DWS_AUTH_BUNDLE_B64`, then securely delete the export file. The container imports it into ephemeral storage with mode `0600`, runs a real `dws auth status`, and removes the import file.
+Before export, verify that this state contains only the dedicated cloud authorization and is not the local production Profile. Store the base64 output as `DINGTALK_DWS_AUTH_BUNDLE_B64`, then securely delete the export file. The Railway runtime imports it into ephemeral storage with mode `0600`, runs a real `dws auth status`, and removes the import file.
 
 ## Configure the Mac
 
@@ -97,7 +104,7 @@ Set these non-secret fields in `config.local.json`:
 
 ## Cloud console
 
-The Worker root path serves a metadata-only status page protected with HTTP Basic authentication. Configure the username with the non-secret `CLOUDFLARE_CONSOLE_USERNAME` Worker variable; store the password only as the `CLOUDFLARE_CONSOLE_PASSWORD` Worker secret and in an operator password manager or Keychain. The page shows coordinator state, generation, heartbeat age, container readiness and in-flight count. It never renders messages, prompts, identities, credentials or Qoder output.
+The Worker root path serves a metadata-only status page protected with HTTP Basic authentication. Configure the username with the non-secret `CLOUDFLARE_CONSOLE_USERNAME` Worker variable; store the password only as the `CLOUDFLARE_CONSOLE_PASSWORD` Worker secret and in an operator password manager or Keychain. The page shows coordinator state, generation, heartbeat age, Railway runtime readiness and in-flight count. It never renders messages, prompts, identities, credentials or Qoder output.
 
 An unauthenticated request must return `401`; an authenticated request must return `200` with the title `AIPR0S Cloud Failover` before the console is considered published.
 
@@ -113,11 +120,14 @@ QODER_PAT='<read-from-secret-store>' node scripts/qoder-cloud-provision.mjs
 
 cd cloud-failover/worker
 pnpm exec wrangler secret put AIPROS_NODE_ID
-# Repeat for every secret name above.
+# Repeat for each Cloudflare secret name above.
 pnpm exec wrangler deploy
+
+# From the repository root after Railway login and variable provisioning:
+railway up --path-as-root cloud-failover/container --ci
 ```
 
-`cloud-failover:dry` validates the Worker bundle without rolling out the container. A real deploy must build the pinned `linux/amd64` image from `cloud-failover/container/Dockerfile`.
+`cloud-failover:dry` validates the Worker bundle without any Container Registry access. Railway detects `cloud-failover/container/Dockerfile` when that directory is deployed as the service root. The committed Railway configuration uses `/live`, 30-second draining and the portable `ON_FAILURE` ten-retry policy. Change it to `ALWAYS` only after the Railway account confirms that policy is available.
 
 ## Acceptance before claiming 7x24
 
@@ -134,7 +144,7 @@ Only after all eight checks have current evidence may the deployment be describe
 
 ## Rollback
 
-Set `cloudFailoverEnabled` to `false` and restart the local service. Then stop or delete the Cloudflare Worker/Container and revoke the dedicated DingTalk authorization, Qoder PAT, container token and HMAC secret. Local DWS Profile/Channel and local SQLite are unaffected because neither is copied into the cloud deployment.
+Set `cloudFailoverEnabled` to `false` and restart the local service. Disable Railway lease activation, stop the Railway service, and revoke the dedicated DingTalk authorization and Railway coordinator token. Delete the Cloudflare Worker only if per-request Qoder fallback is also being retired. Local DWS Profile/Channel and local SQLite are unaffected because neither is copied into the cloud deployment.
 
 ## Retention and cost boundary
 
