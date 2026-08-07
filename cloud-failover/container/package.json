@@ -1,0 +1,10 @@
+{
+  "name": "@aipros/cloud-failover-container",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/worker.mjs",
+    "test": "node src/policy.test.mjs && node src/worker.test.mjs"
+  }
+}
