@@ -8,7 +8,7 @@
 | Whole-Mac coordinator | Implemented and locally tested | 30s heartbeat, 90s takeover, generation fencing, claims, three-heartbeat drain |
 | Qoder adapter | Live provisioned and smoke-tested on 2026-08-07 | Tool-free Agent/Environment, Session, content-block event, SSE idle terminal, archive, 429/5xx retry |
 | Standby DWS container | Implemented; Worker bundle dry-run verified | Independent auth import, auth-status gate, 3-minute backfill, event stream, UUID send |
-| Container image build | Blocked | Docker daemon is available, but the configured public image mirrors returned 403 or stalled while pulling the pinned Node base image |
+| Container image build | Locally verified; registry upload blocked by account plan | Pinned `linux/amd64` Node image and DWS CLI layer build successfully; Cloudflare API requires Workers Paid before Container Registry access |
 | Live Cloudflare/Qoder | Activated and smoke-tested on 2026-08-07 | Signed heartbeat and exact `AIPR0S_CLOUD_OK` response passed; metadata-only console published |
 | Live cloud DingTalk | Not activated | Requires dedicated cloud OAuth and DWS auth bundle; local Profile/Channel was not copied |
 | 7x24 availability | Not yet verified | Requires the controlled stop/reply/recovery acceptance below |
@@ -97,7 +97,7 @@ Set these non-secret fields in `config.local.json`:
 
 ## Cloud console
 
-The Worker root path serves a metadata-only status page protected with HTTP Basic authentication. The username is `aipros`; store the password only as the `CLOUDFLARE_CONSOLE_PASSWORD` Worker secret and in an operator password manager or Keychain. The page shows coordinator state, generation, heartbeat age, container readiness and in-flight count. It never renders messages, prompts, identities, credentials or Qoder output.
+The Worker root path serves a metadata-only status page protected with HTTP Basic authentication. Configure the username with the non-secret `CLOUDFLARE_CONSOLE_USERNAME` Worker variable; store the password only as the `CLOUDFLARE_CONSOLE_PASSWORD` Worker secret and in an operator password manager or Keychain. The page shows coordinator state, generation, heartbeat age, container readiness and in-flight count. It never renders messages, prompts, identities, credentials or Qoder output.
 
 An unauthenticated request must return `401`; an authenticated request must return `200` with the title `AIPR0S Cloud Failover` before the console is considered published.
 

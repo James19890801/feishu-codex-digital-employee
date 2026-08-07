@@ -9,7 +9,11 @@ export function createFailoverWorker({ maxBodyBytes = 64 * 1024 } = {}) {
     async fetch(request, env) {
       const url = new URL(request.url);
       if (url.pathname === '/' && request.method === 'GET') {
-        if (!consoleAuthorized(request, env.CLOUDFLARE_CONSOLE_PASSWORD)) {
+        if (!consoleAuthorized(
+          request,
+          env.CLOUDFLARE_CONSOLE_USERNAME,
+          env.CLOUDFLARE_CONSOLE_PASSWORD,
+        )) {
           return new Response('Authentication required', {
             status: 401,
             headers: {
