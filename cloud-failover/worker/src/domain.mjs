@@ -52,8 +52,8 @@ export class FailoverCoordinatorService {
     const at = Number(input.at);
     if (!Number.isFinite(at)) throw new DomainError('invalid_heartbeat', 'Heartbeat time is invalid');
     const current = await this.repository.read();
-    const healthy = input.dwsConnected !== false && input.runtimeHealthy !== false;
-    const recovered = ['TAKING_OVER', 'CLOUD_ACTIVE', 'DRAINING'].includes(current.state)
+    const healthy = input.dwsConnected === true && input.runtimeHealthy === true;
+    const recovered = ['TAKING_OVER', 'CLOUD_ACTIVE', 'DRAINING', 'DEGRADED'].includes(current.state)
       && healthy;
     const next = {
       ...current,
@@ -62,7 +62,7 @@ export class FailoverCoordinatorService {
       recoveryCount: recovered ? current.recoveryCount + 1 : 0,
     };
     if (recovered && next.recoveryCount >= this.recoveryThreshold
-      && ['TAKING_OVER', 'CLOUD_ACTIVE'].includes(next.state)) {
+      && ['TAKING_OVER', 'CLOUD_ACTIVE', 'DEGRADED'].includes(next.state)) {
       next.state = 'DRAINING';
       next.drainStartedAt = at;
     }
@@ -88,6 +88,7 @@ export class FailoverCoordinatorService {
       current.containerReady = false;
       current.recoveryCount = 0;
       current.drainStartedAt = null;
+      current.lastErrorCode = '';
       await this.repository.write(current);
     }
     return this.status(now);
@@ -136,6 +137,7 @@ export class FailoverCoordinatorService {
       current.containerReady = false;
       current.recoveryCount = 0;
       current.drainStartedAt = null;
+      current.lastErrorCode = '';
     }
     await this.repository.write(current);
     return { completed, ...(await this.status(at)) };

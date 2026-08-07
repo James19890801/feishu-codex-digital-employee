@@ -1,3 +1,4 @@
+import { DurableObject } from 'cloudflare:workers';
 import { Container } from '@cloudflare/containers';
 import { FailoverCoordinatorService } from './domain.mjs';
 import { QoderCloudClient } from './qoder-client.mjs';
@@ -18,6 +19,7 @@ export class StandbyContainer extends Container {
       AIPROS_COORDINATOR_URL: String(env.AIPROS_INTERNAL_COORDINATOR_URL || ''),
       AIPROS_CONTAINER_TOKEN: String(env.AIPROS_CONTAINER_TOKEN || ''),
       AIPROS_ALLOWED_CHAT_IDS: String(env.AIPROS_ALLOWED_CHAT_IDS || ''),
+      AIPROS_ALLOWED_SENDER_IDS: String(env.AIPROS_ALLOWED_SENDER_IDS || ''),
       DINGTALK_CLIENT_ID: String(env.DINGTALK_CLIENT_ID || ''),
       DINGTALK_CLIENT_SECRET: String(env.DINGTALK_CLIENT_SECRET || ''),
       DINGTALK_DWS_AUTH_BUNDLE_B64: String(env.DINGTALK_DWS_AUTH_BUNDLE_B64 || ''),
@@ -41,8 +43,9 @@ export class StandbyContainer extends Container {
   }
 }
 
-export class FailoverCoordinator {
+export class FailoverCoordinator extends DurableObject {
   constructor(ctx, env) {
+    super(ctx, env);
     this.ctx = ctx;
     this.env = env;
     this.repository = new DurableObjectFailoverRepository(ctx.storage);

@@ -13,6 +13,8 @@ const env = {
 const policy = validateContainerEnvironment(env);
 assert.throws(() => validateContainerEnvironment({ ...env, DWS_PROFILE: 'local:user' }), /prohibited/);
 assert.throws(() => validateContainerEnvironment({ ...env, DWS_CHANNEL: 'local-channel' }), /prohibited/);
+assert.throws(() => validateContainerEnvironment({ ...env, AIPROS_ALLOWED_SENDER_IDS: '' }),
+  /AIPROS_ALLOWED_SENDER_IDS is required/);
 const now = 1_786_060_800_000;
 const message = normalizeDwsMessage({ messageId: 'm1', chatId: 'chat-1', senderId: 'user-1', text: '你好', createdAt: now });
 assert.deepEqual(evaluateCloudMessage(message, { ...policy, generation: 2, expectedGeneration: 2, now }),

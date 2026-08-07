@@ -3,7 +3,9 @@
   "name": "aipros-cloud-failover",
   "main": "src/index.mjs",
   "compatibility_date": "2026-08-07",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": true,
+  "preview_urls": false,
   "vars": {
     "HEARTBEAT_MS": "30000",
     "MISS_THRESHOLD": "3",

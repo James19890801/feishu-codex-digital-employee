@@ -10,11 +10,12 @@ export function validateContainerEnvironment(env = {}) {
   const required = [
     'DINGTALK_CLIENT_ID', 'DINGTALK_CLIENT_SECRET', 'DINGTALK_DWS_AUTH_BUNDLE_B64',
     'AIPROS_COORDINATOR_URL', 'AIPROS_CONTAINER_TOKEN', 'AIPROS_ALLOWED_CHAT_IDS',
+    'AIPROS_ALLOWED_SENDER_IDS',
   ];
   for (const key of required) if (!String(env[key] || '').trim()) throw new Error(`${key} is required`);
   return {
     allowedChatIds: new Set(String(env.AIPROS_ALLOWED_CHAT_IDS).split(',').map(x => x.trim()).filter(Boolean)),
-    allowedSenderIds: new Set(String(env.AIPROS_ALLOWED_SENDER_IDS || '').split(',').map(x => x.trim()).filter(Boolean)),
+    allowedSenderIds: new Set(String(env.AIPROS_ALLOWED_SENDER_IDS).split(',').map(x => x.trim()).filter(Boolean)),
   };
 }
 

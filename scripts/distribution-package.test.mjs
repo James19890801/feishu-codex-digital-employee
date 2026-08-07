@@ -66,6 +66,13 @@ assert.equal(dirtyScan.ok, false);
 assert.equal(dirtyScan.violations.some(item => item.code === 'SECRET_PATTERN'), true);
 assert.equal(JSON.stringify(dirtyScan).includes('sk-abcdefghijklmnopqrstuvwxyz123456'), false);
 
+const consoleSecret = await mkdtemp(join(tmpdir(), 'james-package-console-secret-'));
+await put(consoleSecret, 'payload/.env', 'CLOUDFLARE_CONSOLE_PASSWORD=do-not-package-this\n');
+const consoleSecretScan = await scanDistribution(consoleSecret);
+assert.equal(consoleSecretScan.ok, false);
+assert.equal(consoleSecretScan.violations.some(item => item.code === 'SECRET_PATTERN'), true);
+assert.equal(JSON.stringify(consoleSecretScan).includes('do-not-package-this'), false);
+
 const outputDir = await mkdtemp(join(tmpdir(), 'james-package-output-'));
 const built = await buildDistribution({ root: fixture, outputDir, version: '1.2.3' });
 assert.equal(built.fileCount > 0, true);
