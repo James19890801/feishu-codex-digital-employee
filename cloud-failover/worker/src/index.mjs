@@ -35,6 +35,10 @@ export class StandbyContainer extends Container {
   async onActivityExpired() {
     this.renewActivityTimeout();
   }
+
+  async stopStandby() {
+    await this.stop();
+  }
 }
 
 export class FailoverCoordinator {
@@ -69,6 +73,16 @@ export class FailoverCoordinator {
     if (!['L0', 'L1'].includes(String(input.level || '').toUpperCase())) {
       throw Object.assign(new Error('Only L0/L1 tasks are allowed'), { code: 'risk_level' });
     }
+    const prompt = String(input.prompt || '');
+    const promptBytes = new TextEncoder().encode(prompt);
+    if (!prompt || prompt.length > 24_000 || promptBytes.byteLength > 64 * 1024) {
+      throw Object.assign(new Error('Cloud prompt is empty or too large'), { code: 'invalid_prompt' });
+    }
+    const actualDigest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', promptBytes))]
+      .map(byte => byte.toString(16).padStart(2, '0')).join('');
+    if (actualDigest !== String(input.digest || '') || Number(input.bytes) !== promptBytes.byteLength) {
+      throw Object.assign(new Error('Cloud prompt metadata does not match'), { code: 'prompt_tampered' });
+    }
     const client = new QoderCloudClient({
       pat: this.env.QODER_PAT,
       agentId: this.env.QODER_AGENT_ID,
@@ -76,7 +90,7 @@ export class FailoverCoordinator {
       environmentId: this.env.QODER_ENVIRONMENT_ID,
     });
     const result = await client.execute({
-      prompt: input.prompt,
+      prompt,
       digest: input.digest,
       metadata: { level: input.level, purpose: input.purpose, node: this.env.AIPROS_NODE_ID },
     });
@@ -88,6 +102,7 @@ export class FailoverCoordinator {
     const after = await this.service.evaluate(Date.now());
     const container = this.env.STANDBY_CONTAINER.getByName(this.env.AIPROS_NODE_ID);
     if (after.state === 'TAKING_OVER' && before.state !== 'TAKING_OVER') {
+      await this.ctx.storage.delete('container_stopped_generation');
       const response = await container.fetch(new Request('http://container/generation', {
         method: 'POST', body: JSON.stringify({ generation: after.generation }),
         headers: { 'content-type': 'application/json' },
@@ -105,8 +120,10 @@ export class FailoverCoordinator {
         if (!response.ok) await this.service.degrade('container_health_failed');
       }
     }
-    if (after.state === 'LOCAL_PRIMARY' && before.state === 'DRAINING') {
-      await container.fetch(new Request('http://container/__control/stop', { method: 'POST' }));
+    if (after.state === 'LOCAL_PRIMARY' && after.generation > 0
+      && Number(await this.ctx.storage.get('container_stopped_generation') || 0) !== after.generation) {
+      await container.stopStandby();
+      await this.ctx.storage.put('container_stopped_generation', after.generation);
     }
     await this.ctx.storage.setAlarm(Date.now() + Number(this.env.HEARTBEAT_MS || 30_000));
   }

@@ -41,6 +41,12 @@ import {
   AutomationPeerGuard,
   handleAutomationPeerInbound,
 } from './automation-peer-guard.mjs';
+import { evaluateCloudEligibility } from './cloud-failover-policy.mjs';
+import { LocalFirstRuntimeRouter } from './local-first-runtime-router.mjs';
+import {
+  FailoverCoordinatorService,
+  InMemoryFailoverRepository,
+} from '../cloud-failover/worker/src/domain.mjs';
 
 const cases = [];
 
@@ -574,6 +580,37 @@ for (const [attempt, expected] of [[1, true], [2, true], [3, false], [4, false]]
     assert.equal(shouldRetryMessage(attempt), expected);
   });
 }
+
+contract('cloud-failover', 'Do three retryable local failures cause exactly one L0 cloud call?', async () => {
+  let localCalls = 0;
+  let cloudCalls = 0;
+  const router = new LocalFirstRuntimeRouter({
+    localClient: { async run() { localCalls += 1; throw new Error('process timed out'); } },
+    cloudClient: { async execute() {
+      cloudCalls += 1;
+      return { text: 'ok', sessionId: 'session', latencyMs: 1 };
+    } },
+    delay: async () => {},
+  });
+  const result = await router.run('你好', { timeoutMs: 30_000 }, { level: 'L0' });
+  assert.equal(result.runtime.id, 'qoder-cloud');
+  assert.equal(localCalls, 3);
+  assert.equal(cloudCalls, 1);
+});
+
+contract('cloud-failover', 'Do L2, images and sensitive sources fail closed?', () => {
+  assert.equal(evaluateCloudEligibility({ level: 'L2', prompt: '创建日程' }).eligible, false);
+  assert.equal(evaluateCloudEligibility({ level: 'L0', prompt: '看图', images: ['x.png'] }).eligible, false);
+  assert.equal(evaluateCloudEligibility({ level: 'L0', prompt: '邮件', sourceKind: 'mail' }).eligible, false);
+});
+
+contract('cloud-failover', 'Does whole-host takeover wait for the third missed heartbeat?', async () => {
+  const service = new FailoverCoordinatorService({ repository: new InMemoryFailoverRepository() });
+  await service.heartbeat({ at: 0, serviceStartId: 'local', dwsConnected: true, runtimeHealthy: true });
+  assert.equal((await service.evaluate(89_999)).state, 'LOCAL_PRIMARY');
+  assert.equal((await service.evaluate(90_000)).state, 'TAKING_OVER');
+  assert.equal((await service.evaluate(90_000)).generation, 1);
+});
 
 const failures = [];
 const totalsByDomain = {};

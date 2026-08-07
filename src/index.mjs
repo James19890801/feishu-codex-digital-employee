@@ -1260,8 +1260,17 @@ ${task}
   }, {
     level: decision?.level || 'L0',
     purpose: 'conversation_reply',
+    cloudPrompt: [
+      '你是个人数字人的云端只读兜底。使用简体中文自然、简洁回复。',
+      '只能回答、整理、总结或起草；不得执行工具、发送消息、读取文件或声称已完成外部操作。',
+      '遇到真实写入、承诺、支付、合同、招聘、验证码、删除或需要本人判断的事项，只说明需要本人确认。',
+      `当前用户消息：${task}`,
+    ].join('\n'),
     pendingConfirmation: decision?.action === 'preview_confirm',
     mutationIntent: ['L2', 'L3'].includes(decision?.level),
+    sourceKind: decision?.intent === 'file_understanding'
+      ? 'file'
+      : decision?.intent === 'knowledge' ? 'document' : '',
     ownerPhone: config.ownerContactPhone,
     forbiddenValues: [config.dingtalkProfile, config.dingtalkChannel],
     maxPromptChars: config.cloudFailoverMaxPromptChars,
