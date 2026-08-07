@@ -17,11 +17,16 @@ const calls = [];
 const stub = {
   async useNonce() { return true; },
   async heartbeat(value) { calls.push(value); return { state: 'LOCAL_PRIMARY', generation: 0 }; },
+  async lease() { calls.push('lease'); return { state: 'TAKING_OVER', generation: 1 }; },
+  async containerReady(generation) { calls.push(['ready', generation]); return { state: 'CLOUD_ACTIVE', generation }; },
+  async claim() { throw new Error('not used'); },
+  async complete() { throw new Error('not used'); },
   async executeQoder() { throw new Error('not used'); },
   async status() { return { state: 'LOCAL_PRIMARY', generation: 0, protocolVersion: '1' }; },
 };
 const env = {
   AIPROS_NODE_ID: 'node-1', AIPROS_HMAC_SECRET: secret,
+  AIPROS_CONTAINER_TOKEN: 'runtime-token',
   CLOUDFLARE_CONSOLE_USERNAME: 'owner@example.com',
   CLOUDFLARE_CONSOLE_PASSWORD: 'console-pass',
   FAILOVER_COORDINATOR: { idFromName: name => name, get: () => stub },
@@ -47,6 +52,22 @@ assert.equal(response.headers.get('cache-control'), 'no-store');
 assert.deepEqual(calls[0], {
   at: '2026-08-07T00:00:00Z', dwsConnected: true, runtimeHealthy: true,
 });
+const unauthorizedLease = await worker.fetch(new Request('https://failover.test/internal/runtime/lease', {
+  method: 'POST', body: '{}', headers: { 'content-type': 'application/json' },
+}), env);
+assert.equal(unauthorizedLease.status, 401);
+const runtimeHeaders = { authorization: 'Bearer runtime-token', 'content-type': 'application/json' };
+const leaseResponse = await worker.fetch(new Request('https://failover.test/internal/runtime/lease', {
+  method: 'POST', body: '{}', headers: runtimeHeaders,
+}), env);
+assert.equal(leaseResponse.status, 200);
+assert.equal((await leaseResponse.json()).state, 'TAKING_OVER');
+assert.equal(calls[1], 'lease');
+const readyResponse = await worker.fetch(new Request('https://failover.test/internal/runtime/ready', {
+  method: 'POST', body: JSON.stringify({ generation: 1 }), headers: runtimeHeaders,
+}), env);
+assert.equal(readyResponse.status, 200);
+assert.deepEqual(calls[2], ['ready', 1]);
 assert.equal((await worker.fetch(new Request('https://failover.test/nope'), env)).status, 404);
 const large = request('/v1/heartbeat', 'x'.repeat(70_000));
 assert.equal((await worker.fetch(large, env)).status, 413);

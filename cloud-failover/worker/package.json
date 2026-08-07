@@ -5,10 +5,9 @@
   "type": "module",
   "scripts": {
     "test": "node src/domain.test.mjs && node src/auth.test.mjs && node src/qoder-client.test.mjs && node src/repository-do.test.mjs && node src/index.test.mjs",
-    "deploy:dry": "wrangler deploy --dry-run --containers-rollout=none"
+    "deploy:dry": "wrangler deploy --dry-run"
   },
   "devDependencies": {
-    "@cloudflare/containers": "^0.0.31",
     "wrangler": "^4.28.1"
   }
 }

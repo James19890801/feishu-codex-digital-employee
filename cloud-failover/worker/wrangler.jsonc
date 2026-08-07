@@ -14,21 +14,17 @@
   },
   "durable_objects": {
     "bindings": [
-      { "name": "FAILOVER_COORDINATOR", "class_name": "FailoverCoordinator" },
-      { "name": "STANDBY_CONTAINER", "class_name": "StandbyContainer" }
+      { "name": "FAILOVER_COORDINATOR", "class_name": "FailoverCoordinator" }
     ]
   },
-  "containers": [
-    {
-      "class_name": "StandbyContainer",
-      "image": "../container/Dockerfile",
-      "max_instances": 1
-    }
-  ],
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": ["FailoverCoordinator", "StandbyContainer"]
+    },
+    {
+      "tag": "v2",
+      "deleted_classes": ["StandbyContainer"]
     }
   ]
 }

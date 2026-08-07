@@ -94,6 +94,10 @@ export class FailoverCoordinatorService {
     return this.status(now);
   }
 
+  async lease(now = Date.now()) {
+    return this.evaluate(now);
+  }
+
   async containerReady(generation) {
     const current = await this.repository.read();
     if (Number(generation) !== current.generation || current.state !== 'TAKING_OVER') {

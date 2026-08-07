@@ -22,9 +22,6 @@ importers:
 
   cloud-failover/worker:
     devDependencies:
-      '@cloudflare/containers':
-        specifier: ^0.0.31
-        version: 0.0.31
       wrangler:
         specifier: ^4.28.1
         version: 4.118.0
@@ -36,9 +33,6 @@ importers:
         version: 4.118.0
 
 packages:
-
-  '@cloudflare/containers@0.0.31':
-    resolution: {integrity: sha512-zHxW6/JMzvK9To98OcNg2d3eiZUZRg11pARmQpJJyQdIQ0eQ/dh/Wpufx+HGd0k/xjMdrFP77YnOeopxdzsgng==}
 
   '@cloudflare/kv-asset-handler@0.5.0':
     resolution: {integrity: sha512-jxQYkj8dSIzc0cD6cMMNdOc1UVjqSqu8BZdor5s8cGjW2I8BjODt/kWPVdY+u9zj3ms75Q5qaZgnxUad83+eAg==}
@@ -741,8 +735,6 @@ packages:
     resolution: {integrity: sha512-rLfVLB4FgQneDr0dv1oddCVZmKjcJ6yX6mS4pU82Mq/Dt9a3cLZQ62pDBL4AUO+uVrCvtWz3ZFUL2HFAFJ/BXQ==}
 
 snapshots:
-
-  '@cloudflare/containers@0.0.31': {}
 
   '@cloudflare/kv-asset-handler@0.5.0': {}
 

@@ -48,20 +48,26 @@ export function createFailoverWorker({ maxBodyBytes = 64 * 1024 } = {}) {
           });
         }
       }
-      if (url.pathname.startsWith('/internal/container/')) {
+      if (url.pathname.startsWith('/internal/runtime/')
+        || url.pathname.startsWith('/internal/container/')) {
         if (request.headers.get('authorization') !== `Bearer ${env.AIPROS_CONTAINER_TOKEN}`) {
           return json(401, { ok: false, error: { code: 'unauthorized', message: 'Unauthorized' } });
         }
+        if (request.method !== 'POST') {
+          return json(405, { ok: false, error: { code: 'method_not_allowed', message: 'Method not allowed' } });
+        }
         try {
-          const payload = await request.json();
+          const action = url.pathname.split('/').pop();
+          const payload = action === 'lease' ? {} : await request.json();
           const stub = env.FAILOVER_COORDINATOR.get(
             env.FAILOVER_COORDINATOR.idFromName(env.AIPROS_NODE_ID),
           );
           let result;
-          if (url.pathname === '/internal/container/ready') result = await stub.containerReady(payload.generation);
-          else if (url.pathname === '/internal/container/claim') result = await stub.claim(payload);
-          else if (url.pathname === '/internal/container/complete') result = await stub.complete(payload);
-          else if (url.pathname === '/internal/container/qoder') result = await stub.executeQoder(payload);
+          if (action === 'lease') result = await stub.lease();
+          else if (action === 'ready') result = await stub.containerReady(payload.generation);
+          else if (action === 'claim') result = await stub.claim(payload);
+          else if (action === 'complete') result = await stub.complete(payload);
+          else if (action === 'qoder') result = await stub.executeQoder(payload);
           else return json(404, { ok: false, error: { code: 'not_found', message: 'Not found' } });
           return json(200, { ok: true, ...result });
         } catch (error) {
