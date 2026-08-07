@@ -71,13 +71,14 @@ A Durable Object Alarm is scheduled for the next 30-second evaluation. Alarm exe
 
 The container is stopped while state is `LOCAL_PRIMARY`. On `TAKING_OVER`, Cloudflare starts it with:
 
-- an independent, revocable, minimum-scope DingTalk AppKey/AppSecret;
+- an encrypted portable DWS auth bundle created from a separate, revocable, minimum-scope device-flow authorization;
+- the dedicated DingTalk AppKey/AppSecret used by that cloud authorization;
 - the Cloudflare coordinator internal URL and container credential;
 - the current takeover generation;
 - the allowed DingTalk chat IDs;
 - the Qoder execution endpoint exposed internally by the Worker.
 
-The local DWS Profile and Channel are not accepted as container inputs. Container disk is treated as ephemeral. Durable state belongs to the coordinator.
+The local DWS Profile and Channel are not accepted as container inputs. DingTalk AppKey/AppSecret alone are not treated as a personal login. At boot, the container writes the base64 bundle to a permission-0600 temporary file, runs `dws auth import --base64 --force`, validates a real `dws auth status`, and deletes the import file. Container disk is treated as ephemeral. Durable state belongs to the coordinator.
 
 After DWS authentication and event-stream readiness, the container reports ready for its generation, performs a three-minute authorized-chat backfill, and starts live consumption. A message must pass sender/chat authorization and atomically obtain a `(generation, messageIdDigest)` claim before its body is used.
 
@@ -169,7 +170,7 @@ Public, non-secret local configuration is added to `config.example.json`:
 - `cloudFailoverLocalAttempts`: fixed default 3, allowed 1-3;
 - `cloudFailoverMaxPromptChars`: default 24000, maximum 40000.
 
-The local HMAC secret is read from macOS Keychain using a dedicated service/account and is never placed in JSON. Cloudflare stores the same HMAC secret, Qoder PAT, Qoder Agent/Environment IDs, and independent DingTalk AppKey/AppSecret through Wrangler secrets. `.dev.vars.example` contains names only.
+The local HMAC secret is read from macOS Keychain using a dedicated service/account and is never placed in JSON. Cloudflare stores the same HMAC secret, Qoder PAT, Qoder Agent/Environment IDs, independent DingTalk AppKey/AppSecret, and the independently authorized `DINGTALK_DWS_AUTH_BUNDLE_B64` through Wrangler secrets. `.dev.vars.example` contains names only. The bundle is produced only through the explicit cloud-credential provisioning flow; the implementation refuses a bundle exported from the configured local profile.
 
 ## 7. Observability
 
@@ -203,7 +204,7 @@ Automated acceptance requires:
 4. Durable Object state tests for 89-second standby, 90-second takeover, at-least-once alarm replay, generation fencing, three-heartbeat recovery, and drain completion.
 5. Claim-ledger tests proving one message is handled once across duplicate events, container restarts, and stale generations.
 6. Qoder client tests for session creation, `user.message`, SSE assembly, terminal idle, archive, retryable 429/5xx, and fail-closed 4xx.
-7. Container policy tests proving pinned DWS version, independent credentials, authorized-chat filtering, three-minute backfill, cloud reply label, and no local-profile input.
+7. Container policy tests proving pinned DWS version, independent encrypted auth-bundle import, real auth-status gate, authorized-chat filtering, three-minute backfill, cloud reply label, and no local-profile input.
 8. Dashboard/model tests for every failover state and redacted status output.
 9. Distribution scans proving no PAT, AppSecret, local HMAC secret, profile, channel, prompt, or message body enters committed artifacts.
 10. Root `npm test`, `npm run check`, Cloudflare worker tests/typecheck, container policy tests, and the updated mechanism-acceptance suite all pass.

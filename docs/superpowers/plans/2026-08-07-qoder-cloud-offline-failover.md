@@ -297,7 +297,7 @@ Create SQL tables for coordinator state, nonce expiry, claims, and bounded outco
 
 - [ ] **Step 4: Add Wrangler configuration**
 
-Bind the SQL-backed Durable Object and Cloudflare Container. List, but do not fill, `AIPROS_HMAC_SECRET`, `QODER_PAT`, `QODER_AGENT_ID`, `QODER_AGENT_VERSION`, `QODER_ENVIRONMENT_ID`, `DINGTALK_CLIENT_ID`, and `DINGTALK_CLIENT_SECRET`.
+Bind the SQL-backed Durable Object and Cloudflare Container. List, but do not fill, `AIPROS_HMAC_SECRET`, `QODER_PAT`, `QODER_AGENT_ID`, `QODER_AGENT_VERSION`, `QODER_ENVIRONMENT_ID`, `DINGTALK_CLIENT_ID`, `DINGTALK_CLIENT_SECRET`, and `DINGTALK_DWS_AUTH_BUNDLE_B64`.
 
 - [ ] **Step 5: Run GREEN/dry build and commit**
 
@@ -326,7 +326,7 @@ git commit -m "feat: expose cloud failover worker"
 
 - [ ] **Step 1: Write failing container policy tests**
 
-Assert authorized chat/sender, generation match, three-minute lower bound, stable UUID from channel/message ID, `【云端兜底】` prefix, L2/L3 owner handoff, no prompt/body logs, and rejection of `DWS_CHANNEL`, local profile, file, image, mail, and document inputs.
+Assert authorized chat/sender, generation match, three-minute lower bound, stable UUID from channel/message ID, `【云端兜底】` prefix, L2/L3 owner handoff, no prompt/body logs, permission-0600 auth-bundle import and deletion, a real auth-status gate, and rejection of `DWS_CHANNEL`, local profile, file, image, mail, and document inputs.
 
 - [ ] **Step 2: Run RED**
 
@@ -334,7 +334,7 @@ Run: `node cloud-failover/container/src/policy.test.mjs && node cloud-failover/c
 
 - [ ] **Step 3: Implement testable worker orchestration**
 
-Inject process runner, clock, coordinator client, and DWS adapter. Build DWS commands from independent `--client-id`/`--client-secret`, never `--profile` or local `DWS_CHANNEL`. Consume NDJSON events, claim before Qoder, and complete with metadata only.
+Inject process runner, clock, coordinator client, and DWS adapter. Import the independently authorized base64 bundle at boot, validate `dws auth status`, and build DWS commands with its dedicated `--client-id`/`--client-secret`, never the configured local profile or `DWS_CHANNEL`. Consume NDJSON events, claim before Qoder, and complete with metadata only.
 
 - [ ] **Step 4: Add pinned container build**
 
@@ -377,7 +377,7 @@ Run: `node scripts/distribution-package.test.mjs && node src/mechanism-acceptanc
 
 - [ ] **Step 3: Wire scripts and documentation**
 
-Document implemented/draft/activated/verified states, Cloudflare Paid-plan Container prerequisite, exact Wrangler secret names, Qoder Agent no-tool contract, controlled stop/recovery acceptance, rollback, cost limits, and the fact that archived Qoder Sessions are not guaranteed deletion.
+Document implemented/draft/activated/verified states, Cloudflare Paid-plan Container prerequisite, exact Wrangler secret names, the independent device-flow DWS authorization/export process, the prohibition on exporting the configured local profile, Qoder Agent no-tool contract, controlled stop/recovery acceptance, rollback, cost limits, and the fact that archived Qoder Sessions are not guaranteed deletion.
 
 - [ ] **Step 4: Run targeted verification**
 
