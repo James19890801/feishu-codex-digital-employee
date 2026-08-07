@@ -29,7 +29,7 @@
     "test:mail": "node src/dws-mail-client.test.mjs && node src/mail-intent.test.mjs && node src/mail-workflow.test.mjs",
     "test:alibaba-language": "node src/alibaba-language.test.mjs",
     "test:reply-context": "node src/reply-context.test.mjs",
-    "test:cloud-failover": "node src/cloud-failover-policy.test.mjs && node src/cloud-failover-client.test.mjs && node src/local-first-runtime-router.test.mjs && node src/cloud-failover-config.test.mjs && node src/failover-heartbeat.test.mjs && pnpm --dir cloud-failover/worker test && pnpm --dir cloud-failover/container test && node scripts/cloud-failover-smoke.test.mjs",
+    "test:cloud-failover": "node src/cloud-failover-policy.test.mjs && node src/cloud-failover-client.test.mjs && node src/local-first-runtime-router.test.mjs && node src/cloud-failover-config.test.mjs && node src/failover-heartbeat.test.mjs && node scripts/qoder-cloud-provision.test.mjs && pnpm --dir cloud-failover/worker test && pnpm --dir cloud-failover/container test && node scripts/cloud-failover-smoke.test.mjs",
     "cloud-failover:dry": "pnpm --dir cloud-failover/worker run deploy:dry",
     "cloud-failover:smoke": "node scripts/cloud-failover-smoke.mjs",
     "test:inventory": "node scripts/build-knowledge-inventory.test.mjs",

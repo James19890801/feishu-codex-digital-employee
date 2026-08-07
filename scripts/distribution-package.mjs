@@ -26,12 +26,14 @@ const ROOT_FILES = new Set([
 const SCRIPT_FILES = new Set([
   'scripts/check-config.mjs',
   'scripts/check-python.mjs',
+  'scripts/cloud-failover-smoke.mjs',
   'scripts/dws-deployment-policy.mjs',
   'scripts/health-check.mjs',
   'scripts/install-aicoding.mjs',
   'scripts/install-dashboard-service.sh',
   'scripts/install-service.sh',
   'scripts/runtime-smoke.mjs',
+  'scripts/qoder-cloud-provision.mjs',
   'scripts/setup.sh',
   'scripts/wechat-poc-health.mjs',
   'scripts/wechat-poc-ui.jxa',
@@ -60,7 +62,7 @@ const SECRET_PATTERNS = [
   /\b(?:ghp|github_pat)_[A-Za-z0-9_]{20,}\b/u,
   /\bBearer\s+[A-Za-z0-9._~+\/-]{20,}/iu,
   /\bAKID[A-Za-z0-9]{12,}\b/u,
-  /\b(?:QODER_PAT|AIPROS_HMAC_SECRET|DINGTALK_CLIENT_SECRET)[ \t]*=[ \t]*[^\s#]{8,}/u,
+  /\b(?:QODER_PAT|AIPROS_HMAC_SECRET|DINGTALK_CLIENT_SECRET|CLOUDFLARE_CONSOLE_PASSWORD)[ \t]*=[ \t]*[^\s#]{8,}/u,
 ];
 
 const PUBLIC_DEVELOPER_IDENTIFIERS = new Set([

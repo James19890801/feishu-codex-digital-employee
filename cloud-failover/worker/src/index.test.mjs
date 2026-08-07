@@ -22,13 +22,26 @@ const stub = {
 };
 const env = {
   AIPROS_NODE_ID: 'node-1', AIPROS_HMAC_SECRET: secret,
+  CLOUDFLARE_CONSOLE_PASSWORD: 'console-pass',
   FAILOVER_COORDINATOR: { idFromName: name => name, get: () => stub },
 };
 const worker = createFailoverWorker();
-const response = await worker.fetch(request('/v1/heartbeat', JSON.stringify({ at: '2026-08-07T00:00:00Z' })), env);
+const unauthorizedConsole = await worker.fetch(new Request('https://failover.test/'), env);
+assert.equal(unauthorizedConsole.status, 401);
+const consoleResponse = await worker.fetch(new Request('https://failover.test/', {
+  headers: { authorization: `Basic ${btoa('aipros:console-pass')}` },
+}), env);
+assert.equal(consoleResponse.status, 200);
+assert.match(await consoleResponse.text(), /LOCAL_PRIMARY/);
+assert.equal(consoleResponse.headers.get('x-frame-options'), 'DENY');
+const response = await worker.fetch(request('/v1/heartbeat', JSON.stringify({
+  at: '2026-08-07T00:00:00Z', dwsConnected: true, runtimeHealthy: true,
+})), env);
 assert.equal(response.status, 200);
 assert.equal(response.headers.get('cache-control'), 'no-store');
-assert.deepEqual(calls[0], { at: '2026-08-07T00:00:00Z' });
+assert.deepEqual(calls[0], {
+  at: '2026-08-07T00:00:00Z', dwsConnected: true, runtimeHealthy: true,
+});
 assert.equal((await worker.fetch(new Request('https://failover.test/nope'), env)).status, 404);
 const large = request('/v1/heartbeat', 'x'.repeat(70_000));
 assert.equal((await worker.fetch(large, env)).status, 413);

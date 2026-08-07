@@ -1,4 +1,5 @@
 import { verifySignedRequest } from './auth.mjs';
+import { consoleAuthorized, renderCloudConsole } from './console.mjs';
 
 const noStore = { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8' };
 const json = (status, value) => new Response(JSON.stringify(value), { status, headers: noStore });
@@ -7,6 +8,42 @@ export function createFailoverWorker({ maxBodyBytes = 64 * 1024 } = {}) {
   return {
     async fetch(request, env) {
       const url = new URL(request.url);
+      if (url.pathname === '/' && request.method === 'GET') {
+        if (!consoleAuthorized(request, env.CLOUDFLARE_CONSOLE_PASSWORD)) {
+          return new Response('Authentication required', {
+            status: 401,
+            headers: {
+              'www-authenticate': 'Basic realm="AIPR0S Cloud Console", charset="UTF-8"',
+              'cache-control': 'no-store',
+            },
+          });
+        }
+        try {
+          const stub = env.FAILOVER_COORDINATOR.get(
+            env.FAILOVER_COORDINATOR.idFromName(env.AIPROS_NODE_ID),
+          );
+          const status = await stub.status();
+          return new Response(renderCloudConsole(status), {
+            headers: {
+              'content-type': 'text/html; charset=utf-8',
+              'cache-control': 'no-store',
+              'x-content-type-options': 'nosniff',
+              'x-frame-options': 'DENY',
+              'referrer-policy': 'no-referrer',
+              'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+            },
+          });
+        } catch (error) {
+          console.error('cloud_console_render_failed', {
+            code: String(error?.code || error?.name || 'unknown').slice(0, 64),
+            message: String(error?.message || error).slice(0, 160),
+          });
+          return new Response('Cloud console temporarily unavailable', {
+            status: 503,
+            headers: { 'cache-control': 'no-store', 'content-type': 'text/plain; charset=utf-8' },
+          });
+        }
+      }
       if (url.pathname.startsWith('/internal/container/')) {
         if (request.headers.get('authorization') !== `Bearer ${env.AIPROS_CONTAINER_TOKEN}`) {
           return json(401, { ok: false, error: { code: 'unauthorized', message: 'Unauthorized' } });

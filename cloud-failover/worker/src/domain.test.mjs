@@ -23,4 +23,20 @@ await assert.rejects(() => service.claim({ generation: 1, messageDigest: 'c'.rep
   error => error.code === 'claims_closed');
 assert.equal((await service.complete({ generation: 1, messageDigest: digest, at: 170_000 })).state,
   'LOCAL_PRIMARY');
+
+const degradedRepository = new InMemoryFailoverRepository();
+const degradedService = new FailoverCoordinatorService({ repository: degradedRepository });
+await degradedService.degrade('container_start_failed');
+await degradedService.heartbeat({ at: 190_000 });
+assert.equal((await degradedService.status(190_000)).state, 'DEGRADED');
+await degradedService.heartbeat({ at: 200_000, dwsConnected: true, runtimeHealthy: true });
+assert.equal((await degradedService.heartbeat({
+  at: 230_000, dwsConnected: true, runtimeHealthy: true,
+})).state, 'DEGRADED');
+assert.equal((await degradedService.heartbeat({
+  at: 260_000, dwsConnected: true, runtimeHealthy: true,
+})).state, 'DRAINING');
+const recoveredStatus = await degradedService.evaluate(260_001);
+assert.equal(recoveredStatus.state, 'LOCAL_PRIMARY');
+assert.equal(recoveredStatus.lastErrorCode, '');
 console.log('FAILOVER_DOMAIN_TEST_OK');
