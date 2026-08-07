@@ -8,6 +8,7 @@ import {
 } from './runtime-mode.mjs';
 import { normalizeOperatorProfile } from './operator-profile.mjs';
 import { normalizeCommunicationBlocklist } from './communication-blocklist.mjs';
+import { normalizeCloudFailoverConfig } from './cloud-failover-config.mjs';
 
 const srcDir = dirname(fileURLToPath(import.meta.url));
 const workdir = resolve(srcDir, '..');
@@ -23,6 +24,7 @@ const operatorProfile = normalizeOperatorProfile({
   aliases: raw.ownerAliases,
   brandName: raw.digitalHumanBrand,
 });
+const cloudFailoverConfig = normalizeCloudFailoverConfig(raw);
 if (!Array.isArray(raw.authorizedChatIds || [])) {
   throw new Error('config.local.json 的 authorizedChatIds 必须是数组');
 }
@@ -88,6 +90,7 @@ export const config = {
     ? raw.audioTranscriptionArgs.map(value => String(value)).slice(0, 20)
     : ['{input}', 'zh-CN'],
   aiRuntime: raw.aiRuntime || 'auto',
+  ...cloudFailoverConfig,
   dingtalkEnabled: raw.dingtalkEnabled === true,
   dingtalkTransport: String(raw.dingtalkTransport || 'event-stream').trim(),
   dingtalkProfile: raw.dingtalkProfile || '',

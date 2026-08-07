@@ -99,6 +99,11 @@ const lastBackupError = setting('health', 'last_database_backup_error', null);
 const lastAiRuntimeSuccessAt = setting('health', 'last_ai_runtime_success_at', '');
 const lastAiRuntimeError = setting('health', 'last_ai_runtime_error', null);
 const selfChatCircuitLast = setting('health', 'self_chat_circuit_last', null);
+const cloudFailover = setting('health', 'cloud_failover', {
+  enabled: config.cloudFailoverEnabled === true,
+  configured: false,
+  state: config.cloudFailoverEnabled === true ? 'UNKNOWN' : 'DISABLED',
+});
 const dingtalkChannel = setting('channel', 'dingtalk', {});
 const wecomChannel = setting('channel', 'wecom', {});
 const geweChannel = setting('channel', 'wechat', {});
@@ -118,6 +123,9 @@ if (config.feishuEnabled !== false
 }
 const selfChatCircuitOpen = Number(selfChatCircuitLast?.openUntilMs || 0) > nowMs;
 if (selfChatCircuitOpen) result.issues.push('self_chat_circuit_open');
+if (cloudFailover.enabled === true && cloudFailover.state === 'DEGRADED') {
+  result.issues.push('cloud_failover_degraded');
+}
 if (config.dingtalkEnabled === true && !dingtalkChannel.connected) {
   result.issues.push('dingtalk_channel_unavailable');
 }
@@ -171,6 +179,7 @@ result.metrics = {
   lastAiRuntimeSuccessAt,
   selfChatCircuitOpen,
   selfChatCircuitLast,
+  cloudFailover,
   channels: {
     feishu: {
       enabled: config.feishuEnabled !== false,
