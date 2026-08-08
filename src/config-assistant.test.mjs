@@ -36,6 +36,10 @@ const documents = {
     helperTimeoutMs: 30000,
     rateLimitWindowMs: 300000,
     rateLimitMaxMessages: 10,
+    semanticGroupEngagementEnabled: true,
+    semanticGroupReplyThreshold: 0.86,
+    semanticGroupEntryCooldownMs: 120000,
+    semanticGroupAliases: ['AIPRO', '詹老师助理'],
     dashboardPort: 17655,
     codexBin: '/Applications/ChatGPT.app/Contents/Resources/codex',
     codexModel: 'gpt-5.6-terra',
@@ -87,6 +91,17 @@ const multicaPlan = assistant.createChangePlan({
 }, documents);
 assert.equal(multicaPlan.confirmationLevel, 'double');
 assert.equal(multicaPlan.changes[0].after, true);
+
+const semanticEngagementPlan = assistant.createChangePlan({
+  summary: 'Disable semantic group engagement',
+  changes: [{
+    target: 'config',
+    key: 'semanticGroupEngagementEnabled',
+    value: false,
+  }],
+}, documents);
+assert.equal(semanticEngagementPlan.confirmationLevel, 'single');
+assert.equal(semanticEngagementPlan.changes[0].after, false);
 
 const contactPlan = assistant.createChangePlan({
   summary: 'Update the owner handoff phone',
@@ -287,6 +302,9 @@ assert.equal(publicConfig.aiRuntime, 'auto');
 assert.equal(publicConfig.dingtalkEnabled, false);
 assert.equal(publicConfig.wecomEnabled, false);
 assert.equal(publicConfig.wecomBotId, '');
+assert.equal(publicConfig.semanticGroupEngagementEnabled, true);
+assert.equal(publicConfig.semanticGroupReplyThreshold, 0.86);
+assert.deepEqual(publicConfig.semanticGroupAliases, ['AIPRO', '詹老师助理']);
 
 assert.deepEqual(
   assistant.effectivePublicConfiguration(

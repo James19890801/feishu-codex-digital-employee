@@ -60,6 +60,21 @@ export function buildOperatorView(input) {
       similarity: Number(latestSemanticSuppression.similarity || 0),
     } : null,
   };
+  const semanticGroupInput = input.semanticGroupEngagement || {};
+  const semanticGroupLastError = semanticGroupInput.lastError;
+  const semanticGroupEngagement = {
+    enabled: input.semanticGroupEngagementEnabled !== false,
+    threshold: Number(input.semanticGroupReplyThreshold || 0.86),
+    cooldownMs: Number(input.semanticGroupEntryCooldownMs || 120_000),
+    observed: Number(semanticGroupInput.observed || 0),
+    classified: Number(semanticGroupInput.classified || 0),
+    replied: Number(semanticGroupInput.replied || 0),
+    suppressed: Number(semanticGroupInput.suppressed || 0),
+    lastError: semanticGroupLastError ? {
+      at: String(semanticGroupLastError.at || ''),
+      error: String(semanticGroupLastError.error || '').slice(0, 500),
+    } : null,
+  };
   const discussionInput = input.discussion || {};
   const latestDiscussionClosure = discussionInput.latestClosure;
   const discussion = {
@@ -299,6 +314,7 @@ export function buildOperatorView(input) {
       selfChatCircuitOpen,
       selfChatCircuitLast: input.selfChatCircuitLast || null,
       semanticRepeat,
+      semanticGroupEngagement,
       discussion,
     },
   };

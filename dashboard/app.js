@@ -111,6 +111,7 @@ let lastFetchedAt = 0;
 let configSessionToken = '';
 let pendingConfigPlan = null;
 let configBusy = false;
+let semanticGroupBusy = false;
 let latestRuntimeState = null;
 let latestChannelConfigurations = {};
 let latestChannelReport = null;
@@ -441,6 +442,15 @@ function render(data) {
     tr('wechatLegacyMeta'),
   );
   renderWeChatPoc(data.wechatPoc || data.channels?.wechatPoc);
+  const semanticGroup = data.maintenance?.semanticGroupEngagement || {};
+  $('semanticGroupToggle').checked = semanticGroup.enabled === true;
+  $('semanticGroupToggle').disabled = semanticGroupBusy;
+  $('semanticGroupDetail').textContent = tr('semanticGroupMetrics', {
+    observed: semanticGroup.observed || 0,
+    classified: semanticGroup.classified || 0,
+    replied: semanticGroup.replied || 0,
+    suppressed: semanticGroup.suppressed || 0,
+  }) + (semanticGroup.lastError?.error ? ` · ${semanticGroup.lastError.error}` : '');
 
   $('processValue').textContent = data.process.alive ? tr('processRunning') : tr('processStopped');
   $('processMeta').textContent = data.process.alive
@@ -768,6 +778,35 @@ async function toggleWeChatPoc(event) {
   } catch (error) {
     showToast(`${locale === 'zh' ? '个人微信切换失败' : 'Personal WeChat switch failed'}: ${error.message}`);
     event.target.checked = !enabled;
+  }
+}
+
+async function toggleSemanticGroupEngagement(event) {
+  const requested = event.target.checked;
+  const previous = latestStatusData?.maintenance?.semanticGroupEngagement?.enabled === true;
+  if (!window.confirm(tr(requested
+    ? 'semanticGroupEnableConfirm'
+    : 'semanticGroupDisableConfirm'))) {
+    event.target.checked = previous;
+    return;
+  }
+  semanticGroupBusy = true;
+  event.target.disabled = true;
+  try {
+    await ensureDashboardSession();
+    await responseJson(await fetch('/api/config/semantic-group-engagement', {
+      method: 'POST',
+      headers: assistantRequestHeaders('semantic-group-engagement', configSessionToken),
+      body: JSON.stringify({ enabled: requested, confirmed: true }),
+    }));
+    showToast(tr(requested ? 'semanticGroupEnabledToast' : 'semanticGroupDisabledToast'));
+    await Promise.all([loadConfigurationAssistant(), refresh()]);
+  } catch (error) {
+    event.target.checked = previous;
+    showToast(`${tr('configChannelError')}: ${error.message}`);
+  } finally {
+    semanticGroupBusy = false;
+    event.target.disabled = false;
   }
 }
 
@@ -1339,6 +1378,7 @@ $('refreshButton').addEventListener('click', refresh);
 $('restartButton').addEventListener('click', restart);
 $('learningRunButton').addEventListener('click', requestDailyLearning);
 $('wechatPocToggle').addEventListener('change', toggleWeChatPoc);
+$('semanticGroupToggle').addEventListener('change', toggleSemanticGroupEngagement);
 $('wechatPocEmergencyStop').addEventListener('click', emergencyStopWeChatPoc);
 $('wechatPocOpenClient').addEventListener('click', openWeChatClient);
 $('configForm').addEventListener('submit', submitConfigRequest);

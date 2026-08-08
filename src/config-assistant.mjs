@@ -17,6 +17,10 @@ const CONFIG_RULES = {
   helperTimeoutMs: { type: 'integer', min: 5000, max: 120000, risk: 'single' },
   rateLimitWindowMs: { type: 'integer', min: 60000, max: 3600000, risk: 'single' },
   rateLimitMaxMessages: { type: 'integer', min: 1, max: 100, risk: 'single' },
+  semanticGroupEngagementEnabled: { type: 'boolean', risk: 'single' },
+  semanticGroupReplyThreshold: { type: 'number', min: 0.5, max: 0.99, risk: 'single' },
+  semanticGroupEntryCooldownMs: { type: 'integer', min: 30000, max: 3600000, risk: 'single' },
+  semanticGroupAliases: { type: 'stringArray', maxItems: 20, maxLength: 100, risk: 'single' },
   aiRuntime: {
     type: 'enum',
     values: ['auto', 'codex', 'qoder', 'codebuddy', 'trae'],
@@ -63,6 +67,12 @@ function normalizeConfigValue(key, value) {
   if (rule.type === 'integer') {
     if (!Number.isInteger(value) || value < rule.min || value > rule.max) {
       throw new Error(`${key} must be an integer between ${rule.min} and ${rule.max}`);
+    }
+    return value;
+  }
+  if (rule.type === 'number') {
+    if (!Number.isFinite(value) || value < rule.min || value > rule.max) {
+      throw new Error(`${key} must be a number between ${rule.min} and ${rule.max}`);
     }
     return value;
   }

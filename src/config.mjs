@@ -19,6 +19,25 @@ if (!Array.isArray(raw.authorizedChatIds || [])) {
   throw new Error('config.local.json 的 authorizedChatIds 必须是数组');
 }
 
+function boundedNumber(value, { name, fallback, min, max }) {
+  const effective = value === undefined || value === null ? fallback : Number(value);
+  if (!Number.isFinite(effective) || effective < min || effective > max) {
+    throw new Error(`${name} must be a number between ${min} and ${max}`);
+  }
+  return effective;
+}
+
+function semanticGroupAliases(value) {
+  const effective = value === undefined
+    ? ['AIPRO', '詹老师助理', '数字人', '詹老师']
+    : value;
+  if (!Array.isArray(effective) || effective.length > 20
+    || effective.some(item => typeof item !== 'string' || !item.trim() || item.length > 100)) {
+    throw new Error('semanticGroupAliases must contain at most 20 non-empty strings');
+  }
+  return [...new Set(effective.map(item => item.trim()))];
+}
+
 export const config = {
   feishuEnabled: raw.feishuEnabled !== false,
   feishuAppId: raw.feishuAppId || '',
@@ -70,6 +89,14 @@ export const config = {
   semanticRepeatMaxReplies: boundedInteger(raw.semanticRepeatMaxReplies, {
     name: 'semanticRepeatMaxReplies', fallback: 2, min: 2, max: 5,
   }),
+  semanticGroupEngagementEnabled: raw.semanticGroupEngagementEnabled !== false,
+  semanticGroupReplyThreshold: boundedNumber(raw.semanticGroupReplyThreshold, {
+    name: 'semanticGroupReplyThreshold', fallback: 0.86, min: 0.5, max: 0.99,
+  }),
+  semanticGroupEntryCooldownMs: boundedInteger(raw.semanticGroupEntryCooldownMs, {
+    name: 'semanticGroupEntryCooldownMs', fallback: 120_000, min: 30_000, max: 60 * 60_000,
+  }),
+  semanticGroupAliases: semanticGroupAliases(raw.semanticGroupAliases),
   adaptiveDiscussionEnabled: raw.adaptiveDiscussionEnabled !== false,
   adaptiveDiscussionMaxReplies: boundedInteger(raw.adaptiveDiscussionMaxReplies, {
     name: 'adaptiveDiscussionMaxReplies', fallback: 100, min: 10, max: 100,

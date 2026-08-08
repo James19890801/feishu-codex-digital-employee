@@ -12,6 +12,10 @@ assert.equal(config.adaptiveDiscussionEnabled, true);
 assert.equal(config.adaptiveDiscussionMaxReplies, 100);
 assert.equal(config.adaptiveDiscussionLowValueLimit, 3);
 assert.equal(config.adaptiveDiscussionCooldownMs, 30 * 60_000);
+assert.equal(config.semanticGroupEngagementEnabled, true);
+assert.equal(config.semanticGroupReplyThreshold, 0.86);
+assert.equal(config.semanticGroupEntryCooldownMs, 120_000);
+assert.equal(config.semanticGroupAliases.includes('AIPRO'), true);
 
 const directory = mkdtempSync(join(tmpdir(), 'aipro-config-'));
 try {
@@ -21,6 +25,9 @@ try {
     ['adaptiveDiscussionMaxReplies', 101],
     ['adaptiveDiscussionLowValueLimit', 1],
     ['adaptiveDiscussionCooldownMs', 30_000],
+    ['semanticGroupReplyThreshold', 0.4],
+    ['semanticGroupEntryCooldownMs', 20_000],
+    ['semanticGroupAliases', ['']],
   ]) {
     const invalidPath = join(directory, `${field}.json`);
     writeFileSync(invalidPath, JSON.stringify({ ...example, [field]: value }));

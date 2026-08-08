@@ -156,6 +156,33 @@ function readSemanticRepeatDashboardState(db, nowMs) {
   };
 }
 
+function readSemanticGroupDashboardState(db) {
+  const rows = db.prepare(`SELECT detail FROM audit
+    WHERE event = 'semantic_group_engagement_decided'
+    ORDER BY id DESC LIMIT 10000`).all();
+  const localReasons = new Set([
+    'disabled', 'non_group', 'unsupported_or_empty', 'human_takeover',
+    'explicit_mention', 'addressed_other', 'assistant_alias', 'low_information',
+    'recent_assistant_exchange', 'entry_cooldown', 'ambient_chatter',
+  ]);
+  const counts = { observed: rows.length, classified: 0, replied: 0, suppressed: 0 };
+  for (const row of rows) {
+    let detail = {};
+    try { detail = JSON.parse(row.detail || '{}'); } catch { detail = {}; }
+    const action = String(detail.action || '');
+    const reasonCode = String(detail.reasonCode || '');
+    if (action === 'reply_semantic' || (!localReasons.has(reasonCode) && reasonCode)) {
+      counts.classified += 1;
+    }
+    if (action.startsWith('reply_')) counts.replied += 1;
+    else counts.suppressed += 1;
+  }
+  return {
+    ...counts,
+    lastError: parseSetting(db, 'health', 'last_dingtalk_semantic_poll_error', null),
+  };
+}
+
 function readDiscussionDashboardState(db, nowMs) {
   if (!tableExists(db, 'discussion_session')) {
     return { activeSessions: 0, coolingSessions: 0, closedSessions: 0, latestClosure: null };
@@ -398,6 +425,9 @@ async function collectStatus() {
     lastAiRuntimeError: null,
     selfChatCircuitLast: null,
     semanticRepeat: { activeTopics: 0, totalSuppressed: 0, latestSuppression: null },
+    semanticGroupEngagement: {
+      observed: 0, classified: 0, replied: 0, suppressed: 0, lastError: null,
+    },
     discussion: { activeSessions: 0, coolingSessions: 0, closedSessions: 0, latestClosure: null },
     dingtalkChannel: {
       enabled: config.dingtalkEnabled,
@@ -469,6 +499,7 @@ async function collectStatus() {
         lastAiRuntimeError: parseSetting(db, 'health', 'last_ai_runtime_error', null),
         selfChatCircuitLast: parseSetting(db, 'health', 'self_chat_circuit_last', null),
         semanticRepeat: readSemanticRepeatDashboardState(db, nowMs),
+        semanticGroupEngagement: readSemanticGroupDashboardState(db),
         discussion: readDiscussionDashboardState(db, nowMs),
         dingtalkChannel: {
           ...defaults.dingtalkChannel,
@@ -530,6 +561,9 @@ async function collectStatus() {
     semanticRepeatGuardEnabled: config.semanticRepeatGuardEnabled,
     semanticRepeatWindowMs: config.semanticRepeatWindowMs,
     semanticRepeatMaxReplies: config.semanticRepeatMaxReplies,
+    semanticGroupEngagementEnabled: config.semanticGroupEngagementEnabled,
+    semanticGroupReplyThreshold: config.semanticGroupReplyThreshold,
+    semanticGroupEntryCooldownMs: config.semanticGroupEntryCooldownMs,
     adaptiveDiscussionEnabled: config.adaptiveDiscussionEnabled,
     adaptiveDiscussionMaxReplies: config.adaptiveDiscussionMaxReplies,
     adaptiveDiscussionLowValueLimit: config.adaptiveDiscussionLowValueLimit,
@@ -556,6 +590,10 @@ async function collectStatus() {
       semanticRepeatGuardEnabled: config.semanticRepeatGuardEnabled,
       semanticRepeatWindowMs: config.semanticRepeatWindowMs,
       semanticRepeatMaxReplies: config.semanticRepeatMaxReplies,
+      semanticGroupEngagementEnabled: config.semanticGroupEngagementEnabled,
+      semanticGroupReplyThreshold: config.semanticGroupReplyThreshold,
+      semanticGroupEntryCooldownMs: config.semanticGroupEntryCooldownMs,
+      semanticGroupAliases: config.semanticGroupAliases,
       adaptiveDiscussionEnabled: config.adaptiveDiscussionEnabled,
       adaptiveDiscussionMaxReplies: config.adaptiveDiscussionMaxReplies,
       adaptiveDiscussionLowValueLimit: config.adaptiveDiscussionLowValueLimit,
@@ -799,6 +837,31 @@ async function createRuntimeSelectionPlan(runtimeId) {
     runtime: requested,
   });
   return pending;
+}
+
+async function setSemanticGroupEngagement(enabled) {
+  if (typeof enabled !== 'boolean') throw new Error('Semantic group engagement switch must be boolean');
+  const documents = await readEffectiveConfigurationDocuments();
+  const plan = createChangePlan({
+    summary: enabled
+      ? 'Enable semantic group engagement'
+      : 'Disable semantic group engagement',
+    answer: enabled
+      ? 'Unmentioned group messages may be contextually evaluated; explicit mentions keep their fast path.'
+      : 'Only the existing explicit-mention group path remains active.',
+    changes: [{
+      target: 'config',
+      key: 'semanticGroupEngagementEnabled',
+      value: enabled,
+      reason: 'Operator changed the semantic group engagement master switch',
+    }],
+  }, documents, {
+    id: `plan-semantic-group-${Date.now()}-${randomUUID().slice(0, 8)}`,
+  });
+  if (!plan.changes.length) {
+    return { snapshot: null, status: await collectStatus() };
+  }
+  return applyConfigurationAssistantPlan(plan);
 }
 
 async function validateConfigurationOnDisk({ verifyRuntime = false } = {}) {
@@ -1187,6 +1250,33 @@ const server = createServer(async (request, response) => {
         channels: await readChannelConfiguration(documents),
         snapshots: await listConfigurationSnapshots(config.workdir, 12),
       });
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/config/semantic-group-engagement') {
+      if (!allowedConfigAction(request, 'semantic-group-engagement')) {
+        sendJson(response, 403, { ok: false, error: 'semantic group engagement action rejected' });
+        return;
+      }
+      try {
+        const body = await readDashboardJson(request);
+        if (body.confirmed !== true) throw new Error('Semantic group engagement confirmation is required');
+        const result = await configurationMutationQueue.run(
+          'configuration',
+          () => setSemanticGroupEngagement(body.enabled),
+        );
+        sendJson(response, 200, {
+          ok: true,
+          enabled: body.enabled,
+          snapshot: result.snapshot,
+          state: result.status.state,
+        });
+      } catch (error) {
+        sendJson(response, error?.rolledBack ? 409 : 400, {
+          ok: false,
+          rolledBack: Boolean(error?.rolledBack),
+          error: String(error?.message || error).slice(0, 700),
+        });
+      }
       return;
     }
     if (request.method === 'POST' && url.pathname === '/api/channels/configure') {

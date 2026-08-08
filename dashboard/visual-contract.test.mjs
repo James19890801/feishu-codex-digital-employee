@@ -24,6 +24,8 @@ for (const requiredId of [
   'channelSaveButton',
   'wechatPocToggle',
   'wechatPocEmergencyStop',
+  'semanticGroupToggle',
+  'semanticGroupDetail',
   'languageToggle',
   'contactDeveloperButton',
   'contactDeveloperLabel',
@@ -54,6 +56,7 @@ for (const endpoint of [
   '/api/wechat-poc/emergency-stop',
   '/api/wechat-poc/open-client',
   '/api/learning/run',
+  '/api/config/semantic-group-engagement',
 ]) {
   assert.match(app, new RegExp(endpoint.replaceAll('/', '\\/')), `existing endpoint ${endpoint} must remain wired`);
 }

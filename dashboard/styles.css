@@ -867,6 +867,21 @@ h1 {
 .wechat-poc-toggle:has(input:disabled) { opacity: .48; cursor: not-allowed; }
 .wechat-poc-card > small { margin-top: 11px; color: var(--muted); font-size: 9px; line-height: 1.45; }
 
+.semantic-group-control {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.semantic-group-control > div { display: grid; gap: 5px; }
+.semantic-group-control small { color: var(--muted); }
+
 .channel-identity-note,
 .apply-contract,
 .channel-apply-contract {
@@ -1302,6 +1317,7 @@ h1 {
   .channel-heading > b, .console-state { display: inline-block; margin-top: 14px; text-align: left; }
   .channel-grid, .metrics-grid, .runtime-grid { grid-template-columns: 1fr; }
   .channel-card.wechat-poc-card, .metric-card.wide { grid-column: span 1; }
+  .semantic-group-control { align-items: flex-start; flex-direction: column; }
   .queue-row { grid-template-columns: repeat(2, 1fr); }
   .learning-heading > .button { width: 100%; margin-top: 14px; }
   .learning-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }

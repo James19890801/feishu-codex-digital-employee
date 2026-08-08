@@ -72,6 +72,33 @@ const base = {
 {
   const view = buildOperatorView({
     ...base,
+    semanticGroupEngagementEnabled: true,
+    semanticGroupReplyThreshold: 0.86,
+    semanticGroupEntryCooldownMs: 120_000,
+    semanticGroupEngagement: {
+      observed: 41,
+      classified: 9,
+      replied: 4,
+      suppressed: 37,
+      lastError: { at: '2026-08-08T12:00:00.000Z', error: 'poll failed', rawText: 'must not leak' },
+    },
+  });
+  assert.deepEqual(view.maintenance.semanticGroupEngagement, {
+    enabled: true,
+    threshold: 0.86,
+    cooldownMs: 120_000,
+    observed: 41,
+    classified: 9,
+    replied: 4,
+    suppressed: 37,
+    lastError: { at: '2026-08-08T12:00:00.000Z', error: 'poll failed' },
+  });
+  assert.equal(JSON.stringify(view.maintenance.semanticGroupEngagement).includes('must not leak'), false);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
     geweChannel: {
       enabled: true,
       installed: true,
