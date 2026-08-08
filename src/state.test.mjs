@@ -213,6 +213,122 @@ try {
   assert.equal(semanticStats.totalSuppressed >= 1, true);
   assert.equal('topic' in (semanticStats.latestSuppression || {}), false);
 
+  const discussionOptions = {
+    channel: 'dingtalk',
+    chatId: 'dingtalk:group:debate',
+    maxReplies: 100,
+    lowValueLimit: 3,
+    cooldownMs: 30 * 60_000,
+  };
+  const valuableTopic = semanticTopic('AI 会把流程管理从事后复盘推向事中干预。');
+  const firstDiscussion = state.claimDiscussionTurn({
+    ...discussionOptions,
+    messageId: 'discussion-1',
+    value: { substantive: true, score: 4, topic: valuableTopic },
+    nowMs: 10_000,
+  });
+  assert.deepEqual(
+    { action: firstDiscussion.action, replyCount: firstDiscussion.replyCount, sessionNo: firstDiscussion.sessionNo },
+    { action: 'process', replyCount: 1, sessionNo: 1 },
+  );
+  assert.equal(state.claimDiscussionTurn({
+    ...discussionOptions,
+    messageId: 'discussion-1',
+    value: { substantive: true, score: 4, topic: valuableTopic },
+    nowMs: 10_001,
+  }).reason, 'same_inbound_retry', 'the same inbound retry must not consume another reply');
+
+  for (let replyCount = 2; replyCount <= 19; replyCount += 1) {
+    state.claimDiscussionTurn({
+      ...discussionOptions,
+      messageId: `discussion-${replyCount}`,
+      value: {
+        substantive: true,
+        score: 3,
+        topic: semanticTopic(`第 ${replyCount} 轮补充了不同的流程治理证据。`),
+      },
+      nowMs: 10_000 + replyCount,
+    });
+  }
+  const checkpoint = state.claimDiscussionTurn({
+    ...discussionOptions,
+    messageId: 'discussion-20',
+    value: { substantive: true, score: 3, topic: semanticTopic('第 20 轮形成阶段结论。') },
+    nowMs: 10_020,
+  });
+  assert.equal(checkpoint.action, 'checkpoint');
+  assert.equal(checkpoint.replyCount, 20);
+
+  for (let replyCount = 21; replyCount <= 99; replyCount += 1) {
+    state.claimDiscussionTurn({
+      ...discussionOptions,
+      messageId: `discussion-${replyCount}`,
+      value: {
+        substantive: true,
+        score: 3,
+        topic: semanticTopic(`第 ${replyCount} 轮出现了新的观点。`),
+      },
+      nowMs: 10_000 + replyCount,
+    });
+  }
+  const finalDiscussion = state.claimDiscussionTurn({
+    ...discussionOptions,
+    messageId: 'discussion-100',
+    value: { substantive: true, score: 3, topic: semanticTopic('第 100 轮给出最终综合。') },
+    nowMs: 10_100,
+  });
+  assert.equal(finalDiscussion.action, 'final');
+  assert.equal(finalDiscussion.replyCount, 100);
+  assert.equal(state.discussionSession('dingtalk', discussionOptions.chatId).status, 'finalizing');
+  assert.equal(state.completeDiscussionFinalReply({
+    channel: 'dingtalk', chatId: discussionOptions.chatId, nowMs: 10_101,
+    cooldownMs: discussionOptions.cooldownMs,
+  }), true);
+  assert.equal(state.claimDiscussionTurn({
+    ...discussionOptions,
+    messageId: 'discussion-101',
+    value: { substantive: true, score: 4, topic: valuableTopic },
+    nowMs: 10_102,
+  }).action, 'suppress_cooldown');
+  assert.equal(state.claimDiscussionTurn({
+    ...discussionOptions,
+    messageId: 'discussion-owner-continue',
+    value: { substantive: true, score: 4, topic: valuableTopic },
+    ownerContinue: true,
+    nowMs: 10_103,
+  }).sessionNo, 2, 'verified owner continuation must start a fresh bounded session');
+
+  const lowValueChat = 'dingtalk:group:low-value';
+  for (let turn = 1; turn <= 2; turn += 1) {
+    assert.equal(state.claimDiscussionTurn({
+      ...discussionOptions,
+      chatId: lowValueChat,
+      messageId: `low-${turn}`,
+      value: { substantive: false, score: -2, topic: semanticTopic('好的') },
+      nowMs: 20_000 + turn,
+    }).action, 'process');
+  }
+  const lowValueClosure = state.claimDiscussionTurn({
+    ...discussionOptions,
+    chatId: lowValueChat,
+    messageId: 'low-3',
+    value: { substantive: false, score: -2, topic: semanticTopic('收到') },
+    nowMs: 20_003,
+  });
+  assert.equal(lowValueClosure.action, 'close_low_value');
+  assert.equal(lowValueClosure.lowValueStreak, 3);
+  assert.equal(state.claimDiscussionTurn({
+    ...discussionOptions,
+    chatId: lowValueChat,
+    messageId: 'low-4',
+    value: { substantive: false, score: -2, topic: semanticTopic('明白') },
+    nowMs: 20_004,
+  }).action, 'suppress_cooldown');
+  const discussionStats = state.discussionStats(20_004);
+  assert.equal(discussionStats.activeSessions >= 1, true);
+  assert.equal(discussionStats.closedSessions >= 2, true);
+  assert.equal('recentTopics' in (discussionStats.latestClosure || {}), false);
+
   const echoId = state.recordOutboundEcho('oc_self', '平台回复', {
     now,
     ttlMs: 120_000,

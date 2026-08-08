@@ -84,6 +84,27 @@ export class AgentState {
       );
       CREATE INDEX IF NOT EXISTS semantic_repeat_expiry
         ON semantic_repeat_guard(expires_at_ms);
+      CREATE TABLE IF NOT EXISTS discussion_session (
+        channel TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        session_no INTEGER NOT NULL DEFAULT 1,
+        reply_count INTEGER NOT NULL DEFAULT 0,
+        low_value_streak INTEGER NOT NULL DEFAULT 0,
+        recent_topics TEXT NOT NULL DEFAULT '[]',
+        last_checkpoint INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'active',
+        cooldown_until_ms INTEGER NOT NULL DEFAULT 0,
+        last_message_id TEXT NOT NULL DEFAULT '',
+        last_action TEXT NOT NULL DEFAULT 'process',
+        last_score REAL NOT NULL DEFAULT 0,
+        closure_reason TEXT NOT NULL DEFAULT '',
+        started_at_ms INTEGER NOT NULL,
+        last_seen_ms INTEGER NOT NULL,
+        closed_count INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(channel, chat_id)
+      );
+      CREATE INDEX IF NOT EXISTS discussion_session_status
+        ON discussion_session(status, cooldown_until_ms);
       CREATE TABLE IF NOT EXISTS outbound_echo (
         id INTEGER PRIMARY KEY,
         chat_id TEXT NOT NULL,
@@ -747,6 +768,239 @@ export class AgentState {
         count: Number(latest.reply_count),
         suppressedCount: Number(latest.suppressed_count),
         similarity: Number(latest.last_similarity),
+      } : null,
+    };
+  }
+
+  discussionSession(channel, chatId) {
+    const row = this.db.prepare(`SELECT channel, chat_id, session_no, reply_count,
+        low_value_streak, recent_topics, last_checkpoint, status, cooldown_until_ms,
+        last_message_id, last_action, last_score, closure_reason, started_at_ms,
+        last_seen_ms, closed_count
+      FROM discussion_session WHERE channel = ? AND chat_id = ?`)
+      .get(String(channel || '').trim(), String(chatId || '').trim());
+    if (!row) return null;
+    let recentTopics = [];
+    try { recentTopics = JSON.parse(row.recent_topics); } catch { recentTopics = []; }
+    return {
+      channel: row.channel,
+      chatId: row.chat_id,
+      sessionNo: Number(row.session_no),
+      replyCount: Number(row.reply_count),
+      lowValueStreak: Number(row.low_value_streak),
+      recentTopics: Array.isArray(recentTopics) ? recentTopics : [],
+      lastCheckpoint: Number(row.last_checkpoint),
+      status: row.status,
+      cooldownUntilMs: Number(row.cooldown_until_ms),
+      lastMessageId: row.last_message_id,
+      lastAction: row.last_action,
+      lastScore: Number(row.last_score),
+      closureReason: row.closure_reason,
+      startedAtMs: Number(row.started_at_ms),
+      lastSeenMs: Number(row.last_seen_ms),
+      closedCount: Number(row.closed_count),
+    };
+  }
+
+  claimDiscussionTurn({
+    channel,
+    chatId,
+    messageId = '',
+    value,
+    ownerContinue = false,
+    nowMs = Date.now(),
+    maxReplies = 100,
+    lowValueLimit = 3,
+    cooldownMs = 30 * 60_000,
+    sessionWindowMs = 30 * 60_000,
+  } = {}) {
+    const normalizedChannel = String(channel || '').trim();
+    const normalizedChatId = String(chatId || '').trim();
+    if (!normalizedChannel || !normalizedChatId || !value?.topic) {
+      throw new Error('Discussion turn claim requires channel, chat, and value topic');
+    }
+    const currentMs = Number(nowMs);
+    const effectiveMaxReplies = Math.max(2, Math.min(100, Number(maxReplies) || 100));
+    const effectiveLowValueLimit = Math.max(1, Math.min(10, Number(lowValueLimit) || 3));
+    const effectiveCooldownMs = Math.max(60_000, Number(cooldownMs) || 30 * 60_000);
+    const effectiveSessionWindowMs = Math.max(60_000, Number(sessionWindowMs) || 30 * 60_000);
+    const normalizedMessageId = String(messageId || '').slice(0, 500);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const prior = this.discussionSession(normalizedChannel, normalizedChatId);
+      if (normalizedMessageId && prior?.lastMessageId === normalizedMessageId) {
+        this.db.exec('COMMIT');
+        return {
+          action: prior.lastAction,
+          replyCount: prior.replyCount,
+          lowValueStreak: prior.lowValueStreak,
+          sessionNo: prior.sessionNo,
+          checkpoint: prior.lastCheckpoint,
+          cooldownUntilMs: prior.cooldownUntilMs,
+          reason: 'same_inbound_retry',
+        };
+      }
+      if (prior?.status === 'finalizing' && !ownerContinue) {
+        this.db.exec('COMMIT');
+        return {
+          action: 'suppress_finalizing',
+          replyCount: prior.replyCount,
+          lowValueStreak: prior.lowValueStreak,
+          sessionNo: prior.sessionNo,
+          checkpoint: prior.lastCheckpoint,
+          cooldownUntilMs: prior.cooldownUntilMs,
+          reason: 'final_reply_pending',
+        };
+      }
+      if (prior?.status === 'cooldown'
+        && prior.cooldownUntilMs > currentMs
+        && !ownerContinue) {
+        this.db.exec('COMMIT');
+        return {
+          action: 'suppress_cooldown',
+          replyCount: prior.replyCount,
+          lowValueStreak: prior.lowValueStreak,
+          sessionNo: prior.sessionNo,
+          checkpoint: prior.lastCheckpoint,
+          cooldownUntilMs: prior.cooldownUntilMs,
+          reason: prior.closureReason || 'cooldown',
+        };
+      }
+
+      const stale = Boolean(prior && currentMs - prior.lastSeenMs >= effectiveSessionWindowMs);
+      const restart = Boolean(ownerContinue
+        || stale
+        || (prior?.status === 'cooldown' && prior.cooldownUntilMs <= currentMs));
+      const sessionNo = prior ? prior.sessionNo + (restart ? 1 : 0) : 1;
+      const priorReplyCount = restart ? 0 : Number(prior?.replyCount || 0);
+      const replyCount = priorReplyCount + 1;
+      const lowValueStreak = value.substantive
+        ? 0
+        : (restart ? 0 : Number(prior?.lowValueStreak || 0)) + 1;
+      let action = 'process';
+      let status = 'active';
+      let cooldownUntilMs = 0;
+      let closureReason = '';
+      let lastCheckpoint = restart ? 0 : Number(prior?.lastCheckpoint || 0);
+      let closedCount = Number(prior?.closedCount || 0);
+      if (lowValueStreak >= effectiveLowValueLimit) {
+        action = 'close_low_value';
+        status = 'cooldown';
+        cooldownUntilMs = currentMs + effectiveCooldownMs;
+        closureReason = 'low_value_streak';
+        closedCount += 1;
+      } else if (replyCount >= effectiveMaxReplies) {
+        action = 'final';
+        status = 'finalizing';
+        closureReason = 'hard_limit';
+      } else if ([20, 40, 60, 80].includes(replyCount)) {
+        action = 'checkpoint';
+        lastCheckpoint = replyCount;
+      }
+      const priorTopics = restart ? [] : (prior?.recentTopics || []);
+      const recentTopics = [...priorTopics, value.topic].slice(-6);
+      const startedAtMs = restart || !prior ? currentMs : prior.startedAtMs;
+      this.db.prepare(`INSERT INTO discussion_session
+        (channel, chat_id, session_no, reply_count, low_value_streak, recent_topics,
+         last_checkpoint, status, cooldown_until_ms, last_message_id, last_action,
+         last_score, closure_reason, started_at_ms, last_seen_ms, closed_count)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(channel, chat_id) DO UPDATE SET
+          session_no=excluded.session_no,
+          reply_count=excluded.reply_count,
+          low_value_streak=excluded.low_value_streak,
+          recent_topics=excluded.recent_topics,
+          last_checkpoint=excluded.last_checkpoint,
+          status=excluded.status,
+          cooldown_until_ms=excluded.cooldown_until_ms,
+          last_message_id=excluded.last_message_id,
+          last_action=excluded.last_action,
+          last_score=excluded.last_score,
+          closure_reason=excluded.closure_reason,
+          started_at_ms=excluded.started_at_ms,
+          last_seen_ms=excluded.last_seen_ms,
+          closed_count=excluded.closed_count`)
+        .run(
+          normalizedChannel,
+          normalizedChatId,
+          sessionNo,
+          replyCount,
+          lowValueStreak,
+          JSON.stringify(recentTopics),
+          lastCheckpoint,
+          status,
+          cooldownUntilMs,
+          normalizedMessageId,
+          action,
+          Number(value.score || 0),
+          closureReason,
+          startedAtMs,
+          currentMs,
+          closedCount,
+        );
+      this.db.exec('COMMIT');
+      return {
+        action,
+        replyCount,
+        lowValueStreak,
+        sessionNo,
+        checkpoint: action === 'checkpoint' ? replyCount : 0,
+        cooldownUntilMs,
+        reason: ownerContinue ? 'owner_continue' : (restart ? 'new_session' : 'active_session'),
+      };
+    } catch (error) {
+      try { this.db.exec('ROLLBACK'); } catch {}
+      throw error;
+    }
+  }
+
+  completeDiscussionFinalReply({
+    channel,
+    chatId,
+    nowMs = Date.now(),
+    cooldownMs = 30 * 60_000,
+  } = {}) {
+    const normalizedChannel = String(channel || '').trim();
+    const normalizedChatId = String(chatId || '').trim();
+    const currentMs = Number(nowMs);
+    const effectiveCooldownMs = Math.max(60_000, Number(cooldownMs) || 30 * 60_000);
+    const prior = this.discussionSession(normalizedChannel, normalizedChatId);
+    if (prior?.status === 'cooldown' && prior.closureReason === 'hard_limit') return true;
+    return this.db.prepare(`UPDATE discussion_session
+      SET status = 'cooldown', cooldown_until_ms = ?, closure_reason = 'hard_limit',
+          last_seen_ms = ?, closed_count = closed_count + 1
+      WHERE channel = ? AND chat_id = ? AND status = 'finalizing'`)
+      .run(currentMs + effectiveCooldownMs, currentMs, normalizedChannel, normalizedChatId)
+      .changes === 1;
+  }
+
+  discussionStats(nowMs = Date.now()) {
+    const currentMs = Number(nowMs);
+    const activeSessions = Number(this.db.prepare(`SELECT COUNT(*) AS count
+      FROM discussion_session WHERE status IN ('active', 'finalizing')`).get()?.count || 0);
+    const coolingSessions = Number(this.db.prepare(`SELECT COUNT(*) AS count
+      FROM discussion_session WHERE status = 'cooldown' AND cooldown_until_ms > ?`)
+      .get(currentMs)?.count || 0);
+    const closedSessions = Number(this.db.prepare(`SELECT COALESCE(SUM(closed_count), 0) AS count
+      FROM discussion_session`).get()?.count || 0);
+    const latest = this.db.prepare(`SELECT channel, chat_id, session_no, reply_count,
+        closure_reason, last_seen_ms, cooldown_until_ms
+      FROM discussion_session WHERE closure_reason <> ''
+      ORDER BY last_seen_ms DESC LIMIT 1`).get();
+    return {
+      activeSessions,
+      coolingSessions,
+      closedSessions,
+      latestClosure: latest ? {
+        channel: latest.channel,
+        chatId: latest.chat_id,
+        sessionNo: Number(latest.session_no),
+        replyCount: Number(latest.reply_count),
+        reason: latest.closure_reason,
+        at: new Date(Number(latest.last_seen_ms)).toISOString(),
+        cooldownUntil: latest.cooldown_until_ms
+          ? new Date(Number(latest.cooldown_until_ms)).toISOString()
+          : '',
       } : null,
     };
   }
@@ -1490,6 +1744,9 @@ export class AgentState {
     const semanticRepeat = this.db.prepare(`DELETE FROM semantic_repeat_guard
       WHERE expires_at_ms < ? AND last_seen_ms < ?`)
       .run(nowMs, nowMs - auditRetentionMs).changes;
+    const discussion = this.db.prepare(`DELETE FROM discussion_session
+      WHERE status = 'cooldown' AND cooldown_until_ms < ? AND last_seen_ms < ?`)
+      .run(nowMs, nowMs - auditRetentionMs).changes;
     const multicaNotification = this.db.prepare(`DELETE FROM multica_notification_outbox
       WHERE status = 'dead' AND dead_at < ?`).run(auditBefore).changes;
     const mutation = this.db.prepare(`DELETE FROM mutation_execution
@@ -1504,6 +1761,7 @@ export class AgentState {
       rateLimit: Number(rateLimit),
       outboundEcho: Number(outboundEcho),
       semanticRepeat: Number(semanticRepeat),
+      discussion: Number(discussion),
       multicaNotification: Number(multicaNotification),
       mutation: Number(mutation),
     };
