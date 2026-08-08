@@ -24,6 +24,20 @@ try {
     1,
     '轮询和 WebSocket 重复投递不能重复写入记忆',
   );
+  state.remember('group-chat', 'member-a', 'user', 'AI 将流程管理推向事中干预', {
+    sourceMessageId: 'group-a-1', createdAt: '2026-08-08T12:00:00.000Z',
+  });
+  state.remember('group-chat', 'member-b', 'user', '我认为价值重心会从画流程转向解释判断', {
+    sourceMessageId: 'group-b-1', createdAt: '2026-08-08T12:00:01.000Z',
+  });
+  assert.deepEqual(
+    state.chatHistory('group-chat', 30).map(item => [item.senderId, item.content]),
+    [
+      ['member-a', 'AI 将流程管理推向事中干预'],
+      ['member-b', '我认为价值重心会从画流程转向解释判断'],
+    ],
+    '群聊上下文必须包含所有参与者的最近消息',
+  );
   state.bindConversationIssue('chat', 'user', {
     id: 'issue-active',
     identifier: 'MYS-8',

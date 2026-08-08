@@ -88,6 +88,30 @@ const suppressedInbound = evaluateHumanTakeover({
 assert.equal(suppressedInbound.handled, false);
 assert.equal(suppressedInbound.suppressed, true);
 
+assert.equal(
+  typeof humanTakeoverModule.rememberSuppressedTakeoverContext,
+  'function',
+  'suppressed replies must still preserve incoming context for the later handoff',
+);
+const rememberedDuringTakeover = [];
+assert.equal(humanTakeoverModule.rememberSuppressedTakeoverContext({
+  state: {
+    remember: (...args) => rememberedDuringTakeover.push(args),
+  },
+  chatId: 'dingtalk:group:test',
+  senderId: 'dingtalk:other-bot',
+  text: 'AI 会把流程管理从事后复盘推到事中干预',
+  messageType: 'text',
+  messageId: 'paused-context-1',
+}), true);
+assert.deepEqual(rememberedDuringTakeover, [[
+  'dingtalk:group:test',
+  'dingtalk:other-bot',
+  'user',
+  'AI 会把流程管理从事后复盘推到事中干预',
+  { sourceMessageId: 'paused-context-1' },
+]]);
+
 const prematureResume = evaluateHumanTakeover({
   current: evaluatedPause.state,
   text: '恢复接管',

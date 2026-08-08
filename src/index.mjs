@@ -153,6 +153,7 @@ import {
   applyOwnerActivityHistory,
   evaluateHumanTakeover,
   humanTakeoverStatus,
+  rememberSuppressedTakeoverContext,
   takeoverSyncFailurePolicy,
 } from './human-takeover.mjs';
 import {
@@ -377,12 +378,19 @@ function remember(chatId, senderOpenId, role, content, options) {
   state.remember(chatId, senderOpenId, role, content, options);
 }
 
-function formatHistory(chatId, senderOpenId, { excludeSourceMessageId = '' } = {}) {
-  const history = state.history(chatId, senderOpenId, excludeSourceMessageId ? 31 : 30)
+function formatHistory(chatId, senderOpenId, {
+  excludeSourceMessageId = '',
+  chatType = '',
+} = {}) {
+  const history = (chatType === 'group'
+    ? state.chatHistory(chatId, excludeSourceMessageId ? 31 : 30)
+    : state.history(chatId, senderOpenId, excludeSourceMessageId ? 31 : 30))
     .filter(item => item.sourceMessageId !== excludeSourceMessageId)
     .slice(-30);
   if (!history.length) return '（这是当前运行周期内的第一条消息）';
-  return history.map(item => `${item.role === 'user' ? '对方' : '助理'}：${item.content.slice(0, 1800)}`)
+  return history.map(item => `${item.role === 'user'
+    ? (chatType === 'group' ? `群成员[${item.senderId || '未知'}]` : '对方')
+    : '助理'}：${item.content.slice(0, 1800)}`)
     .join('\n');
 }
 
@@ -1774,6 +1782,7 @@ async function handleMulticaRequest(message, senderOpenId, cleanText, metadata =
   }
   const history = formatHistory(message.chat_id, senderOpenId, {
     excludeSourceMessageId: message.message_id,
+    chatType: message.chat_type,
   });
   let plan = await runCodexMulticaPlan(cleanText, history);
   const deliveryPlan = buildDeliveryPlan({ chatId: message.chat_id, request: cleanText });
@@ -1862,6 +1871,7 @@ async function handleMulticaWorkRequest(message, senderOpenId, request, decision
   }
   const history = formatHistory(message.chat_id, senderOpenId, {
     excludeSourceMessageId: message.message_id,
+    chatType: message.chat_type,
   });
   audit('multica_work_requested', message, senderOpenId, {
     issue: request.issue,
@@ -2118,8 +2128,17 @@ async function processIncoming(client, message, sender, metadata = {}) {
     return;
   }
   if (takeover.suppressed) {
+    rememberSuppressedTakeoverContext({
+      state,
+      chatId: message.chat_id,
+      senderId: senderOpenId,
+      text: cleanText,
+      messageType: message.message_type,
+      messageId: message.message_id,
+    });
     audit('message_skipped_human_takeover', message, senderOpenId, {
       pausedUntilMs: humanTakeoverStatus(takeover.state, nowMs).pausedUntilMs,
+      contextPreserved: true,
     });
     return;
   }
@@ -2858,6 +2877,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
     }
     const history = formatHistory(message.chat_id, senderOpenId, {
       excludeSourceMessageId: message.message_id,
+      chatType: message.chat_type,
     });
     const historyLabel = knowledgeResult?.documents?.length
       ? knowledgeMemoryLabel({ request: cleanText, documents: knowledgeResult.documents })

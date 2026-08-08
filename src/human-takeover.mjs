@@ -93,6 +93,21 @@ export function evaluateHumanTakeover({
   };
 }
 
+export function rememberSuppressedTakeoverContext({
+  state,
+  chatId,
+  senderId,
+  text = '',
+  messageType = '',
+  messageId = '',
+} = {}) {
+  if (!state?.remember || !chatId || !senderId) return false;
+  const content = String(text || '').trim() || `发送了${String(messageType || '消息')}`;
+  return Boolean(state.remember(chatId, senderId, 'user', content, {
+    sourceMessageId: String(messageId || ''),
+  }));
+}
+
 export function latestOwnerControl(messages, {
   ownerId,
   parseTime = value => Date.parse(value || ''),

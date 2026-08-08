@@ -321,6 +321,18 @@ export class AgentState {
       .all(chatId, senderId || '', limit).reverse();
   }
 
+  chatHistory(chatId, limit = 30) {
+    return this.db.prepare(`SELECT role, content, sender_id AS senderId,
+        source_message_id AS sourceMessageId, created_at AS createdAt
+      FROM (
+        SELECT id, role, content, sender_id, source_message_id, created_at
+        FROM conversation WHERE chat_id = ?
+        ORDER BY created_at DESC, id DESC LIMIT ?
+      )
+      ORDER BY createdAt ASC, id ASC`)
+      .all(chatId, limit);
+  }
+
   bindConversationIssue(chatId, senderId, issue) {
     if (!issue?.id || !issue?.identifier) throw new Error('Conversation Issue binding is invalid');
     const snapshot = {
