@@ -156,6 +156,7 @@ import {
   createReplyContext,
   resolveReplyMentionSenderIds,
 } from './reply-routing.mjs';
+import { sendUnlessRecentRepeat } from './outbound-repeat-controller.mjs';
 import {
   decideSemanticGroupEngagement,
   isSemanticEntryCooldownActive,
@@ -714,7 +715,33 @@ function formatTaskTime(date) {
   }).format(date);
 }
 
-async function sendText(client, chatId, text, uuid, {
+async function sendText(client, chatId, text, uuid, options = {}) {
+  const rememberedChat = state.get('feishu_chat', chatId, {});
+  const replyContext = replyContextStorage.getStore();
+  const effectiveChatType = resolveFeishuChatType(
+    options.chatType,
+    replyContext?.chatId === chatId ? replyContext.chatType : rememberedChat?.chatType,
+  );
+  const audience = resolveReplyMentionSenderIds({
+    chatId,
+    chatType: effectiveChatType,
+    explicitSenderIds: [
+      ...(Array.isArray(options.mentionSenderIds) ? options.mentionSenderIds : []),
+      options.mentionSenderId,
+    ],
+    context: replyContext,
+  });
+  return sendUnlessRecentRepeat({
+    state,
+    chatId,
+    audienceKey: [...audience].sort().join(','),
+    text,
+    audit: (event, detail) => state.audit(event, { chatId, detail }),
+    send: () => sendTextUnchecked(client, chatId, text, uuid, options),
+  });
+}
+
+async function sendTextUnchecked(client, chatId, text, uuid, {
   mentionSenderId = '',
   mentionSenderIds = [],
   chatType = '',

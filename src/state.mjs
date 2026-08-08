@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { compareSemanticTopics } from './semantic-repeat-guard.mjs';
+import { compareSemanticTopics, semanticTopic } from './semantic-repeat-guard.mjs';
 
 function parseStoredPayload(value) {
   try {
@@ -117,6 +117,18 @@ export class AgentState {
         ON outbound_echo(chat_id, content_hash, expires_at);
       CREATE INDEX IF NOT EXISTS outbound_echo_message
         ON outbound_echo(message_id, expires_at);
+      CREATE TABLE IF NOT EXISTS outbound_reply_guard (
+        id INTEGER PRIMARY KEY,
+        chat_id TEXT NOT NULL,
+        audience_key TEXT NOT NULL DEFAULT '',
+        reply_signature TEXT NOT NULL,
+        topic TEXT NOT NULL DEFAULT '{}',
+        created_at_ms INTEGER NOT NULL,
+        expires_at_ms INTEGER NOT NULL,
+        UNIQUE(chat_id, audience_key, reply_signature)
+      );
+      CREATE INDEX IF NOT EXISTS outbound_reply_guard_expiry
+        ON outbound_reply_guard(expires_at_ms);
       CREATE TABLE IF NOT EXISTS multica_issue_cache (
         issue_id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL,
@@ -315,6 +327,24 @@ export class AgentState {
     if (!globalSubscriptionColumns.has('channel')) {
       this.db.exec(`ALTER TABLE multica_global_subscription
         ADD COLUMN channel TEXT NOT NULL DEFAULT ''`);
+    }
+    const outboundReplyColumns = new Set(
+      this.db.prepare('PRAGMA table_info(outbound_reply_guard)').all().map(row => row.name),
+    );
+    if (!outboundReplyColumns.has('topic')) {
+      this.db.exec(`ALTER TABLE outbound_reply_guard
+        ADD COLUMN topic TEXT NOT NULL DEFAULT '{}'`);
+      const legacyReplies = this.db.prepare(`SELECT id, chat_id, reply_signature
+        FROM outbound_reply_guard ORDER BY id DESC LIMIT 500`).all();
+      const recentAssistantReplies = this.db.prepare(`SELECT content FROM conversation
+        WHERE chat_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 120`);
+      const updateTopic = this.db.prepare('UPDATE outbound_reply_guard SET topic = ? WHERE id = ?');
+      for (const reply of legacyReplies) {
+        const matching = recentAssistantReplies.all(reply.chat_id)
+          .map(row => semanticTopic(row.content || ''))
+          .find(topic => topic.signature === reply.reply_signature);
+        if (matching) updateTopic.run(JSON.stringify(matching), reply.id);
+      }
     }
   }
 
@@ -1064,6 +1094,68 @@ export class AgentState {
     return Number(result.lastInsertRowid);
   }
 
+  claimOutboundReply({
+    chatId,
+    audienceKey = '',
+    content,
+    nowMs = Date.now(),
+    windowMs = 10 * 60_000,
+  } = {}) {
+    const normalizedChatId = String(chatId || '').trim();
+    const normalizedContent = String(content || '').trim();
+    if (!normalizedChatId || !normalizedContent) {
+      throw new Error('Outbound reply claim requires chat and content');
+    }
+    const currentMs = Number(nowMs);
+    const expiresAtMs = currentMs + Math.max(5_000, Number(windowMs) || 10 * 60_000);
+    const topic = semanticTopic(normalizedContent);
+    const signature = topic.signature || outboundContentHash(normalizedContent);
+    const normalizedAudience = String(audienceKey || '').trim().slice(0, 1000);
+    this.db.prepare('DELETE FROM outbound_reply_guard WHERE expires_at_ms <= ?').run(currentMs);
+    const recent = this.db.prepare(`SELECT id, topic, expires_at_ms
+      FROM outbound_reply_guard
+      WHERE chat_id = ? AND audience_key = ? AND expires_at_ms > ?
+      ORDER BY id DESC LIMIT 20`).all(normalizedChatId, normalizedAudience, currentMs);
+    for (const row of recent) {
+      let previousTopic = null;
+      try { previousTopic = JSON.parse(row.topic || '{}'); } catch { previousTopic = null; }
+      if (!previousTopic?.signature) continue;
+      const comparison = compareSemanticTopics(previousTopic, topic);
+      const semanticRepeat = comparison.repeat && (
+        comparison.reason !== 'semantic_similarity' || comparison.similarity >= 0.9
+      );
+      if (semanticRepeat) {
+        return {
+          allowed: false,
+          claimId: 0,
+          expiresAtMs: Number(row.expires_at_ms),
+          similarity: Number(comparison.similarity || 0),
+          reason: comparison.reason,
+        };
+      }
+    }
+    const result = this.db.prepare(`INSERT OR IGNORE INTO outbound_reply_guard
+      (chat_id, audience_key, reply_signature, topic, created_at_ms, expires_at_ms)
+      VALUES (?, ?, ?, ?, ?, ?)`).run(
+      normalizedChatId,
+      normalizedAudience,
+      signature,
+      JSON.stringify(topic),
+      currentMs,
+      expiresAtMs,
+    );
+    if (result.changes === 1) {
+      return { allowed: true, claimId: Number(result.lastInsertRowid), expiresAtMs };
+    }
+    return { allowed: false, claimId: 0, expiresAtMs, similarity: 1, reason: 'exact_signature' };
+  }
+
+  releaseOutboundReplyClaim(claimId) {
+    if (!Number.isInteger(Number(claimId)) || Number(claimId) <= 0) return false;
+    return this.db.prepare('DELETE FROM outbound_reply_guard WHERE id = ?')
+      .run(Number(claimId)).changes === 1;
+  }
+
   attachOutboundMessageId(id, messageId) {
     if (!messageId) return false;
     return this.db.prepare('UPDATE outbound_echo SET message_id = ? WHERE id = ?')
@@ -1741,6 +1833,8 @@ export class AgentState {
         AND CAST(json_extract(value, '$.expiresAt') AS INTEGER) <= ?`).run(nowMs).changes;
     const rateLimit = this.db.prepare('DELETE FROM rate_limit WHERE updated_at < ?').run(auditBefore).changes;
     const outboundEcho = this.db.prepare('DELETE FROM outbound_echo WHERE expires_at < ?').run(now).changes;
+    const outboundReply = this.db.prepare('DELETE FROM outbound_reply_guard WHERE expires_at_ms <= ?')
+      .run(nowMs).changes;
     const semanticRepeat = this.db.prepare(`DELETE FROM semantic_repeat_guard
       WHERE expires_at_ms < ? AND last_seen_ms < ?`)
       .run(nowMs, nowMs - auditRetentionMs).changes;
@@ -1760,6 +1854,7 @@ export class AgentState {
       pendingAction: Number(pendingAction),
       rateLimit: Number(rateLimit),
       outboundEcho: Number(outboundEcho),
+      outboundReply: Number(outboundReply),
       semanticRepeat: Number(semanticRepeat),
       discussion: Number(discussion),
       multicaNotification: Number(multicaNotification),
