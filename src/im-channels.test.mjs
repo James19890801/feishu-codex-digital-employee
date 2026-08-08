@@ -242,6 +242,43 @@ assert.deepEqual(buildDingTalkListAllPollingArgs(
     success: true,
     result: {
       conversationMessagesList: [{
+        openConversationId: 'cid-semantic-group',
+        singleChat: false,
+        title: '流程讨论群',
+        messages: [{
+          content: 'AI 对流程管理的影响应该怎么评估？',
+          createTime: '2026-08-03 11:30:00',
+          openMessageId: 'msg-semantic-no-at',
+          senderOpenDingTalkId: 'open-colleague',
+        }, {
+          content: '@其他人 这个数据你怎么看？',
+          createTime: '2026-08-03 11:30:01',
+          openMessageId: 'msg-semantic-other-at',
+          senderOpenDingTalkId: 'open-colleague-2',
+        }],
+      }],
+      hasMore: false,
+    },
+  }, {
+    ownerOpenId: 'open-owner',
+    mentionNames: ['阿充', '阿充James'],
+    includeUnmentionedGroups: true,
+  });
+  assert.deepEqual(page.payloads.map(item => item.message.message_id), [
+    'dingtalk:msg-semantic-no-at',
+    'dingtalk:msg-semantic-other-at',
+  ]);
+  assert.deepEqual(page.payloads[0].message.mentions, []);
+  assert.equal(page.payloads[0].metadata.semanticCandidate, true);
+  assert.equal(page.payloads[0].metadata.mentionedOther, false);
+  assert.equal(page.payloads[1].metadata.mentionedOther, true);
+}
+
+{
+  const page = normalizeDingTalkListAllPage({
+    success: true,
+    result: {
+      conversationMessagesList: [{
         openConversationId: 'cid-media',
         singleChat: true,
         title: '同事媒体',

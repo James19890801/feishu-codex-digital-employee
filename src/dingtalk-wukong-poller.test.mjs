@@ -1,5 +1,31 @@
 import assert from 'node:assert/strict';
-import { fetchDingTalkWukongWindow } from './dingtalk-wukong-poller.mjs';
+import {
+  fetchDingTalkWukongWindow,
+  semanticObserverFailureRecord,
+  shouldRunDingTalkSemanticObserver,
+} from './dingtalk-wukong-poller.mjs';
+
+assert.equal(shouldRunDingTalkSemanticObserver({
+  dingtalkEnabled: true,
+  semanticGroupEngagementEnabled: true,
+  dingtalkTransport: 'event-stream',
+}), true);
+assert.equal(shouldRunDingTalkSemanticObserver({
+  dingtalkEnabled: true,
+  semanticGroupEngagementEnabled: true,
+  dingtalkTransport: 'wukong-polling',
+}), false);
+assert.deepEqual(semanticObserverFailureRecord(new Error('rate limited'), {
+  failures: 2,
+  delayMs: 30000,
+  at: '2026-08-08T12:00:00.000Z',
+}), {
+  at: '2026-08-08T12:00:00.000Z',
+  failures: 2,
+  delayMs: 30000,
+  error: 'rate limited',
+});
+assert.equal('connected' in semanticObserverFailureRecord(new Error('x')), false);
 
 const calls = [];
 const pages = [{
@@ -35,6 +61,13 @@ const pages = [{
         openMessageId: 'msg-page-2',
         sender: '同事乙',
         senderOpenDingTalkId: 'open-colleague-2',
+      }, {
+        content: 'AI 对流程管理有什么影响？',
+        createTime: '2026-08-03 11:22:01',
+        openConversationId: 'cid-group',
+        openMessageId: 'msg-page-semantic',
+        sender: '同事丙',
+        senderOpenDingTalkId: 'open-colleague-3',
       }],
     }],
     hasMore: false,
@@ -49,6 +82,7 @@ const payloads = await fetchDingTalkWukongWindow({
   ownerOpenId: 'open-owner',
   ownerNames: ['阿充', '阿充James'],
   mentionNames: ['阿充', '阿充James'],
+  includeUnmentionedGroups: true,
   run: async (bin, args, options) => {
     calls.push({ bin, args, options });
     return { stdout: JSON.stringify(pages[calls.length - 1]), stderr: '' };
@@ -59,7 +93,9 @@ const payloads = await fetchDingTalkWukongWindow({
 assert.deepEqual(payloads.map(item => item.message.message_id), [
   'dingtalk:msg-page-1',
   'dingtalk:msg-page-2',
+  'dingtalk:msg-page-semantic',
 ]);
+assert.equal(payloads[2].metadata.semanticCandidate, true);
 assert.equal(calls.length, 2);
 assert.equal(calls[0].bin, '/opt/wukong/dws');
 assert.equal(calls[0].args[calls[0].args.indexOf('--cursor') + 1], '0');

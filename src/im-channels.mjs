@@ -266,6 +266,7 @@ export function normalizeDingTalkListAllPage(result, {
   ownerOpenId = '',
   ownerNames = [],
   mentionNames = [],
+  includeUnmentionedGroups = false,
 } = {}) {
   const root = result?.result || result?.data || result || {};
   const conversations = Array.isArray(root?.conversationMessagesList)
@@ -298,6 +299,8 @@ export function normalizeDingTalkListAllPage(result, {
 
       let targetId = '';
       let selfChat = false;
+      let semanticCandidate = false;
+      let mentionedOther = false;
       if (singleChat) {
         if (senderId === ownerId) {
           selfChat = normalizedOwnerNames.has(conversationTitle);
@@ -309,7 +312,9 @@ export function normalizeDingTalkListAllPage(result, {
         const mentioned = normalizedMentionNames.some(name => (
           content.includes(`@${name}`) || content.includes(`＠${name}`)
         ));
-        if (!mentioned) continue;
+        if (!mentioned && !includeUnmentionedGroups) continue;
+        semanticCandidate = !mentioned;
+        mentionedOther = semanticCandidate && /(?:^|\s)[@＠][^\s，,。！？!?]+/u.test(content);
         targetId = conversationId;
       }
 
@@ -323,7 +328,7 @@ export function normalizeDingTalkListAllPage(result, {
           content: JSON.stringify(media
             ? { text: '', resource_id: media.resourceId, display_name: media.displayName }
             : { text: content }),
-          mentions: singleChat ? [] : [{ id: 'dingtalk-current-user' }],
+          mentions: singleChat || semanticCandidate ? [] : [{ id: 'dingtalk-current-user' }],
         },
         sender: {
           sender_type: 'user',
@@ -335,6 +340,7 @@ export function normalizeDingTalkListAllPage(result, {
           selfChat,
           conversationId,
           conversationTitle,
+          ...(semanticCandidate ? { semanticCandidate: true, mentionedOther } : {}),
           ...(media ? {
             media: {
               kind: media.kind,

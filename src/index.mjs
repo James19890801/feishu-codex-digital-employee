@@ -183,7 +183,11 @@ import {
   GeWeWebhookServer,
   WeComChannel,
 } from './im-channel-runtime.mjs';
-import { fetchDingTalkWukongWindow } from './dingtalk-wukong-poller.mjs';
+import {
+  fetchDingTalkWukongWindow,
+  semanticObserverFailureRecord,
+  shouldRunDingTalkSemanticObserver,
+} from './dingtalk-wukong-poller.mjs';
 import {
   buildDingTalkMediaDownloadArgs,
   buildFeishuMediaDownloadArgs,
@@ -379,6 +383,7 @@ let drainPromise = null;
 let multicaSyncPromise = null;
 let dingTalkSupervisorPromise = null;
 let dingTalkSelfPollingPromise = null;
+let dingTalkSemanticPollingPromise = null;
 let geWeMonitorPromise = null;
 let dailyLearningPromise = null;
 let businessClient = null;
@@ -3451,6 +3456,7 @@ async function fetchDingTalkWukongMessages(startMs, endMs) {
     ownerOpenId: config.dingtalkOwnerOpenId,
     ownerNames: ['阿充', '阿充James', '冯周充'],
     mentionNames: ['阿充', '阿充James'],
+    includeUnmentionedGroups: config.semanticGroupEngagementEnabled !== false,
     run: runBufferedProcess,
     runOptions: {
       cwd: WORKDIR,
@@ -3460,6 +3466,104 @@ async function fetchDingTalkWukongMessages(startMs, endMs) {
       maxStderrBytes: 1024 * 1024,
     },
   });
+}
+
+function dingTalkSemanticObserverEnabled() {
+  return shouldRunDingTalkSemanticObserver({
+    dingtalkEnabled: config.dingtalkEnabled,
+    semanticGroupEngagementEnabled: config.semanticGroupEngagementEnabled !== false,
+    dingtalkTransport: config.dingtalkTransport,
+  });
+}
+
+async function fetchDingTalkSemanticGroupMessages(startMs, endMs) {
+  if (!dingTalkSemanticObserverEnabled()) return [];
+  const payloads = await fetchDingTalkWukongWindow({
+    bin: config.dingtalkBin,
+    start: dingTalkPollingTime(startMs),
+    end: dingTalkPollingTime(endMs),
+    ownerOpenId: config.dingtalkOwnerOpenId,
+    ownerNames: ['阿充', '阿充James', '冯周充'],
+    mentionNames: ['阿充', '阿充James'],
+    includeUnmentionedGroups: true,
+    run: runBufferedProcess,
+    runOptions: {
+      cwd: WORKDIR,
+      env: dingtalkProcessEnv(),
+      timeoutMs: config.larkCliTimeoutMs,
+      maxStdoutBytes: 16 * 1024 * 1024,
+      maxStderrBytes: 1024 * 1024,
+    },
+  });
+  return payloads.filter(payload => payload.message?.chat_type === 'group');
+}
+
+async function initializeDingTalkSemanticPolling() {
+  if (!dingTalkSemanticObserverEnabled()) return false;
+  const nowMs = Date.now();
+  if (!state.get('dingtalk_semantic_poller', 'initialized_v1', false)) {
+    const snapshot = await fetchDingTalkSemanticGroupMessages(
+      nowMs - POLL_INITIAL_LOOKBACK_MS,
+      nowMs,
+    );
+    const seededAt = new Date().toISOString();
+    let seeded = 0;
+    for (const payload of snapshot) {
+      if (state.seedInbound(payload.message.message_id, 'dingtalk-semantic-baseline', payload, seededAt)) {
+        seeded += 1;
+      }
+    }
+    state.set('dingtalk_semantic_poller', 'initialized_v1', true);
+    state.set('dingtalk_semantic_poller', 'cursor_ms', nowMs);
+    state.audit('dingtalk_semantic_poller_baseline_seeded', { detail: { seeded } });
+  } else if (!state.get('dingtalk_semantic_poller', 'cursor_ms', 0)) {
+    state.set('dingtalk_semantic_poller', 'cursor_ms', nowMs);
+  }
+  state.set('health', 'last_dingtalk_semantic_poll_success_at', new Date().toISOString());
+  state.unset('health', 'last_dingtalk_semantic_poll_error');
+  return true;
+}
+
+async function pollDingTalkSemanticMessagesOnce() {
+  const nowMs = Date.now();
+  const cursorMs = Number(state.get('dingtalk_semantic_poller', 'cursor_ms', nowMs));
+  const { startMs, endMs } = planPollWindow(cursorMs, nowMs, {
+    overlapMs: POLL_OVERLAP_MS,
+    maxCatchupMs: POLL_MAX_CATCHUP_MS,
+    maxWindowMs: POLL_WINDOW_MS,
+  });
+  const payloads = await fetchDingTalkSemanticGroupMessages(startMs, endMs);
+  let enqueued = 0;
+  for (const payload of payloads) {
+    if (enqueueInbound(payload, 'dingtalk-semantic-poll')) enqueued += 1;
+  }
+  state.set('dingtalk_semantic_poller', 'cursor_ms', endMs);
+  state.set('health', 'last_dingtalk_semantic_poll_success_at', new Date().toISOString());
+  state.unset('health', 'last_dingtalk_semantic_poll_error');
+  if (enqueued) triggerDrain();
+  return enqueued;
+}
+
+async function runDingTalkSemanticPollingLoop() {
+  let failures = 0;
+  while (!stopping && dingTalkSemanticObserverEnabled()) {
+    const startedAt = Date.now();
+    try {
+      await pollDingTalkSemanticMessagesOnce();
+      failures = 0;
+    } catch (error) {
+      if (stopping) break;
+      failures += 1;
+      const delayMs = pollFailureDelayMs(error, failures, { baseIntervalMs: POLL_INTERVAL_MS });
+      const failure = semanticObserverFailureRecord(error, { failures, delayMs });
+      state.set('health', 'last_dingtalk_semantic_poll_error', failure);
+      state.audit('dingtalk_semantic_poll_error', { detail: failure });
+      console.error(`[dingtalk-semantic-poll-error] retry in ${delayMs}ms:`, error);
+      await wait(delayMs);
+      continue;
+    }
+    await wait(Math.max(250, POLL_INTERVAL_MS - (Date.now() - startedAt)));
+  }
 }
 
 async function initializeDingTalkWukongPolling() {
@@ -4134,6 +4238,19 @@ async function main() {
       dingTalkSelfPollingPromise = runPollingLoop()
         .catch(error => console.error('[dingtalk-poll-fatal]', error));
     }
+    const dingTalkSemanticPolling = await initializeOptionalPoller(
+      initializeDingTalkSemanticPolling,
+    );
+    if (dingTalkSemanticPolling.error) {
+      const failure = semanticObserverFailureRecord(dingTalkSemanticPolling.error);
+      state.set('health', 'last_dingtalk_semantic_poll_error', failure);
+      state.audit('dingtalk_semantic_poll_unavailable', { detail: failure });
+      console.error('[dingtalk-semantic-poll-unavailable]', dingTalkSemanticPolling.error);
+    }
+    if (dingTalkSemanticPolling.active) {
+      dingTalkSemanticPollingPromise = runDingTalkSemanticPollingLoop()
+        .catch(error => console.error('[dingtalk-semantic-poll-fatal]', error));
+    }
     if (MULTICA_SYNCHRONIZER) {
       multicaSyncPromise = runMulticaSyncLoop()
         .catch(error => console.error('[multica-sync-fatal]', error));
@@ -4159,6 +4276,7 @@ async function main() {
     if (multicaSyncPromise) await multicaSyncPromise.catch(() => {});
     if (dingTalkSupervisorPromise) await dingTalkSupervisorPromise.catch(() => {});
     if (dingTalkSelfPollingPromise) await dingTalkSelfPollingPromise.catch(() => {});
+    if (dingTalkSemanticPollingPromise) await dingTalkSemanticPollingPromise.catch(() => {});
     if (geWeMonitorPromise) await geWeMonitorPromise.catch(() => {});
     if (dailyLearningPromise) await dailyLearningPromise.catch(() => {});
   } finally {

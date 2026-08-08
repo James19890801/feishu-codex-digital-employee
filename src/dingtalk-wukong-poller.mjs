@@ -3,6 +3,29 @@ import {
   normalizeDingTalkListAllPage,
 } from './im-channels.mjs';
 
+export function shouldRunDingTalkSemanticObserver({
+  dingtalkEnabled,
+  semanticGroupEngagementEnabled,
+  dingtalkTransport,
+} = {}) {
+  return Boolean(dingtalkEnabled
+    && semanticGroupEngagementEnabled
+    && dingtalkTransport !== 'wukong-polling');
+}
+
+export function semanticObserverFailureRecord(error, {
+  failures = 1,
+  delayMs = 0,
+  at = new Date().toISOString(),
+} = {}) {
+  return {
+    at,
+    failures: Number(failures || 0),
+    delayMs: Number(delayMs || 0),
+    error: String(error?.message || error || '').slice(0, 1000),
+  };
+}
+
 export async function fetchDingTalkWukongWindow({
   bin,
   start,
@@ -10,6 +33,7 @@ export async function fetchDingTalkWukongWindow({
   ownerOpenId = '',
   ownerNames = [],
   mentionNames = [],
+  includeUnmentionedGroups = false,
   run,
   runOptions = {},
   maxPages = 100,
@@ -36,6 +60,7 @@ export async function fetchDingTalkWukongWindow({
       ownerOpenId,
       ownerNames,
       mentionNames,
+      includeUnmentionedGroups,
     });
     payloads.push(...page.payloads);
     if (!page.hasMore) return payloads;
