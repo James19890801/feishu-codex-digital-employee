@@ -42,22 +42,30 @@ export function parseChannelChatId(chatId) {
   return { channel: match[1], kind: match[2], id: match[3] };
 }
 
-export function prepareGroupMention({ chatId, chatType, senderId, text }) {
+export function prepareGroupMention({ chatId, chatType, senderId, senderIds = [], text }) {
   const content = String(text || '');
   if (chatType !== 'group') return { text: content, atOpenDingTalkIds: [] };
+  const legacySenderId = String(senderId || '').trim();
+  const replySenderIds = [...new Set([
+    ...senderIds,
+    legacySenderId,
+  ].map(value => String(value || '').trim()).filter(Boolean))].slice(0, 20);
   const target = parseChannelChatId(chatId);
   if (target?.channel === 'dingtalk' && target.kind === 'group') {
-    const openDingTalkId = String(senderId || '').replace(/^dingtalk:/, '').trim();
-    if (!openDingTalkId) return { text: content, atOpenDingTalkIds: [] };
+    const openDingTalkIds = [...new Set(replySenderIds
+      .map(value => value.replace(/^dingtalk:/, '').trim())
+      .filter(Boolean))].slice(0, 20);
+    if (!openDingTalkIds.length) return { text: content, atOpenDingTalkIds: [] };
     return {
-      text: `<@${openDingTalkId}>\n${content}`,
-      atOpenDingTalkIds: [openDingTalkId],
+      text: `${openDingTalkIds.map(id => `<@${id}>`).join(' ')}\n${content}`,
+      atOpenDingTalkIds: openDingTalkIds,
     };
   }
-  const openId = String(senderId || '').trim();
-  if (!target && /^ou_[A-Za-z0-9]+$/.test(openId)) {
+  const openIds = replySenderIds.filter(value => /^ou_[A-Za-z0-9]+$/.test(value));
+  if (!target && openIds.length) {
+    const mentionLabel = senderIds.length ? '回复对象' : '发起人';
     return {
-      text: `<at user_id="${openId}">发起人</at>\n${content}`,
+      text: `${openIds.map(openId => `<at user_id="${openId}">${mentionLabel}</at>`).join(' ')}\n${content}`,
       atOpenDingTalkIds: [],
     };
   }

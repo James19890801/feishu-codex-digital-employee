@@ -65,6 +65,24 @@ assert.deepEqual(prepareGroupMention({
   atOpenDingTalkIds: ['open-requester'],
 });
 assert.deepEqual(prepareGroupMention({
+  chatId: 'dingtalk:group:cidABC',
+  chatType: 'group',
+  senderIds: ['dingtalk:open-a', 'dingtalk:open-b', 'dingtalk:open-a'],
+  text: '需要两位数字人继续处理',
+}), {
+  text: '<@open-a> <@open-b>\n需要两位数字人继续处理',
+  atOpenDingTalkIds: ['open-a', 'open-b'],
+});
+assert.deepEqual(prepareGroupMention({
+  chatId: 'oc_feishu_group',
+  chatType: 'group',
+  senderIds: ['ou_a', 'ou_b', 'ou_a'],
+  text: '需要两位数字人继续处理',
+}), {
+  text: '<at user_id="ou_a">回复对象</at> <at user_id="ou_b">回复对象</at>\n需要两位数字人继续处理',
+  atOpenDingTalkIds: [],
+});
+assert.deepEqual(prepareGroupMention({
   chatId: 'oc_feishu_direct',
   chatType: 'p2p',
   senderId: 'ou_requester',

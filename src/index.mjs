@@ -1,4 +1,5 @@
 import * as lark from '@larksuiteoapi/node-sdk';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { spawn } from 'node:child_process';
 import { randomBytes, randomInt } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -150,6 +151,10 @@ import {
   prepareGroupMention,
 } from './im-channels.mjs';
 import {
+  createReplyContext,
+  resolveReplyMentionSenderIds,
+} from './reply-routing.mjs';
+import {
   applyOwnerActivityHistory,
   applyVerifiedOwnerHistory,
   evaluateHumanTakeover,
@@ -275,6 +280,7 @@ const singletonLock = await acquireSingletonLock(join(WORKDIR, 'data', 'service.
 const state = new AgentState(STATE_PATH);
 const pendingActions = new PendingActionStore(state);
 const chatQueues = new SerialKeyQueue();
+const replyContextStorage = new AsyncLocalStorage();
 const AUTHORIZED_CHAT_IDS = new Set(config.authorizedChatIds);
 const DIGITAL_TWIN_LABEL = config.digitalTwinLabel;
 const POLL_INTERVAL_MS = config.pollIntervalMs;
@@ -699,6 +705,7 @@ function formatTaskTime(date) {
 
 async function sendText(client, chatId, text, uuid, {
   mentionSenderId = '',
+  mentionSenderIds = [],
   chatType = '',
 } = {}) {
   let outboundText = String(text || '');
@@ -724,11 +731,21 @@ async function sendText(client, chatId, text, uuid, {
     outboundText = markSelfChatOutbound(outboundText);
   }
   const rememberedChat = state.get('feishu_chat', chatId, {});
-  const effectiveChatType = resolveFeishuChatType(chatType, rememberedChat?.chatType);
+  const replyContext = replyContextStorage.getStore();
+  const effectiveChatType = resolveFeishuChatType(
+    chatType,
+    replyContext?.chatId === chatId ? replyContext.chatType : rememberedChat?.chatType,
+  );
+  const resolvedMentionSenderIds = resolveReplyMentionSenderIds({
+    chatId,
+    chatType: effectiveChatType,
+    explicitSenderIds: [...mentionSenderIds, mentionSenderId],
+    context: replyContext,
+  });
   const mention = prepareGroupMention({
     chatId,
     chatType: effectiveChatType,
-    senderId: mentionSenderId,
+    senderIds: resolvedMentionSenderIds,
     text: outboundText,
   });
   outboundText = mention.text;
@@ -3092,7 +3109,10 @@ async function processStoredInbound(item, client = null) {
     return;
   }
 
-  await chatQueues.run(message.chat_id, async () => {
+  await chatQueues.run(message.chat_id, () => replyContextStorage.run(createReplyContext({
+    message,
+    senderId: sender?.sender_id?.open_id || '',
+  }), async () => {
     const claimedAt = new Date().toISOString();
     if (!state.claimInbound(message.message_id, claimedAt)) return;
     try {
@@ -3154,7 +3174,7 @@ async function processStoredInbound(item, client = null) {
         console.error(`[inbound-dead-letter] ${message.message_id}:`, sendError);
       }
     }
-  });
+  }));
 }
 
 async function drainReadyInbound(client = null) {
