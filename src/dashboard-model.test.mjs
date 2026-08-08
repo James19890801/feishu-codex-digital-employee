@@ -313,6 +313,37 @@ const base = {
 {
   const view = buildOperatorView({
     ...base,
+    adaptiveDiscussionEnabled: true,
+    adaptiveDiscussionMaxReplies: 100,
+    adaptiveDiscussionLowValueLimit: 3,
+    adaptiveDiscussionCooldownMs: 30 * 60_000,
+    discussion: {
+      activeSessions: 2,
+      coolingSessions: 1,
+      closedSessions: 8,
+      latestClosure: {
+        channel: 'dingtalk',
+        chatId: 'dingtalk:group:test',
+        sessionNo: 4,
+        replyCount: 37,
+        reason: 'low_value_streak',
+        at: '2026-07-30T00:59:59.000Z',
+        cooldownUntil: '2026-07-30T01:29:59.000Z',
+        recentTopics: ['must not leak'],
+      },
+    },
+  });
+  assert.equal(view.maintenance.discussion.enabled, true);
+  assert.equal(view.maintenance.discussion.maxReplies, 100);
+  assert.equal(view.maintenance.discussion.lowValueLimit, 3);
+  assert.equal(view.maintenance.discussion.closedSessions, 8);
+  assert.equal(JSON.stringify(view.maintenance.discussion).includes('must not leak'), false);
+  assert.equal('recentTopics' in view.maintenance.discussion.latestClosure, false);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
     selfChatCircuitLast: {
       chatId: 'oc_self',
       openUntilMs: base.nowMs + 60_000,

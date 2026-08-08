@@ -60,6 +60,26 @@ export function buildOperatorView(input) {
       similarity: Number(latestSemanticSuppression.similarity || 0),
     } : null,
   };
+  const discussionInput = input.discussion || {};
+  const latestDiscussionClosure = discussionInput.latestClosure;
+  const discussion = {
+    enabled: input.adaptiveDiscussionEnabled !== false,
+    maxReplies: Number(input.adaptiveDiscussionMaxReplies || 100),
+    lowValueLimit: Number(input.adaptiveDiscussionLowValueLimit || 3),
+    cooldownMs: Number(input.adaptiveDiscussionCooldownMs || 30 * 60_000),
+    activeSessions: Number(discussionInput.activeSessions || 0),
+    coolingSessions: Number(discussionInput.coolingSessions || 0),
+    closedSessions: Number(discussionInput.closedSessions || 0),
+    latestClosure: latestDiscussionClosure ? {
+      channel: String(latestDiscussionClosure.channel || ''),
+      chatId: String(latestDiscussionClosure.chatId || ''),
+      sessionNo: Number(latestDiscussionClosure.sessionNo || 0),
+      replyCount: Number(latestDiscussionClosure.replyCount || 0),
+      reason: String(latestDiscussionClosure.reason || ''),
+      at: String(latestDiscussionClosure.at || ''),
+      cooldownUntil: String(latestDiscussionClosure.cooldownUntil || ''),
+    } : null,
+  };
   if (!input.processAlive) issues.push('process_not_running');
   if (feishuEnabled && (pollAgeMs === null || pollAgeMs > input.maxPollAgeMs)) {
     issues.push('poll_cursor_stale');
@@ -279,6 +299,7 @@ export function buildOperatorView(input) {
       selfChatCircuitOpen,
       selfChatCircuitLast: input.selfChatCircuitLast || null,
       semanticRepeat,
+      discussion,
     },
   };
 }

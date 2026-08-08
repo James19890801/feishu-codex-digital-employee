@@ -70,6 +70,17 @@ export const config = {
   semanticRepeatMaxReplies: boundedInteger(raw.semanticRepeatMaxReplies, {
     name: 'semanticRepeatMaxReplies', fallback: 2, min: 2, max: 5,
   }),
+  adaptiveDiscussionEnabled: raw.adaptiveDiscussionEnabled !== false,
+  adaptiveDiscussionMaxReplies: boundedInteger(raw.adaptiveDiscussionMaxReplies, {
+    name: 'adaptiveDiscussionMaxReplies', fallback: 100, min: 10, max: 100,
+  }),
+  adaptiveDiscussionLowValueLimit: boundedInteger(raw.adaptiveDiscussionLowValueLimit, {
+    name: 'adaptiveDiscussionLowValueLimit', fallback: 3, min: 2, max: 10,
+  }),
+  adaptiveDiscussionCooldownMs: boundedInteger(raw.adaptiveDiscussionCooldownMs, {
+    name: 'adaptiveDiscussionCooldownMs', fallback: 30 * 60_000,
+    min: 60_000, max: 120 * 60_000,
+  }),
   webReaderEnabled: raw.webReaderEnabled !== false,
   webReaderMaxUrls: boundedInteger(raw.webReaderMaxUrls, {
     name: 'webReaderMaxUrls', fallback: 2, min: 1, max: 3,

@@ -156,6 +156,37 @@ function readSemanticRepeatDashboardState(db, nowMs) {
   };
 }
 
+function readDiscussionDashboardState(db, nowMs) {
+  if (!tableExists(db, 'discussion_session')) {
+    return { activeSessions: 0, coolingSessions: 0, closedSessions: 0, latestClosure: null };
+  }
+  const aggregate = db.prepare(`SELECT
+      SUM(CASE WHEN status IN ('active', 'finalizing') THEN 1 ELSE 0 END) AS active_sessions,
+      SUM(CASE WHEN status = 'cooldown' AND cooldown_until_ms > ? THEN 1 ELSE 0 END) AS cooling_sessions,
+      COALESCE(SUM(closed_count), 0) AS closed_sessions
+    FROM discussion_session`).get(nowMs);
+  const latest = db.prepare(`SELECT channel, chat_id, session_no, reply_count,
+      closure_reason, last_seen_ms, cooldown_until_ms
+    FROM discussion_session WHERE closure_reason <> ''
+    ORDER BY last_seen_ms DESC LIMIT 1`).get();
+  return {
+    activeSessions: Number(aggregate?.active_sessions || 0),
+    coolingSessions: Number(aggregate?.cooling_sessions || 0),
+    closedSessions: Number(aggregate?.closed_sessions || 0),
+    latestClosure: latest ? {
+      channel: latest.channel,
+      chatId: latest.chat_id,
+      sessionNo: Number(latest.session_no),
+      replyCount: Number(latest.reply_count),
+      reason: latest.closure_reason,
+      at: new Date(Number(latest.last_seen_ms)).toISOString(),
+      cooldownUntil: latest.cooldown_until_ms
+        ? new Date(Number(latest.cooldown_until_ms)).toISOString()
+        : '',
+    } : null,
+  };
+}
+
 function readLearningDashboardState(db) {
   const settingStatus = parseSetting(db, 'learning', 'status', { state: 'scheduled' });
   const manualRequestedAt = parseSetting(db, 'learning', 'manual_requested_at', '');
@@ -367,6 +398,7 @@ async function collectStatus() {
     lastAiRuntimeError: null,
     selfChatCircuitLast: null,
     semanticRepeat: { activeTopics: 0, totalSuppressed: 0, latestSuppression: null },
+    discussion: { activeSessions: 0, coolingSessions: 0, closedSessions: 0, latestClosure: null },
     dingtalkChannel: {
       enabled: config.dingtalkEnabled,
       installed: existsSync(config.dingtalkBin),
@@ -437,6 +469,7 @@ async function collectStatus() {
         lastAiRuntimeError: parseSetting(db, 'health', 'last_ai_runtime_error', null),
         selfChatCircuitLast: parseSetting(db, 'health', 'self_chat_circuit_last', null),
         semanticRepeat: readSemanticRepeatDashboardState(db, nowMs),
+        discussion: readDiscussionDashboardState(db, nowMs),
         dingtalkChannel: {
           ...defaults.dingtalkChannel,
           ...parseSetting(db, 'channel', 'dingtalk', {}),
@@ -497,6 +530,10 @@ async function collectStatus() {
     semanticRepeatGuardEnabled: config.semanticRepeatGuardEnabled,
     semanticRepeatWindowMs: config.semanticRepeatWindowMs,
     semanticRepeatMaxReplies: config.semanticRepeatMaxReplies,
+    adaptiveDiscussionEnabled: config.adaptiveDiscussionEnabled,
+    adaptiveDiscussionMaxReplies: config.adaptiveDiscussionMaxReplies,
+    adaptiveDiscussionLowValueLimit: config.adaptiveDiscussionLowValueLimit,
+    adaptiveDiscussionCooldownMs: config.adaptiveDiscussionCooldownMs,
     configuration: {
       allChats: config.allowAllChats,
       digitalTwinLabel: config.digitalTwinLabel,
@@ -519,6 +556,10 @@ async function collectStatus() {
       semanticRepeatGuardEnabled: config.semanticRepeatGuardEnabled,
       semanticRepeatWindowMs: config.semanticRepeatWindowMs,
       semanticRepeatMaxReplies: config.semanticRepeatMaxReplies,
+      adaptiveDiscussionEnabled: config.adaptiveDiscussionEnabled,
+      adaptiveDiscussionMaxReplies: config.adaptiveDiscussionMaxReplies,
+      adaptiveDiscussionLowValueLimit: config.adaptiveDiscussionLowValueLimit,
+      adaptiveDiscussionCooldownMs: config.adaptiveDiscussionCooldownMs,
     },
     ...database,
   });
