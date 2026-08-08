@@ -151,6 +151,7 @@ import {
 } from './im-channels.mjs';
 import {
   applyOwnerActivityHistory,
+  applyVerifiedOwnerHistory,
   evaluateHumanTakeover,
   humanTakeoverStatus,
   rememberDingTalkConversationContext,
@@ -2015,7 +2016,8 @@ async function syncRecentDingTalkTakeover(message, metadata = {}) {
       detail: { channel: 'dingtalk', remembered: rememberedContext },
     });
   }
-  const applied = applyOwnerActivityHistory(messages, {
+  const applied = applyVerifiedOwnerHistory(messages, {
+    chatType: target.kind === 'user' ? 'p2p' : 'group',
     ownerId: config.dingtalkOwnerOpenId,
     current: readHumanTakeover(message.chat_id, nowMs),
     nowMs,
@@ -2108,7 +2110,8 @@ async function processIncoming(client, message, sender, metadata = {}) {
   const nowMs = Date.now();
   const ownerMentionedBot = senderOpenId === OWNER_OPEN_ID
     && isExplicitBotMention(message, APP_ID);
-  if (metadata.ownerActivity === true && senderOpenId === OWNER_OPEN_ID
+  if (message.chat_type === 'p2p'
+    && metadata.ownerActivity === true && senderOpenId === OWNER_OPEN_ID
     && metadata.botChat !== true && !ownerMentionedBot) {
     const occurredAtMs = Number(message.create_time || nowMs);
     const applied = applyOwnerActivityHistory([{

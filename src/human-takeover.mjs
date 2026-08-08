@@ -285,3 +285,13 @@ export function applyOwnerActivityHistory(messages, {
     active: humanTakeoverStatus(nextState, nowMs).active,
   };
 }
+
+export function applyVerifiedOwnerHistory(messages, {
+  chatType,
+  ...options
+} = {}) {
+  if (chatType === 'p2p') {
+    return applyOwnerActivityHistory(messages, options);
+  }
+  return applyOwnerControlHistory(messages, options);
+}

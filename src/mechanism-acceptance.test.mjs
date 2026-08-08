@@ -11,6 +11,7 @@ import {
 import { buildDeliveryPlan } from './delivery-routing.mjs';
 import {
   applyOwnerActivityHistory,
+  applyVerifiedOwnerHistory,
   evaluateHumanTakeover,
   humanTakeoverStatus,
   takeoverSyncFailurePolicy,
@@ -161,6 +162,20 @@ contract('human-takeover', 'Can an assistant echo accidentally extend human take
   });
   assert.equal(applied.activities.length, 1);
   assert.equal(applied.state.lastActivityMessageId, 'owner-1');
+});
+
+contract('human-takeover', 'Does normal Owner activity stop only a direct conversation?', () => {
+  const messages = [{
+    content: '我真人接手', createTime: '2026-08-02 08:00:00',
+    openMessageId: 'owner-direct', senderOpenDingTalkId: 'owner',
+  }];
+  const options = {
+    ownerId: 'owner',
+    nowMs: Date.parse('2026-08-02T08:00:01+08:00'),
+    parseTime: value => Date.parse(String(value).replace(' ', 'T') + '+08:00'),
+  };
+  assert.equal(applyVerifiedOwnerHistory(messages, { ...options, chatType: 'p2p' }).active, true);
+  assert.equal(applyVerifiedOwnerHistory(messages, { ...options, chatType: 'group' }).changed, false);
 });
 
 for (const [question, input, expected] of [

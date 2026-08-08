@@ -5,6 +5,7 @@ import {
   activateHumanTakeover,
   applyOwnerActivityHistory,
   applyOwnerControlHistory,
+  applyVerifiedOwnerHistory,
   evaluateHumanTakeover,
   humanTakeoverStatus,
   latestOwnerControl,
@@ -281,5 +282,58 @@ const activityNoReplay = applyOwnerActivityHistory([
   parseTime: value => Date.parse(String(value).replace(' ', 'T') + '+08:00'),
 });
 assert.equal(activityNoReplay.changed, false);
+
+const rollingActivity = applyOwnerActivityHistory([
+  {
+    content: '第一句真人消息', createTime: '2026-08-01 16:20:00',
+    openMessageId: 'owner-rolling-1', senderOpenDingTalkId: 'owner-id',
+  },
+  {
+    content: '第二句真人消息', createTime: '2026-08-01 16:24:30',
+    openMessageId: 'owner-rolling-2', senderOpenDingTalkId: 'owner-id',
+  },
+], {
+  ownerId: 'owner-id',
+  current: null,
+  nowMs: Date.parse('2026-08-01T16:25:00+08:00'),
+  parseTime: value => Date.parse(String(value).replace(' ', 'T') + '+08:00'),
+});
+assert.equal(
+  rollingActivity.state.pausedUntilMs,
+  Date.parse('2026-08-01T16:29:30+08:00'),
+  'every verified owner message must roll the direct-chat silence deadline forward',
+);
+assert.equal(humanTakeoverStatus(
+  rollingActivity.state,
+  Date.parse('2026-08-01T16:29:29.999+08:00'),
+).active, true);
+assert.equal(humanTakeoverStatus(
+  rollingActivity.state,
+  Date.parse('2026-08-01T16:29:30+08:00'),
+).active, false, 'the assistant may return only after five full minutes of owner inactivity');
+
+const groupOwnerHistory = applyVerifiedOwnerHistory([{
+  content: '我在群里正常说话', createTime: '2026-08-01 16:30:00',
+  openMessageId: 'owner-group-normal', senderOpenDingTalkId: 'owner-id',
+}], {
+  chatType: 'group',
+  ownerId: 'owner-id',
+  current: null,
+  nowMs: Date.parse('2026-08-01T16:30:01+08:00'),
+  parseTime: value => Date.parse(String(value).replace(' ', 'T') + '+08:00'),
+});
+assert.equal(groupOwnerHistory.changed, false, 'group conversations require an explicit stop command');
+const directOwnerHistory = applyVerifiedOwnerHistory([{
+  content: '我真人来回复', createTime: '2026-08-01 16:30:00',
+  openMessageId: 'owner-direct-normal', senderOpenDingTalkId: 'owner-id',
+}], {
+  chatType: 'p2p',
+  ownerId: 'owner-id',
+  current: null,
+  nowMs: Date.parse('2026-08-01T16:30:01+08:00'),
+  parseTime: value => Date.parse(String(value).replace(' ', 'T') + '+08:00'),
+});
+assert.equal(directOwnerHistory.changed, true);
+assert.equal(directOwnerHistory.active, true);
 
 console.log('HUMAN_TAKEOVER_TEST_OK');
