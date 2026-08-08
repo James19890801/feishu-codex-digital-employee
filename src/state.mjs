@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { compareSemanticTopics } from './semantic-repeat-guard.mjs';
 
 function parseStoredPayload(value) {
   try {
@@ -66,6 +67,22 @@ export class AgentState {
         count INTEGER NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS semantic_repeat_guard (
+        channel TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        topic TEXT NOT NULL,
+        reply_count INTEGER NOT NULL DEFAULT 1,
+        suppressed_count INTEGER NOT NULL DEFAULT 0,
+        first_seen_ms INTEGER NOT NULL,
+        last_seen_ms INTEGER NOT NULL,
+        expires_at_ms INTEGER NOT NULL,
+        last_action TEXT NOT NULL DEFAULT 'process',
+        last_similarity REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY(channel, chat_id, sender_id)
+      );
+      CREATE INDEX IF NOT EXISTS semantic_repeat_expiry
+        ON semantic_repeat_guard(expires_at_ms);
       CREATE TABLE IF NOT EXISTS outbound_echo (
         id INTEGER PRIMARY KEY,
         chat_id TEXT NOT NULL,
@@ -594,6 +611,117 @@ export class AgentState {
       WHERE subject = ? AND window_start_ms = ? AND count < ?`)
       .run(new Date(nowMs).toISOString(), subject, windowStartMs, limit);
     return result.changes === 1;
+  }
+
+  claimSemanticRepeat({
+    channel,
+    chatId,
+    senderId,
+    topic,
+    nowMs = Date.now(),
+    windowMs = 30 * 60_000,
+    maxReplies = 2,
+  } = {}) {
+    const normalizedChannel = String(channel || '').trim();
+    const normalizedChatId = String(chatId || '').trim();
+    const normalizedSenderId = String(senderId || '').trim();
+    if (!normalizedChannel || !normalizedChatId || !normalizedSenderId || !topic?.signature) {
+      throw new Error('Semantic repeat claim requires channel, chat, sender, and topic');
+    }
+    const currentMs = Number(nowMs);
+    const effectiveWindowMs = Math.max(60_000, Number(windowMs) || 30 * 60_000);
+    const effectiveMaxReplies = Math.max(2, Math.min(10, Number(maxReplies) || 2));
+    const expiresAtMs = currentMs + effectiveWindowMs;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const prior = this.db.prepare(`SELECT topic, reply_count, suppressed_count,
+          first_seen_ms, expires_at_ms
+        FROM semantic_repeat_guard
+        WHERE channel = ? AND chat_id = ? AND sender_id = ?`)
+        .get(normalizedChannel, normalizedChatId, normalizedSenderId);
+      let priorTopic = null;
+      try { priorTopic = prior ? JSON.parse(prior.topic) : null; } catch { priorTopic = null; }
+      const expired = Boolean(prior && Number(prior.expires_at_ms) <= currentMs);
+      const comparison = expired || !priorTopic
+        ? { repeat: false, similarity: 0, reason: expired ? 'expired' : 'first_seen' }
+        : compareSemanticTopics(priorTopic, topic);
+      const reset = Boolean(prior && !comparison.repeat);
+      let action = 'process';
+      let count = 1;
+      let suppressedCount = Number(prior?.suppressed_count || 0);
+      let firstSeenMs = currentMs;
+      if (prior && comparison.repeat) {
+        count = Math.min(effectiveMaxReplies + 1, Number(prior.reply_count || 1) + 1);
+        firstSeenMs = Number(prior.first_seen_ms || currentMs);
+        if (count === effectiveMaxReplies) action = 'close';
+        if (count > effectiveMaxReplies) {
+          action = 'suppress';
+          suppressedCount += 1;
+        }
+      }
+      this.db.prepare(`INSERT INTO semantic_repeat_guard
+        (channel, chat_id, sender_id, topic, reply_count, suppressed_count,
+         first_seen_ms, last_seen_ms, expires_at_ms, last_action, last_similarity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(channel, chat_id, sender_id) DO UPDATE SET
+          topic=excluded.topic,
+          reply_count=excluded.reply_count,
+          suppressed_count=excluded.suppressed_count,
+          first_seen_ms=excluded.first_seen_ms,
+          last_seen_ms=excluded.last_seen_ms,
+          expires_at_ms=excluded.expires_at_ms,
+          last_action=excluded.last_action,
+          last_similarity=excluded.last_similarity`)
+        .run(
+          normalizedChannel,
+          normalizedChatId,
+          normalizedSenderId,
+          JSON.stringify(comparison.repeat && priorTopic ? priorTopic : topic),
+          count,
+          suppressedCount,
+          firstSeenMs,
+          currentMs,
+          expiresAtMs,
+          action,
+          Number(comparison.similarity || 0),
+        );
+      this.db.exec('COMMIT');
+      return {
+        action,
+        count,
+        reset,
+        similarity: Number(comparison.similarity || 0),
+        reason: comparison.reason,
+        expiresAtMs,
+      };
+    } catch (error) {
+      try { this.db.exec('ROLLBACK'); } catch {}
+      throw error;
+    }
+  }
+
+  semanticRepeatStats(nowMs = Date.now()) {
+    const activeTopics = Number(this.db.prepare(`SELECT COUNT(*) AS count
+      FROM semantic_repeat_guard WHERE expires_at_ms > ?`).get(Number(nowMs))?.count || 0);
+    const totalSuppressed = Number(this.db.prepare(`SELECT COALESCE(SUM(suppressed_count), 0) AS count
+      FROM semantic_repeat_guard`).get()?.count || 0);
+    const latest = this.db.prepare(`SELECT channel, chat_id, sender_id, last_seen_ms,
+        reply_count, suppressed_count, last_similarity
+      FROM semantic_repeat_guard WHERE last_action = 'suppress'
+      ORDER BY last_seen_ms DESC LIMIT 1`).get();
+    return {
+      activeTopics,
+      totalSuppressed,
+      latestSuppression: latest ? {
+        channel: latest.channel,
+        chatId: latest.chat_id,
+        senderId: latest.sender_id,
+        at: new Date(Number(latest.last_seen_ms)).toISOString(),
+        count: Number(latest.reply_count),
+        suppressedCount: Number(latest.suppressed_count),
+        similarity: Number(latest.last_similarity),
+      } : null,
+    };
   }
 
   markSelfChat(chatId) {
@@ -1332,6 +1460,9 @@ export class AgentState {
         AND CAST(json_extract(value, '$.expiresAt') AS INTEGER) <= ?`).run(nowMs).changes;
     const rateLimit = this.db.prepare('DELETE FROM rate_limit WHERE updated_at < ?').run(auditBefore).changes;
     const outboundEcho = this.db.prepare('DELETE FROM outbound_echo WHERE expires_at < ?').run(now).changes;
+    const semanticRepeat = this.db.prepare(`DELETE FROM semantic_repeat_guard
+      WHERE expires_at_ms < ? AND last_seen_ms < ?`)
+      .run(nowMs, nowMs - auditRetentionMs).changes;
     const multicaNotification = this.db.prepare(`DELETE FROM multica_notification_outbox
       WHERE status = 'dead' AND dead_at < ?`).run(auditBefore).changes;
     const mutation = this.db.prepare(`DELETE FROM mutation_execution
@@ -1345,6 +1476,7 @@ export class AgentState {
       pendingAction: Number(pendingAction),
       rateLimit: Number(rateLimit),
       outboundEcho: Number(outboundEcho),
+      semanticRepeat: Number(semanticRepeat),
       multicaNotification: Number(multicaNotification),
       mutation: Number(mutation),
     };

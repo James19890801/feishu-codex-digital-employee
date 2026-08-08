@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentState } from './state.mjs';
+import { semanticTopic } from './semantic-repeat-guard.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'xiaozhao-state-'));
 try {
@@ -140,6 +141,63 @@ try {
   );
   assert.equal(state.claimSelfChatOutbound('oc_self', 124_001, guardOptions).allowed, true);
   assert.equal(state.claimSelfChatOutbound('oc_other_self', 4_000, guardOptions).allowed, true);
+
+  const semanticOptions = {
+    channel: 'dingtalk',
+    chatId: 'dingtalk:group:test',
+    senderId: 'dingtalk:other-bot',
+    windowMs: 30 * 60_000,
+    maxReplies: 2,
+  };
+  const firstSemantic = state.claimSemanticRepeat({
+    ...semanticOptions,
+    topic: semanticTopic('等杨红宝确认后再推进'),
+    nowMs: 1_000,
+  });
+  assert.deepEqual(
+    { action: firstSemantic.action, count: firstSemantic.count, reset: firstSemantic.reset },
+    { action: 'process', count: 1, reset: false },
+  );
+  const secondSemantic = state.claimSemanticRepeat({
+    ...semanticOptions,
+    topic: semanticTopic('这个需要等杨红宝确认后再往下推进'),
+    nowMs: 2_000,
+  });
+  assert.equal(secondSemantic.action, 'close');
+  assert.equal(secondSemantic.count, 2);
+  const thirdSemantic = state.claimSemanticRepeat({
+    ...semanticOptions,
+    topic: semanticTopic('等杨红宝本人确认后再推进'),
+    nowMs: 3_000,
+  });
+  assert.equal(thirdSemantic.action, 'suppress');
+  assert.equal(thirdSemantic.count, 3);
+  assert.equal(state.claimSemanticRepeat({
+    ...semanticOptions,
+    topic: semanticTopic('MYS-12 已经完成，查看新结果'),
+    nowMs: 4_000,
+  }).action, 'process', 'materially new information must reset the topic');
+  assert.equal(state.claimSemanticRepeat({
+    ...semanticOptions,
+    chatId: 'dingtalk:group:other',
+    topic: semanticTopic('等杨红宝确认后再推进'),
+    nowMs: 5_000,
+  }).action, 'process', 'different chats must be isolated');
+  assert.equal(state.claimSemanticRepeat({
+    ...semanticOptions,
+    senderId: 'dingtalk:human',
+    topic: semanticTopic('等杨红宝确认后再推进'),
+    nowMs: 6_000,
+  }).action, 'process', 'different senders must be isolated');
+  assert.equal(state.claimSemanticRepeat({
+    ...semanticOptions,
+    topic: semanticTopic('等杨红宝确认后再推进'),
+    nowMs: 31 * 60_000,
+  }).action, 'process', 'expired topics must reset');
+  const semanticStats = state.semanticRepeatStats(31 * 60_000);
+  assert.equal(semanticStats.activeTopics >= 1, true);
+  assert.equal(semanticStats.totalSuppressed >= 1, true);
+  assert.equal('topic' in (semanticStats.latestSuppression || {}), false);
 
   const echoId = state.recordOutboundEcho('oc_self', '平台回复', {
     now,
