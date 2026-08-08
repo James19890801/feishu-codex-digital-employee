@@ -78,6 +78,7 @@ export function buildDingTalkConsumerArgs(profile = '') {
     'event', 'consume',
     'user_im_message_receive_at',
     'user_im_message_receive_o2o_all',
+    'user_im_message_receive_group_all',
     '--flatten',
     '--format', 'ndjson',
   ];
@@ -176,7 +177,9 @@ function normalizedTimestamp(value) {
 
 export function normalizeDingTalkEvent(event) {
   const type = String(event?.type || '');
-  const group = type === 'user_im_message_receive_at';
+  const explicitGroupMention = type === 'user_im_message_receive_at';
+  const semanticGroup = type === 'user_im_message_receive_group_all';
+  const group = explicitGroupMention || semanticGroup;
   const direct = type === 'user_im_message_receive_o2o_all';
   if (!group && !direct) return null;
   const senderId = String(event?.sender_open_dingtalk_id || '').trim();
@@ -199,7 +202,7 @@ export function normalizeDingTalkEvent(event) {
       content: JSON.stringify(media
         ? { text: '', resource_id: media.resourceId, display_name: media.displayName }
         : { text: rawContent }),
-      mentions: group ? [{ id: 'dingtalk-current-user' }] : [],
+      mentions: explicitGroupMention ? [{ id: 'dingtalk-current-user' }] : [],
     },
     sender: {
       sender_type: 'user',
@@ -208,6 +211,10 @@ export function normalizeDingTalkEvent(event) {
     metadata: {
       channel: 'dingtalk',
       eventType: type,
+      ...(semanticGroup ? {
+        semanticCandidate: true,
+        mentionedOther: /@\S+/.test(rawContent),
+      } : {}),
       ...(media ? {
         media: {
           kind: media.kind,

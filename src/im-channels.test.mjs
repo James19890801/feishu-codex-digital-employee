@@ -127,6 +127,7 @@ assert.deepEqual(buildDingTalkConsumerArgs(), [
   'event', 'consume',
   'user_im_message_receive_at',
   'user_im_message_receive_o2o_all',
+  'user_im_message_receive_group_all',
   '--flatten',
   '--format', 'ndjson',
 ]);
@@ -135,6 +136,7 @@ assert.deepEqual(buildDingTalkConsumerArgs('corp:user'), [
   'event', 'consume',
   'user_im_message_receive_at',
   'user_im_message_receive_o2o_all',
+  'user_im_message_receive_group_all',
   '--flatten',
   '--format', 'ndjson',
 ]);
@@ -425,10 +427,20 @@ assert.throws(
   assert.deepEqual(payload.message.mentions, []);
 }
 
-assert.equal(normalizeDingTalkEvent({
-  type: 'user_im_message_receive_group_all',
-  event_id: 'ignored',
-}), null);
+{
+  const payload = normalizeDingTalkEvent({
+    type: 'user_im_message_receive_group_all',
+    event_id: 'event-group-all',
+    message_id: 'message-group-all',
+    conversation_id: 'cid-group-all',
+    sender_open_dingtalk_id: 'sender-group-all',
+    content: 'AI 对流程管理有什么影响？',
+    timestamp: 1785463200000,
+  });
+  assert.equal(payload.message.chat_id, 'dingtalk:group:cid-group-all');
+  assert.deepEqual(payload.message.mentions, []);
+  assert.equal(payload.metadata.semanticCandidate, true);
+}
 
 {
   const args = buildDingTalkSendArgs(

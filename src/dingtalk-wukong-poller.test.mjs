@@ -9,7 +9,7 @@ assert.equal(shouldRunDingTalkSemanticObserver({
   dingtalkEnabled: true,
   semanticGroupEngagementEnabled: true,
   dingtalkTransport: 'event-stream',
-}), true);
+}), false);
 assert.equal(shouldRunDingTalkSemanticObserver({
   dingtalkEnabled: true,
   semanticGroupEngagementEnabled: true,

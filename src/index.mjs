@@ -3944,6 +3944,7 @@ async function initializeAdditionalImChannels() {
     } else {
       dingTalkChannel = createDingTalkChannel();
       if (config.dingtalkTransport === 'event-stream') {
+        state.unset('health', 'last_dingtalk_semantic_poll_error');
         dingTalkSupervisorPromise = superviseDingTalkEvents()
           .catch(error => console.error('[dingtalk-supervisor-fatal]', error));
       }

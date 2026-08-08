@@ -10,7 +10,7 @@ export function shouldRunDingTalkSemanticObserver({
 } = {}) {
   return Boolean(dingtalkEnabled
     && semanticGroupEngagementEnabled
-    && dingtalkTransport !== 'wukong-polling');
+    && !['event-stream', 'wukong-polling'].includes(String(dingtalkTransport || '')));
 }
 
 export function semanticObserverFailureRecord(error, {

@@ -24,6 +24,7 @@ import {
     'event', 'consume',
     'user_im_message_receive_at',
     'user_im_message_receive_o2o_all',
+    'user_im_message_receive_group_all',
     '--flatten',
     '--format', 'ndjson',
   ]);

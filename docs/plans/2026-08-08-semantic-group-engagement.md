@@ -4,7 +4,7 @@
 
 **Goal:** Observe unmentioned Feishu and DingTalk group messages, use the preceding 30 messages to decide whether AIPRO should engage, and mention the answered sender when it replies.
 
-**Architecture:** Add a fail-closed two-stage engagement router in front of the existing workflow. Feishu reuses its all-message poll; DingTalk gains an independent shadow poller using the existing list-all API. Explicit mentions keep their current fast path, while unmentioned messages are first remembered, locally screened, and only ambiguous candidates are classified by the selected AI runtime.
+**Architecture:** Add a fail-closed two-stage engagement router in front of the existing workflow. Feishu reuses its all-message poll; DingTalk subscribes to the official DWS `user_im_message_receive_group_all` personal event alongside mention and direct-message events. Explicit mentions keep their current fast path, while unmentioned messages are first remembered, locally screened, and only ambiguous candidates are classified by the selected AI runtime.
 
 **Tech Stack:** Node.js ESM, `node:sqlite`, existing lark-cli and DWS CLIs, existing `AiRuntimeClient`, `node:test`-style assertion scripts, launchd.
 
@@ -89,6 +89,8 @@ git commit -m "feat: observe unmentioned Feishu group messages"
 ```
 
 ### Task 3: DingTalk shadow group observer
+
+> Implementation correction after live verification: DWS exposes `user_im_message_receive_group_all`, while `chat message list-all` requires a separate search entitlement. The final event-stream implementation therefore adds the full-group event to the existing consumer and disables the shadow poller for both supported transports. The poller code remains only as compatibility infrastructure for unknown legacy transports.
 
 **Files:**
 - Modify: `src/im-channels.mjs`

@@ -30,7 +30,7 @@ The existing user polling request already retrieves all accessible messages. The
 
 ### DingTalk
 
-The personal event stream supplies direct messages and group mention events. A shadow polling path will use the existing `chat message list-all` capability to observe unmentioned group messages. It runs independently of the event consumer, uses the durable inbox for message-ID deduplication, and has its own cursor, health state, exponential backoff, and circuit breaker. A failure in semantic polling must degrade only semantic observation; it must not mark the primary DingTalk event channel disconnected.
+The personal event stream subscribes to direct messages, group mention events, and `user_im_message_receive_group_all`. The full-group event is normalized as a `semanticCandidate`; the explicit mention event retains the existing fast path, and durable message-ID deduplication handles overlap. Wukong polling remains a compatibility transport only. The application must not depend on `chat message list-all`, because that API requires a separate message-search entitlement and DWS explicitly requires real-time automation to use `event consume`.
 
 Messages sent by AIPRO under the owner's identity are excluded through the existing outbound echo guard. Verified owner messages are treated as human takeover activity, not as semantic candidates.
 
@@ -66,7 +66,7 @@ Only plausible ambiguous candidates reach the AI classifier. The classifier rece
 
 ## Timing and Reliability
 
-Mention events remain near-real-time through the existing event consumers. Unmentioned messages are processed on the user polling cadence. The first commercial-safe default reuses the current bounded polling interval and backoff rather than increasing API pressure. Polling cadence can later be exposed as a separate dashboard setting after rate-limit data is available.
+Feishu unmentioned messages follow the bounded user-polling cadence. DingTalk mention and unmentioned group messages arrive through the same personal event-stream connection, so both are near-real-time without message-search API pressure.
 
 The semantic observer has independent health metrics:
 
@@ -100,7 +100,7 @@ Integration tests prove:
 4. unrelated group chatter is observed but not answered;
 5. owner activity suppresses replies for at least five minutes;
 6. repeated digital-human messages cannot create an unbounded loop;
-7. semantic polling failure does not disconnect Feishu or DingTalk primary channels;
-8. duplicate event and polling copies are processed once;
+7. unavailable DingTalk message-search entitlement does not affect semantic event-stream observation or disconnect either primary channel;
+8. duplicate DingTalk mention and group-all event copies are processed once;
 9. disabling the feature restores mention-only behavior;
 10. the complete existing test and mechanism-acceptance suites remain green.
