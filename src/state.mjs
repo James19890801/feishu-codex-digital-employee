@@ -79,6 +79,7 @@ export class AgentState {
         expires_at_ms INTEGER NOT NULL,
         last_action TEXT NOT NULL DEFAULT 'process',
         last_similarity REAL NOT NULL DEFAULT 0,
+        last_message_id TEXT NOT NULL DEFAULT '',
         PRIMARY KEY(channel, chat_id, sender_id)
       );
       CREATE INDEX IF NOT EXISTS semantic_repeat_expiry
@@ -617,6 +618,7 @@ export class AgentState {
     channel,
     chatId,
     senderId,
+    messageId = '',
     topic,
     nowMs = Date.now(),
     windowMs = 30 * 60_000,
@@ -635,10 +637,21 @@ export class AgentState {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const prior = this.db.prepare(`SELECT topic, reply_count, suppressed_count,
-          first_seen_ms, expires_at_ms
+          first_seen_ms, expires_at_ms, last_action, last_similarity, last_message_id
         FROM semantic_repeat_guard
         WHERE channel = ? AND chat_id = ? AND sender_id = ?`)
         .get(normalizedChannel, normalizedChatId, normalizedSenderId);
+      if (messageId && prior?.last_message_id === String(messageId)) {
+        this.db.exec('COMMIT');
+        return {
+          action: prior.last_action,
+          count: Number(prior.reply_count),
+          reset: false,
+          similarity: Number(prior.last_similarity || 0),
+          reason: 'same_inbound_retry',
+          expiresAtMs: Number(prior.expires_at_ms),
+        };
+      }
       let priorTopic = null;
       try { priorTopic = prior ? JSON.parse(prior.topic) : null; } catch { priorTopic = null; }
       const expired = Boolean(prior && Number(prior.expires_at_ms) <= currentMs);
@@ -661,8 +674,8 @@ export class AgentState {
       }
       this.db.prepare(`INSERT INTO semantic_repeat_guard
         (channel, chat_id, sender_id, topic, reply_count, suppressed_count,
-         first_seen_ms, last_seen_ms, expires_at_ms, last_action, last_similarity)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         first_seen_ms, last_seen_ms, expires_at_ms, last_action, last_similarity, last_message_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(channel, chat_id, sender_id) DO UPDATE SET
           topic=excluded.topic,
           reply_count=excluded.reply_count,
@@ -671,7 +684,8 @@ export class AgentState {
           last_seen_ms=excluded.last_seen_ms,
           expires_at_ms=excluded.expires_at_ms,
           last_action=excluded.last_action,
-          last_similarity=excluded.last_similarity`)
+          last_similarity=excluded.last_similarity,
+          last_message_id=excluded.last_message_id`)
         .run(
           normalizedChannel,
           normalizedChatId,
@@ -684,6 +698,7 @@ export class AgentState {
           expiresAtMs,
           action,
           Number(comparison.similarity || 0),
+          String(messageId || ''),
         );
       this.db.exec('COMMIT');
       return {

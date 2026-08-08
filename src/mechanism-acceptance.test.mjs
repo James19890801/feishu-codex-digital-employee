@@ -32,6 +32,7 @@ import {
 } from './self-chat-guard.mjs';
 import { AgentState } from './state.mjs';
 import { evaluateLicenseGuard } from './licensing/guard.mjs';
+import { semanticRepeatEligibility } from './semantic-repeat-controller.mjs';
 
 const cases = [];
 
@@ -207,6 +208,28 @@ contract('group-attribution', 'Can a missing DingTalk @ placeholder pass silentl
     { atOpenDingTalkIds: ['requester-1'] },
   ), /mention placeholder/i);
 });
+
+for (const [question, input, expected] of [
+  ['Do DingTalk group text messages enter semantic loop protection?', {
+    enabled: true, channel: 'dingtalk', chatType: 'group', messageType: 'text', text: '继续讨论',
+  }, true],
+  ['Do Feishu group posts enter semantic loop protection?', {
+    enabled: true, channel: 'feishu', chatType: 'group', messageType: 'post', text: '继续讨论',
+  }, true],
+  ['Do direct messages remain unchanged?', {
+    enabled: true, channel: 'dingtalk', chatType: 'p2p', messageType: 'text', text: '继续讨论',
+  }, false],
+  ['Do unsupported channels remain unchanged?', {
+    enabled: true, channel: 'wechat', chatType: 'group', messageType: 'text', text: '继续讨论',
+  }, false],
+  ['Do media-only messages remain unchanged?', {
+    enabled: true, channel: 'dingtalk', chatType: 'group', messageType: 'image', text: '',
+  }, false],
+]) {
+  contract('loop-prevention', question, () => {
+    assert.equal(semanticRepeatEligibility(input).eligible, expected);
+  });
+}
 
 for (const [question, event, accepted] of [
   ['Is a valid DingTalk group @ event accepted?', {

@@ -87,6 +87,7 @@ export function semanticTopic(text) {
     resetRequested: RESET_PATTERN.test(withoutMentions.replace(LEADING_ACK_PATTERN, '').trim()),
     keywords: keywords(normalized),
     shingles: characterShingles(normalized),
+    anchors: characterShingles(normalized, 6),
   };
 }
 
@@ -110,11 +111,15 @@ export function compareSemanticTopics(previous, current, {
   }
   const keywordSimilarity = dice(previous.keywords || [], current.keywords || []);
   const shingleSimilarity = dice(previous.shingles || [], current.shingles || []);
+  const sharedAnchor = (previous.anchors || []).some(value => (current.anchors || []).includes(value));
   const similarity = Math.max(keywordSimilarity, shingleSimilarity);
+  const semanticRepeat = keywordSimilarity >= keywordThreshold
+    || shingleSimilarity >= shingleThreshold
+    || (sharedAnchor && shingleSimilarity >= 0.3);
   return {
-    repeat: keywordSimilarity >= keywordThreshold || shingleSimilarity >= shingleThreshold,
+    repeat: semanticRepeat,
     similarity,
-    reason: keywordSimilarity >= keywordThreshold || shingleSimilarity >= shingleThreshold
+    reason: semanticRepeat
       ? 'semantic_similarity'
       : 'new_topic',
   };
