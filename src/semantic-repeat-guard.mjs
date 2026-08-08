@@ -6,6 +6,7 @@ const ISSUE_PATTERN = /\b[A-Z][A-Z0-9]{1,9}-\d+\b/gu;
 const URL_PATTERN = /https?:\/\/[^\s<>\])）]+/giu;
 const DATE_PATTERN = /(?:\d{4}[年/.\-])?\d{1,2}[月/.\-]\d{1,2}(?:日|号)?/gu;
 const NUMBER_PATTERN = /\d+(?:\.\d+)?%?/gu;
+const CONFIRMATION_HANDOFF_PATTERN = /(?=.*(?:确认|安排|等待|等))(?=.*(?:跟.{0,4}说|告诉|转达|发.{0,4}声|回复))/u;
 const LOW_INFORMATION_WORDS = new Set([
   '这个', '那个', '需要', '本人', '安排', '收到', '好的', '可以', '然后', '之后',
   '一下', '直接', '第一时间', '到时', '再', '往下', '一声', '帮', '您', '我', '了',
@@ -85,6 +86,9 @@ export function semanticTopic(text) {
     signature: createHash('sha256').update(normalized).digest('hex'),
     signals: extractSignals(withoutMentions),
     resetRequested: RESET_PATTERN.test(withoutMentions.replace(LEADING_ACK_PATTERN, '').trim()),
+    terminalIntent: CONFIRMATION_HANDOFF_PATTERN.test(normalized)
+      ? 'confirmation_handoff'
+      : '',
     keywords: keywords(normalized),
     shingles: characterShingles(normalized),
     anchors: characterShingles(normalized, 6),
@@ -105,6 +109,10 @@ export function compareSemanticTopics(previous, current, {
   if ((previous.surface && previous.surface === current.surface)
     || (previous.signature === current.signature && current.normalized)) {
     return { repeat: true, similarity: 1, reason: 'exact_normalized_match' };
+  }
+  if (previous.terminalIntent
+    && previous.terminalIntent === current.terminalIntent) {
+    return { repeat: true, similarity: 1, reason: 'terminal_intent_match' };
   }
   if (Math.min(previous.normalized?.length || 0, current.normalized?.length || 0) < minFuzzyChars) {
     return { repeat: false, similarity: 0, reason: 'short_message_fail_open' };

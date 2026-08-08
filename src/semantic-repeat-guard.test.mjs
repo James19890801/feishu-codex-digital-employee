@@ -18,6 +18,14 @@ const paraphraseA = semanticTopic('这个需要杨红宝本人确认安排，确
 const paraphraseB = semanticTopic('等杨红宝本人确认后再推进，确认了发我一声。');
 assert.equal(compareSemanticTopics(paraphraseA, paraphraseB).repeat, true);
 
+const incidentClosureA = semanticTopic('行，确认了第一时间跟您说。 @詹老师');
+const incidentClosureB = semanticTopic('收到，这个需要杨红宝本人确认/安排，我帮您转达一下。 @詹老师');
+assert.equal(
+  compareSemanticTopics(incidentClosureA, incidentClosureB).repeat,
+  true,
+  'alternating digital-human closure phrases are the same terminal topic',
+);
+
 assert.equal(compareSemanticTopics(
   semanticTopic('MYS-11 等确认后推进'),
   semanticTopic('MYS-12 等确认后推进'),
