@@ -156,6 +156,10 @@ import {
   resolveReplyMentionSenderIds,
 } from './reply-routing.mjs';
 import {
+  decideSemanticGroupEngagement,
+  isSemanticEntryCooldownActive,
+} from './semantic-group-engagement.mjs';
+import {
   applyOwnerActivityHistory,
   applyVerifiedOwnerHistory,
   evaluateHumanTakeover,
@@ -2194,8 +2198,81 @@ async function processIncoming(client, message, sender, metadata = {}) {
     return;
   }
 
-  if (message.chat_type === 'group'
-    && (!Array.isArray(message.mentions) || message.mentions.length === 0)) return;
+  const existingHistory = state.chatHistory(message.chat_id, 30);
+  remember(
+    message.chat_id,
+    senderOpenId,
+    'user',
+    cleanText || `发送了${message.message_type}`,
+    { sourceMessageId: message.message_id },
+  );
+
+  const hasGroupMention = message.chat_type === 'group'
+    && metadata.semanticCandidate !== true
+    && Array.isArray(message.mentions)
+    && message.mentions.length > 0;
+  if (message.chat_type === 'group' && !hasGroupMention) {
+    const discussionChannel = metadata.channel
+      || parseChannelChatId(message.chat_id)?.channel
+      || 'feishu';
+    const discussionSession = state.discussionSession(discussionChannel, message.chat_id);
+    const activeDiscussion = discussionSession?.status === 'active'
+      && nowMs - Number(discussionSession.lastSeenMs || 0) <= config.adaptiveDiscussionCooldownMs;
+    const semanticReplyState = state.get('semantic_group_reply', message.chat_id, {});
+    const engagement = await decideSemanticGroupEngagement({
+      assessment: {
+        enabled: config.semanticGroupEngagementEnabled !== false,
+        chatType: message.chat_type,
+        messageType: message.message_type,
+        text: cleanText,
+        currentSenderId: senderOpenId,
+        aliases: Array.isArray(config.semanticGroupAliases) && config.semanticGroupAliases.length
+          ? config.semanticGroupAliases
+          : ['AIPRO', '詹老师助理', '数字人', '詹老师'],
+        recentMessages: existingHistory,
+        mentionedOther: metadata.mentionedOther === true,
+        activeDiscussion,
+        cooldownActive: isSemanticEntryCooldownActive({
+          lastReplyAtMs: Number(semanticReplyState.lastReplyAtMs || 0),
+          nowMs,
+          cooldownMs: Number(config.semanticGroupEntryCooldownMs || 120_000),
+          activeDiscussion,
+        }),
+        nowMs,
+      },
+      recentMessages: existingHistory,
+      threshold: Number(config.semanticGroupReplyThreshold || 0.86),
+      runClassifier: async prompt => {
+        const { text: output } = await runAiRuntime(prompt, {
+          cwd: CODEX_RUNTIME_DIR,
+          model: SELECTED_AI_RUNTIME.id === 'codex' ? config.codexModel : '',
+          timeoutMs: Math.min(Number(config.codexTimeoutMs || 120_000), 45_000),
+          maxStdoutBytes: 64 * 1024,
+          maxStderrBytes: 512 * 1024,
+        });
+        return output;
+      },
+    });
+    state.audit('semantic_group_engagement_decided', {
+      chatId: message.chat_id,
+      senderId: senderOpenId,
+      messageId: message.message_id,
+      detail: {
+        channel: discussionChannel,
+        action: engagement.action,
+        reasonCode: engagement.reasonCode,
+        confidenceBucket: engagement.confidence >= 0.9
+          ? 'high' : engagement.confidence >= 0.7 ? 'medium' : 'low',
+      },
+    });
+    if (!engagement.shouldReply) return;
+    state.set('semantic_group_reply', message.chat_id, {
+      lastReplyAtMs: nowMs,
+      action: engagement.action,
+      reasonCode: engagement.reasonCode,
+      updatedAt: new Date(nowMs).toISOString(),
+    });
+  }
 
   const operatorCommand = matchOperatorCommand(cleanText);
   const decision = decideWorkflow(cleanText, {
@@ -2206,14 +2283,6 @@ async function processIncoming(client, message, sender, metadata = {}) {
   const discussionChannel = metadata.channel
     || parseChannelChatId(message.chat_id)?.channel
     || 'feishu';
-  const existingHistory = state.chatHistory(message.chat_id, 30);
-  remember(
-    message.chat_id,
-    senderOpenId,
-    'user',
-    cleanText || `发送了${message.message_type}`,
-    { sourceMessageId: message.message_id },
-  );
   const discussionOwnerAuthorized = senderOpenId === OWNER_OPEN_ID
     || (discussionChannel === 'dingtalk'
       && senderOpenId === `dingtalk:${config.dingtalkOwnerOpenId}`)

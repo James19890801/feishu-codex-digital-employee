@@ -24,7 +24,15 @@ import {
 import { isAuthorizedMulticaOwner } from './multica-access.mjs';
 import { notificationEvent } from './notification-policy.mjs';
 import { PendingActionStore } from './pending-actions.mjs';
-import { selectInboundMessages, shouldRetryMessage } from './polling.mjs';
+import {
+  selectInboundMessages,
+  selectSemanticGroupCandidates,
+  shouldRetryMessage,
+} from './polling.mjs';
+import {
+  assessGroupEngagement,
+  buildSemanticEngagementPrompt,
+} from './semantic-group-engagement.mjs';
 import { validateInboundPayload } from './reliability.mjs';
 import {
   hasSelfChatOutboundMarker,
@@ -497,6 +505,35 @@ contract('polling-selection', 'Do polling and WebSocket deduplicate the same mes
     group,
   ], owner);
   assert.deepEqual(selected.map(item => item.message_id).sort(), ['direct', 'group-at']);
+});
+
+contract('semantic-group-engagement', 'Are unmentioned group messages observed without replacing the mention fast path?', () => {
+  const candidates = selectSemanticGroupCandidates([{
+    message_id: 'semantic-1', chat_id: 'group-1', chat_type: 'group', msg_type: 'text',
+    content: 'AI 对流程管理有什么影响？', mentions: [],
+    sender: { id: 'member-1', sender_type: 'user' },
+  }], identities.ownerOpenId, 'app-id');
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].semantic_candidate, true);
+});
+
+contract('semantic-group-engagement', 'Does a named unmentioned message enter the reply workflow?', () => {
+  assert.equal(assessGroupEngagement({
+    enabled: true, chatType: 'group', messageType: 'text',
+    text: '詹老师助理，这一点你怎么看？', aliases: ['詹老师助理'],
+  }).action, 'reply_named');
+});
+
+contract('semantic-group-engagement', 'Is semantic classification limited to the preceding 30 group messages?', () => {
+  const prompt = buildSemanticEngagementPrompt({
+    text: '这个问题要不要参与？', senderId: 'member-1',
+    recentMessages: Array.from({ length: 31 }, (_, index) => ({
+      role: 'user', senderId: `member-${index}`, content: `context-${index + 1}`,
+    })),
+  });
+  assert.equal(prompt.includes('context-1\n'), false);
+  assert.equal(prompt.includes('context-2'), true);
+  assert.equal(prompt.includes('context-31'), true);
 });
 
 for (const [attempt, expected] of [[1, true], [2, true], [3, false], [4, false]]) {

@@ -105,7 +105,8 @@ export function selectSemanticGroupCandidates(messages, ownerOpenId, appId = '')
     .filter(message => {
       if (!message?.message_id || seen.has(message.message_id) || message.deleted) return false;
       if (message.sender?.sender_type !== 'user' || message.sender?.id === ownerOpenId) return false;
-      if (message.chat_type !== 'group' || !['text', 'post'].includes(message.msg_type || 'text')) {
+      if (message.chat_type !== 'group'
+        || !['text', 'post', 'image', 'file', 'audio', 'media'].includes(message.msg_type || 'text')) {
         return false;
       }
       const mentions = Array.isArray(message.mentions) ? message.mentions : [];

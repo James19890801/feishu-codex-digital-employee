@@ -128,12 +128,14 @@ const ownerBotMention = {
   ], ownerOpenId, appId);
   assert.deepEqual(selected.map(item => item.message_id), [
     'om_semantic_candidate',
+    'om_semantic_image',
     'om_semantic_other_target',
   ]);
   assert.equal(selected[0].semantic_candidate, true);
   assert.equal(selected[0].mentioned_other, false);
-  assert.equal(selected[1].mentioned_other, true);
-  const normalized = normalizeSearchMessage(selected[1]);
+  const otherTarget = selected.find(item => item.message_id === 'om_semantic_other_target');
+  assert.equal(otherTarget.mentioned_other, true);
+  const normalized = normalizeSearchMessage(otherTarget);
   assert.equal(normalized.metadata.semanticCandidate, true);
   assert.equal(normalized.metadata.mentionedOther, true);
 }

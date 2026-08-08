@@ -6,8 +6,33 @@ function normalizedText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+function directlyAddressesAlias(content, alias) {
+  const source = content.toLocaleLowerCase();
+  const target = alias.toLocaleLowerCase();
+  const index = source.indexOf(target);
+  if (index < 0) return false;
+  const before = source.slice(0, index).trim();
+  const after = source.slice(index + target.length).trimStart();
+  const directPrefix = !before || /^(?:请问|想问(?:下|一下)?|麻烦)$/u.test(before)
+    || /[，,。！？!?：:]$/u.test(before);
+  const directSuffix = !after || /^[，,。！？!?：:]/u.test(after)
+    || /^(?:你|请|帮|在吗|能否|能不能|可以|回答|看看|看下|怎么|如何|为什么|是否|需要)/u.test(after);
+  return directPrefix && directSuffix;
+}
+
 function result(action, reasonCode, extra = {}) {
   return { action, reasonCode, ...extra };
+}
+
+export function isSemanticEntryCooldownActive({
+  lastReplyAtMs = 0,
+  nowMs = Date.now(),
+  cooldownMs = 120_000,
+  activeDiscussion = false,
+} = {}) {
+  if (activeDiscussion) return false;
+  const elapsed = Number(nowMs) - Number(lastReplyAtMs || 0);
+  return Number(lastReplyAtMs) > 0 && elapsed >= 0 && elapsed < Number(cooldownMs || 0);
 }
 
 function recentlyAddressedSender(recentMessages, senderId, nowMs, windowMs) {
@@ -30,6 +55,7 @@ export function assessGroupEngagement({
   recentMessages = [],
   currentSenderId = '',
   humanTakeover = false,
+  mentionedOther = false,
   cooldownActive = false,
   activeDiscussion = false,
   nowMs = Date.now(),
@@ -43,11 +69,12 @@ export function assessGroupEngagement({
   }
   if (humanTakeover) return result('suppress', 'human_takeover');
   if (explicitMention) return result('reply_explicit', 'explicit_mention');
+  if (mentionedOther) return result('observe', 'addressed_other');
 
   const named = (Array.isArray(aliases) ? aliases : [])
     .map(normalizedText)
     .filter(Boolean)
-    .some(alias => content.toLocaleLowerCase().includes(alias.toLocaleLowerCase()));
+    .some(alias => directlyAddressesAlias(content, alias));
   if (named) return result('reply_named', 'assistant_alias');
   if (LOW_INFORMATION_PATTERN.test(content)) return result('observe', 'low_information');
 
@@ -128,4 +155,68 @@ export function parseSemanticEngagementDecision(output, {
     .filter(value => allowed.has(value)))].slice(0, 20);
   if (!targetSenderIds.length && fallbackId) targetSenderIds.push(fallbackId);
   return { action: 'reply_semantic', confidence, reasonCode, targetSenderIds };
+}
+
+export async function decideSemanticGroupEngagement({
+  assessment = {},
+  recentMessages = [],
+  threshold = 0.86,
+  runClassifier,
+} = {}) {
+  const effectiveRecentMessages = Array.isArray(assessment.recentMessages)
+    && assessment.recentMessages.length
+    ? assessment.recentMessages
+    : recentMessages;
+  const local = assessGroupEngagement({
+    ...assessment,
+    recentMessages: effectiveRecentMessages,
+  });
+  if (['reply_explicit', 'reply_named', 'reply_continuation'].includes(local.action)) {
+    const senderId = String(assessment.currentSenderId || '').trim();
+    return {
+      shouldReply: true,
+      action: local.action,
+      reasonCode: local.reasonCode,
+      confidence: 1,
+      targetSenderIds: senderId ? [senderId] : [],
+    };
+  }
+  if (local.action !== 'classify') {
+    return {
+      shouldReply: false,
+      action: local.action,
+      reasonCode: local.reasonCode,
+      confidence: 0,
+      targetSenderIds: [],
+    };
+  }
+  if (typeof runClassifier !== 'function') {
+    return {
+      shouldReply: false,
+      action: 'observe',
+      reasonCode: 'classifier_unavailable',
+      confidence: 0,
+      targetSenderIds: [],
+    };
+  }
+  try {
+    const output = await runClassifier(buildSemanticEngagementPrompt({
+      text: assessment.text,
+      senderId: assessment.currentSenderId,
+      recentMessages: effectiveRecentMessages,
+    }));
+    const parsed = parseSemanticEngagementDecision(output, {
+      threshold,
+      defaultSenderId: assessment.currentSenderId,
+    });
+    return { shouldReply: parsed.action === 'reply_semantic', ...parsed };
+  } catch {
+    return {
+      shouldReply: false,
+      action: 'observe',
+      reasonCode: 'classifier_error',
+      confidence: 0,
+      targetSenderIds: [],
+    };
+  }
 }

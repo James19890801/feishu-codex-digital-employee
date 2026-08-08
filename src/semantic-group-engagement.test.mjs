@@ -2,8 +2,27 @@ import assert from 'node:assert/strict';
 import {
   assessGroupEngagement,
   buildSemanticEngagementPrompt,
+  decideSemanticGroupEngagement,
+  isSemanticEntryCooldownActive,
   parseSemanticEngagementDecision,
 } from './semantic-group-engagement.mjs';
+
+assert.equal(isSemanticEntryCooldownActive({
+  lastReplyAtMs: 1_000,
+  nowMs: 61_000,
+  cooldownMs: 120_000,
+}), true);
+assert.equal(isSemanticEntryCooldownActive({
+  lastReplyAtMs: 1_000,
+  nowMs: 121_001,
+  cooldownMs: 120_000,
+}), false);
+assert.equal(isSemanticEntryCooldownActive({
+  lastReplyAtMs: 1_000,
+  nowMs: 61_000,
+  cooldownMs: 120_000,
+  activeDiscussion: true,
+}), false);
 
 const base = {
   enabled: true,
@@ -25,6 +44,11 @@ assert.equal(assessGroupEngagement({
   ...base,
   text: '詹老师助理，这个结论依据是什么？',
 }).action, 'reply_named');
+
+assert.equal(assessGroupEngagement({
+  ...base,
+  text: '我们正在讨论数字人对组织和流程的影响。',
+}).action, 'observe');
 
 assert.equal(assessGroupEngagement({
   ...base,
@@ -61,6 +85,12 @@ assert.equal(assessGroupEngagement({
   text: '詹老师助理帮我看一下',
 }).action, 'suppress');
 
+assert.equal(assessGroupEngagement({
+  ...base,
+  mentionedOther: true,
+  text: '@另一位同事 这个结论依据是什么？',
+}).action, 'observe');
+
 assert.deepEqual(parseSemanticEngagementDecision(
   '{"action":"reply","confidence":0.91,"reasonCode":"active_topic","targetSenderIds":["member-a"]}',
   { threshold: 0.86, defaultSenderId: 'member-a' },
@@ -88,5 +118,48 @@ assert.equal(prompt.includes('第5条'), false);
 assert.equal(prompt.includes('第6条'), true);
 assert.equal(prompt.includes('第35条'), true);
 assert.equal(prompt.includes('只输出一个 JSON 对象'), true);
+
+{
+  let classifierCalls = 0;
+  const decision = await decideSemanticGroupEngagement({
+    assessment: { ...base, text: '詹老师助理，帮我看看' },
+    runClassifier: async () => { classifierCalls += 1; return '{}'; },
+  });
+  assert.equal(decision.shouldReply, true);
+  assert.equal(decision.action, 'reply_named');
+  assert.equal(classifierCalls, 0);
+}
+
+{
+  let receivedPrompt = '';
+  const decision = await decideSemanticGroupEngagement({
+    assessment: { ...base, text: 'AI 对流程管理的影响应该怎么评估？' },
+    recentMessages: messages,
+    threshold: 0.86,
+    runClassifier: async classifierPrompt => {
+      receivedPrompt = classifierPrompt;
+      return '{"action":"reply","confidence":0.92,"reasonCode":"relevant_expertise","targetSenderIds":["member-a"]}';
+    },
+  });
+  assert.equal(decision.shouldReply, true);
+  assert.equal(decision.action, 'reply_semantic');
+  assert.equal(receivedPrompt.includes('第5条'), false);
+  assert.equal(receivedPrompt.includes('第6条'), true);
+}
+
+{
+  const decision = await decideSemanticGroupEngagement({
+    assessment: { ...base, text: 'AI 对流程管理的影响应该怎么评估？' },
+    recentMessages: messages,
+    runClassifier: async () => { throw new Error('runtime unavailable'); },
+  });
+  assert.deepEqual(decision, {
+    shouldReply: false,
+    action: 'observe',
+    reasonCode: 'classifier_error',
+    confidence: 0,
+    targetSenderIds: [],
+  });
+}
 
 console.log('SEMANTIC_GROUP_ENGAGEMENT_TEST_OK');
