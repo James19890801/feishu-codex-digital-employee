@@ -81,6 +81,7 @@ import {
   canPerformMutation,
   effectiveTask,
   initializeOptionalPoller,
+  interactiveInboundRateLimitPolicy,
   isBareMention,
   planPollWindow,
   validateInboundPayload,
@@ -2243,6 +2244,13 @@ async function processIncoming(client, message, sender, metadata = {}) {
       recentMessages: existingHistory,
       threshold: Number(config.semanticGroupReplyThreshold || 0.86),
       runClassifier: async prompt => {
+        const classificationAllowed = state.consumeRateLimit(
+          `semantic-classifier:${message.chat_id}`,
+          Date.now(),
+          60_000,
+          5,
+        );
+        if (!classificationAllowed) throw new Error('semantic classifier budget exhausted');
         const { text: output } = await runAiRuntime(prompt, {
           cwd: CODEX_RUNTIME_DIR,
           model: SELECTED_AI_RUNTIME.id === 'codex' ? config.codexModel : '',
@@ -3131,13 +3139,15 @@ function enqueueInbound(payload, source) {
     }
   }
   if (state.hasInbound(messageId)) return false;
-  const rateLimited = senderOpenId !== OWNER_OPEN_ID && !selfChat && !state.consumeRateLimit(
+  const rateLimitPolicy = interactiveInboundRateLimitPolicy(payload.metadata);
+  const rateLimited = rateLimitPolicy.apply
+    && senderOpenId !== OWNER_OPEN_ID && !selfChat && !state.consumeRateLimit(
     `sender:${senderOpenId || payload.message.chat_id}`,
     Date.now(),
     config.rateLimitWindowMs,
     config.rateLimitMaxMessages,
   );
-  const notifyRateLimit = rateLimited && state.consumeRateLimit(
+  const notifyRateLimit = rateLimited && rateLimitPolicy.notify && state.consumeRateLimit(
     `rate-notice:${senderOpenId || payload.message.chat_id}`,
     Date.now(),
     config.rateLimitWindowMs,

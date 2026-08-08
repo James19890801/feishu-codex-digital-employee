@@ -8,9 +8,19 @@ import {
   evaluateEventStatus,
   evaluateHealth,
   isBareMention,
+  interactiveInboundRateLimitPolicy,
   planPollWindow,
   validateInboundPayload,
 } from './reliability.mjs';
+
+assert.deepEqual(interactiveInboundRateLimitPolicy({ semanticCandidate: true }), {
+  apply: false,
+  notify: false,
+});
+assert.deepEqual(interactiveInboundRateLimitPolicy({}), {
+  apply: true,
+  notify: true,
+});
 
 {
   assert.equal(typeof reliability.initializeOptionalPoller, 'function');

@@ -11,6 +11,11 @@ export function validateInboundPayload(payload) {
   return { ok: true };
 }
 
+export function interactiveInboundRateLimitPolicy(metadata = {}) {
+  if (metadata?.semanticCandidate === true) return { apply: false, notify: false };
+  return { apply: true, notify: true };
+}
+
 export function effectiveTask(cleanText, { messageType = 'text' } = {}) {
   const text = String(cleanText || '').trim();
   if (text) return text;
