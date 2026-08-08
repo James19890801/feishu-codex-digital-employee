@@ -69,6 +69,12 @@ Low-value closure and cooldown suppression do not call Codex. Closing messages a
 - A closed session affects only one channel and group.
 - Service restarts retain session count and cooldown.
 
+## Verified-Owner Takeover in Direct Chats
+
+Direct chats use a separate, stronger human-presence rule. When the verified owner sends a real manual message in a Feishu or DingTalk direct conversation, AIPRO immediately stops replying in that conversation. Every additional owner message moves the inactivity deadline forward. AIPRO may take over again only after five full minutes without another owner message.
+
+Messages received during owner presence are still written to conversation context, so the later handoff does not lose the topic. Outbound-echo records distinguish AIPRO messages sent through the owner's identity from genuine manual owner activity; an assistant echo must never start or extend human takeover. The timer is scoped to one direct conversation and cannot pause other direct chats or any group.
+
 ## Configuration and Visibility
 
 Defaults:
@@ -82,4 +88,4 @@ The dashboard status API exposes enabled state, active sessions, maximum replies
 
 ## Verification
 
-Tests cover scoring, checkpoints, low-value closure, the exact 100-reply bound, retry idempotency, owner restart, cooldown persistence, channel isolation, direct-message bypass, no-mention closure, configuration bounds, dashboard status, and the existing full regression suite.
+Tests cover scoring, checkpoints, low-value closure, the exact 100-reply bound, retry idempotency, owner restart, cooldown persistence, channel isolation, direct-message bypass, no-mention closure, verified-owner direct-chat takeover, rolling five-minute inactivity, assistant-echo exclusion, configuration bounds, dashboard status, and the existing full regression suite.
