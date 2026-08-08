@@ -63,6 +63,13 @@ export const config = {
   rateLimitMaxMessages: boundedInteger(raw.rateLimitMaxMessages, {
     name: 'rateLimitMaxMessages', fallback: 10, min: 1, max: 100,
   }),
+  semanticRepeatGuardEnabled: raw.semanticRepeatGuardEnabled !== false,
+  semanticRepeatWindowMs: boundedInteger(raw.semanticRepeatWindowMs, {
+    name: 'semanticRepeatWindowMs', fallback: 30 * 60_000, min: 60_000, max: 24 * 60 * 60_000,
+  }),
+  semanticRepeatMaxReplies: boundedInteger(raw.semanticRepeatMaxReplies, {
+    name: 'semanticRepeatMaxReplies', fallback: 2, min: 2, max: 5,
+  }),
   webReaderEnabled: raw.webReaderEnabled !== false,
   webReaderMaxUrls: boundedInteger(raw.webReaderMaxUrls, {
     name: 'webReaderMaxUrls', fallback: 2, min: 1, max: 3,
