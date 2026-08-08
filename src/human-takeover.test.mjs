@@ -112,6 +112,38 @@ assert.deepEqual(rememberedDuringTakeover, [[
   { sourceMessageId: 'paused-context-1' },
 ]]);
 
+assert.equal(
+  typeof humanTakeoverModule.rememberDingTalkConversationContext,
+  'function',
+  'DingTalk conversation snapshots must preserve every participant, not only the current sender',
+);
+const rememberedGroupSnapshot = [];
+assert.equal(humanTakeoverModule.rememberDingTalkConversationContext([
+  {
+    content: 'AI 会把流程管理推向事中干预',
+    createTime: '2026-08-08 20:00:00',
+    openMessageId: 'group-message-1',
+    senderOpenDingTalkId: 'member-a',
+  },
+  {
+    content: '价值重心会从画流程转向解释 AI 判断',
+    createTime: '2026-08-08 20:00:01',
+    openMessageId: 'group-message-2',
+    senderOpenDingTalkId: 'member-b',
+  },
+], {
+  state: { remember: (...args) => { rememberedGroupSnapshot.push(args); return true; } },
+  chatId: 'dingtalk:group:test',
+  parseTime: value => Date.parse(String(value).replace(' ', 'T') + '+08:00'),
+}), 2);
+assert.deepEqual(
+  rememberedGroupSnapshot.map(args => [args[1], args[3], args[4].sourceMessageId]),
+  [
+    ['dingtalk:member-a', 'AI 会把流程管理推向事中干预', 'dingtalk:group-message-1'],
+    ['dingtalk:member-b', '价值重心会从画流程转向解释 AI 判断', 'dingtalk:group-message-2'],
+  ],
+);
+
 const prematureResume = evaluateHumanTakeover({
   current: evaluatedPause.state,
   text: '恢复接管',

@@ -153,6 +153,7 @@ import {
   applyOwnerActivityHistory,
   evaluateHumanTakeover,
   humanTakeoverStatus,
+  rememberDingTalkConversationContext,
   rememberSuppressedTakeoverContext,
   takeoverSyncFailurePolicy,
 } from './human-takeover.mjs';
@@ -1996,6 +1997,24 @@ async function syncRecentDingTalkTakeover(message, metadata = {}) {
   }
   const root = result?.result || result?.data || result || {};
   const messages = Array.isArray(root) ? root : (root.messages || root.items || []);
+  const rememberedContext = rememberDingTalkConversationContext(messages, {
+    state,
+    chatId: message.chat_id,
+    parseTime: dingTalkMessageTime,
+    isAssistantMessage: item => state.hasOutboundEcho(
+      message.chat_id,
+      String(item?.content || item?.text || ''),
+      { messageId: String(item?.openMessageId || item?.messageId || item?.message_id || '') },
+    ),
+  });
+  if (rememberedContext > 0) {
+    state.audit('group_context_synchronized', {
+      chatId: message.chat_id,
+      senderId: '',
+      messageId: message.message_id,
+      detail: { channel: 'dingtalk', remembered: rememberedContext },
+    });
+  }
   const applied = applyOwnerActivityHistory(messages, {
     ownerId: config.dingtalkOwnerOpenId,
     current: readHumanTakeover(message.chat_id, nowMs),

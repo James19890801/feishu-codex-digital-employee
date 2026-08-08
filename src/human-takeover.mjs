@@ -108,6 +108,44 @@ export function rememberSuppressedTakeoverContext({
   }));
 }
 
+export function rememberDingTalkConversationContext(messages, {
+  state,
+  chatId,
+  parseTime = value => Date.parse(value || ''),
+  isAssistantMessage = () => false,
+} = {}) {
+  if (!state?.remember || !chatId) return 0;
+  let inserted = 0;
+  for (const message of Array.isArray(messages) ? messages : []) {
+    const sender = String(
+      message?.senderOpenDingTalkId
+      || message?.sender_open_dingtalk_id
+      || message?.sender?.id
+      || '',
+    ).trim();
+    const rawMessageId = String(
+      message?.openMessageId || message?.messageId || message?.message_id || '',
+    ).trim();
+    const content = String(message?.content || message?.text || '').trim();
+    if (!sender || !rawMessageId || !content) continue;
+    const occurredAtMs = Number(parseTime(message?.createTime || message?.create_time || ''));
+    const remembered = state.remember(
+      chatId,
+      sender.startsWith('dingtalk:') ? sender : `dingtalk:${sender}`,
+      isAssistantMessage(message) ? 'assistant' : 'user',
+      content,
+      {
+        sourceMessageId: rawMessageId.startsWith('dingtalk:')
+          ? rawMessageId
+          : `dingtalk:${rawMessageId}`,
+        createdAt: Number.isFinite(occurredAtMs) ? new Date(occurredAtMs).toISOString() : '',
+      },
+    );
+    if (remembered) inserted += 1;
+  }
+  return inserted;
+}
+
 export function latestOwnerControl(messages, {
   ownerId,
   parseTime = value => Date.parse(value || ''),
