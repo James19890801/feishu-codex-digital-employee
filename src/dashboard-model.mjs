@@ -42,6 +42,24 @@ export function buildOperatorView(input) {
     : null;
   const webReaderAvailable = input.webReaderEnabled === true;
   const audioTranscriberAvailable = input.audioTranscriberAvailable === true;
+  const semanticRepeatInput = input.semanticRepeat || {};
+  const latestSemanticSuppression = semanticRepeatInput.latestSuppression;
+  const semanticRepeat = {
+    enabled: input.semanticRepeatGuardEnabled !== false,
+    windowMs: Number(input.semanticRepeatWindowMs || 30 * 60_000),
+    maxReplies: Number(input.semanticRepeatMaxReplies || 2),
+    activeTopics: Number(semanticRepeatInput.activeTopics || 0),
+    totalSuppressed: Number(semanticRepeatInput.totalSuppressed || 0),
+    latestSuppression: latestSemanticSuppression ? {
+      channel: String(latestSemanticSuppression.channel || ''),
+      chatId: String(latestSemanticSuppression.chatId || ''),
+      senderId: String(latestSemanticSuppression.senderId || ''),
+      at: String(latestSemanticSuppression.at || ''),
+      count: Number(latestSemanticSuppression.count || 0),
+      suppressedCount: Number(latestSemanticSuppression.suppressedCount || 0),
+      similarity: Number(latestSemanticSuppression.similarity || 0),
+    } : null,
+  };
   if (!input.processAlive) issues.push('process_not_running');
   if (feishuEnabled && (pollAgeMs === null || pollAgeMs > input.maxPollAgeMs)) {
     issues.push('poll_cursor_stale');
@@ -260,6 +278,7 @@ export function buildOperatorView(input) {
       credentialBlocked: Boolean(input.credentialBlocked),
       selfChatCircuitOpen,
       selfChatCircuitLast: input.selfChatCircuitLast || null,
+      semanticRepeat,
     },
   };
 }

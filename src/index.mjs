@@ -161,6 +161,7 @@ import {
   replyLengthPolicy,
   shouldIntroduceAssistant,
 } from './conversation-etiquette.mjs';
+import { applySemanticRepeatGate } from './semantic-repeat-controller.mjs';
 import {
   DingTalkChannel,
   GeWeChannel,
@@ -2126,6 +2127,30 @@ async function processIncoming(client, message, sender, metadata = {}) {
   if (message.chat_type === 'group'
     && (!Array.isArray(message.mentions) || message.mentions.length === 0)) return;
 
+  const operatorCommand = matchOperatorCommand(cleanText);
+  const semanticRepeatChannel = metadata.channel
+    || parseChannelChatId(message.chat_id)?.channel
+    || 'feishu';
+  const semanticRepeatResult = await applySemanticRepeatGate({
+    state,
+    enabled: config.semanticRepeatGuardEnabled,
+    windowMs: config.semanticRepeatWindowMs,
+    maxReplies: config.semanticRepeatMaxReplies,
+    channel: semanticRepeatChannel,
+    senderId: senderOpenId,
+    message,
+    text: cleanText,
+    operatorCommand,
+    sendClose: (reply, idempotencyKey) => sendText(
+      client,
+      message.chat_id,
+      reply,
+      idempotencyKey,
+    ),
+    audit: (event, detail) => audit(event, message, senderOpenId, detail),
+  });
+  if (semanticRepeatResult.handled) return;
+
   const existingHistory = state.history(message.chat_id, senderOpenId, 30);
   remember(
     message.chat_id,
@@ -2207,7 +2232,6 @@ async function processIncoming(client, message, sender, metadata = {}) {
     return;
   }
 
-  const operatorCommand = matchOperatorCommand(cleanText);
   if (operatorCommand === 'help') {
     const answer = buildHelpReply({ dashboardUrl: DASHBOARD_URL });
     await sendText(client, message.chat_id, answer, `xiaozhao-help-${message.message_id}`);

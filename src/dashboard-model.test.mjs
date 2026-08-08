@@ -285,6 +285,34 @@ const base = {
 {
   const view = buildOperatorView({
     ...base,
+    semanticRepeatGuardEnabled: true,
+    semanticRepeatWindowMs: 30 * 60_000,
+    semanticRepeatMaxReplies: 2,
+    semanticRepeat: {
+      activeTopics: 3,
+      totalSuppressed: 7,
+      latestSuppression: {
+        channel: 'dingtalk',
+        chatId: 'dingtalk:group:test',
+        senderId: 'dingtalk:sender',
+        at: '2026-07-30T00:59:59.000Z',
+        count: 3,
+        suppressedCount: 4,
+        similarity: 0.91,
+        topic: 'must not leak',
+      },
+    },
+  });
+  assert.equal(view.maintenance.semanticRepeat.enabled, true);
+  assert.equal(view.maintenance.semanticRepeat.maxReplies, 2);
+  assert.equal(view.maintenance.semanticRepeat.totalSuppressed, 7);
+  assert.equal(JSON.stringify(view.maintenance.semanticRepeat).includes('must not leak'), false);
+  assert.equal('topic' in view.maintenance.semanticRepeat.latestSuppression, false);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
     selfChatCircuitLast: {
       chatId: 'oc_self',
       openUntilMs: base.nowMs + 60_000,

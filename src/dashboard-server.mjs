@@ -129,6 +129,33 @@ function tableExists(db, name) {
   return Boolean(db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(name));
 }
 
+function readSemanticRepeatDashboardState(db, nowMs) {
+  if (!tableExists(db, 'semantic_repeat_guard')) {
+    return { activeTopics: 0, totalSuppressed: 0, latestSuppression: null };
+  }
+  const aggregate = db.prepare(`SELECT
+      SUM(CASE WHEN expires_at_ms > ? THEN 1 ELSE 0 END) AS active_topics,
+      COALESCE(SUM(suppressed_count), 0) AS total_suppressed
+    FROM semantic_repeat_guard`).get(nowMs);
+  const latest = db.prepare(`SELECT channel, chat_id, sender_id, last_seen_ms,
+      reply_count, suppressed_count, last_similarity
+    FROM semantic_repeat_guard WHERE last_action = 'suppress'
+    ORDER BY last_seen_ms DESC LIMIT 1`).get();
+  return {
+    activeTopics: Number(aggregate?.active_topics || 0),
+    totalSuppressed: Number(aggregate?.total_suppressed || 0),
+    latestSuppression: latest ? {
+      channel: latest.channel,
+      chatId: latest.chat_id,
+      senderId: latest.sender_id,
+      at: new Date(Number(latest.last_seen_ms)).toISOString(),
+      count: Number(latest.reply_count),
+      suppressedCount: Number(latest.suppressed_count),
+      similarity: Number(latest.last_similarity),
+    } : null,
+  };
+}
+
 function readLearningDashboardState(db) {
   const settingStatus = parseSetting(db, 'learning', 'status', { state: 'scheduled' });
   const manualRequestedAt = parseSetting(db, 'learning', 'manual_requested_at', '');
@@ -339,6 +366,7 @@ async function collectStatus() {
     lastAiRuntimeSuccessAt: '',
     lastAiRuntimeError: null,
     selfChatCircuitLast: null,
+    semanticRepeat: { activeTopics: 0, totalSuppressed: 0, latestSuppression: null },
     dingtalkChannel: {
       enabled: config.dingtalkEnabled,
       installed: existsSync(config.dingtalkBin),
@@ -408,6 +436,7 @@ async function collectStatus() {
         lastAiRuntimeSuccessAt: parseSetting(db, 'health', 'last_ai_runtime_success_at', ''),
         lastAiRuntimeError: parseSetting(db, 'health', 'last_ai_runtime_error', null),
         selfChatCircuitLast: parseSetting(db, 'health', 'self_chat_circuit_last', null),
+        semanticRepeat: readSemanticRepeatDashboardState(db, nowMs),
         dingtalkChannel: {
           ...defaults.dingtalkChannel,
           ...parseSetting(db, 'channel', 'dingtalk', {}),
@@ -465,6 +494,9 @@ async function collectStatus() {
     maxMulticaSyncAgeMs: Math.max(60_000, config.multicaSyncIntervalMs * 6),
     backupRequired: true,
     maxBackupAgeMs: 12 * 60 * 60_000,
+    semanticRepeatGuardEnabled: config.semanticRepeatGuardEnabled,
+    semanticRepeatWindowMs: config.semanticRepeatWindowMs,
+    semanticRepeatMaxReplies: config.semanticRepeatMaxReplies,
     configuration: {
       allChats: config.allowAllChats,
       digitalTwinLabel: config.digitalTwinLabel,
@@ -484,6 +516,9 @@ async function collectStatus() {
       multicaProfile: config.multicaProfile,
       multicaDefaultWorkspaceId: config.multicaDefaultWorkspaceId,
       multicaSyncIntervalMs: config.multicaSyncIntervalMs,
+      semanticRepeatGuardEnabled: config.semanticRepeatGuardEnabled,
+      semanticRepeatWindowMs: config.semanticRepeatWindowMs,
+      semanticRepeatMaxReplies: config.semanticRepeatMaxReplies,
     },
     ...database,
   });
