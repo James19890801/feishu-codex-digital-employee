@@ -170,6 +170,7 @@ import {
   appendDiscussionInstruction,
   shouldUseSemanticRepeatFallback,
 } from './discussion-budget-controller.mjs';
+import { formatConversationHistory } from './conversation-history.mjs';
 import {
   DingTalkChannel,
   GeWeChannel,
@@ -385,20 +386,12 @@ function remember(chatId, senderOpenId, role, content, options) {
   state.remember(chatId, senderOpenId, role, content, options);
 }
 
-function formatHistory(chatId, senderOpenId, {
-  excludeSourceMessageId = '',
-  chatType = '',
-} = {}) {
-  const history = (chatType === 'group'
-    ? state.chatHistory(chatId, excludeSourceMessageId ? 31 : 30)
-    : state.history(chatId, senderOpenId, excludeSourceMessageId ? 31 : 30))
-    .filter(item => item.sourceMessageId !== excludeSourceMessageId)
-    .slice(-30);
-  if (!history.length) return '（这是当前运行周期内的第一条消息）';
-  return history.map(item => `${item.role === 'user'
-    ? (chatType === 'group' ? `群成员[${item.senderId || '未知'}]` : '对方')
-    : '助理'}：${item.content.slice(0, 1800)}`)
-    .join('\n');
+function formatHistory(chatId, senderOpenId, options = {}) {
+  return formatConversationHistory(state, {
+    chatId,
+    currentSenderId: senderOpenId,
+    ...options,
+  });
 }
 
 function multicaContext(message, senderOpenId, metadata = {}) {
@@ -2190,7 +2183,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
   const discussionChannel = metadata.channel
     || parseChannelChatId(message.chat_id)?.channel
     || 'feishu';
-  const existingHistory = state.history(message.chat_id, senderOpenId, 30);
+  const existingHistory = state.chatHistory(message.chat_id, 30);
   remember(
     message.chat_id,
     senderOpenId,
