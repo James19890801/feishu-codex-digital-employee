@@ -298,6 +298,28 @@ try {
     nowMs: 10_103,
   }).sessionNo, 2, 'verified owner continuation must start a fresh bounded session');
 
+  const staleFinalChat = 'dingtalk:group:stale-final';
+  for (let replyCount = 1; replyCount <= 100; replyCount += 1) {
+    state.claimDiscussionTurn({
+      ...discussionOptions,
+      chatId: staleFinalChat,
+      messageId: `stale-final-${replyCount}`,
+      value: { substantive: true, score: 3, topic: semanticTopic(`论据 ${replyCount}`) },
+      nowMs: 30_000 + replyCount,
+    });
+  }
+  assert.equal(state.discussionSession('dingtalk', staleFinalChat).status, 'finalizing');
+  const recoveredFinal = state.claimDiscussionTurn({
+    ...discussionOptions,
+    chatId: staleFinalChat,
+    messageId: 'stale-final-recovered',
+    value: { substantive: true, score: 3, topic: semanticTopic('超时后新的讨论事实') },
+    nowMs: 30_100 + 30 * 60_000,
+  });
+  assert.equal(recoveredFinal.action, 'process', 'a crashed finalization cannot suppress the chat forever');
+  assert.equal(recoveredFinal.sessionNo, 2);
+  assert.equal(recoveredFinal.replyCount, 1);
+
   const lowValueChat = 'dingtalk:group:low-value';
   for (let turn = 1; turn <= 2; turn += 1) {
     assert.equal(state.claimDiscussionTurn({

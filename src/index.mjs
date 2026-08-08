@@ -166,6 +166,11 @@ import {
 } from './conversation-etiquette.mjs';
 import { applySemanticRepeatGate } from './semantic-repeat-controller.mjs';
 import {
+  applyDiscussionBudgetGate,
+  appendDiscussionInstruction,
+  shouldUseSemanticRepeatFallback,
+} from './discussion-budget-controller.mjs';
+import {
   DingTalkChannel,
   GeWeChannel,
   GeWeWebhookServer,
@@ -2125,6 +2130,14 @@ async function processIncoming(client, message, sender, metadata = {}) {
       nowMs,
     });
     if (applied.changed) writeHumanTakeover(message.chat_id, applied.state);
+    rememberSuppressedTakeoverContext({
+      state,
+      chatId: message.chat_id,
+      senderId: senderOpenId,
+      text: cleanText,
+      messageType: message.message_type,
+      messageId: message.message_id,
+    });
     audit(applied.activities.at(-1)?.command ? 'takeover_owner_activity' : 'owner_manual_activity', message, senderOpenId, {
       pausedUntilMs: Number(applied.state?.pausedUntilMs || 0),
       silent: true,
@@ -2169,15 +2182,58 @@ async function processIncoming(client, message, sender, metadata = {}) {
     && (!Array.isArray(message.mentions) || message.mentions.length === 0)) return;
 
   const operatorCommand = matchOperatorCommand(cleanText);
-  const semanticRepeatChannel = metadata.channel
+  const decision = decideWorkflow(cleanText, {
+    hasImages: imageKeys.length > 0 || metadata.media?.kind === 'image',
+    hasFile: message.message_type === 'file',
+  });
+  audit('workflow_decision', message, senderOpenId, decision);
+  const discussionChannel = metadata.channel
     || parseChannelChatId(message.chat_id)?.channel
     || 'feishu';
+  const existingHistory = state.history(message.chat_id, senderOpenId, 30);
+  remember(
+    message.chat_id,
+    senderOpenId,
+    'user',
+    cleanText || `发送了${message.message_type}`,
+    { sourceMessageId: message.message_id },
+  );
+  const discussionOwnerAuthorized = senderOpenId === OWNER_OPEN_ID
+    || (discussionChannel === 'dingtalk'
+      && senderOpenId === `dingtalk:${config.dingtalkOwnerOpenId}`)
+    || metadata.ownerControlAuthenticated === true;
+  const discussionResult = await applyDiscussionBudgetGate({
+    state,
+    enabled: config.adaptiveDiscussionEnabled
+      && decision.intent === 'conversation'
+      && decision.action === 'execute',
+    maxReplies: config.adaptiveDiscussionMaxReplies,
+    lowValueLimit: config.adaptiveDiscussionLowValueLimit,
+    cooldownMs: config.adaptiveDiscussionCooldownMs,
+    sessionWindowMs: config.adaptiveDiscussionCooldownMs,
+    channel: discussionChannel,
+    ownerAuthorized: discussionOwnerAuthorized,
+    message,
+    text: cleanText,
+    operatorCommand,
+    sendClose: (reply, idempotencyKey) => sendText(
+      client,
+      message.chat_id,
+      reply,
+      idempotencyKey,
+    ),
+    audit: (event, detail) => audit(event, message, senderOpenId, detail),
+  });
+  if (discussionResult.handled) return;
   const semanticRepeatResult = await applySemanticRepeatGate({
     state,
-    enabled: config.semanticRepeatGuardEnabled,
+    enabled: shouldUseSemanticRepeatFallback({
+      semanticEnabled: config.semanticRepeatGuardEnabled,
+      adaptiveEligible: discussionResult.eligible,
+    }),
     windowMs: config.semanticRepeatWindowMs,
     maxReplies: config.semanticRepeatMaxReplies,
-    channel: semanticRepeatChannel,
+    channel: discussionChannel,
     senderId: senderOpenId,
     message,
     text: cleanText,
@@ -2191,15 +2247,6 @@ async function processIncoming(client, message, sender, metadata = {}) {
     audit: (event, detail) => audit(event, message, senderOpenId, detail),
   });
   if (semanticRepeatResult.handled) return;
-
-  const existingHistory = state.history(message.chat_id, senderOpenId, 30);
-  remember(
-    message.chat_id,
-    senderOpenId,
-    'user',
-    cleanText || `发送了${message.message_type}`,
-    { sourceMessageId: message.message_id },
-  );
 
   if (looksLikeArtifactProgressRequest(cleanText)
     || looksLikeArtifactExecutionRequest(cleanText)) {
@@ -2256,12 +2303,6 @@ async function processIncoming(client, message, sender, metadata = {}) {
     audit('assistant_first_takeover_introduction', message, senderOpenId, { answerChars: greeting.length });
     return;
   }
-
-  const decision = decideWorkflow(cleanText, {
-    hasImages: imageKeys.length > 0 || metadata.media?.kind === 'image',
-    hasFile: message.message_type === 'file',
-  });
-  audit('workflow_decision', message, senderOpenId, decision);
 
   if (decision.action === 'refuse') {
     await sendText(
@@ -2664,6 +2705,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
     task = '飞书资料搜索暂时不可用。请自然说明刚刚没有搜索成功，让对方稍后再试，不要让对方重新上传已经在飞书里的资料。';
   }
   task = effectiveTask(task, { messageType: message.message_type });
+  task = appendDiscussionInstruction(task, discussionResult.checkpointPrompt);
   console.log(
     `[receive] ${message.message_id}: ${message.message_type}`
       + ` request=${cleanText.slice(0, 100)}`
@@ -2909,6 +2951,18 @@ async function processIncoming(client, message, sender, metadata = {}) {
     const answer = await runCodex(task, history, imagePaths, decision);
     remember(message.chat_id, senderOpenId, 'assistant', answer);
     await sendText(client, message.chat_id, answer, `xiaozhao-${message.message_id}`);
+    if (discussionResult.finalizeAfterReply) {
+      state.completeDiscussionFinalReply({
+        channel: discussionChannel,
+        chatId: message.chat_id,
+        cooldownMs: config.adaptiveDiscussionCooldownMs,
+      });
+      audit('discussion_final_completed', message, senderOpenId, {
+        channel: discussionChannel,
+        sessionNo: discussionResult.sessionNo,
+        replyCount: discussionResult.replyCount,
+      });
+    }
     audit('message_replied', message, senderOpenId, { artifact: false, answerChars: answer.length });
     console.log(`[reply] ${message.message_id}: ok`);
   } catch (error) {

@@ -50,7 +50,7 @@ export function evaluateDiscussionValue({ text, recentTopics = [] } = {}) {
     reasons.push('semantic_novelty');
   }
   if (compactLength >= 24) {
-    score += 1;
+    score += 2;
     reasons.push('substantive_length');
   }
   if (repeated) {

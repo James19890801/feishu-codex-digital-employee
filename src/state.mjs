@@ -840,7 +840,8 @@ export class AgentState {
           reason: 'same_inbound_retry',
         };
       }
-      if (prior?.status === 'finalizing' && !ownerContinue) {
+      const stale = Boolean(prior && currentMs - prior.lastSeenMs >= effectiveSessionWindowMs);
+      if (prior?.status === 'finalizing' && !stale && !ownerContinue) {
         this.db.exec('COMMIT');
         return {
           action: 'suppress_finalizing',
@@ -867,7 +868,6 @@ export class AgentState {
         };
       }
 
-      const stale = Boolean(prior && currentMs - prior.lastSeenMs >= effectiveSessionWindowMs);
       const restart = Boolean(ownerContinue
         || stale
         || (prior?.status === 'cooldown' && prior.cooldownUntilMs <= currentMs));

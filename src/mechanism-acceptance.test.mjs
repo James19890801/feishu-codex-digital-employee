@@ -34,6 +34,10 @@ import {
 import { AgentState } from './state.mjs';
 import { evaluateLicenseGuard } from './licensing/guard.mjs';
 import { semanticRepeatEligibility } from './semantic-repeat-controller.mjs';
+import {
+  discussionBudgetEligibility,
+  shouldUseSemanticRepeatFallback,
+} from './discussion-budget-controller.mjs';
 
 const cases = [];
 
@@ -118,6 +122,31 @@ for (const [question, input, expected] of [
     assert.equal(result.command, expected.command);
   });
 }
+
+for (const [question, input, expected] of [
+  ['Do DingTalk group discussions use adaptive budgeting?', {
+    enabled: true, channel: 'dingtalk', chatType: 'group', messageType: 'text', text: '为什么会这样？',
+  }, true],
+  ['Do Feishu group discussions use adaptive budgeting?', {
+    enabled: true, channel: 'feishu', chatType: 'group', messageType: 'post', text: '我有一个反例。',
+  }, true],
+  ['Do direct messages bypass adaptive budgeting?', {
+    enabled: true, channel: 'dingtalk', chatType: 'p2p', messageType: 'text', text: '为什么会这样？',
+  }, false],
+]) {
+  contract('loop-prevention', question, () => {
+    assert.equal(discussionBudgetEligibility(input).eligible, expected);
+  });
+}
+
+contract('loop-prevention', 'Does the fixed repeat guard remain as the adaptive fallback?', () => {
+  assert.equal(shouldUseSemanticRepeatFallback({
+    semanticEnabled: true, adaptiveEligible: false,
+  }), true);
+  assert.equal(shouldUseSemanticRepeatFallback({
+    semanticEnabled: true, adaptiveEligible: true,
+  }), false);
+});
 
 contract('human-takeover', 'Does the five-minute boundary expire exactly on time?', () => {
   const current = { pausedUntilMs: 301_000 };

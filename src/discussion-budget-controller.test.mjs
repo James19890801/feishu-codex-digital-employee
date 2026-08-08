@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   applyDiscussionBudgetGate,
+  appendDiscussionInstruction,
   DISCUSSION_LOW_VALUE_CLOSE_REPLY,
+  shouldUseSemanticRepeatFallback,
 } from './discussion-budget-controller.mjs';
 import { semanticTopic } from './semantic-repeat-guard.mjs';
 import { AgentState } from './state.mjs';
@@ -149,6 +151,16 @@ try {
   assert.equal(final.replyCount, 100);
   assert.equal(final.finalizeAfterReply, true);
   assert.match(final.checkpointPrompt, /最终综合/);
+  assert.match(
+    appendDiscussionInstruction('回答当前问题', final.checkpointPrompt),
+    /回答当前问题[\s\S]*第 100 次[\s\S]*最终综合/,
+  );
+  assert.equal(shouldUseSemanticRepeatFallback({
+    semanticEnabled: true, adaptiveEligible: true,
+  }), false);
+  assert.equal(shouldUseSemanticRepeatFallback({
+    semanticEnabled: true, adaptiveEligible: false,
+  }), true);
   assert.equal(audits.some(item => item.event === 'discussion_low_value_closed'), true);
   assert.equal(JSON.stringify(audits).includes('流程规则治理'), false, 'audit must not include raw discussion text');
 } finally {

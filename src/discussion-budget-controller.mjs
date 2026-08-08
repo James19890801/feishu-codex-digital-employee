@@ -4,6 +4,20 @@ export const DISCUSSION_LOW_VALUE_CLOSE_REPLY = '这轮讨论的信息增量已�
 
 const OWNER_CONTINUE_PATTERN = /^(?:继续讨论|继续辩论|恢复讨论|重新开始讨论)$/u;
 
+export function shouldUseSemanticRepeatFallback({
+  semanticEnabled,
+  adaptiveEligible,
+} = {}) {
+  return Boolean(semanticEnabled && !adaptiveEligible);
+}
+
+export function appendDiscussionInstruction(task, instruction = '') {
+  const normalizedTask = String(task || '').trim();
+  const normalizedInstruction = String(instruction || '').trim();
+  if (!normalizedInstruction) return normalizedTask;
+  return `${normalizedTask}\n\n讨论轮次控制指令（必须执行）：\n${normalizedInstruction}`.trim();
+}
+
 export function discussionBudgetEligibility({
   enabled,
   channel,
