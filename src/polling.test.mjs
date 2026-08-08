@@ -16,6 +16,7 @@ import {
   selectOwnerControlMessages,
   selectOwnerActivityMessages,
   selectInboundMessages,
+  selectSemanticGroupCandidates,
   shouldRetryMessage,
   toLarkSearchIso,
 } from './polling.mjs';
@@ -102,6 +103,40 @@ const ownerBotMention = {
   mentions: [{ id: appId, name: 'James的飞书 CLI' }],
   sender: { id: ownerOpenId, sender_type: 'user' },
 };
+
+{
+  const unmentioned = {
+    ...groupMention,
+    message_id: 'om_semantic_candidate',
+    content: 'AI 对流程管理的影响应该怎么评估？',
+    mentions: [],
+  };
+  const mentionsOther = {
+    ...unmentioned,
+    message_id: 'om_semantic_other_target',
+    mentions: [{ id: 'ou_other', name: '其他成员' }],
+  };
+  const selected = selectSemanticGroupCandidates([
+    unmentioned,
+    mentionsOther,
+    groupMention,
+    ownerBotMention,
+    { ...unmentioned, message_id: 'om_owner_semantic', sender: { id: ownerOpenId, sender_type: 'user' } },
+    directMessage,
+    { ...unmentioned, message_id: 'om_semantic_image', msg_type: 'image' },
+    unmentioned,
+  ], ownerOpenId, appId);
+  assert.deepEqual(selected.map(item => item.message_id), [
+    'om_semantic_candidate',
+    'om_semantic_other_target',
+  ]);
+  assert.equal(selected[0].semantic_candidate, true);
+  assert.equal(selected[0].mentioned_other, false);
+  assert.equal(selected[1].mentioned_other, true);
+  const normalized = normalizeSearchMessage(selected[1]);
+  assert.equal(normalized.metadata.semanticCandidate, true);
+  assert.equal(normalized.metadata.mentionedOther, true);
+}
 
 {
   const selected = selectInboundMessages([

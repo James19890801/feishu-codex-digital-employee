@@ -55,6 +55,7 @@ import {
   retryDelayMs,
   selectOwnerActivityMessages,
   selectInboundMessages,
+  selectSemanticGroupCandidates,
   shouldRetryMessage,
   toLarkSearchIso,
 } from './polling.mjs';
@@ -3233,13 +3234,16 @@ async function fetchUserInboundMessages(startMs, endMs) {
     ...allMessages.map(markBotChat),
     ...selfMessages,
   ], OWNER_OPEN_ID, APP_ID);
+  const semanticCandidates = config.semanticGroupEngagementEnabled !== false
+    ? selectSemanticGroupCandidates(allMessages.map(markBotChat), OWNER_OPEN_ID, APP_ID)
+    : [];
   const selfMessageIds = new Set(selfMessages.map(item => item.message_id));
   const ownerActivity = selectOwnerActivityMessages(
     allMessages.map(markBotChat),
     OWNER_OPEN_ID,
     APP_ID,
   ).filter(item => !selfMessageIds.has(item.message_id));
-  return [...regular, ...ownerActivity].sort(comparePollingItems);
+  return [...regular, ...semanticCandidates, ...ownerActivity].sort(comparePollingItems);
 }
 
 async function initializeUserPolling() {

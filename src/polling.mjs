@@ -99,6 +99,30 @@ export function selectInboundMessages(messages, ownerOpenId, appId = '') {
       || a.message_id.localeCompare(b.message_id));
 }
 
+export function selectSemanticGroupCandidates(messages, ownerOpenId, appId = '') {
+  const seen = new Set();
+  return (Array.isArray(messages) ? messages : [])
+    .filter(message => {
+      if (!message?.message_id || seen.has(message.message_id) || message.deleted) return false;
+      if (message.sender?.sender_type !== 'user' || message.sender?.id === ownerOpenId) return false;
+      if (message.chat_type !== 'group' || !['text', 'post'].includes(message.msg_type || 'text')) {
+        return false;
+      }
+      const mentions = Array.isArray(message.mentions) ? message.mentions : [];
+      if (mentions.some(mention => mention?.id === ownerOpenId || mention?.id === appId)) return false;
+      seen.add(message.message_id);
+      return true;
+    })
+    .map(message => ({
+      ...message,
+      semantic_candidate: true,
+      mentioned_other: Array.isArray(message.mentions) && message.mentions.length > 0,
+    }))
+    .sort((a, b) => messageTime(a) - messageTime(b)
+      || String(a.message_position || '').localeCompare(String(b.message_position || ''))
+      || a.message_id.localeCompare(b.message_id));
+}
+
 export function normalizeSearchMessage(item) {
   const messageType = String(item.msg_type || 'text');
   let content = String(item.content || '');
@@ -134,13 +158,16 @@ export function normalizeSearchMessage(item) {
     metadata: { channel: 'feishu' },
   };
   if (item.self_chat === true || item.operator_control === true
-    || item.owner_activity === true || item.bot_chat === true) {
+    || item.owner_activity === true || item.bot_chat === true
+    || item.semantic_candidate === true || item.mentioned_other === true) {
     payload.metadata = {
       channel: 'feishu',
       ...(item.self_chat === true ? { selfChat: true } : {}),
       ...(item.operator_control === true ? { operatorControl: true } : {}),
       ...(item.owner_activity === true ? { ownerActivity: true } : {}),
       ...(item.bot_chat === true ? { botChat: true } : {}),
+      ...(item.semantic_candidate === true ? { semanticCandidate: true } : {}),
+      ...(item.mentioned_other === true ? { mentionedOther: true } : {}),
     };
   }
   return payload;
