@@ -20,6 +20,16 @@ function directlyAddressesAlias(content, alias) {
   return directPrefix && directSuffix;
 }
 
+function escapedPattern(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function explicitlyMentionsAlias(content, alias) {
+  const target = escapedPattern(alias);
+  if (!target) return false;
+  return new RegExp(`[@＠]\\s*${target}(?=$|[\\s，,。！？!?：:])`, 'iu').test(content);
+}
+
 function result(action, reasonCode, extra = {}) {
   return { action, reasonCode, ...extra };
 }
@@ -68,14 +78,21 @@ export function assessGroupEngagement({
     return result('observe', 'unsupported_or_empty');
   }
   if (humanTakeover) return result('suppress', 'human_takeover');
-  if (explicitMention) return result('reply_explicit', 'explicit_mention');
-  if (mentionedOther) return result('observe', 'addressed_other');
+  if (explicitMention) {
+    return result('reply_explicit', 'explicit_mention', { responseRequired: true });
+  }
 
-  const named = (Array.isArray(aliases) ? aliases : [])
+  const normalizedAliases = (Array.isArray(aliases) ? aliases : [])
     .map(normalizedText)
-    .filter(Boolean)
+    .filter(Boolean);
+  const explicitAlias = normalizedAliases
+    .some(alias => explicitlyMentionsAlias(content, alias));
+  const named = explicitAlias || normalizedAliases
     .some(alias => directlyAddressesAlias(content, alias));
-  if (named) return result('reply_named', 'assistant_alias');
+  if (named) {
+    return result('reply_named', 'assistant_alias', { responseRequired: explicitAlias });
+  }
+  if (mentionedOther) return result('observe', 'addressed_other');
   if (LOW_INFORMATION_PATTERN.test(content)) return result('observe', 'low_information');
 
   if (recentlyAddressedSender(
@@ -180,6 +197,7 @@ export async function decideSemanticGroupEngagement({
       reasonCode: local.reasonCode,
       confidence: 1,
       targetSenderIds: senderId ? [senderId] : [],
+      responseRequired: local.responseRequired === true,
     };
   }
   const hostDeferrable = local.action === 'classify'
