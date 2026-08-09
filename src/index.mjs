@@ -162,6 +162,10 @@ import {
   isSemanticEntryCooldownActive,
 } from './semantic-group-engagement.mjs';
 import {
+  assessGroupHostCandidate,
+  processGroupHostCandidate,
+} from './group-host-mode.mjs';
+import {
   applyOwnerActivityHistory,
   applyVerifiedOwnerHistory,
   evaluateHumanTakeover,
@@ -301,6 +305,7 @@ const POLL_INITIAL_LOOKBACK_MS = config.pollInitialLookbackMs;
 const POLL_MAX_CATCHUP_MS = config.pollMaxCatchupMs;
 const POLL_WINDOW_MS = config.pollWindowMs;
 const MAX_CONCURRENT_REPLIES = config.maxConcurrentReplies;
+const GROUP_HOST_CHAT_IDS = new Set(config.groupHostChatIds || []);
 const DASHBOARD_URL = `http://127.0.0.1:${config.dashboardPort}`;
 const MULTICA_CLIENT = config.multicaEnabled
   ? new MulticaClient({
@@ -392,6 +397,7 @@ let dingTalkSelfPollingPromise = null;
 let dingTalkSemanticPollingPromise = null;
 let geWeMonitorPromise = null;
 let dailyLearningPromise = null;
+let groupHostPromise = null;
 let businessClient = null;
 let sdkAppSecret = '';
 let dingTalkChannel = null;
@@ -2232,7 +2238,10 @@ async function processIncoming(client, message, sender, metadata = {}) {
     senderOpenId,
     'user',
     cleanText || `发送了${message.message_type}`,
-    { sourceMessageId: message.message_id },
+    {
+      sourceMessageId: message.message_id,
+      createdAt: new Date(Number(message.create_time) || nowMs).toISOString(),
+    },
   );
 
   const hasGroupMention = message.chat_type === 'group'
@@ -2247,29 +2256,39 @@ async function processIncoming(client, message, sender, metadata = {}) {
     const activeDiscussion = discussionSession?.status === 'active'
       && nowMs - Number(discussionSession.lastSeenMs || 0) <= config.adaptiveDiscussionCooldownMs;
     const semanticReplyState = state.get('semantic_group_reply', message.chat_id, {});
-    const engagement = await decideSemanticGroupEngagement({
-      assessment: {
-        enabled: config.semanticGroupEngagementEnabled !== false,
-        chatType: message.chat_type,
-        messageType: message.message_type,
-        text: cleanText,
-        currentSenderId: senderOpenId,
-        aliases: Array.isArray(config.semanticGroupAliases) && config.semanticGroupAliases.length
-          ? config.semanticGroupAliases
-          : ['AIPRO', '詹老师助理', '数字人', '詹老师'],
-        recentMessages: existingHistory,
-        mentionedOther: metadata.mentionedOther === true,
-        activeDiscussion,
-        cooldownActive: isSemanticEntryCooldownActive({
-          lastReplyAtMs: Number(semanticReplyState.lastReplyAtMs || 0),
-          nowMs,
-          cooldownMs: Number(config.semanticGroupEntryCooldownMs || 120_000),
-          activeDiscussion,
-        }),
+    const engagementAssessment = {
+      enabled: config.semanticGroupEngagementEnabled !== false,
+      chatType: message.chat_type,
+      messageType: message.message_type,
+      text: cleanText,
+      currentSenderId: senderOpenId,
+      aliases: Array.isArray(config.semanticGroupAliases) && config.semanticGroupAliases.length
+        ? config.semanticGroupAliases
+        : ['AIPRO', '詹老师助理', '数字人', '詹老师'],
+      recentMessages: existingHistory,
+      mentionedOther: metadata.mentionedOther === true,
+      activeDiscussion,
+      cooldownActive: isSemanticEntryCooldownActive({
+        lastReplyAtMs: Number(semanticReplyState.lastReplyAtMs || 0),
         nowMs,
-      },
+        cooldownMs: Number(config.semanticGroupEntryCooldownMs || 120_000),
+        activeDiscussion,
+      }),
+      nowMs,
+    };
+    const hostCandidateAssessment = assessGroupHostCandidate({
+      enabled: config.groupHostModeEnabled,
+      allowlisted: GROUP_HOST_CHAT_IDS.has(message.chat_id),
+      chatType: message.chat_type,
+      messageType: message.message_type,
+      text: cleanText,
+      mentionedOther: metadata.mentionedOther === true,
+    });
+    const engagement = await decideSemanticGroupEngagement({
+      assessment: engagementAssessment,
       recentMessages: existingHistory,
       threshold: Number(config.semanticGroupReplyThreshold || 0.86),
+      deferHost: hostCandidateAssessment.eligible,
       runClassifier: async prompt => {
         const classificationAllowed = state.consumeRateLimit(
           `semantic-classifier:${message.chat_id}`,
@@ -2300,6 +2319,29 @@ async function processIncoming(client, message, sender, metadata = {}) {
           ? 'high' : engagement.confidence >= 0.7 ? 'medium' : 'low',
       },
     });
+    if (engagement.action === 'defer_host') {
+      const scheduled = state.scheduleGroupHostCandidate({
+        messageId: message.message_id,
+        chatId: message.chat_id,
+        senderId: senderOpenId,
+        text: cleanText,
+        topic: hostCandidateAssessment.topic,
+        createdAtMs: nowMs,
+        dueAtMs: nowMs + Number(config.groupHostSilenceMs || 75_000),
+      });
+      state.audit('group_host_candidate_scheduled', {
+        chatId: message.chat_id,
+        senderId: senderOpenId,
+        messageId: message.message_id,
+        detail: {
+          channel: discussionChannel,
+          scheduled,
+          reasonCode: hostCandidateAssessment.reasonCode,
+          dueInMs: Number(config.groupHostSilenceMs || 75_000),
+        },
+      });
+      return;
+    }
     if (!engagement.shouldReply) return;
     state.set('semantic_group_reply', message.chat_id, {
       lastReplyAtMs: nowMs,
@@ -3407,6 +3449,136 @@ function wait(ms) {
   return shutdownDelay.wait(ms);
 }
 
+async function handleClaimedGroupHostCandidate(candidate) {
+  return chatQueues.run(candidate.chatId, async () => {
+    const nowMs = Date.now();
+    const takeoverActive = humanTakeoverStatus(
+      readHumanTakeover(candidate.chatId, nowMs),
+      nowMs,
+    ).active;
+    const lastReply = state.get('group_host_reply', candidate.chatId, {});
+    const cooldownActive = Number(lastReply.lastReplyAtMs || 0) > 0
+      && nowMs - Number(lastReply.lastReplyAtMs) < Number(config.groupHostReplyCooldownMs || 180_000);
+    const recentMessages = state.chatHistory(candidate.chatId, 30);
+    const result = await processGroupHostCandidate({
+      candidate,
+      recentMessages,
+      takeoverActive,
+      cooldownActive,
+      runDecisionClassifier: async prompt => {
+        const allowed = state.consumeRateLimit(
+          `group-host-classifier:${candidate.chatId}`,
+          Date.now(),
+          60_000,
+          6,
+        );
+        if (!allowed) throw new Error('group host classifier budget exhausted');
+        const { text: output } = await runAiRuntime(prompt, {
+          cwd: CODEX_RUNTIME_DIR,
+          model: SELECTED_AI_RUNTIME.id === 'codex' ? config.codexModel : '',
+          timeoutMs: Math.min(Number(config.codexTimeoutMs || 120_000), 45_000),
+          maxStdoutBytes: 64 * 1024,
+          maxStderrBytes: 512 * 1024,
+        });
+        return output;
+      },
+      runReplyGenerator: async prompt => {
+        const { text: output } = await runAiRuntime(prompt, {
+          cwd: CODEX_RUNTIME_DIR,
+          model: SELECTED_AI_RUNTIME.id === 'codex' ? config.codexModel : '',
+          timeoutMs: Math.min(Number(config.codexTimeoutMs || 120_000), 60_000),
+          maxStdoutBytes: 64 * 1024,
+          maxStderrBytes: 512 * 1024,
+        });
+        return output;
+      },
+      send: reply => sendText(
+        null,
+        candidate.chatId,
+        reply,
+        `aipro-group-host-${candidate.messageId}`,
+        { mentionSenderId: candidate.senderId, chatType: 'group' },
+      ),
+    });
+    const resolution = result.action === 'replied'
+      ? 'host_replied'
+      : result.action === 'human_picked_up'
+        ? 'human_picked_up'
+        : `${result.action}_${result.reasonCode}`.slice(0, 100);
+    state.completeGroupHostCandidate(candidate.messageId, resolution, Date.now());
+    if (result.action === 'replied') {
+      const repliedAtMs = Date.now();
+      remember(candidate.chatId, candidate.senderId, 'assistant', result.reply, {
+        sourceMessageId: `group-host-reply:${candidate.messageId}`,
+        createdAt: new Date(repliedAtMs).toISOString(),
+      });
+      state.set('group_host_reply', candidate.chatId, {
+        lastReplyAtMs: repliedAtMs,
+        sourceMessageId: candidate.messageId,
+        updatedAt: new Date(repliedAtMs).toISOString(),
+      });
+      state.set('semantic_group_reply', candidate.chatId, {
+        lastReplyAtMs: repliedAtMs,
+        action: 'reply_group_host',
+        reasonCode: result.reasonCode,
+        updatedAt: new Date(repliedAtMs).toISOString(),
+      });
+    }
+    state.audit('group_host_candidate_resolved', {
+      chatId: candidate.chatId,
+      senderId: candidate.senderId,
+      messageId: candidate.messageId,
+      detail: {
+        action: result.action,
+        reasonCode: result.reasonCode,
+        attempts: candidate.attempts,
+        replyChars: result.reply ? [...result.reply].length : 0,
+      },
+    });
+    return result;
+  });
+}
+
+async function runGroupHostLoop() {
+  if (!config.groupHostModeEnabled || GROUP_HOST_CHAT_IDS.size === 0) return;
+  while (!stopping) {
+    const candidate = state.claimDueGroupHostCandidate(Date.now());
+    if (!candidate) {
+      await wait(1_000);
+      continue;
+    }
+    try {
+      await handleClaimedGroupHostCandidate(candidate);
+    } catch (error) {
+      const nowMs = Date.now();
+      const retryAtMs = nowMs + Math.min(
+        5 * 60_000,
+        15_000 * (2 ** Math.max(0, Number(candidate.attempts || 1) - 1)),
+      );
+      const retry = state.retryGroupHostCandidate(
+        candidate.messageId,
+        processFailureSummary(error),
+        retryAtMs,
+        nowMs,
+        3,
+      );
+      state.audit(retry.deadLettered
+        ? 'group_host_candidate_dead_lettered'
+        : 'group_host_candidate_retry_scheduled', {
+        chatId: candidate.chatId,
+        senderId: candidate.senderId,
+        messageId: candidate.messageId,
+        detail: {
+          attempts: retry.attempts,
+          retryAtMs: retry.deadLettered ? 0 : retryAtMs,
+          error: processFailureSummary(error),
+        },
+      });
+      console.error(`[group-host-error] ${candidate.messageId}:`, error);
+    }
+  }
+}
+
 async function runUserPollingLoop() {
   let failures = 0;
   while (!stopping) {
@@ -4311,6 +4483,10 @@ async function main() {
     state.set('health', 'feishu_enabled', RUNTIME_MODE.feishuEnabled);
     const recovered = state.recoverProcessingInbound(new Date().toISOString());
     if (recovered) console.log(`[inbound] recovered ${recovered} stale message(s)`);
+    const recoveredGroupHost = state.recoverGroupHostCandidates(Date.now());
+    if (recoveredGroupHost) {
+      console.log(`[group-host] recovered ${recoveredGroupHost} stale candidate(s)`);
+    }
     await runMaintenance();
     dailyLearningPromise = runDailyLearningLoop()
       .catch(error => console.error('[daily-learning-fatal]', error));
@@ -4322,6 +4498,11 @@ async function main() {
     }
     triggerDrain();
     await initializeAdditionalImChannels();
+    groupHostPromise = runGroupHostLoop()
+      .catch(error => console.error('[group-host-fatal]', error));
+    if (config.groupHostModeEnabled && GROUP_HOST_CHAT_IDS.size > 0) {
+      console.log(`[group-host] active for ${GROUP_HOST_CHAT_IDS.size} allowlisted group(s); silence=${config.groupHostSilenceMs}ms`);
+    }
     const dingTalkSelfPolling = await initializeOptionalPoller(
       config.dingtalkTransport === 'wukong-polling'
         ? initializeDingTalkWukongPolling
@@ -4386,6 +4567,7 @@ async function main() {
     if (dingTalkSemanticPollingPromise) await dingTalkSemanticPollingPromise.catch(() => {});
     if (geWeMonitorPromise) await geWeMonitorPromise.catch(() => {});
     if (dailyLearningPromise) await dailyLearningPromise.catch(() => {});
+    if (groupHostPromise) await groupHostPromise.catch(() => {});
   } finally {
     try {
       state.close();

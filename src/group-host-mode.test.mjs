@@ -155,6 +155,14 @@ assert.deepEqual(await processGroupHostCandidate({
   send: async () => { throw new Error('must not send'); },
 }), { action: 'observe', reasonCode: 'invalid_reply' });
 
+assert.deepEqual(await processGroupHostCandidate({
+  candidate,
+  recentMessages: [],
+  runDecisionClassifier: processorDeps.runDecisionClassifier,
+  runReplyGenerator: processorDeps.runReplyGenerator,
+  send: async () => ({ suppressed: true, reason: 'outbound_repeat' }),
+}), { action: 'observe', reasonCode: 'send_suppressed' });
+
 await assert.rejects(
   processGroupHostCandidate({
     candidate,

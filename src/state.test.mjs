@@ -773,6 +773,17 @@ try {
     { ok: true },
     '2025-01-01T00:00:01.000Z',
   );
+  state.scheduleGroupHostCandidate({
+    ...hostCandidate,
+    messageId: 'host-ancient',
+    createdAtMs: Date.parse('2025-01-01T00:00:00.000Z'),
+    dueAtMs: Date.parse('2025-01-01T00:01:00.000Z'),
+  });
+  state.completeGroupHostCandidate(
+    'host-ancient',
+    'human_picked_up',
+    Date.parse('2025-01-01T00:02:00.000Z'),
+  );
   const pruned = state.prune({
     now: '2026-07-29T14:00:00.000Z',
     completedInboundRetentionMs: 30 * 86400_000,
@@ -784,6 +795,7 @@ try {
   assert.equal(pruned.conversation >= 1, true);
   assert.equal(pruned.pendingAction >= 1, true);
   assert.equal(pruned.mutation >= 1, true);
+  assert.equal(pruned.groupHost >= 1, true);
   console.log('STATE_TEST_OK');
 } finally {
   rmSync(dir, { recursive: true, force: true });

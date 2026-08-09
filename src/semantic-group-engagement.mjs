@@ -162,6 +162,7 @@ export async function decideSemanticGroupEngagement({
   recentMessages = [],
   threshold = 0.86,
   runClassifier,
+  deferHost = false,
 } = {}) {
   const effectiveRecentMessages = Array.isArray(assessment.recentMessages)
     && assessment.recentMessages.length
@@ -179,6 +180,17 @@ export async function decideSemanticGroupEngagement({
       reasonCode: local.reasonCode,
       confidence: 1,
       targetSenderIds: senderId ? [senderId] : [],
+    };
+  }
+  const hostDeferrable = local.action === 'classify'
+    || ['ambient_chatter', 'entry_cooldown'].includes(local.reasonCode);
+  if (deferHost && hostDeferrable) {
+    return {
+      shouldReply: false,
+      action: 'defer_host',
+      reasonCode: 'group_host_silence_window',
+      confidence: 1,
+      targetSenderIds: [],
     };
   }
   if (local.action !== 'classify') {

@@ -33,6 +33,10 @@ import {
   assessGroupEngagement,
   buildSemanticEngagementPrompt,
 } from './semantic-group-engagement.mjs';
+import {
+  assessGroupHostCandidate,
+  processGroupHostCandidate,
+} from './group-host-mode.mjs';
 import { validateInboundPayload } from './reliability.mjs';
 import {
   hasSelfChatOutboundMarker,
@@ -58,6 +62,17 @@ function withState(prefix, verify) {
   const state = new AgentState(join(dir, 'state.sqlite'));
   try {
     return verify(state);
+  } finally {
+    state.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function withAsyncState(prefix, verify) {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const state = new AgentState(join(dir, 'state.sqlite'));
+  try {
+    return await verify(state);
   } finally {
     state.close();
     rmSync(dir, { recursive: true, force: true });
@@ -534,6 +549,88 @@ contract('semantic-group-engagement', 'Is semantic classification limited to the
   assert.equal(prompt.includes('context-1\n'), false);
   assert.equal(prompt.includes('context-2'), true);
   assert.equal(prompt.includes('context-31'), true);
+});
+
+contract('group-host-mode', 'Does an allowlisted public topic wait for the full grace period?', () => {
+  withState('aipro-acceptance-group-host-grace-', state => {
+    const assessment = assessGroupHostCandidate({
+      enabled: true,
+      allowlisted: true,
+      chatType: 'group',
+      messageType: 'text',
+      text: '大家怎么看 AI 对项目协作方式的影响？',
+    });
+    assert.equal(assessment.eligible, true);
+    state.scheduleGroupHostCandidate({
+      messageId: 'host-grace-1',
+      chatId: 'dingtalk:group:test',
+      senderId: 'dingtalk:member-a',
+      text: '大家怎么看 AI 对项目协作方式的影响？',
+      topic: assessment.topic,
+      createdAtMs: 1_000,
+      dueAtMs: 76_000,
+    });
+    assert.equal(state.claimDueGroupHostCandidate(75_999), null);
+    assert.equal(state.claimDueGroupHostCandidate(76_000).messageId, 'host-grace-1');
+  });
+});
+
+contract('group-host-mode', 'Does another member picking up the topic prevent host output?', async () => {
+  let sends = 0;
+  const result = await processGroupHostCandidate({
+    candidate: {
+      messageId: 'host-human-1',
+      senderId: 'dingtalk:member-a',
+      text: '大家怎么看 AI 对项目协作方式的影响？',
+      createdAtMs: 1_000,
+    },
+    recentMessages: [{
+      role: 'user',
+      senderId: 'dingtalk:member-b',
+      content: '我认为首先会降低团队等待反馈的时间。',
+      createdAt: new Date(2_000).toISOString(),
+    }],
+    runDecisionClassifier: async () => { throw new Error('classifier should not run'); },
+    runReplyGenerator: async () => { throw new Error('generator should not run'); },
+    send: async () => { sends += 1; },
+  });
+  assert.equal(result.action, 'human_picked_up');
+  assert.equal(sends, 0);
+});
+
+contract('group-host-mode', 'Does a recovered send failure produce only one successful host reply?', async () => {
+  await withAsyncState('aipro-acceptance-group-host-retry-', async state => {
+    const text = '大家怎么看 AI 对项目协作方式的影响？';
+    const assessment = assessGroupHostCandidate({
+      enabled: true, allowlisted: true, chatType: 'group', messageType: 'text', text,
+    });
+    state.scheduleGroupHostCandidate({
+      messageId: 'host-retry-1', chatId: 'dingtalk:group:test',
+      senderId: 'dingtalk:member-a', text, topic: assessment.topic,
+      createdAtMs: 1_000, dueAtMs: 2_000,
+    });
+    let successfulSends = 0;
+    const reply = '这个话题值得接住。一个关键变化是数字人会开始识别协作里的等待和断点，让协调从被动催办转向主动发现风险。大家更看重效率提升，还是判断过程保持透明？';
+    const run = candidate => processGroupHostCandidate({
+      candidate,
+      recentMessages: [],
+      runDecisionClassifier: async () => '{"action":"host","confidence":0.95,"reasonCode":"silent"}',
+      runReplyGenerator: async () => reply,
+      send: async () => {
+        if (candidate.attempts === 1) throw new Error('temporary send failure');
+        successfulSends += 1;
+      },
+    });
+    const first = state.claimDueGroupHostCandidate(2_000);
+    await assert.rejects(run(first), /temporary send failure/);
+    state.retryGroupHostCandidate(first.messageId, 'temporary', 3_000, 2_100, 3);
+    const second = state.claimDueGroupHostCandidate(3_000);
+    const result = await run(second);
+    assert.equal(result.action, 'replied');
+    state.completeGroupHostCandidate(second.messageId, 'host_replied', 3_100);
+    assert.equal(successfulSends, 1);
+    assert.equal(state.claimDueGroupHostCandidate(10_000), null);
+  });
 });
 
 for (const [attempt, expected] of [[1, true], [2, true], [3, false], [4, false]]) {
