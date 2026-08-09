@@ -501,6 +501,19 @@ export class AgentState {
     ).changes === 1;
   }
 
+  rescheduleGroupHostCandidate(messageId, dueAtMs, resolution, nowMs = Date.now()) {
+    const normalizedNowMs = Math.max(0, Number(nowMs) || Date.now());
+    return this.db.prepare(`UPDATE group_host_candidate
+      SET status = 'pending', attempts = MAX(0, attempts - 1), due_at_ms = ?,
+          updated_at_ms = ?, resolution = ?, last_error = ''
+      WHERE message_id = ? AND status = 'processing'`).run(
+      Math.max(normalizedNowMs, Number(dueAtMs) || normalizedNowMs),
+      normalizedNowMs,
+      String(resolution || '').slice(0, 100),
+      String(messageId || ''),
+    ).changes === 1;
+  }
+
   retryGroupHostCandidate(
     messageId,
     error,

@@ -728,6 +728,30 @@ try {
   assert.equal(state.claimDueGroupHostCandidate(10_000).messageId, 'host-stale-1');
   assert.equal(state.completeGroupHostCandidate('host-stale-1', 'human_picked_up', 10_100), true);
 
+  assert.equal(state.scheduleGroupHostCandidate({
+    ...hostCandidate,
+    messageId: 'host-deferred-1',
+    createdAtMs: 11_000,
+    dueAtMs: 12_000,
+  }), true);
+  assert.equal(state.claimDueGroupHostCandidate(12_000).attempts, 1);
+  assert.equal(state.rescheduleGroupHostCandidate(
+    'host-deferred-1',
+    25_000,
+    'recent_group_activity',
+    12_100,
+  ), true);
+  const deferredHost = state.db.prepare(`SELECT status, attempts, due_at_ms, resolution, last_error
+    FROM group_host_candidate WHERE message_id = ?`).get('host-deferred-1');
+  assert.equal(deferredHost.status, 'pending');
+  assert.equal(deferredHost.attempts, 0, '安静窗口延期不能消耗故障重试次数');
+  assert.equal(deferredHost.due_at_ms, 25_000);
+  assert.equal(deferredHost.resolution, 'recent_group_activity');
+  assert.equal(deferredHost.last_error, '');
+  assert.equal(state.claimDueGroupHostCandidate(24_999), null);
+  assert.equal(state.claimDueGroupHostCandidate(25_000).attempts, 1);
+  assert.equal(state.completeGroupHostCandidate('host-deferred-1', 'host_replied', 25_100), true);
+
   for (let index = 1; index <= 4; index += 1) {
     assert.equal(state.scheduleGroupHostCandidate({
       ...hostCandidate,
