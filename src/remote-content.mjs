@@ -70,8 +70,34 @@ export function responseFileName({ contentDisposition = '', sourceUrl, mimeType 
 async function limitedBytes(response, maxBytes) {
   const declared = Number(response.headers.get('content-length') || 0);
   if (declared > maxBytes) throw new Error('Remote content exceeds size limit');
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength > maxBytes) throw new Error('Remote content exceeds size limit');
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maxBytes) throw new Error('Remote content exceeds size limit');
+    return bytes;
+  }
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel('Remote content exceeds size limit');
+        throw new Error('Remote content exceeds size limit');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
   return bytes;
 }
 

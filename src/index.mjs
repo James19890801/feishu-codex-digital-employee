@@ -74,6 +74,7 @@ import {
   refersToRecentImages,
   requestedImageLimit,
   selectRecentFileRef,
+  selectRecentFileRefs,
   selectRecentImageRefs,
 } from './media-context.mjs';
 import {
@@ -623,6 +624,15 @@ async function findRecentFileRef(client, message, senderOpenId, { includeCurrent
   return selectRecentFileRef(await listRecentChatMessages(client, message), {
     senderOpenId,
     currentTime: currentTime + (includeCurrent ? 1 : 0),
+  });
+}
+
+async function findRecentFileRefs(client, message, senderOpenId, { includeCurrent = false, limit = 4 } = {}) {
+  const currentTime = Number(message.create_time || Date.now());
+  return selectRecentFileRefs(await listRecentChatMessages(client, message), {
+    senderOpenId,
+    currentTime: currentTime + (includeCurrent ? 1 : 0),
+    limit,
   });
 }
 
@@ -2156,6 +2166,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
   let fileKey = '';
   let fileName = '';
   let fileRef = null;
+  let fileRefs = [];
   let audioRef = null;
   let videoRef = null;
   try {
@@ -2561,10 +2572,12 @@ async function processIncoming(client, message, sender, metadata = {}) {
   imageRefs = imageKeys.map(fileKey => ({ messageId: message.message_id, fileKey }));
   if (message.message_type === 'file' && fileKey) {
     fileRef = { messageId: message.message_id, fileKey, fileName };
+    fileRefs = [fileRef];
   }
   if (!fileRef && message.message_type === 'file' && client) {
     try {
       fileRef = await findRecentFileRef(client, message, senderOpenId, { includeCurrent: true });
+      fileRefs = fileRef ? [fileRef] : [];
     } catch (error) {
       console.error(`[file-resolution-error] ${message.message_id}:`, error);
     }
@@ -2583,7 +2596,8 @@ async function processIncoming(client, message, sender, metadata = {}) {
   }
   if (!fileRef && ['text', 'post'].includes(message.message_type) && refersToRecentFiles(cleanText)) {
     try {
-      fileRef = await findRecentFileRef(client, message, senderOpenId);
+      fileRefs = await findRecentFileRefs(client, message, senderOpenId);
+      fileRef = fileRefs.at(-1) || null;
     } catch (error) {
       console.error(`[file-context-error] ${message.message_id}:`, error);
     }
@@ -2884,15 +2898,18 @@ async function processIncoming(client, message, sender, metadata = {}) {
     }
     return;
   }
-  const knowledgeResult = !imageRefs.length && !fileRef && ['text', 'post'].includes(message.message_type)
+  const knowledgeResult = !imageRefs.length && !fileRefs.length && !fileRef && ['text', 'post'].includes(message.message_type)
     ? await searchFeishuKnowledge(client, cleanText, senderOpenId)
     : null;
   const inboundMediaKind = metadata.media?.kind || message.message_type;
   let task = imageRefs.length || inboundMediaKind === 'image'
     ? `${cleanText ? `对方的问题是：${cleanText}\n` : ''}看一下图片里的内容，然后结合图片直接回复对方。如果是聊天截图，先理解对话语境，再给出最自然的回应或建议。`
     : cleanText;
-  if (fileRef || metadata.file?.resourceId) {
-    task = `${cleanText ? `对方的问题是：${cleanText}\n` : ''}请阅读文件“${fileRef?.fileName || metadata.file?.fileName || '未命名文件'}”，结合文件内容直接回复对方。`;
+  if (fileRefs.length || fileRef || metadata.file?.resourceId) {
+    const names = (fileRefs.length ? fileRefs : [fileRef]).filter(Boolean)
+      .map(ref => ref.fileName || '未命名文件');
+    if (metadata.file?.resourceId) names.push(metadata.file.fileName || '未命名文件');
+    task = `${cleanText ? `对方的问题是：${cleanText}\n` : ''}请阅读${names.length > 1 ? '这些文件' : '文件'}“${names.join('、')}”，结合全部文件内容直接回复对方。`;
   }
   if (inboundMediaKind === 'audio') {
     task = `${cleanText ? `对方附带说明：${cleanText}\n` : ''}请根据下面的语音转写内容理解对方的意思并直接回复。`;
@@ -2912,7 +2929,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
   console.log(
     `[receive] ${message.message_id}: ${message.message_type}`
       + ` request=${cleanText.slice(0, 100)}`
-      + ` files=${fileRef ? 1 : 0} images=${imageRefs.length}`
+      + ` files=${fileRefs.length || (fileRef ? 1 : 0)} images=${imageRefs.length}`
       + ` documents=${knowledgeResult?.documents?.length || 0}`,
   );
 
@@ -2981,20 +2998,20 @@ async function processIncoming(client, message, sender, metadata = {}) {
         imagePaths.push(await assertMediaFile(imagePath));
       }
     }
-    if (fileRef) {
+    for (const [fileIndex, resolvedFileRef] of (fileRefs.length ? fileRefs : [fileRef]).filter(Boolean).entries()) {
       await ensureTempDir();
-      const safeName = basename(fileRef.fileName || `attachment${extname(fileRef.fileName || '') || '.bin'}`);
-      const filePath = join(tempDir, safeName);
+      const safeName = basename(resolvedFileRef.fileName || `attachment${extname(resolvedFileRef.fileName || '') || '.bin'}`);
+      const filePath = join(tempDir, `${fileIndex + 1}-${safeName}`);
       if (client) {
         const resource = await client.im.messageResource.get({
           params: { type: 'file' },
-          path: { message_id: fileRef.messageId, file_key: fileRef.fileKey },
+          path: { message_id: resolvedFileRef.messageId, file_key: resolvedFileRef.fileKey },
         });
         await resource.writeFile(filePath);
       } else {
         await runBufferedProcess(LARK_CLI, buildFeishuMediaDownloadArgs({
-          messageId: fileRef.messageId,
-          fileKey: fileRef.fileKey,
+          messageId: resolvedFileRef.messageId,
+          fileKey: resolvedFileRef.fileKey,
           type: 'file',
           outputPath: relative(WORKDIR, filePath),
         }), {
@@ -3008,7 +3025,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
       await assertMediaFile(filePath);
       const extracted = await extractFileText(filePath);
       if (!extracted) throw new Error('No readable text found in file');
-      task += `\n\n文件内容：\n${extracted}`;
+      task += `\n\n文件“${safeName}”内容：\n${extracted}`;
     }
     if (metadata.file?.resourceId) {
       await ensureTempDir();

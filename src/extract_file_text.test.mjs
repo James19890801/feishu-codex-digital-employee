@@ -15,8 +15,13 @@ await runBufferedProcess(python, ['-c', `
 from openpyxl import Workbook
 from pptx import Presentation
 from pypdf import PdfWriter
+from docx import Document
 from pathlib import Path
 root = Path(${JSON.stringify(directory)})
+document = Document()
+document.add_heading("旧版文档转换", level=1)
+document.add_paragraph("DOC 内容已读取")
+document.save(root / "legacy-source.docx")
 book = Workbook()
 sheet = book.active
 sheet.title = "经营数据"
@@ -32,6 +37,8 @@ writer = PdfWriter()
 writer.add_blank_page(width=200, height=200)
 with open(root / "scan.pdf", "wb") as output:
     writer.write(output)
+(root / "legacy.doc").write_bytes(b"legacy-doc-placeholder")
+(root / "legacy.ppt").write_bytes(b"legacy-ppt-placeholder")
 `], { timeoutMs: 30_000 });
 
 async function extract(name, options = {}) {
@@ -50,6 +57,30 @@ const presentation = await extract('review.pptx');
 assert.match(presentation.text, /\[幻灯片 1\]/);
 assert.match(presentation.text, /季度复盘/);
 assert.match(presentation.text, /增长来自海外市场/);
+
+const fakeOfficeConverter = join(directory, 'fake-office-converter.py');
+await writeFile(fakeOfficeConverter, `#!/usr/bin/env python3
+import shutil, sys
+from pathlib import Path
+args = sys.argv[1:]
+source = Path(args[-1])
+target = args[args.index('--convert-to') + 1]
+outdir = Path(args[args.index('--outdir') + 1])
+seed = source.with_name('legacy-source.docx' if target == 'docx' else 'review.pptx')
+shutil.copy2(seed, outdir / f'{source.stem}.{target}')
+`);
+await chmod(fakeOfficeConverter, 0o700);
+const legacyDocument = await extract('legacy.doc', {
+  env: { AIPRO_OFFICE_CONVERTER: fakeOfficeConverter },
+});
+assert.match(legacyDocument.text, /旧版文档转换/);
+assert.match(legacyDocument.text, /DOC 内容已读取/);
+assert.equal(legacyDocument.officeConverted, true);
+const legacyPresentation = await extract('legacy.ppt', {
+  env: { AIPRO_OFFICE_CONVERTER: fakeOfficeConverter },
+});
+assert.match(legacyPresentation.text, /季度复盘/);
+assert.equal(legacyPresentation.officeConverted, true);
 
 const fakeOcr = join(directory, 'fake-ocr.py');
 await writeFile(fakeOcr, '#!/usr/bin/env python3\nimport json\nprint(json.dumps({"pages":[{"page":1,"text":"扫描件识别结果"}]}, ensure_ascii=False))\n');

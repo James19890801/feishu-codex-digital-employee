@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 MAX_CHARS = 40000
@@ -122,6 +124,41 @@ def pptx_text(path: Path) -> str:
     return "\n".join(chunks)
 
 
+def legacy_office_text(path: Path) -> str:
+    target = "docx" if path.suffix.lower() == ".doc" else "pptx"
+    configured = os.environ.get("AIPRO_OFFICE_CONVERTER", "").strip()
+    bundled = Path(sys.executable).resolve().parents[2] / "bin" / "override" / "soffice"
+    converter = (
+        configured
+        or (str(bundled) if bundled.is_file() else "")
+        or shutil.which("soffice")
+        or shutil.which("libreoffice")
+    )
+    if not converter:
+        raise ValueError(
+            f"legacy {path.suffix.lower()} conversion requires LibreOffice"
+        )
+    with tempfile.TemporaryDirectory(prefix="aipro-office-") as temporary:
+        output_dir = Path(temporary)
+        profile_dir = output_dir / "profile"
+        command = [
+            converter,
+            f"-env:UserInstallation={profile_dir.as_uri()}",
+            "--headless",
+            "--convert-to", target,
+            "--outdir", str(output_dir),
+            str(path),
+        ]
+        result = subprocess.run(
+            command, capture_output=True, text=True, timeout=60, check=False,
+        )
+        converted = output_dir / f"{path.stem}.{target}"
+        if result.returncode != 0 or not converted.is_file():
+            detail = (result.stderr or result.stdout or "conversion failed").strip()
+            raise ValueError(f"legacy Office conversion failed: {detail[:300]}")
+        return docx_text(converted) if target == "docx" else pptx_text(converted)
+
+
 def plain_text(path: Path) -> str:
     raw = path.read_bytes()
     for encoding in ("utf-8", "utf-8-sig", "gb18030", "big5"):
@@ -137,7 +174,7 @@ def main() -> None:
         raise SystemExit("usage: extract_file_text.py FILE")
     path = Path(sys.argv[1])
     suffix = path.suffix.lower()
-    metadata = {"ocrUsed": False}
+    metadata = {"ocrUsed": False, "officeConverted": False}
     if suffix == ".pdf":
         text, metadata["ocrUsed"] = pdf_text(path)
     elif suffix == ".docx":
@@ -148,6 +185,9 @@ def main() -> None:
         text = xls_text(path)
     elif suffix == ".pptx":
         text = pptx_text(path)
+    elif suffix in {".doc", ".ppt"}:
+        text = legacy_office_text(path)
+        metadata["officeConverted"] = True
     elif suffix in {".txt", ".md", ".csv", ".json", ".log", ".xml", ".html"}:
         text = plain_text(path)
     else:

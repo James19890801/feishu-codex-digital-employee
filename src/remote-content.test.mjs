@@ -65,4 +65,27 @@ await assert.rejects(
 );
 assert.equal((await readdir(outputDir)).some(name => name.endsWith('.part')), false);
 
+let oversizedStreamCancelled = false;
+await assert.rejects(
+  downloadPublicContent('https://docs.example.test/streamed-huge.pdf', outputDir, {
+    lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+    fetchImpl: async () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3, 4, 5]));
+      },
+      pull(controller) {
+        controller.enqueue(new Uint8Array([6, 7, 8, 9, 10]));
+      },
+      cancel() {
+        oversizedStreamCancelled = true;
+      },
+    }), { headers: { 'content-type': 'application/pdf' } }),
+    dispatcherFactory: () => ({ close: async () => {} }),
+    maxBytes: 8,
+  }),
+  /size limit/i,
+);
+assert.equal(oversizedStreamCancelled, true);
+assert.equal((await readdir(outputDir)).some(name => name.endsWith('.part')), false);
+
 console.log('REMOTE_CONTENT_TEST_OK');
