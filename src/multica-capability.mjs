@@ -86,17 +86,31 @@ function issueListText(issues, emptyText, appUrl) {
 }
 
 export class MulticaCapability {
-  constructor({ client, state, appUrl, authorizeWrite = () => false }) {
+  constructor({
+    client,
+    state,
+    appUrl,
+    authorizeWrite = () => false,
+    authorizeApproval = () => false,
+  }) {
     this.client = client;
     this.state = state;
     this.appUrl = appUrl;
     this.authorizeWrite = authorizeWrite;
+    this.authorizeApproval = authorizeApproval;
   }
 
   assertWriteAuthorized(context) {
     if (this.authorizeWrite(context) === true) return;
     const error = new Error('Verified Owner authorization is required for Multica writes');
     error.code = 'MULTICA_OWNER_REQUIRED';
+    throw error;
+  }
+
+  assertApprovalAuthorized(context) {
+    if (this.authorizeApproval(context) === true) return;
+    const error = new Error('Verified DingTalk Owner approval is required for this Multica write');
+    error.code = 'MULTICA_APPROVER_REQUIRED';
     throw error;
   }
 
@@ -212,6 +226,20 @@ export class MulticaCapability {
   async prepareMutation(plan, rawContext) {
     this.assertWriteAuthorized(rawContext);
     const context = requireContext(rawContext);
+    return this.prepareMutationPreview(plan, context);
+  }
+
+  async prepareMutationApproval(plan, rawContext) {
+    const context = requireContext(rawContext);
+    if (context.channel !== 'dingtalk' || context.chatType !== 'group') {
+      const error = new Error('DingTalk group context is required for quoted approval');
+      error.code = 'MULTICA_APPROVAL_CONTEXT_REQUIRED';
+      throw error;
+    }
+    return this.prepareMutationPreview(plan, context);
+  }
+
+  async prepareMutationPreview(plan, context) {
     if (!['create', 'update', 'comment'].includes(plan.action)
       || !['single', 'double'].includes(plan.confirmationLevel)) {
       throw new Error('This Multica action does not require mutation confirmation');
@@ -221,6 +249,7 @@ export class MulticaCapability {
       chatId: context.chatId,
       senderId: context.senderId,
       chatType: context.chatType,
+      channel: context.channel,
       expectedUpdatedAt: '',
       resolvedIssueId: '',
       resolvedWorkspaceId: '',
@@ -268,6 +297,25 @@ export class MulticaCapability {
     if (pending.chatId !== context.chatId || pending.senderId !== context.senderId) {
       throw new Error('Multica confirmation context does not match the original request');
     }
+    return this.applyPreparedMutation(pending, context);
+  }
+
+  async applyApprovedMutation(pending, rawApprovalContext) {
+    this.assertApprovalAuthorized(rawApprovalContext);
+    const approvalContext = requireContext(rawApprovalContext);
+    if (pending.chatId !== approvalContext.chatId) {
+      throw new Error('Multica approval context does not match the original request');
+    }
+    const originContext = requireContext({
+      chatId: pending.chatId,
+      senderId: pending.senderId,
+      chatType: pending.chatType,
+      metadata: { channel: pending.channel || approvalContext.channel },
+    });
+    return this.applyPreparedMutation(pending, originContext);
+  }
+
+  async applyPreparedMutation(pending, context) {
     const plan = pending.plan;
     if (plan.action === 'create') {
       const issue = await this.client.createIssue({

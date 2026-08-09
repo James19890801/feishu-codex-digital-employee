@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { MulticaCapability } from './multica-capability.mjs';
 import { isAuthorizedMulticaOwner } from './multica-access.mjs';
+import { isVerifiedDingTalkGroupApprover } from './quoted-approval.mjs';
 
 const subscriptions = [];
 const globalSubscriptions = [];
@@ -99,6 +100,9 @@ const capability = new MulticaCapability({
   state,
   authorizeWrite: candidate => isAuthorizedMulticaOwner(candidate, {
     ownerOpenId: 'ou_owner',
+    dingtalkOwnerOpenId: 'dt_owner',
+  }),
+  authorizeApproval: candidate => isVerifiedDingTalkGroupApprover(candidate, {
     dingtalkOwnerOpenId: 'dt_owner',
   }),
 });
@@ -216,6 +220,53 @@ await assert.rejects(
   }),
   error => error?.code === 'MULTICA_OWNER_REQUIRED',
 );
+
+const groupRequesterContext = {
+  chatId: 'dingtalk:group:cid-project',
+  senderId: 'dingtalk:member-requester',
+  chatType: 'group',
+  metadata: { channel: 'dingtalk' },
+};
+const quotedApprovalPreview = await capability.prepareMutationApproval({
+  summary: 'Add approved group follow-up',
+  action: 'comment',
+  issue: 'MYS-1',
+  confirmationLevel: 'single',
+  content: 'Owner approved this group follow-up.',
+}, groupRequesterContext);
+assert.equal(quotedApprovalPreview.kind, 'confirmation');
+assert.equal(quotedApprovalPreview.pending.senderId, 'dingtalk:member-requester');
+
+await assert.rejects(
+  capability.applyApprovedMutation(quotedApprovalPreview.pending, {
+    ...groupRequesterContext,
+    senderId: 'dingtalk:not-owner',
+  }),
+  error => error?.code === 'MULTICA_APPROVER_REQUIRED',
+);
+await assert.rejects(
+  capability.applyApprovedMutation(quotedApprovalPreview.pending, {
+    ...groupRequesterContext,
+    chatId: 'dingtalk:group:cid-other',
+    senderId: 'dingtalk:dt_owner',
+  }),
+  /context does not match/i,
+);
+
+const quotedApprovalResult = await capability.applyApprovedMutation(
+  quotedApprovalPreview.pending,
+  {
+    ...groupRequesterContext,
+    senderId: 'dingtalk:dt_owner',
+  },
+);
+assert.match(quotedApprovalResult.text, /Owner approved this group follow-up\./);
+assert.deepEqual(subscriptions.at(-1), {
+  issueId: 'issue-1',
+  chatId: 'dingtalk:group:cid-project',
+  senderId: 'dingtalk:member-requester',
+  options: { chatType: 'group', channel: 'dingtalk' },
+});
 
 const updatePreview = await capability.prepareMutation({
   summary: 'Start issue',
