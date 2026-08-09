@@ -22,22 +22,27 @@ For every new mechanism, ask all five dimensions before implementation:
 
 | Domain | Cases | Primary contract |
 |---|---:|---|
+| Multimodal pipeline | 4 | Inbound files and public content resolve safely; workspace artifacts use channel-native delivery |
+| Licensing | 2 | Development bypass and enforced activation remain deterministic |
 | Owner authorization | 24 | Only the verified Owner in a trusted self-chat can advance Multica writes |
-| Human takeover | 8 | Owner controls, five-minute boundary, assistant echo exclusion, retry/degrade policy |
+| Human takeover | 9 | Owner controls, five-minute boundary, assistant echo exclusion, retry/degrade policy |
+| Loop prevention | 12 | Outbound markers, echo consumption, semantic repetition and per-chat circuits prevent self-conversation |
 | Group attribution | 6 | Group replies @ the requester without malformed or accidental mentions |
 | Inbound normalization | 5 | Only complete supported DingTalk events become internal messages |
 | Inbound validation | 4 | Missing identity, message ID, chat ID, or valid chat type fails closed |
 | Durable inbox | 3 | Cross-transport deduplication, retry timing, and completed-message finality |
-| Loop prevention | 3 | Invisible marker, one-time echo consumption, and per-chat circuit isolation |
 | Pending confirmation | 3 | No confirmation can cross sender, conversation, or TTL boundaries |
 | Conversation etiquette | 7 | Short replies stay short, detailed requests get budget, introductions happen once |
 | Disconnect notification | 7 | Incident, partial recovery, recovery, and no-op transitions are deterministic |
 | Agent routing | 4 | Content work from every IM provider goes to the configured local agent runtime |
 | Decision boundary | 4 | Safe reads execute; external writes confirm; privacy and decision requests refuse |
 | Polling selection | 1 | Group @, direct chat, duplicate and Owner-message filtering remain deterministic |
+| Semantic group engagement | 3 | Direct addressing and high-confidence continuation can reply without treating ambient chat as a request |
+| Explicit mention priority | 5 | A direct assistant @ requires a visible response while other-person @ and hard safety still suppress |
+| Group host mode | 9 | Only fresh, unanswered, safe allowlisted topics can receive a bounded host intervention |
 | Retry boundary | 4 | Attempts one and two retry; attempt three and later do not loop forever |
 
-Total: 83 mechanism contracts.
+Total: 116 mechanism contracts.
 
 ## Live verification boundary
 
