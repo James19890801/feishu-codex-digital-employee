@@ -182,4 +182,3 @@ Expected: only design, plan, quoted-approval, DingTalk channel, Multica capabili
 **Step 4: Push and open a draft pull request**
 
 Run: `git push -u origin codex/dingtalk-quoted-approval`, then create a draft PR targeting `main` with validation evidence.
-
