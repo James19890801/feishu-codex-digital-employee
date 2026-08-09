@@ -57,19 +57,25 @@ export function selectRecentImageRefs(items, {
     .reverse();
 }
 
-export function selectRecentFileRef(items, {
+export function selectRecentFileRefs(items, {
   senderOpenId,
   currentTime,
+  limit = 4,
 }) {
-  for (const item of recentItems(items, { senderOpenId, currentTime, messageType: 'file' })) {
-    const content = parseBody(item);
-    if (content.file_key) {
-      return {
+  return recentItems(items, { senderOpenId, currentTime, messageType: 'file' })
+    .map(item => {
+      const content = parseBody(item);
+      return content.file_key ? {
         messageId: item.message_id,
         fileKey: content.file_key,
         fileName: content.file_name || '',
-      };
-    }
-  }
-  return null;
+      } : null;
+    })
+    .filter(Boolean)
+    .slice(0, Math.max(1, Number(limit) || 4))
+    .reverse();
+}
+
+export function selectRecentFileRef(items, options) {
+  return selectRecentFileRefs(items, { ...options, limit: 1 })[0] || null;
 }
