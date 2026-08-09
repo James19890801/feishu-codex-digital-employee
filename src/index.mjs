@@ -206,12 +206,14 @@ import {
   shouldRunDingTalkSemanticObserver,
 } from './dingtalk-wukong-poller.mjs';
 import {
+  buildDingTalkDriveDownloadArgs,
   buildDingTalkMediaDownloadArgs,
   buildFeishuMediaDownloadArgs,
   buildTranscriptionInvocation,
   mediaFileExtension,
 } from './multimodal-content.mjs';
 import { extractHttpUrls, readPublicWebPage } from './web-reader.mjs';
+import { downloadPublicContent } from './remote-content.mjs';
 import {
   discoverBotP2pChats,
   isExpectedLarkCliResult,
@@ -2131,6 +2133,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
   let fileName = '';
   let fileRef = null;
   let audioRef = null;
+  let videoRef = null;
   try {
     const content = JSON.parse(message.content || '{}');
     if (message.message_type === 'post') {
@@ -2142,6 +2145,9 @@ async function processIncoming(client, message, sender, metadata = {}) {
       fileName = content.file_name || '';
       if (message.message_type === 'audio' && fileKey) {
         audioRef = { messageId: message.message_id, fileKey, fileName };
+      }
+      if (message.message_type === 'media' && fileKey) {
+        videoRef = { messageId: message.message_id, fileKey, fileName };
       }
     }
   } catch { return; }
@@ -2539,7 +2545,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
       console.error(`[file-resolution-error] ${message.message_id}:`, error);
     }
   }
-  if (message.message_type === 'file' && !fileRef) {
+  if (message.message_type === 'file' && !fileRef && !metadata.file?.resourceId) {
     await sendText(client, message.chat_id, '文件收到了，但当前没有拿到可读取的文件资源。你可以再发一句希望我怎么处理，我会从最近消息里重新读取。', `digital-employee-file-resource-unavailable-${message.message_id}`);
     audit('capability_unavailable', message, senderOpenId, { capability: 'file_resource' });
     return;
@@ -2861,8 +2867,8 @@ async function processIncoming(client, message, sender, metadata = {}) {
   let task = imageRefs.length || inboundMediaKind === 'image'
     ? `${cleanText ? `对方的问题是：${cleanText}\n` : ''}看一下图片里的内容，然后结合图片直接回复对方。如果是聊天截图，先理解对话语境，再给出最自然的回应或建议。`
     : cleanText;
-  if (fileRef) {
-    task = `${cleanText ? `对方的问题是：${cleanText}\n` : ''}请阅读文件“${fileRef.fileName || '未命名文件'}”，结合文件内容直接回复对方。`;
+  if (fileRef || metadata.file?.resourceId) {
+    task = `${cleanText ? `对方的问题是：${cleanText}\n` : ''}请阅读文件“${fileRef?.fileName || metadata.file?.fileName || '未命名文件'}”，结合文件内容直接回复对方。`;
   }
   if (inboundMediaKind === 'audio') {
     task = `${cleanText ? `对方附带说明：${cleanText}\n` : ''}请根据下面的语音转写内容理解对方的意思并直接回复。`;
@@ -2980,6 +2986,27 @@ async function processIncoming(client, message, sender, metadata = {}) {
       if (!extracted) throw new Error('No readable text found in file');
       task += `\n\n文件内容：\n${extracted}`;
     }
+    if (metadata.file?.resourceId) {
+      await ensureTempDir();
+      const safeName = basename(metadata.file.fileName || 'dingtalk-attachment.bin');
+      const filePath = join(tempDir, safeName);
+      await runBufferedProcess(config.dingtalkBin, buildDingTalkDriveDownloadArgs({
+        profile: config.dingtalkProfile,
+        fileId: metadata.file.resourceId,
+        outputPath: filePath,
+      }), {
+        cwd: WORKDIR,
+        env: dingtalkProcessEnv(),
+        timeoutMs: config.larkCliTimeoutMs,
+        maxStdoutBytes: 512 * 1024,
+        maxStderrBytes: 512 * 1024,
+      });
+      await assertMediaFile(filePath);
+      const extracted = await extractFileText(filePath);
+      if (!extracted) throw new Error('No readable text found in DingTalk file');
+      task += `\n\n文件内容：\n${extracted}`;
+      audit('media_downloaded', message, senderOpenId, { channel: 'dingtalk', kind: 'file' });
+    }
     if (audioRef) {
       await ensureTempDir();
       const audioPath = join(tempDir, `message-audio${mediaFileExtension('audio', audioRef.fileName)}`);
@@ -3013,6 +3040,54 @@ async function processIncoming(client, message, sender, metadata = {}) {
         });
         await sendText(null, message.chat_id, '语音收到了，但这次没有转写成功。你可以再发一次，或者补一句文字。', `aipro-audio-unavailable-${message.message_id}`);
         return;
+      }
+    }
+    if (videoRef) {
+      await ensureTempDir();
+      const videoPath = join(tempDir, `feishu-video${mediaFileExtension('video', videoRef.fileName)}`);
+      if (client) {
+        const resource = await client.im.messageResource.get({
+          params: { type: 'file' },
+          path: { message_id: videoRef.messageId, file_key: videoRef.fileKey },
+        });
+        await resource.writeFile(videoPath);
+      } else {
+        await runBufferedProcess(LARK_CLI, buildFeishuMediaDownloadArgs({
+          messageId: videoRef.messageId,
+          fileKey: videoRef.fileKey,
+          type: 'file',
+          outputPath: relative(WORKDIR, videoPath),
+        }), {
+          cwd: WORKDIR,
+          env: larkCliEnv(),
+          timeoutMs: config.larkCliTimeoutMs,
+          maxStdoutBytes: 512 * 1024,
+          maxStderrBytes: 512 * 1024,
+        });
+      }
+      await assertMediaFile(videoPath);
+      try {
+        const transcript = await transcribeAudio(videoPath);
+        if (transcript) task += `\n\n视频音频转写：\n${transcript}`;
+      } catch (error) {
+        audit('video_audio_transcription_unavailable', message, senderOpenId, {
+          channel: 'feishu', error: processFailureSummary(error),
+        });
+      }
+      try {
+        await runBufferedProcess('/usr/bin/qlmanage', ['-t', '-s', '1200', '-o', tempDir, videoPath], {
+          cwd: WORKDIR,
+          timeoutMs: config.helperTimeoutMs,
+          maxStdoutBytes: 128 * 1024,
+          maxStderrBytes: 128 * 1024,
+        });
+        const thumbnail = (await readdir(tempDir))
+          .find(name => name.startsWith(basename(videoPath)) && name.endsWith('.png'));
+        if (thumbnail) imagePaths.push(join(tempDir, thumbnail));
+      } catch (error) {
+        audit('video_thumbnail_unavailable', message, senderOpenId, {
+          channel: 'feishu', error: processFailureSummary(error),
+        });
       }
     }
     if (metadata.media?.resourceId) {
@@ -3084,7 +3159,40 @@ async function processIncoming(client, message, sender, metadata = {}) {
           const page = await readPublicWebPage(url);
           pages.push(`来源：${page.title || page.url}\n地址：${page.url}\n${page.text}`);
         } catch (error) {
-          failures.push(`${url}：${processFailureSummary(error)}`);
+          try {
+            await ensureTempDir();
+            const remote = await downloadPublicContent(url, tempDir, { maxBytes: MAX_FILE_BYTES });
+            await assertMediaFile(remote.path);
+            if (remote.kind === 'image') {
+              imagePaths.push(remote.path);
+            } else if (remote.kind === 'audio') {
+              pages.push(`来源：${remote.fileName}\n地址：${remote.url}\n${await transcribeAudio(remote.path)}`);
+            } else if (remote.kind === 'video') {
+              let transcript = '';
+              try { transcript = await transcribeAudio(remote.path); } catch { /* frame fallback */ }
+              await runBufferedProcess('/usr/bin/qlmanage', [
+                '-t', '-s', '1200', '-o', tempDir, remote.path,
+              ], {
+                cwd: WORKDIR,
+                timeoutMs: config.helperTimeoutMs,
+                maxStdoutBytes: 128 * 1024,
+                maxStderrBytes: 128 * 1024,
+              });
+              const thumbnail = (await readdir(tempDir))
+                .find(name => name.startsWith(basename(remote.path)) && name.endsWith('.png'));
+              if (thumbnail) imagePaths.push(join(tempDir, thumbnail));
+              if (transcript) pages.push(`来源：${remote.fileName}\n地址：${remote.url}\n${transcript}`);
+            } else {
+              const extracted = await extractFileText(remote.path);
+              if (!extracted) throw new Error('Downloaded link contains no readable content');
+              pages.push(`来源：${remote.fileName}\n地址：${remote.url}\n${extracted}`);
+            }
+            audit('web_binary_read', message, senderOpenId, {
+              url: remote.url, kind: remote.kind, bytes: remote.bytes,
+            });
+          } catch (downloadError) {
+            failures.push(`${url}：${processFailureSummary(downloadError)}`);
+          }
         }
       }
       if (pages.length) {
