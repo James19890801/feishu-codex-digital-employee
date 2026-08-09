@@ -231,8 +231,7 @@ export async function processGroupHostCandidate({
     return Number.isFinite(createdAtMs) ? Math.max(latest, createdAtMs) : latest;
   }, 0);
   const effectiveQuietWindowMs = Math.max(1_000, Number(quietWindowMs) || GROUP_HOST_QUIET_WINDOW_MS);
-  if (latestActivityMs > 0 && Number(nowMs) >= latestActivityMs
-    && Number(nowMs) - latestActivityMs < effectiveQuietWindowMs) {
+  if (latestActivityMs > 0 && Number(nowMs) - latestActivityMs < effectiveQuietWindowMs) {
     return {
       action: 'deferred',
       reasonCode: 'recent_group_activity',

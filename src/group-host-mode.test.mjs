@@ -161,6 +161,22 @@ assert.equal(classifierCalls, 0);
 
 assert.deepEqual(await processGroupHostCandidate({
   candidate,
+  recentMessages: [{
+    role: 'user', senderId: candidate.senderId, content: '这条消息的时间戳略微领先本机。',
+    sourceMessageId: 'message-clock-skew', createdAt: new Date(25_000).toISOString(),
+  }],
+  enabled: true,
+  allowlisted: true,
+  nowMs: 20_000,
+  quietWindowMs: 12_000,
+  runDecisionClassifier: processorDeps.runDecisionClassifier,
+  runReplyGenerator: processorDeps.runReplyGenerator,
+  send: processorDeps.send,
+}), { action: 'deferred', reasonCode: 'recent_group_activity', dueAtMs: 37_000 });
+assert.equal(classifierCalls, 0);
+
+assert.deepEqual(await processGroupHostCandidate({
+  candidate,
   recentMessages: laterMessages,
   ...processorDeps,
 }), { action: 'human_picked_up', reasonCode: 'related_human_reply' });
