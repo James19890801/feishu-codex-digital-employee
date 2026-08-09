@@ -85,7 +85,7 @@ function pageTitle(html) {
   return match ? extractReadableWebText(match[1], 300) : '';
 }
 
-async function validatedAddresses(url, lookup) {
+export async function validatedAddresses(url, lookup) {
   const hostname = url.hostname.toLowerCase();
   if (hostname === 'localhost' || hostname.endsWith('.localhost')) {
     throw new Error('Web address is not public');
@@ -122,7 +122,7 @@ export function createPinnedLookup(records) {
   };
 }
 
-function defaultDispatcherFactory(records) {
+export function defaultDispatcherFactory(records) {
   return new Agent({
     connect: {
       lookup: createPinnedLookup(records),
