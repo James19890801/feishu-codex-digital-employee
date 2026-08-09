@@ -686,6 +686,67 @@ try {
   state.advanceMulticaRunMessageCursor('run-1', issue.id, 4, now);
   assert.equal(state.multicaRunMessageCursor('run-1'), 7, 'run cursor cannot move backwards');
 
+  const hostCandidate = {
+    messageId: 'host-message-1',
+    chatId: 'host-chat',
+    senderId: 'member-a',
+    text: 'AI 会不会让流程管理从事后复盘走向事中干预？',
+    topic: semanticTopic('AI 会不会让流程管理从事后复盘走向事中干预？'),
+    createdAtMs: 1_000,
+    dueAtMs: 2_000,
+  };
+  assert.equal(state.scheduleGroupHostCandidate(hostCandidate), true);
+  assert.equal(state.scheduleGroupHostCandidate(hostCandidate), false, '同一入站消息只能排队一次');
+  assert.equal(state.claimDueGroupHostCandidate(1_999), null);
+  const claimedHost = state.claimDueGroupHostCandidate(2_000);
+  assert.equal(claimedHost.messageId, 'host-message-1');
+  assert.equal(claimedHost.attempts, 1);
+  assert.deepEqual(claimedHost.topic, hostCandidate.topic);
+  assert.equal(state.claimDueGroupHostCandidate(2_000), null, 'processing 候选不能被重复领取');
+  assert.deepEqual(
+    state.retryGroupHostCandidate('host-message-1', 'temporary host failure', 3_000, 2_100, 3),
+    { updated: true, deadLettered: false, attempts: 1 },
+  );
+  assert.equal(state.claimDueGroupHostCandidate(2_999), null);
+  assert.equal(state.claimDueGroupHostCandidate(3_000).attempts, 2);
+  assert.equal(state.completeGroupHostCandidate('host-message-1', 'host_replied', 3_100), true);
+  assert.equal(state.pendingGroupHostCount('host-chat'), 0);
+  assert.equal(
+    state.db.prepare('SELECT resolution FROM group_host_candidate WHERE message_id = ?')
+      .get('host-message-1').resolution,
+    'host_replied',
+  );
+
+  assert.equal(state.scheduleGroupHostCandidate({
+    ...hostCandidate,
+    messageId: 'host-stale-1',
+    createdAtMs: 4_000,
+    dueAtMs: 4_000,
+  }), true);
+  assert.equal(state.claimDueGroupHostCandidate(4_000).messageId, 'host-stale-1');
+  assert.equal(state.recoverGroupHostCandidates(10_000, 1_000), 1);
+  assert.equal(state.claimDueGroupHostCandidate(10_000).messageId, 'host-stale-1');
+  assert.equal(state.completeGroupHostCandidate('host-stale-1', 'human_picked_up', 10_100), true);
+
+  for (let index = 1; index <= 4; index += 1) {
+    assert.equal(state.scheduleGroupHostCandidate({
+      ...hostCandidate,
+      messageId: `host-cap-${index}`,
+      chatId: 'host-cap-chat',
+      createdAtMs: 20_000 + index,
+      dueAtMs: 30_000 + index,
+    }), true);
+  }
+  assert.equal(state.pendingGroupHostCount('host-cap-chat'), 3, '每个群最多保留三个待处理话题');
+  const supersededHost = state.db.prepare(`SELECT status, resolution FROM group_host_candidate
+    WHERE message_id = ?`).get('host-cap-1');
+  assert.equal(supersededHost.status, 'completed');
+  assert.equal(supersededHost.resolution, 'superseded');
+  const hostStats = state.groupHostStats(30_000);
+  assert.equal(hostStats.pending, 3);
+  assert.equal(hostStats.processing, 0);
+  assert.equal(hostStats.completed >= 3, true);
+
   state.db.prepare(`INSERT INTO inbound_message
     (message_id, source, payload, status, attempts, available_at, first_seen_at, updated_at)
     VALUES (?, 'test', ?, 'pending', 0, ?, ?, ?)`)
