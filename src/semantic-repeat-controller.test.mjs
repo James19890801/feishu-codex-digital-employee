@@ -65,6 +65,20 @@ try {
   assert.equal(aiCalls, 1, 'the third repeat must not invoke the AI runtime');
   assert.equal(sent.length, 1, 'the third repeat must be silent');
 
+  const requiredRepeat = await route({
+    ...base,
+    responseRequired: true,
+    message: { ...base.message, message_id: 'message-required' },
+    text: '这个需要杨红宝本人确认后再推进。 @詹老师',
+    nowMs: 3_500,
+  });
+  assert.equal(requiredRepeat.action, 'acknowledge_required');
+  assert.equal(requiredRepeat.handled, true);
+  assert.deepEqual(sent.at(-1), {
+    text: '收到，这条我看到了；相同内容我不重复展开，有新问题我继续接。',
+    idempotencyKey: 'aipro-semantic-repeat-required-ack-message-required',
+  });
+
   assert.equal((await route({
     ...base,
     message: { ...base.message, message_id: 'message-4' },

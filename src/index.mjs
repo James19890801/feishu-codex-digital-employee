@@ -2302,6 +2302,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
     && metadata.semanticCandidate !== true
     && Array.isArray(message.mentions)
     && message.mentions.length > 0;
+  let responseRequired = hasGroupMention;
   if (message.chat_type === 'group' && !hasGroupMention) {
     const discussionChannel = metadata.channel
       || parseChannelChatId(message.chat_id)?.channel
@@ -2397,6 +2398,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
       return;
     }
     if (!engagement.shouldReply) return;
+    responseRequired = engagement.responseRequired === true;
     state.set('semantic_group_reply', message.chat_id, {
       lastReplyAtMs: nowMs,
       action: engagement.action,
@@ -2429,6 +2431,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
     sessionWindowMs: config.adaptiveDiscussionCooldownMs,
     channel: discussionChannel,
     ownerAuthorized: discussionOwnerAuthorized,
+    responseRequired,
     message,
     text: cleanText,
     operatorCommand,
@@ -2454,6 +2457,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
     message,
     text: cleanText,
     operatorCommand,
+    responseRequired,
     sendClose: (reply, idempotencyKey) => sendText(
       client,
       message.chat_id,

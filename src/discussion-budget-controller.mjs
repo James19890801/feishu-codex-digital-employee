@@ -1,6 +1,7 @@
 import { evaluateDiscussionValue } from './discussion-value.mjs';
 
 export const DISCUSSION_LOW_VALUE_CLOSE_REPLY = '这轮讨论的信息增量已经很低，我先在这里收束；有新事实、新证据或新问题时再继续。';
+export const DISCUSSION_REQUIRED_ACK_REPLY = '收到，这条我看到了；当前讨论刚收束，有新内容我继续接。';
 
 const OWNER_CONTINUE_PATTERN = /^(?:继续讨论|继续辩论|恢复讨论|重新开始讨论)$/u;
 
@@ -69,6 +70,7 @@ export async function applyDiscussionBudgetGate({
   sessionWindowMs = 30 * 60_000,
   channel,
   ownerAuthorized = false,
+  responseRequired = false,
   message,
   text,
   operatorCommand = null,
@@ -137,6 +139,23 @@ export async function applyDiscussionBudgetGate({
     reason: claim.reason,
   };
   if (claim.action === 'suppress_cooldown' || claim.action === 'suppress_finalizing') {
+    if (responseRequired) {
+      await sendClose(
+        DISCUSSION_REQUIRED_ACK_REPLY,
+        `aipro-discussion-required-ack-${message.message_id}`,
+      );
+      audit('discussion_required_acknowledged', detail);
+      return {
+        handled: true,
+        eligible: true,
+        ...claim,
+        action: 'acknowledge_required',
+        suppressedAction: claim.action,
+        ownerContinue,
+        checkpointPrompt: '',
+        finalizeAfterReply: false,
+      };
+    }
     audit('discussion_suppressed', detail);
     return {
       handled: true,
