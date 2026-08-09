@@ -1,8 +1,55 @@
 import assert from 'node:assert/strict';
 import {
+  buildGroupHostHealthSnapshot,
+  groupHostTransition,
   redactGroupHostError,
   runGroupHostWorkerIteration,
 } from './group-host-worker.mjs';
+
+assert.deepEqual(groupHostTransition({
+  action: 'deferred', reasonCode: 'recent_group_activity', dueAtMs: 25_000,
+}), {
+  kind: 'reschedule',
+  dueAtMs: 25_000,
+  resolution: 'recent_group_activity',
+});
+assert.deepEqual(groupHostTransition({
+  action: 'replied', reasonCode: 'silent_public_topic', reply: 'private reply text',
+}), { kind: 'complete', resolution: 'host_replied' });
+assert.deepEqual(groupHostTransition({
+  action: 'human_picked_up', reasonCode: 'related_human_reply',
+}), { kind: 'complete', resolution: 'human_picked_up' });
+assert.deepEqual(groupHostTransition({
+  action: 'suppressed', reasonCode: 'chat_not_allowlisted',
+}), { kind: 'complete', resolution: 'suppressed_chat_not_allowlisted' });
+
+assert.deepEqual(buildGroupHostHealthSnapshot({
+  enabled: true,
+  allowlistedGroups: 1,
+  stats: { pending: 2, processing: 0, completed: 5, dead: 0, due: 1 },
+  iteration: { action: 'claim_error', errorCode: 'state_claim_error' },
+  previous: { lastResolvedAt: '2026-08-09T00:00:00.000Z' },
+  nowMs: Date.parse('2026-08-09T01:00:00.000Z'),
+}), {
+  enabled: true,
+  allowlistedGroups: 1,
+  pending: 2,
+  processing: 0,
+  completed: 5,
+  dead: 0,
+  due: 1,
+  lastCheckAt: '2026-08-09T01:00:00.000Z',
+  lastResolvedAt: '2026-08-09T00:00:00.000Z',
+  lastError: { at: '2026-08-09T01:00:00.000Z', code: 'state_claim_error' },
+});
+assert.deepEqual(buildGroupHostHealthSnapshot({
+  enabled: true,
+  allowlistedGroups: 1,
+  stats: { pending: 0, processing: 0, completed: 6, dead: 0, due: 0 },
+  iteration: { action: 'handled' },
+  previous: { lastError: { at: 'old', code: 'old_error' } },
+  nowMs: Date.parse('2026-08-09T01:01:00.000Z'),
+}).lastError, null);
 
 const privateText = '这是不应进入健康状态或重试记录的私人群聊原文';
 assert.equal(redactGroupHostError(new Error(privateText), 'claim'), 'state_claim_error');
@@ -113,5 +160,12 @@ assert.deepEqual(await runGroupHostWorkerIteration({
   },
   errorCode: 'state_retry_error',
 });
+
+assert.equal((await runGroupHostWorkerIteration({
+  nowMs: 20_000,
+  claim: () => candidate,
+  handle: async () => { throw new Error(privateText); },
+  retry: () => ({ updated: false, deadLettered: false, attempts: 1 }),
+})).action, 'retry_error');
 
 console.log('GROUP_HOST_WORKER_TEST_OK');

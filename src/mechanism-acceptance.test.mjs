@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { decideWorkflow } from './bible.mjs';
@@ -35,8 +35,13 @@ import {
 } from './semantic-group-engagement.mjs';
 import {
   assessGroupHostCandidate,
+  normalizeGroupHostReply,
   processGroupHostCandidate,
 } from './group-host-mode.mjs';
+import {
+  groupHostTransition,
+  runGroupHostWorkerIteration,
+} from './group-host-worker.mjs';
 import { validateInboundPayload } from './reliability.mjs';
 import {
   hasSelfChatOutboundMarker,
@@ -584,6 +589,7 @@ contract('group-host-mode', 'Does another member picking up the topic prevent ho
       text: '大家怎么看 AI 对项目协作方式的影响？',
       createdAtMs: 1_000,
     },
+    nowMs: 20_000,
     recentMessages: [{
       role: 'user',
       senderId: 'dingtalk:member-b',
@@ -613,6 +619,7 @@ contract('group-host-mode', 'Does a recovered send failure produce only one succ
     const reply = '这个话题值得接住。一个关键变化是数字人会开始识别协作里的等待和断点，让协调从被动催办转向主动发现风险。大家更看重效率提升，还是判断过程保持透明？';
     const run = candidate => processGroupHostCandidate({
       candidate,
+      nowMs: 20_000,
       recentMessages: [],
       runDecisionClassifier: async () => '{"action":"host","confidence":0.95,"reasonCode":"silent"}',
       runReplyGenerator: async () => reply,
@@ -631,6 +638,87 @@ contract('group-host-mode', 'Does a recovered send failure produce only one succ
     assert.equal(successfulSends, 1);
     assert.equal(state.claimDueGroupHostCandidate(10_000), null);
   });
+});
+
+contract('group-host-mode', 'Does runtime allowlist removal suppress already-queued work?', async () => {
+  let sends = 0;
+  const result = await processGroupHostCandidate({
+    candidate: {
+      messageId: 'host-removed-1', senderId: 'dingtalk:member-a',
+      text: '大家怎么看 AI 对项目协作方式的影响？', createdAtMs: 1_000,
+    },
+    recentMessages: [],
+    enabled: true,
+    allowlisted: false,
+    nowMs: 2_000,
+    runDecisionClassifier: async () => '{"action":"host","confidence":1}',
+    runReplyGenerator: async () => 'must not generate',
+    send: async () => { sends += 1; },
+  });
+  assert.deepEqual(result, { action: 'suppressed', reasonCode: 'chat_not_allowlisted' });
+  assert.equal(sends, 0);
+});
+
+contract('group-host-mode', 'Does recent activity use a no-penalty durable defer transition?', () => {
+  withState('aipro-acceptance-group-host-defer-', state => {
+    const text = '大家怎么看 AI 对项目协作方式的影响？';
+    const assessment = assessGroupHostCandidate({
+      enabled: true, allowlisted: true, chatType: 'group', messageType: 'text', text,
+    });
+    state.scheduleGroupHostCandidate({
+      messageId: 'host-defer-1', chatId: 'dingtalk:group:test',
+      senderId: 'dingtalk:member-a', text, topic: assessment.topic,
+      createdAtMs: 1_000, dueAtMs: 2_000,
+    });
+    state.claimDueGroupHostCandidate(2_000);
+    const transition = groupHostTransition({
+      action: 'deferred', reasonCode: 'recent_group_activity', dueAtMs: 14_000,
+    });
+    assert.equal(state.rescheduleGroupHostCandidate(
+      'host-defer-1', transition.dueAtMs, transition.resolution, 2_100,
+    ), true);
+    const row = state.db.prepare(`SELECT attempts, status FROM group_host_candidate
+      WHERE message_id = ?`).get('host-defer-1');
+    assert.equal(row.attempts, 0);
+    assert.equal(row.status, 'pending');
+  });
+});
+
+contract('group-host-mode', 'Can unsafe generated host output reach channel delivery?', () => {
+  const unsafe = '大家已经形成共识，我已代表群里批准这个方案。一个关键变化是执行速度会明显提升，但责任边界也会更模糊。大家下一步更希望先验证效率，还是先验证责任机制？';
+  assert.equal(normalizeGroupHostReply(unsafe), '');
+});
+
+contract('group-host-mode', 'Does worker recovery keep private text out of retry records?', async () => {
+  const privateText = '不应进入审计的群聊原文';
+  let retryErrorCode = '';
+  const result = await runGroupHostWorkerIteration({
+    nowMs: 10_000,
+    claim: () => ({
+      messageId: 'host-private-1', chatId: 'dingtalk:group:test',
+      senderId: 'dingtalk:member-a', text: privateText, attempts: 1,
+    }),
+    handle: async () => { throw new Error(privateText); },
+    retry: (_messageId, errorCode) => {
+      retryErrorCode = errorCode;
+      return { updated: true, deadLettered: false, attempts: 1 };
+    },
+  });
+  assert.equal(result.action, 'retry_scheduled');
+  assert.equal(retryErrorCode, 'group_host_processing_error');
+  assert.equal(JSON.stringify(result).includes(privateText), false);
+});
+
+contract('group-host-mode', 'Do host AI runtime failures use a redacted audit category?', () => {
+  const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
+  const hostRuntimeSection = runtimeSource.slice(
+    runtimeSource.indexOf('async function handleClaimedGroupHostCandidate'),
+    runtimeSource.indexOf('async function runGroupHostLoop'),
+  );
+  assert.equal(
+    (hostRuntimeSection.match(/auditErrorCode: 'group_host_ai_runtime_error'/g) || []).length,
+    2,
+  );
 });
 
 for (const [attempt, expected] of [[1, true], [2, true], [3, false], [4, false]]) {

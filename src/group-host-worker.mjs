@@ -7,6 +7,61 @@ function candidateReference(candidate = {}) {
   };
 }
 
+function safeReasonCode(value, fallback = 'unspecified') {
+  return String(value || fallback)
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .slice(0, 64) || fallback;
+}
+
+export function groupHostTransition(result = {}) {
+  const action = String(result.action || 'observe');
+  const reasonCode = safeReasonCode(result.reasonCode);
+  if (action === 'deferred') {
+    return {
+      kind: 'reschedule',
+      dueAtMs: Math.max(0, Number(result.dueAtMs) || 0),
+      resolution: reasonCode,
+    };
+  }
+  return {
+    kind: 'complete',
+    resolution: action === 'replied'
+      ? 'host_replied'
+      : action === 'human_picked_up'
+        ? 'human_picked_up'
+        : `${safeReasonCode(action, 'observe')}_${reasonCode}`.slice(0, 100),
+  };
+}
+
+export function buildGroupHostHealthSnapshot({
+  enabled = false,
+  allowlistedGroups = 0,
+  stats = {},
+  iteration = {},
+  previous = {},
+  nowMs = Date.now(),
+} = {}) {
+  const checkedAt = new Date(Number(nowMs)).toISOString();
+  const errorAction = ['claim_error', 'retry_error', 'retry_scheduled', 'dead_lettered']
+    .includes(String(iteration.action || ''));
+  return {
+    enabled: enabled === true,
+    allowlistedGroups: Math.max(0, Number(allowlistedGroups) || 0),
+    pending: Math.max(0, Number(stats.pending) || 0),
+    processing: Math.max(0, Number(stats.processing) || 0),
+    completed: Math.max(0, Number(stats.completed) || 0),
+    dead: Math.max(0, Number(stats.dead) || 0),
+    due: Math.max(0, Number(stats.due) || 0),
+    lastCheckAt: checkedAt,
+    lastResolvedAt: iteration.action === 'handled'
+      ? checkedAt
+      : String(previous.lastResolvedAt || ''),
+    lastError: errorAction
+      ? { at: checkedAt, code: safeReasonCode(iteration.errorCode, 'worker_error') }
+      : null,
+  };
+}
+
 export function redactGroupHostError(error, stage = 'process') {
   if (stage === 'claim') return 'state_claim_error';
   if (stage === 'retry') return 'state_retry_error';
@@ -68,6 +123,14 @@ export async function runGroupHostWorkerIteration({
         waitMs: 2_000,
         candidate: safeCandidate,
         errorCode: redactGroupHostError(retryError, 'retry'),
+      };
+    }
+    if (!retryResult?.updated) {
+      return {
+        action: 'retry_error',
+        waitMs: 2_000,
+        candidate: safeCandidate,
+        errorCode: 'state_retry_error',
       };
     }
     return {

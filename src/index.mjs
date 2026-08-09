@@ -166,6 +166,11 @@ import {
   processGroupHostCandidate,
 } from './group-host-mode.mjs';
 import {
+  buildGroupHostHealthSnapshot,
+  groupHostTransition,
+  runGroupHostWorkerIteration,
+} from './group-host-worker.mjs';
+import {
   applyOwnerActivityHistory,
   applyVerifiedOwnerHistory,
   evaluateHumanTakeover,
@@ -1109,8 +1114,9 @@ async function createChannelCalendarEvent(message, draft, metadata = {}) {
 }
 
 async function runAiRuntime(prompt, options) {
+  const { auditErrorCode = '', ...runtimeOptions } = options || {};
   try {
-    const result = await AI_RUNTIME_CLIENT.run(prompt, options);
+    const result = await AI_RUNTIME_CLIENT.run(prompt, runtimeOptions);
     state.set('health', 'last_ai_runtime_success_at', new Date().toISOString());
     state.unset('health', 'last_ai_runtime_error');
     return result;
@@ -1118,7 +1124,9 @@ async function runAiRuntime(prompt, options) {
     const detail = {
       at: new Date().toISOString(),
       runtime: SELECTED_AI_RUNTIME.id,
-      error: processFailureSummary(error),
+      error: auditErrorCode
+        ? String(auditErrorCode).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 100)
+        : processFailureSummary(error),
     };
     state.set('health', 'last_ai_runtime_error', detail);
     state.audit('ai_runtime_error', { detail });
@@ -3463,6 +3471,9 @@ async function handleClaimedGroupHostCandidate(candidate) {
     const result = await processGroupHostCandidate({
       candidate,
       recentMessages,
+      enabled: config.groupHostModeEnabled,
+      allowlisted: GROUP_HOST_CHAT_IDS.has(candidate.chatId),
+      nowMs,
       takeoverActive,
       cooldownActive,
       runDecisionClassifier: async prompt => {
@@ -3479,6 +3490,7 @@ async function handleClaimedGroupHostCandidate(candidate) {
           timeoutMs: Math.min(Number(config.codexTimeoutMs || 120_000), 45_000),
           maxStdoutBytes: 64 * 1024,
           maxStderrBytes: 512 * 1024,
+          auditErrorCode: 'group_host_ai_runtime_error',
         });
         return output;
       },
@@ -3489,6 +3501,7 @@ async function handleClaimedGroupHostCandidate(candidate) {
           timeoutMs: Math.min(Number(config.codexTimeoutMs || 120_000), 60_000),
           maxStdoutBytes: 64 * 1024,
           maxStderrBytes: 512 * 1024,
+          auditErrorCode: 'group_host_ai_runtime_error',
         });
         return output;
       },
@@ -3500,12 +3513,24 @@ async function handleClaimedGroupHostCandidate(candidate) {
         { mentionSenderId: candidate.senderId, chatType: 'group' },
       ),
     });
-    const resolution = result.action === 'replied'
-      ? 'host_replied'
-      : result.action === 'human_picked_up'
-        ? 'human_picked_up'
-        : `${result.action}_${result.reasonCode}`.slice(0, 100);
-    state.completeGroupHostCandidate(candidate.messageId, resolution, Date.now());
+    const transition = groupHostTransition(result);
+    const transitioned = transition.kind === 'reschedule'
+      ? state.rescheduleGroupHostCandidate(
+        candidate.messageId,
+        transition.dueAtMs,
+        transition.resolution,
+        Date.now(),
+      )
+      : state.completeGroupHostCandidate(
+        candidate.messageId,
+        transition.resolution,
+        Date.now(),
+      );
+    if (!transitioned) {
+      const transitionError = new Error('group host state transition failed');
+      transitionError.code = 'GROUP_HOST_TRANSITION_FAILED';
+      throw transitionError;
+    }
     if (result.action === 'replied') {
       const repliedAtMs = Date.now();
       remember(candidate.chatId, candidate.senderId, 'assistant', result.reply, {
@@ -3532,6 +3557,8 @@ async function handleClaimedGroupHostCandidate(candidate) {
         action: result.action,
         reasonCode: result.reasonCode,
         attempts: candidate.attempts,
+        transition: transition.kind,
+        dueAtMs: transition.kind === 'reschedule' ? transition.dueAtMs : 0,
         replyChars: result.reply ? [...result.reply].length : 0,
       },
     });
@@ -3539,43 +3566,70 @@ async function handleClaimedGroupHostCandidate(candidate) {
   });
 }
 
+function recordGroupHostHealth(iteration, nowMs = Date.now()) {
+  try {
+    const previous = state.get('health', 'group_host', {});
+    state.set('health', 'group_host', buildGroupHostHealthSnapshot({
+      enabled: config.groupHostModeEnabled,
+      allowlistedGroups: GROUP_HOST_CHAT_IDS.size,
+      stats: state.groupHostStats(nowMs),
+      iteration,
+      previous,
+      nowMs,
+    }));
+  } catch {
+    console.error('[group-host-health-error] state_health_error');
+  }
+}
+
 async function runGroupHostLoop() {
-  if (!config.groupHostModeEnabled || GROUP_HOST_CHAT_IDS.size === 0) return;
+  if (!config.groupHostModeEnabled || GROUP_HOST_CHAT_IDS.size === 0) {
+    recordGroupHostHealth({ action: 'idle' });
+    return;
+  }
   while (!stopping) {
-    const candidate = state.claimDueGroupHostCandidate(Date.now());
-    if (!candidate) {
-      await wait(1_000);
-      continue;
-    }
-    try {
-      await handleClaimedGroupHostCandidate(candidate);
-    } catch (error) {
-      const nowMs = Date.now();
-      const retryAtMs = nowMs + Math.min(
-        5 * 60_000,
-        15_000 * (2 ** Math.max(0, Number(candidate.attempts || 1) - 1)),
-      );
-      const retry = state.retryGroupHostCandidate(
-        candidate.messageId,
-        processFailureSummary(error),
-        retryAtMs,
-        nowMs,
-        3,
-      );
-      state.audit(retry.deadLettered
+    const nowMs = Date.now();
+    const iteration = await runGroupHostWorkerIteration({
+      nowMs,
+      claim: claimAtMs => state.claimDueGroupHostCandidate(claimAtMs),
+      handle: candidate => handleClaimedGroupHostCandidate(candidate),
+      retry: (messageId, errorCode, retryAtMs, failedAtMs, maxAttempts) => (
+        state.retryGroupHostCandidate(
+          messageId,
+          errorCode,
+          retryAtMs,
+          failedAtMs,
+          maxAttempts,
+        )
+      ),
+      maxAttempts: 3,
+    });
+    recordGroupHostHealth(iteration, nowMs);
+    if (['claim_error', 'retry_error', 'retry_scheduled', 'dead_lettered']
+      .includes(iteration.action)) {
+      const event = iteration.action === 'dead_lettered'
         ? 'group_host_candidate_dead_lettered'
-        : 'group_host_candidate_retry_scheduled', {
-        chatId: candidate.chatId,
-        senderId: candidate.senderId,
-        messageId: candidate.messageId,
-        detail: {
-          attempts: retry.attempts,
-          retryAtMs: retry.deadLettered ? 0 : retryAtMs,
-          error: processFailureSummary(error),
-        },
-      });
-      console.error(`[group-host-error] ${candidate.messageId}:`, error);
+        : iteration.action === 'retry_scheduled'
+          ? 'group_host_candidate_retry_scheduled'
+          : 'group_host_worker_error';
+      try {
+        state.audit(event, {
+          chatId: iteration.candidate?.chatId || '',
+          senderId: iteration.candidate?.senderId || '',
+          messageId: iteration.candidate?.messageId || '',
+          detail: {
+            action: iteration.action,
+            attempts: Number(iteration.attempts || iteration.candidate?.attempts || 0),
+            retryAtMs: iteration.action === 'retry_scheduled' ? iteration.retryAtMs : 0,
+            errorCode: iteration.errorCode,
+          },
+        });
+      } catch {
+        console.error('[group-host-audit-error] state_audit_error');
+      }
+      console.error(`[group-host-${iteration.action}] ${iteration.candidate?.messageId || '-'} ${iteration.errorCode}`);
     }
+    if (iteration.waitMs > 0) await wait(iteration.waitMs);
   }
 }
 

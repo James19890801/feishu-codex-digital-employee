@@ -64,6 +64,14 @@ const processingCount = Number(db.prepare(`SELECT COUNT(*) AS count FROM inbound
 const failedCount = Number(db.prepare(`SELECT COUNT(*) AS count FROM inbound_message
   WHERE status = 'dead' OR (status = 'failed' AND available_at < ?)`)
   .get(new Date(nowMs - 60_000).toISOString())?.count || 0);
+const groupHostRows = db.prepare(`SELECT status, COUNT(*) AS count
+  FROM group_host_candidate GROUP BY status`).all();
+const groupHostCounts = Object.fromEntries(
+  groupHostRows.map(row => [row.status, Number(row.count || 0)]),
+);
+const groupHostDue = Number(db.prepare(`SELECT COUNT(*) AS count
+  FROM group_host_candidate
+  WHERE status IN ('pending', 'failed') AND due_at_ms <= ?`).get(nowMs)?.count || 0);
 const multicaDeadCount = Number(db.prepare(`SELECT COUNT(*) AS count
   FROM multica_notification_outbox WHERE status = 'dead'`).get()?.count || 0);
 const proxyReachable = await tcpReachable(config.codexProxyUrl || '');
@@ -98,6 +106,7 @@ const lastBackupError = setting('health', 'last_database_backup_error', null);
 const lastAiRuntimeSuccessAt = setting('health', 'last_ai_runtime_success_at', '');
 const lastAiRuntimeError = setting('health', 'last_ai_runtime_error', null);
 const selfChatCircuitLast = setting('health', 'self_chat_circuit_last', null);
+const groupHostHealth = setting('health', 'group_host', null);
 const dingtalkChannel = setting('channel', 'dingtalk', {});
 const wecomChannel = setting('channel', 'wecom', {});
 const geweChannel = setting('channel', 'wechat', {});
@@ -125,6 +134,12 @@ if (config.wecomEnabled === true && !wecomChannel.connected) {
 }
 if (config.geweEnabled === true && !geweChannel.connected) {
   result.issues.push('wechat_channel_unavailable');
+}
+if (config.groupHostModeEnabled === true && groupHostHealth?.lastError) {
+  result.issues.push('group_host_worker_error');
+}
+if (Number(groupHostCounts.dead || 0) > 0) {
+  result.issues.push('group_host_dead');
 }
 let multicaSyncAgeMs = null;
 if (config.multicaEnabled) {
@@ -181,6 +196,18 @@ result.metrics = {
   lastAiRuntimeSuccessAt,
   selfChatCircuitOpen,
   selfChatCircuitLast,
+  groupHost: {
+    enabled: config.groupHostModeEnabled === true,
+    allowlistedGroups: Array.isArray(config.groupHostChatIds) ? config.groupHostChatIds.length : 0,
+    pending: Number(groupHostCounts.pending || 0) + Number(groupHostCounts.failed || 0),
+    processing: Number(groupHostCounts.processing || 0),
+    completed: Number(groupHostCounts.completed || 0),
+    dead: Number(groupHostCounts.dead || 0),
+    due: groupHostDue,
+    lastCheckAt: String(groupHostHealth?.lastCheckAt || ''),
+    lastResolvedAt: String(groupHostHealth?.lastResolvedAt || ''),
+    lastError: groupHostHealth?.lastError || null,
+  },
   channels: {
     feishu: {
       enabled: config.feishuEnabled !== false,
