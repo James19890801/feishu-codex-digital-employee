@@ -411,11 +411,18 @@ if (typeof imChannelHelpers.normalizeDingTalkGroupHistoryMessages === 'function'
     success: true,
     result: {
       messages: [{
-        content: 'Deepseek的能力确实可以',
+        content: '同意',
         createTime: '2026-08-09 11:56:29',
         openConversationId: 'cid-host-group',
         openMessageId: 'msg-owner-topic',
         senderOpenDingTalkId: 'open-owner',
+        quotedMessage: {
+          content: '待授权：发布项目延期说明',
+          createTime: '2026-08-09 11:55:00',
+          openConversationId: 'cid-host-group',
+          openMessageId: 'msg-approval-request',
+          senderOpenDingTalkId: 'open-owner',
+        },
       }, {
         content: '我也关心它在复杂任务里的稳定性。',
         createTime: '2026-08-09 11:57:00',
@@ -436,7 +443,15 @@ if (typeof imChannelHelpers.normalizeDingTalkGroupHistoryMessages === 'function'
   assert.equal(payloads[0].message.chat_type, 'group');
   assert.equal(payloads[0].metadata.ownerActivity, true);
   assert.equal(payloads[0].metadata.semanticCandidate, true);
+  assert.deepEqual(payloads[0].metadata.quotedMessage, {
+    messageId: 'dingtalk:msg-approval-request',
+    conversationId: 'cid-host-group',
+    senderId: 'dingtalk:open-owner',
+    content: '待授权：发布项目延期说明',
+    createTime: '2026-08-09 11:55:00',
+  });
   assert.equal(payloads[1].metadata.ownerActivity, false);
+  assert.equal(payloads[1].metadata.quotedMessage, undefined);
 }
 
 {
@@ -446,17 +461,31 @@ if (typeof imChannelHelpers.normalizeDingTalkGroupHistoryMessages === 'function'
     message_id: 'msg-1',
     conversation_id: 'cid-group',
     sender_open_dingtalk_id: 'sender-1',
-    content: '@James 请给我项目状态',
+    content: '同意',
     create_time: '2026-07-31T10:00:00+08:00',
+    quoted_message: {
+      content: '待授权：更新 MYS-1',
+      conversation_id: 'cid-group',
+      create_time: '2026-07-31T09:59:00+08:00',
+      message_id: 'msg-approval-1',
+      sender_open_dingtalk_id: 'sender-owner',
+    },
   });
   assert.equal(payload.message.message_id, 'dingtalk:msg-1');
   assert.equal(payload.message.chat_id, 'dingtalk:group:cid-group');
   assert.equal(payload.message.chat_type, 'group');
   assert.equal(payload.message.message_type, 'text');
   assert.equal(payload.sender.sender_id.open_id, 'dingtalk:sender-1');
-  assert.equal(JSON.parse(payload.message.content).text, '@James 请给我项目状态');
+  assert.equal(JSON.parse(payload.message.content).text, '同意');
   assert.equal(payload.message.mentions.length, 1);
   assert.equal(payload.metadata.channel, 'dingtalk');
+  assert.deepEqual(payload.metadata.quotedMessage, {
+    messageId: 'dingtalk:msg-approval-1',
+    conversationId: 'cid-group',
+    senderId: 'dingtalk:sender-owner',
+    content: '待授权：更新 MYS-1',
+    createTime: '2026-07-31T09:59:00+08:00',
+  });
 }
 
 {
@@ -514,6 +543,7 @@ if (typeof imChannelHelpers.normalizeDingTalkGroupHistoryMessages === 'function'
   assert.equal(payload.message.chat_id, 'dingtalk:user:sender-2');
   assert.equal(payload.message.chat_type, 'p2p');
   assert.deepEqual(payload.message.mentions, []);
+  assert.equal(payload.metadata.quotedMessage, undefined);
 }
 
 {

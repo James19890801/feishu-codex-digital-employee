@@ -42,6 +42,34 @@ export function formatChannelChatId(channel, kind, id) {
   return `${channel}:${kind}:${normalizedId}`;
 }
 
+function dingTalkMessageId(value) {
+  const normalized = String(value || '').trim();
+  if (!normalized) return '';
+  return normalized.startsWith('dingtalk:') ? normalized : `dingtalk:${normalized}`;
+}
+
+export function normalizeDingTalkQuotedMessage(value) {
+  if (!value || typeof value !== 'object') return null;
+  const messageId = dingTalkMessageId(
+    value.message_id || value.messageId || value.openMessageId || value.open_message_id,
+  );
+  if (!messageId) return null;
+  const conversationId = String(
+    value.conversation_id || value.conversationId
+      || value.openConversationId || value.open_conversation_id || '',
+  ).trim();
+  const senderId = String(
+    value.sender_open_dingtalk_id || value.senderOpenDingTalkId || '',
+  ).trim();
+  return {
+    messageId,
+    conversationId,
+    senderId: senderId ? `dingtalk:${senderId}` : '',
+    content: String(value.content || value.text || ''),
+    createTime: String(value.create_time || value.createTime || ''),
+  };
+}
+
 export function parseChannelChatId(chatId) {
   const match = String(chatId || '').match(CHANNEL_TARGET_PATTERN);
   if (!match) return null;
@@ -222,6 +250,9 @@ export function normalizeDingTalkEvent(event) {
   const rawContent = String(event?.content || '');
   const media = parseDingTalkMediaPlaceholder(rawContent);
   const file = parseDingTalkFilePlaceholder(rawContent);
+  const quotedMessage = normalizeDingTalkQuotedMessage(
+    event?.quoted_message || event?.quotedMessage,
+  );
   return {
     message: {
       message_id: `dingtalk:${messageId}`,
@@ -245,6 +276,7 @@ export function normalizeDingTalkEvent(event) {
     metadata: {
       channel: 'dingtalk',
       eventType: type,
+      ...(quotedMessage ? { quotedMessage } : {}),
       ...(semanticGroup ? {
         semanticCandidate: true,
         mentionedOther: /@\S+/.test(rawContent),
@@ -332,6 +364,9 @@ export function normalizeDingTalkGroupHistoryMessages(result, {
     if (!messageId || !senderId || !content || conversationId !== expectedGroupId) return [];
     const media = parseDingTalkMediaPlaceholder(content);
     const file = parseDingTalkFilePlaceholder(content);
+    const quotedMessage = normalizeDingTalkQuotedMessage(
+      item?.quotedMessage || item?.quoted_message,
+    );
     if (!media && !file && (/^\[(?:图片|文件|视频)消息\]/.test(content) || /^\[文件\]/.test(content))) return [];
     const ownerActivity = Boolean(normalizedOwnerId && senderId === normalizedOwnerId);
     return [{
@@ -359,6 +394,7 @@ export function normalizeDingTalkGroupHistoryMessages(result, {
         semanticCandidate: true,
         mentionedOther: /(?:^|\s)[@＠][^\s，,。！？!?]+/u.test(content),
         ownerActivity,
+        ...(quotedMessage ? { quotedMessage } : {}),
         ...(media ? {
           media: {
             kind: media.kind,
