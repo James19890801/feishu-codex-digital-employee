@@ -4,6 +4,7 @@ import { compareSemanticTopics, semanticTopic } from './semantic-repeat-guard.mj
 const LOW_INFORMATION_PATTERN = /^(?:大家好|各位好|你好|您好|收到|好的?|可以|行|嗯+|谢谢|感谢|辛苦了|赞|哈哈+)[。！!,.，\s]*$/iu;
 const PUBLIC_QUESTION_PATTERN = /[?？]|(?:大家|各位|你们|群里).{0,12}(?:怎么看|怎么想|认为|觉得|有没有|是否|能不能|建议)/u;
 const DISCUSSION_CUE_PATTERN = /(?:怎么看|讨论|观点|判断|影响|变化|趋势|方案|建议|案例|新闻|意味着|风险|机会|值得)/u;
+const OPINION_SEED_PATTERN = /^.{2,40}(?:确实|真的|明显|我觉得|我认为|感觉).{0,12}(?:可以|不错|很强|强|弱|好|差|值得|靠谱|一般|有用|有意思)[。！!，,\s]*$/u;
 const ADMIN_ANNOUNCEMENT_PATTERN = /^(?:通知|提醒|会议|日程|时间|地点|链接|材料).{0,30}(?:改到|调整|定在|安排|发送|已发|请查收)/u;
 const UNSAFE_REPLY_PATTERN = /(?:@所有人|@all\b|<@[^>]*>|<at\s|https?:\/\/|\[[^\]]+\]\([^)]*\)|```|(?:大家|我们|群里).{0,12}(?:已经|一致|共同|形成).{0,12}(?:同意|共识|决定)|我(?:已|会|将).{0,8}(?:代表|批准|同意|授权|承诺|付款|支付|删除|发布|创建|提交))/iu;
 
@@ -51,12 +52,13 @@ export function assessGroupHostCandidate({
   const substantiveTopic = value.substantive
     && [...content].length >= 20
     && DISCUSSION_CUE_PATTERN.test(content);
-  if (!publicQuestion && !substantiveTopic) {
+  const opinionSeed = [...content].length >= 8 && OPINION_SEED_PATTERN.test(content);
+  if (!publicQuestion && !substantiveTopic && !opinionSeed) {
     return { eligible: false, reasonCode: 'no_discussion_opening' };
   }
   return {
     eligible: true,
-    reasonCode: publicQuestion ? 'public_question' : 'substantive_topic',
+    reasonCode: publicQuestion ? 'public_question' : opinionSeed ? 'opinion_seed' : 'substantive_topic',
     topic: value.topic,
   };
 }

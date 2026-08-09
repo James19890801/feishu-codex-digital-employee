@@ -130,6 +130,23 @@ export function buildDingTalkConversationPollingArgs(profile, target, start) {
   ];
 }
 
+export function buildDingTalkGroupHostPollingArgs(profile, groupId, start) {
+  const normalizedGroupId = String(groupId || '').trim();
+  const normalizedStart = String(start || '').trim();
+  if (!normalizedGroupId || !normalizedStart) {
+    throw new Error('DingTalk group host polling requires group ID and start time');
+  }
+  return [
+    ...(profile ? ['--profile', profile] : []),
+    'chat', 'message', 'list',
+    '--group', normalizedGroupId,
+    '--time', normalizedStart,
+    '--direction', 'newer',
+    '--limit', '50',
+    '--format', 'json',
+  ];
+}
+
 export function buildDingTalkSendArgs(target, text, uuid = '', {
   atOpenDingTalkIds = [],
   transport = 'event-stream',
@@ -264,6 +281,64 @@ export function normalizeDingTalkSelfMessages(result) {
         conversationId: String(
           item?.openConversationId || item?.open_conversation_id || '',
         ),
+      },
+    }];
+  });
+}
+
+export function normalizeDingTalkGroupHistoryMessages(result, {
+  groupId = '',
+  ownerOpenId = '',
+} = {}) {
+  const root = result?.result || result?.data || result || {};
+  const messages = Array.isArray(root) ? root : (root.messages || root.items || []);
+  const expectedGroupId = String(groupId || '').trim();
+  const normalizedOwnerId = String(ownerOpenId || '').trim();
+  if (!expectedGroupId) return [];
+  return (Array.isArray(messages) ? messages : []).flatMap(item => {
+    const messageId = String(item?.openMessageId || item?.messageId || item?.message_id || '').trim();
+    const senderId = String(
+      item?.senderOpenDingTalkId || item?.sender_open_dingtalk_id || '',
+    ).trim();
+    const conversationId = String(
+      item?.openConversationId || item?.open_conversation_id || expectedGroupId,
+    ).trim();
+    const content = String(item?.content || item?.text || '').trim();
+    if (!messageId || !senderId || !content || conversationId !== expectedGroupId) return [];
+    const media = parseDingTalkMediaPlaceholder(content);
+    if (!media && (/^\[(?:图片|文件|视频)消息\]/.test(content) || /^\[文件\]/.test(content))) return [];
+    const ownerActivity = Boolean(normalizedOwnerId && senderId === normalizedOwnerId);
+    return [{
+      message: {
+        message_id: `dingtalk:${messageId}`,
+        chat_id: formatChannelChatId('dingtalk', 'group', conversationId),
+        chat_type: 'group',
+        message_type: media?.kind || 'text',
+        create_time: normalizedTimestamp(item?.createTime || item?.create_time),
+        content: JSON.stringify(media
+          ? { text: '', resource_id: media.resourceId, display_name: media.displayName }
+          : { text: content }),
+        mentions: [],
+      },
+      sender: {
+        sender_type: 'user',
+        sender_id: { open_id: `dingtalk:${senderId}` },
+      },
+      metadata: {
+        channel: 'dingtalk',
+        source: 'group-host-recovery-poll',
+        conversationId,
+        semanticCandidate: true,
+        mentionedOther: /(?:^|\s)[@＠][^\s，,。！？!?]+/u.test(content),
+        ownerActivity,
+        ...(media ? {
+          media: {
+            kind: media.kind,
+            resourceId: media.resourceId,
+            messageId,
+            conversationId,
+          },
+        } : {}),
       },
     }];
   });

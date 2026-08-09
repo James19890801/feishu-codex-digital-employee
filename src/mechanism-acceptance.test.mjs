@@ -721,6 +721,14 @@ contract('group-host-mode', 'Do host AI runtime failures use a redacted audit ca
   );
 });
 
+contract('group-host-mode', 'Can the allowlisted DingTalk group recover messages missed by the event stream?', () => {
+  const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
+  assert.match(runtimeSource, /runDingTalkGroupHostRecoveryLoop/);
+  assert.match(runtimeSource, /normalizeDingTalkGroupHistoryMessages/);
+  assert.match(runtimeSource, /ownerOpenId:\s*config\.dingtalkOwnerOpenId/);
+  assert.match(runtimeSource, /enqueueInbound\(payload, 'dingtalk-group-host-recovery'\)/);
+});
+
 for (const [attempt, expected] of [[1, true], [2, true], [3, false], [4, false]]) {
   contract('retry-boundary', `Should inbound attempt ${attempt} retry?`, () => {
     assert.equal(shouldRetryMessage(attempt), expected);

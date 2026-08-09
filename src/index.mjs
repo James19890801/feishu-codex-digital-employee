@@ -146,8 +146,10 @@ import {
 } from './ai-runtime.mjs';
 import {
   buildDingTalkConversationPollingArgs,
+  buildDingTalkGroupHostPollingArgs,
   buildDingTalkProcessEnv,
   buildDingTalkSelfPollingArgs,
+  normalizeDingTalkGroupHistoryMessages,
   normalizeDingTalkSelfMessages,
   parseChannelChatId,
   prepareGroupMention,
@@ -400,6 +402,7 @@ let multicaSyncPromise = null;
 let dingTalkSupervisorPromise = null;
 let dingTalkSelfPollingPromise = null;
 let dingTalkSemanticPollingPromise = null;
+let dingTalkGroupHostRecoveryPromise = null;
 let geWeMonitorPromise = null;
 let dailyLearningPromise = null;
 let groupHostPromise = null;
@@ -3779,6 +3782,105 @@ async function runDingTalkSelfPollingLoop() {
   }
 }
 
+async function fetchDingTalkGroupHostRecoveryMessages(chatId, startMs, endMs) {
+  const target = parseChannelChatId(chatId);
+  if (target?.channel !== 'dingtalk' || target.kind !== 'group') return [];
+  const { stdout, stderr } = await runBufferedProcess(
+    config.dingtalkBin,
+    buildDingTalkGroupHostPollingArgs(
+      config.dingtalkProfile,
+      target.id,
+      dingTalkPollingTime(startMs),
+    ),
+    {
+      cwd: WORKDIR,
+      env: dingtalkProcessEnv(),
+      timeoutMs: config.larkCliTimeoutMs,
+      maxStdoutBytes: 8 * 1024 * 1024,
+      maxStderrBytes: 1024 * 1024,
+    },
+  );
+  let result;
+  try { result = JSON.parse(stdout); } catch {
+    throw new Error(`dws group host recovery returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
+  }
+  if (result.success === false || result.error) {
+    throw new Error(`dws group host recovery failed: ${JSON.stringify(result.error || result).slice(0, 1000)}`);
+  }
+  return normalizeDingTalkGroupHistoryMessages(result, {
+    groupId: target.id,
+    ownerOpenId: config.dingtalkOwnerOpenId,
+  }).filter(payload => {
+    const occurredAtMs = Number(payload.message.create_time || 0);
+    return occurredAtMs >= startMs && occurredAtMs <= endMs;
+  });
+}
+
+async function initializeDingTalkGroupHostRecovery() {
+  if (!config.dingtalkEnabled || !config.dingtalkOwnerOpenId
+    || !config.groupHostModeEnabled || !GROUP_HOST_CHAT_IDS.size) {
+    return false;
+  }
+  const nowMs = Date.now();
+  if (!state.get('dingtalk_group_host_poller', 'initialized_v1', false)) {
+    const lookbackMs = Math.min(POLL_MAX_CATCHUP_MS, 10 * 60_000);
+    state.set('dingtalk_group_host_poller', 'cursor_ms', nowMs - lookbackMs);
+    state.set('dingtalk_group_host_poller', 'initialized_v1', true);
+  }
+  return true;
+}
+
+async function pollDingTalkGroupHostRecoveryOnce() {
+  const nowMs = Date.now();
+  const cursorMs = Number(state.get('dingtalk_group_host_poller', 'cursor_ms', nowMs));
+  const { startMs, endMs } = planPollWindow(cursorMs, nowMs, {
+    overlapMs: POLL_OVERLAP_MS,
+    maxCatchupMs: Math.min(POLL_MAX_CATCHUP_MS, 10 * 60_000),
+    maxWindowMs: POLL_WINDOW_MS,
+  });
+  let enqueued = 0;
+  for (const chatId of GROUP_HOST_CHAT_IDS) {
+    const payloads = await fetchDingTalkGroupHostRecoveryMessages(chatId, startMs, endMs);
+    for (const payload of payloads) {
+      if (enqueueInbound(payload, 'dingtalk-group-host-recovery')) enqueued += 1;
+    }
+  }
+  state.set('dingtalk_group_host_poller', 'cursor_ms', endMs);
+  state.set('health', 'last_dingtalk_group_host_recovery_success_at', new Date().toISOString());
+  state.unset('health', 'last_dingtalk_group_host_recovery_error');
+  if (enqueued) {
+    console.log(`[dingtalk-group-host-recovery] enqueued ${enqueued} missed message(s)`);
+    triggerDrain();
+  }
+  return enqueued;
+}
+
+async function runDingTalkGroupHostRecoveryLoop() {
+  let failures = 0;
+  while (!stopping) {
+    const startedAt = Date.now();
+    try {
+      await pollDingTalkGroupHostRecoveryOnce();
+      failures = 0;
+    } catch (error) {
+      if (stopping) break;
+      failures += 1;
+      const delayMs = pollFailureDelayMs(error, failures, { baseIntervalMs: POLL_INTERVAL_MS });
+      const summary = processFailureSummary(error);
+      state.set('health', 'last_dingtalk_group_host_recovery_error', {
+        at: new Date().toISOString(), error: summary,
+      });
+      state.audit('dingtalk_group_host_recovery_error', {
+        detail: { failures, delayMs, error: summary },
+      });
+      console.error(`[dingtalk-group-host-recovery-error] retry in ${delayMs}ms:`, error);
+      await wait(delayMs);
+      continue;
+    }
+    await wait(Math.max(0, POLL_INTERVAL_MS - (Date.now() - startedAt)));
+  }
+}
+
 async function fetchDingTalkWukongMessages(startMs, endMs) {
   if (!config.dingtalkEnabled || config.dingtalkTransport !== 'wukong-polling') return [];
   return fetchDingTalkWukongWindow({
@@ -4580,6 +4682,21 @@ async function main() {
       dingTalkSelfPollingPromise = runPollingLoop()
         .catch(error => console.error('[dingtalk-poll-fatal]', error));
     }
+    const dingTalkGroupHostRecovery = await initializeOptionalPoller(
+      initializeDingTalkGroupHostRecovery,
+    );
+    if (dingTalkGroupHostRecovery.error) {
+      const summary = processFailureSummary(dingTalkGroupHostRecovery.error);
+      state.set('health', 'last_dingtalk_group_host_recovery_error', {
+        at: new Date().toISOString(), error: summary,
+      });
+      state.audit('dingtalk_group_host_recovery_unavailable', { detail: { error: summary } });
+      console.error('[dingtalk-group-host-recovery-unavailable]', dingTalkGroupHostRecovery.error);
+    }
+    if (dingTalkGroupHostRecovery.active) {
+      dingTalkGroupHostRecoveryPromise = runDingTalkGroupHostRecoveryLoop()
+        .catch(error => console.error('[dingtalk-group-host-recovery-fatal]', error));
+    }
     const dingTalkSemanticPolling = await initializeOptionalPoller(
       initializeDingTalkSemanticPolling,
     );
@@ -4618,6 +4735,7 @@ async function main() {
     if (multicaSyncPromise) await multicaSyncPromise.catch(() => {});
     if (dingTalkSupervisorPromise) await dingTalkSupervisorPromise.catch(() => {});
     if (dingTalkSelfPollingPromise) await dingTalkSelfPollingPromise.catch(() => {});
+    if (dingTalkGroupHostRecoveryPromise) await dingTalkGroupHostRecoveryPromise.catch(() => {});
     if (dingTalkSemanticPollingPromise) await dingTalkSemanticPollingPromise.catch(() => {});
     if (geWeMonitorPromise) await geWeMonitorPromise.catch(() => {});
     if (dailyLearningPromise) await dailyLearningPromise.catch(() => {});

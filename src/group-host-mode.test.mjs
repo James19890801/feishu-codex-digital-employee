@@ -26,6 +26,11 @@ assert.equal(assessGroupHostCandidate({
   text: '我觉得数字人会把项目协作从信息同步推向主动协调，这个变化值得讨论。',
 }).eligible, true);
 
+assert.equal(assessGroupHostCandidate({
+  ...base,
+  text: 'Deepseek的能力确实可以',
+}).eligible, true, '带明确对象和评价的短观点应进入群主持候选');
+
 for (const input of [
   { text: '收到' },
   { text: '大家好' },

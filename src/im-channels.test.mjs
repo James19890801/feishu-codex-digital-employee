@@ -21,6 +21,16 @@ assert.equal(
   'function',
   'DingTalk process environment must be built by a tested helper',
 );
+assert.equal(
+  typeof imChannelHelpers.normalizeDingTalkGroupHistoryMessages,
+  'function',
+  '测试群的历史恢复轮询需要专用标准化入口',
+);
+assert.equal(
+  typeof imChannelHelpers.buildDingTalkGroupHostPollingArgs,
+  'function',
+  '群主持恢复轮询需要从游标时间向后拉取',
+);
 if (typeof imChannelHelpers.buildDingTalkProcessEnv === 'function') {
   assert.deepEqual(imChannelHelpers.buildDingTalkProcessEnv({
     dingtalkBin: '/opt/dws/bin/dws',
@@ -323,6 +333,21 @@ assert.deepEqual(buildDingTalkConversationPollingArgs(
   '--limit', '50',
   '--format', 'json',
 ]);
+if (typeof imChannelHelpers.buildDingTalkGroupHostPollingArgs === 'function') {
+  assert.deepEqual(imChannelHelpers.buildDingTalkGroupHostPollingArgs(
+    'corp:user',
+    'cid-host-group',
+    '2026-08-09 13:00:00',
+  ), [
+    '--profile', 'corp:user',
+    'chat', 'message', 'list',
+    '--group', 'cid-host-group',
+    '--time', '2026-08-09 13:00:00',
+    '--direction', 'newer',
+    '--limit', '50',
+    '--format', 'json',
+  ]);
+}
 assert.deepEqual(buildDingTalkConversationPollingArgs(
   'corp:user',
   { channel: 'dingtalk', kind: 'user', id: 'open-friend' },
@@ -371,6 +396,39 @@ assert.throws(
   assert.equal(JSON.parse(payloads[0].message.content).text, '自聊测试');
   assert.equal(payloads[0].sender.sender_id.open_id, 'dingtalk:open-self');
   assert.equal(payloads[0].metadata.selfChat, true);
+}
+
+if (typeof imChannelHelpers.normalizeDingTalkGroupHistoryMessages === 'function') {
+  const payloads = imChannelHelpers.normalizeDingTalkGroupHistoryMessages({
+    success: true,
+    result: {
+      messages: [{
+        content: 'Deepseek的能力确实可以',
+        createTime: '2026-08-09 11:56:29',
+        openConversationId: 'cid-host-group',
+        openMessageId: 'msg-owner-topic',
+        senderOpenDingTalkId: 'open-owner',
+      }, {
+        content: '我也关心它在复杂任务里的稳定性。',
+        createTime: '2026-08-09 11:57:00',
+        openConversationId: 'cid-host-group',
+        openMessageId: 'msg-member-reply',
+        senderOpenDingTalkId: 'open-member',
+      }],
+    },
+  }, {
+    groupId: 'cid-host-group',
+    ownerOpenId: 'open-owner',
+  });
+  assert.deepEqual(payloads.map(item => item.message.message_id), [
+    'dingtalk:msg-owner-topic',
+    'dingtalk:msg-member-reply',
+  ]);
+  assert.equal(payloads[0].message.chat_id, 'dingtalk:group:cid-host-group');
+  assert.equal(payloads[0].message.chat_type, 'group');
+  assert.equal(payloads[0].metadata.ownerActivity, true);
+  assert.equal(payloads[0].metadata.semanticCandidate, true);
+  assert.equal(payloads[1].metadata.ownerActivity, false);
 }
 
 {
