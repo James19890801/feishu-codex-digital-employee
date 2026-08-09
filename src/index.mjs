@@ -109,9 +109,11 @@ import {
   looksLikeArtifactProgressRequest,
 } from './multica-artifact-delivery.mjs';
 import {
+  artifactFormatForPath,
   buildDingTalkArtifactSendArgs,
   buildFeishuArtifactSendArgs,
 } from './artifact-channel-delivery.mjs';
+import { resolveWorkspaceArtifact } from './workspace-artifact.mjs';
 import {
   MulticaWorkLifecycle,
   parseMulticaWorkRequest,
@@ -869,26 +871,44 @@ async function deliverMulticaArtifact(payload) {
   if (!chatId || sourceChannel !== effectiveChannel) {
     throw new Error('Multica artifact source channel does not match its destination');
   }
-  assertOwnerFileRecipient({
-    channel: effectiveChannel,
-    senderId: payload?.senderId,
-    chatType: payload?.chatType,
-    identities: MULTICA_OWNER_IDENTITIES,
-  });
-  const artifactPath = String(payload?.path || '');
+  const artifactPath = await resolveWorkspaceArtifact(String(payload?.path || ''), WORKDIR);
   const artifactRelativePath = relative(WORKDIR, artifactPath);
   if (!artifactRelativePath || artifactRelativePath.startsWith('..')
-    || artifactRelativePath.startsWith('/')
-    || !artifactPath.startsWith(`${MULTICA_ARTIFACT_ROOT}/`)) {
-    throw new Error('Multica artifact is outside the isolated delivery directory');
+    || artifactRelativePath.startsWith('/')) {
+    throw new Error('Multica artifact is outside the AIPRO workspace');
   }
   if (effectiveChannel === 'feishu') {
+    let videoCoverRelativePath = '';
+    if (['mp4', 'mov'].includes(artifactFormatForPath(artifactPath))) {
+      const outputDir = dirname(artifactPath);
+      await runBufferedProcess('/usr/bin/qlmanage', [
+        '-t', '-s', '1200', '-o', outputDir, artifactPath,
+      ], {
+        cwd: WORKDIR,
+        timeoutMs: config.helperTimeoutMs,
+        maxStdoutBytes: 128 * 1024,
+        maxStderrBytes: 128 * 1024,
+      });
+      const coverName = (await readdir(outputDir))
+        .find(name => name.startsWith(basename(artifactPath)) && name.endsWith('.png'));
+      if (!coverName) throw new Error('Feishu video cover generation failed');
+      videoCoverRelativePath = relative(WORKDIR, join(outputDir, coverName));
+    }
     const args = buildFeishuArtifactSendArgs({
       chatId,
       relativePath: artifactRelativePath,
+      videoCoverRelativePath,
       uuid: payload.idempotencyKey,
     });
-    return sendWithEchoGuard(chatId, payload.name || artifactRelativePath, () => runLarkCli(args));
+    const result = await sendWithEchoGuard(
+      chatId,
+      payload.name || artifactRelativePath,
+      () => runLarkCli(args),
+    );
+    if (payload.name) {
+      await sendText(null, chatId, `文件已生成：${payload.name}`, `${payload.idempotencyKey}-caption`);
+    }
+    return result;
   }
   if (effectiveChannel === 'dingtalk') {
     const args = buildDingTalkArtifactSendArgs({
@@ -896,7 +916,7 @@ async function deliverMulticaArtifact(payload) {
       path: artifactPath,
       uuid: payload.idempotencyKey,
     });
-    return sendWithEchoGuard(chatId, payload.name || artifactPath, async () => {
+    const result = await sendWithEchoGuard(chatId, payload.name || artifactPath, async () => {
       const { stdout, stderr } = await runBufferedProcess(config.dingtalkBin, args, {
         cwd: WORKDIR,
         env: dingtalkProcessEnv(),
@@ -913,6 +933,10 @@ async function deliverMulticaArtifact(payload) {
       }
       return result;
     });
+    if (payload.name) {
+      await sendText(null, chatId, `文件已生成：${payload.name}`, `${payload.idempotencyKey}-caption`);
+    }
+    return result;
   }
   throw new Error(`Artifact delivery is not implemented for ${effectiveChannel}`);
 }
