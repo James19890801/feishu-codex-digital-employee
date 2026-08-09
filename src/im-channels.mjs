@@ -126,6 +126,17 @@ export function buildDingTalkAuthStatusArgs(profile = '') {
   ];
 }
 
+export function buildDingTalkQuerySendStatusArgs(profile, openTaskId) {
+  const normalizedTaskId = String(openTaskId || '').trim();
+  if (!normalizedTaskId) throw new Error('DingTalk open task ID is required');
+  return [
+    ...(profile ? ['--profile', profile] : []),
+    'chat', 'message', 'query-send-status',
+    '--open-task-id', normalizedTaskId,
+    '--format', 'json',
+  ];
+}
+
 export function buildDingTalkListAllPollingArgs(start, end, cursor = '0') {
   const startTime = String(start || '').trim();
   const endTime = String(end || '').trim();

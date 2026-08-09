@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import {
   buildDingTalkConsumerArgs,
+  buildDingTalkQuerySendStatusArgs,
   buildDingTalkSendArgs,
   normalizeGeWeWebhook,
   normalizeDingTalkEvent,
@@ -23,6 +24,24 @@ function errorState(error) {
     at: new Date().toISOString(),
     error: String(error?.message || error || 'unknown error').slice(0, 1000),
   };
+}
+
+function findStringField(value, keys, depth = 0) {
+  if (!value || typeof value !== 'object' || depth > 5) return '';
+  for (const key of keys) {
+    if (typeof value[key] === 'string' && value[key].trim()) return value[key].trim();
+  }
+  for (const child of Object.values(value)) {
+    const found = findStringField(child, keys, depth + 1);
+    if (found) return found;
+  }
+  return '';
+}
+
+function dingTalkSentMessageId(value) {
+  return findStringField(value, [
+    'openMessageId', 'open_message_id', 'messageId', 'message_id', 'msgId', 'msg_id',
+  ]);
 }
 
 export class DingTalkChannel {
@@ -90,6 +109,42 @@ export class DingTalkChannel {
       throw new Error(`dws send returned no openTaskId: ${JSON.stringify(payload).slice(0, 800)}`);
     }
     return payload;
+  }
+
+  async resolveSentMessageId(sendResult, {
+    attempts = 8,
+    delayMs = 250,
+  } = {}) {
+    const directMessageId = dingTalkSentMessageId(sendResult);
+    if (directMessageId) return directMessageId;
+    const openTaskId = findStringField(sendResult, ['openTaskId', 'open_task_id']);
+    if (!openTaskId) return '';
+    const maxAttempts = Math.max(1, Math.min(20, Number(attempts) || 1));
+    const waitMs = Math.max(0, Math.min(2_000, Number(delayMs) || 0));
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      let result;
+      try {
+        result = await this.run(this.bin, buildDingTalkQuerySendStatusArgs(
+          this.transport === 'event-stream' ? this.profile : '',
+          openTaskId,
+        ));
+      } catch {
+        return '';
+      }
+      let payload;
+      try {
+        payload = JSON.parse(result.stdout || '{}');
+      } catch {
+        return '';
+      }
+      if (payload.success === false || payload.error) return '';
+      const messageId = dingTalkSentMessageId(payload);
+      if (messageId) return messageId;
+      if (attempt + 1 < maxAttempts && waitMs) {
+        await new Promise(resolve => setTimeout(resolve, waitMs));
+      }
+    }
+    return '';
   }
 
   reportError(error) {

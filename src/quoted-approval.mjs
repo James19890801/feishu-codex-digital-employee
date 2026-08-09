@@ -27,6 +27,58 @@ export function isVerifiedDingTalkGroupApprover(context = {}, identities = {}) {
   );
 }
 
+export async function handleDingTalkQuotedApproval({
+  text,
+  context = {},
+  identities = {},
+  store,
+  execute,
+  send,
+  nowMs = Date.now(),
+} = {}) {
+  if (!isDingTalkGroupApprovalContext(context) || !isQuotedApprovalConsent(text)) {
+    return { handled: false, outcome: 'not_consent' };
+  }
+  const verifiedApprover = isVerifiedDingTalkGroupApprover(context, identities);
+  const quotedMessage = context.metadata?.quotedMessage;
+  const quotedMessageId = normalizeDingTalkApprovalMessageId(quotedMessage?.messageId);
+  if (!quotedMessageId) {
+    if (!verifiedApprover) return { handled: false, outcome: 'not_approval' };
+    await send('当前无法确定你同意的是哪一项，请引用对应的授权请求后回复“同意”。');
+    return { handled: true, outcome: 'quote_required' };
+  }
+
+  const record = store?.peek(quotedMessageId, nowMs);
+  if (!record) {
+    if (!verifiedApprover) return { handled: false, outcome: 'not_approval' };
+    await send('这条授权请求无效、已过期或已经处理，本次没有执行任何操作。');
+    return { handled: true, outcome: 'not_found' };
+  }
+  if (!verifiedApprover) {
+    await send('只有经过验证的 Owner 本人可以批准这项操作，本次没有执行。');
+    return { handled: true, outcome: 'approver_denied' };
+  }
+
+  const quotedChatId = quotedMessage?.conversationId
+    ? `dingtalk:group:${String(quotedMessage.conversationId).trim()}`
+    : '';
+  if (!quotedChatId || quotedChatId !== context.chatId) {
+    await send('被引用的授权请求不属于当前群聊，本次没有执行任何操作。');
+    return { handled: true, outcome: 'quote_chat_mismatch' };
+  }
+  const claim = store.claim(quotedMessageId, { chatId: context.chatId }, nowMs);
+  if (!claim.ok) {
+    await send(claim.reason === 'expired'
+      ? '这条授权请求已经过期，本次没有执行任何操作。'
+      : '这条授权请求无效或已经处理，本次没有执行任何操作。');
+    return { handled: true, outcome: claim.reason };
+  }
+
+  const result = await execute(claim.record, context);
+  await send(result?.text || '授权已确认，操作已执行。');
+  return { handled: true, outcome: 'executed' };
+}
+
 export class QuotedApprovalStore {
   constructor(state, { ttlMs = 30 * 60_000, maxRecords = 100 } = {}) {
     if (!state) throw new Error('Quoted approval store requires state');

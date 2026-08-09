@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { AgentState } from './state.mjs';
 import {
   QuotedApprovalStore,
+  handleDingTalkQuotedApproval,
   isDingTalkGroupApprovalContext,
   isQuotedApprovalConsent,
   isVerifiedDingTalkGroupApprover,
@@ -78,6 +79,92 @@ try {
     ...ownerGroupContext,
     chatType: 'p2p',
   }), false);
+
+  const sent = [];
+  const executed = [];
+  const send = async text => { sent.push(text); };
+  const execute = async (record, approvalContext) => {
+    executed.push({ record, approvalContext });
+    return { text: `已执行：${record.pending.plan.summary}` };
+  };
+  const identities = { dingtalkOwnerOpenId: 'owner-open-id' };
+
+  const isolated = await handleDingTalkQuotedApproval({
+    text: '同意',
+    context: ownerGroupContext,
+    identities,
+    store,
+    send,
+    execute,
+  });
+  assert.deepEqual(isolated, { handled: true, outcome: 'quote_required' });
+  assert.match(sent.at(-1), /引用/);
+  assert.equal(executed.length, 0);
+
+  assert.equal(store.bind('approval-runtime', {
+    ...pending,
+    pending: { plan: { action: 'update', summary: '更新 MYS-1 优先级' } },
+  }, 70_000), true);
+  const quotedMetadata = {
+    channel: 'dingtalk',
+    quotedMessage: {
+      messageId: 'dingtalk:approval-runtime',
+      conversationId: 'cid-1',
+      senderId: 'dingtalk:owner-open-id',
+      content: '待授权：更新 MYS-1 优先级',
+      createTime: '2026-08-10 09:00:00',
+    },
+  };
+  const denied = await handleDingTalkQuotedApproval({
+    text: '同意',
+    context: { ...ownerGroupContext, senderId: 'dingtalk:other', metadata: quotedMetadata },
+    identities,
+    store,
+    nowMs: 70_100,
+    send,
+    execute,
+  });
+  assert.deepEqual(denied, { handled: true, outcome: 'approver_denied' });
+  assert.match(sent.at(-1), /只有.*本人|Owner/);
+  assert.ok(store.peek('approval-runtime', 70_101), 'non-Owner denial must not consume approval');
+
+  const approved = await handleDingTalkQuotedApproval({
+    text: '同意。',
+    context: { ...ownerGroupContext, metadata: quotedMetadata },
+    identities,
+    store,
+    nowMs: 70_200,
+    send,
+    execute,
+  });
+  assert.deepEqual(approved, { handled: true, outcome: 'executed' });
+  assert.equal(executed.length, 1);
+  assert.match(sent.at(-1), /已执行/);
+  assert.equal(store.peek('approval-runtime', 70_201), null);
+
+  const duplicate = await handleDingTalkQuotedApproval({
+    text: '同意',
+    context: { ...ownerGroupContext, metadata: quotedMetadata },
+    identities,
+    store,
+    nowMs: 70_300,
+    send,
+    execute,
+  });
+  assert.deepEqual(duplicate, { handled: true, outcome: 'not_found' });
+  assert.equal(executed.length, 1);
+  assert.match(sent.at(-1), /无效|已处理|过期/);
+
+  const unrelated = await handleDingTalkQuotedApproval({
+    text: '我同意这个观点',
+    context: { ...ownerGroupContext, metadata: quotedMetadata },
+    identities,
+    store,
+    nowMs: 70_400,
+    send,
+    execute,
+  });
+  assert.deepEqual(unrelated, { handled: false, outcome: 'not_consent' });
 
   console.log('QUOTED_APPROVAL_TEST_OK');
 } finally {

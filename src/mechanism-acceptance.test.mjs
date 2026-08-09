@@ -870,6 +870,18 @@ contract('group-host-mode', 'Can the allowlisted DingTalk group recover messages
   assert.match(runtimeSource, /enqueueInbound\(payload, 'dingtalk-group-host-recovery'\)/);
 });
 
+contract('owner-authorization', 'Can DingTalk Owner quote exactly one pending group mutation for approval?', () => {
+  const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
+  assert.match(runtimeSource, /handleDingTalkQuotedApproval/);
+  assert.match(runtimeSource, /prepareMutationApproval/);
+  assert.match(runtimeSource, /applyApprovedMutation/);
+  assert.match(runtimeSource, /quotedApprovals\.bind\(approvalMessageId/);
+  assert.match(runtimeSource, /runDingTalkQuotedApprovalPollingLoop/);
+  assert.match(runtimeSource, /pendingChatIds\(nowMs\)/);
+  assert.match(runtimeSource, /enqueueInbound\(payload, 'dingtalk-quoted-approval-poll'\)/);
+  assert.match(runtimeSource, /senderOpenId !== OWNER_OPEN_ID && !selfChat && !ownerActivity/);
+});
+
 for (const [attempt, expected] of [[1, true], [2, true], [3, false], [4, false]]) {
   contract('retry-boundary', `Should inbound attempt ${attempt} retry?`, () => {
     assert.equal(shouldRetryMessage(attempt), expected);

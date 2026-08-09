@@ -91,6 +91,45 @@ import {
 }
 
 {
+  const calls = [];
+  const channel = new DingTalkChannel({
+    bin: '/opt/dws',
+    profile: 'corp:user',
+    run: async (bin, args) => {
+      calls.push({ bin, args });
+      return {
+        stdout: JSON.stringify({
+          success: true,
+          result: calls.length === 1
+            ? { status: 'PROCESSING' }
+            : { status: 'SUCCESS', openMessageId: 'message-approval-1' },
+        }),
+        stderr: '',
+      };
+    },
+  });
+  assert.equal(
+    await channel.resolveSentMessageId({
+      success: true,
+      result: { openTaskId: 'task-approval-1' },
+    }, { attempts: 2, delayMs: 0 }),
+    'message-approval-1',
+  );
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0].args, [
+    '--profile', 'corp:user',
+    'chat', 'message', 'query-send-status',
+    '--open-task-id', 'task-approval-1',
+    '--format', 'json',
+  ]);
+  assert.equal(
+    await channel.resolveSentMessageId({ result: { openMessageId: 'message-direct-1' } }),
+    'message-direct-1',
+  );
+  assert.equal(calls.length, 2, 'direct message IDs must not trigger a status query');
+}
+
+{
   const statuses = [];
   const messages = [];
   const sends = [];

@@ -34,6 +34,12 @@ import {
 } from './self-chat-guard.mjs';
 import { decideWorkflow, workflowInstruction } from './bible.mjs';
 import { PendingActionStore } from './pending-actions.mjs';
+import {
+  QuotedApprovalStore,
+  handleDingTalkQuotedApproval,
+  isDingTalkGroupApprovalContext,
+  isVerifiedDingTalkGroupApprover,
+} from './quoted-approval.mjs';
 import { rotateLogIfNeeded } from './log-maintenance.mjs';
 import { createVerifiedDatabaseBackup } from './database-backup.mjs';
 import { SerialKeyQueue } from './serial-key-queue.mjs';
@@ -308,6 +314,10 @@ const AI_RUNTIME_CLIENT = new AiRuntimeClient({
 const singletonLock = await acquireSingletonLock(join(WORKDIR, 'data', 'service.lock'));
 const state = new AgentState(STATE_PATH);
 const pendingActions = new PendingActionStore(state);
+const QUOTED_APPROVAL_TTL_MS = 30 * 60_000;
+const quotedApprovals = new QuotedApprovalStore(state, {
+  ttlMs: QUOTED_APPROVAL_TTL_MS,
+});
 const chatQueues = new SerialKeyQueue();
 const replyContextStorage = new AsyncLocalStorage();
 const AUTHORIZED_CHAT_IDS = new Set(config.authorizedChatIds);
@@ -339,12 +349,17 @@ const authorizeMulticaWrite = context => isAuthorizedMulticaOwner(
   context,
   MULTICA_OWNER_IDENTITIES,
 );
+const authorizeQuotedMulticaApproval = context => isVerifiedDingTalkGroupApprover(
+  context,
+  MULTICA_OWNER_IDENTITIES,
+);
 const MULTICA_CAPABILITY = MULTICA_CLIENT
   ? new MulticaCapability({
       client: MULTICA_CLIENT,
       state,
       appUrl: config.multicaAppUrl,
       authorizeWrite: authorizeMulticaWrite,
+      authorizeApproval: authorizeQuotedMulticaApproval,
     })
   : null;
 const MULTICA_WORK_LIFECYCLE = MULTICA_CLIENT
@@ -411,6 +426,7 @@ let dingTalkSupervisorPromise = null;
 let dingTalkSelfPollingPromise = null;
 let dingTalkSemanticPollingPromise = null;
 let dingTalkGroupHostRecoveryPromise = null;
+let dingTalkQuotedApprovalPollingPromise = null;
 let geWeMonitorPromise = null;
 let dailyLearningPromise = null;
 let groupHostPromise = null;
@@ -1557,6 +1573,48 @@ async function applyPendingMultica(message, senderOpenId, cleanText, metadata = 
   return true;
 }
 
+async function executeQuotedMulticaApproval(record, approvalContext, approvalMessage) {
+  const execution = await executeMutationOnce({
+    state,
+    executionKey: `quoted-approval:${record.messageId}`,
+    kind: `multica_${record.pending.plan.action}`,
+    operation: () => MULTICA_CAPABILITY.applyApprovedMutation(
+      record.pending,
+      approvalContext,
+    ),
+    definitelyNotApplied: error => /changed after the preview/i.test(
+      String(error?.message || ''),
+    ),
+  });
+  const result = execution.result;
+  if (record.deliveryContract && result.issue?.id) {
+    state.upsertMulticaDeliveryContract({
+      issueId: result.issue.id,
+      workspaceId: result.issue.workspace_id,
+      ...record.deliveryContract,
+    });
+  }
+  if (record.rerunAfterApply && result.issue?.id && !execution.replayed) {
+    await MULTICA_CLIENT.rerunIssue(result.issue.id, result.issue.workspace_id);
+  }
+  const routeReceipt = record.createRoute
+    ? `\n执行方式：${record.createRoute.selection.mode === 'squad'
+      ? `已选中小队 ${record.createRoute.selection.squad.name}`
+      : '仅创建，未启动小队'}`
+    : '';
+  const answer = `${result.text}${routeReceipt}`;
+  audit('multica_quoted_approval_applied', approvalMessage, approvalContext.senderId, {
+    action: record.pending.plan.action,
+    requesterId: record.requesterId,
+    sourceMessageId: record.sourceMessageId,
+    approvalRequestMessageId: record.messageId,
+    issueId: result.issue?.id || '',
+    identifier: result.issue?.identifier || '',
+    replayed: execution.replayed,
+  });
+  return { text: answer };
+}
+
 async function prepareMulticaConfirmation(
   message,
   senderOpenId,
@@ -1564,7 +1622,66 @@ async function prepareMulticaConfirmation(
   context,
   { createRoute = null, deliveryContract = null, rerunAfterApply = false } = {},
 ) {
-  const prepared = await MULTICA_CAPABILITY.prepareMutation(plan, context);
+  const quotedApprovalRequired = !context.ownerAuthorized
+    && isDingTalkGroupApprovalContext(context);
+  const prepared = quotedApprovalRequired
+    ? await MULTICA_CAPABILITY.prepareMutationApproval(plan, context)
+    : await MULTICA_CAPABILITY.prepareMutation(plan, context);
+  const routeLines = createRoute
+    ? `\n执行方式：${createRoute.selection.mode === 'squad'
+      ? `选中小队 ${createRoute.selection.squad.name}`
+      : '仅创建 Issue，不启动小队'}`
+    : '';
+  const previewText = createRoute?.selection?.mode === 'squad'
+    ? prepared.text.split('\n').filter(line => !/^负责人 ID：/.test(line)).join('\n')
+    : prepared.text;
+  if (quotedApprovalRequired) {
+    const answer = `${previewText}${routeLines}`
+      + '\n\n等待本人授权：请 Owner 使用钉钉“引用回复”本条消息，并回复“同意”。'
+      + '\n单独发送“同意”、复制文字或由其他成员回复均不会执行。';
+    remember(message.chat_id, senderOpenId, 'assistant', answer);
+    const sendResult = await sendText(
+      null,
+      message.chat_id,
+      answer,
+      `multica-approval-preview-${message.message_id}`,
+      {
+        mentionSenderId: `dingtalk:${config.dingtalkOwnerOpenId}`,
+        chatType: 'group',
+      },
+    );
+    const approvalMessageId = outboundMessageId(sendResult)
+      || await dingTalkChannel?.resolveSentMessageId(sendResult);
+    const bound = quotedApprovals.bind(approvalMessageId, {
+      kind: 'multica',
+      chatId: message.chat_id,
+      requesterId: senderOpenId,
+      sourceMessageId: message.message_id,
+      pending: prepared.pending,
+      createRoute,
+      deliveryContract,
+      rerunAfterApply,
+    });
+    if (!bound) {
+      audit('multica_approval_binding_failed', message, senderOpenId, {
+        action: plan.action,
+        hasOutboundMessageId: Boolean(approvalMessageId),
+      });
+      await sendText(
+        null,
+        message.chat_id,
+        '这条授权请求没有取得可验证的消息标识，因此不能授权执行。请重新发起一次操作。',
+        `multica-approval-unbound-${message.message_id}`,
+      );
+      return true;
+    }
+    audit('multica_approval_requested', message, senderOpenId, {
+      action: plan.action,
+      approvalMessageId,
+      expiresInMs: QUOTED_APPROVAL_TTL_MS,
+    });
+    return true;
+  }
   const confirmationCode = plan.confirmationLevel === 'double'
     ? String(randomInt(100000, 1000000))
     : '';
@@ -1578,14 +1695,6 @@ async function prepareMulticaConfirmation(
   const confirmation = plan.confirmationLevel === 'double'
     ? `\n\n这是敏感变更。请回复“确认 ${confirmationCode}”执行，或回复“取消”。`
     : '\n\n请回复“确认”执行，或回复“取消”。';
-  const routeLines = createRoute
-    ? `\n执行方式：${createRoute.selection.mode === 'squad'
-      ? `选中小队 ${createRoute.selection.squad.name}`
-      : '仅创建 Issue，不启动小队'}`
-    : '';
-  const previewText = createRoute?.selection?.mode === 'squad'
-    ? prepared.text.split('\n').filter(line => !/^负责人 ID：/.test(line)).join('\n')
-    : prepared.text;
   const answer = `${previewText}${routeLines}${confirmation}`;
   remember(message.chat_id, senderOpenId, 'assistant', answer);
   await sendText(
@@ -1801,7 +1910,7 @@ async function applyPendingMulticaCreateRoute(message, senderOpenId, cleanText, 
   const routeItems = pending.stage === 'workspace' ? pending.workspaces : pending.squads;
   if (!routeSelectionConsumesMessage(cleanText, routeItems)) return false;
   const context = multicaContext(message, senderOpenId, metadata);
-  if (!context.ownerAuthorized) {
+  if (!context.ownerAuthorized && !isDingTalkGroupApprovalContext(context)) {
     pendingActions.delete('multica_create_route', message.chat_id, senderOpenId);
     await sendText(null, message.chat_id, 'Owner 自聊授权已经失效，本次选择已取消，没有写入 Multica。', `multica-route-owner-required-${message.message_id}`);
     return true;
@@ -1934,7 +2043,7 @@ async function handleMulticaRequest(message, senderOpenId, cleanText, metadata =
     });
     return true;
   }
-  if (!context.ownerAuthorized) {
+  if (!context.ownerAuthorized && !isDingTalkGroupApprovalContext(context)) {
     await sendText(
       null,
       message.chat_id,
@@ -2298,6 +2407,65 @@ async function processIncoming(client, message, sender, metadata = {}) {
       createdAt: new Date(Number(message.create_time) || nowMs).toISOString(),
     },
   );
+
+  const quotedApprovalContext = {
+    chatId: message.chat_id,
+    senderId: senderOpenId,
+    chatType: message.chat_type,
+    metadata: structuredClone(metadata || {}),
+  };
+  let quotedApprovalReply = '';
+  try {
+    const quotedApprovalResult = await handleDingTalkQuotedApproval({
+      text: cleanText,
+      context: quotedApprovalContext,
+      identities: MULTICA_OWNER_IDENTITIES,
+      store: quotedApprovals,
+      execute: (record, approvalContext) => executeQuotedMulticaApproval(
+        record,
+        approvalContext,
+        message,
+      ),
+      send: async reply => {
+        quotedApprovalReply = reply;
+        await sendText(
+          null,
+          message.chat_id,
+          reply,
+          `multica-quoted-approval-${message.message_id}`,
+          { chatType: 'group' },
+        );
+      },
+    });
+    if (quotedApprovalResult.handled) {
+      if (quotedApprovalReply) {
+        remember(message.chat_id, senderOpenId, 'assistant', quotedApprovalReply);
+      }
+      audit('multica_quoted_approval_handled', message, senderOpenId, {
+        outcome: quotedApprovalResult.outcome,
+        approvalRequestMessageId: metadata.quotedMessage?.messageId || '',
+      });
+      return;
+    }
+  } catch (error) {
+    const answer = error instanceof MutationOutcomeAmbiguousError
+      ? '这次写入的最终结果不确定。为避免重复操作，我已经停止自动重试，请先在 Multica 中核对。'
+      : /changed after the preview/i.test(String(error?.message || ''))
+        ? '授权前目标 Issue 已发生变化，因此没有覆盖。请重新发起操作并引用新的授权请求。'
+        : `已收到授权，但操作没有完成：${processFailureSummary(error)}`;
+    await sendText(
+      null,
+      message.chat_id,
+      answer,
+      `multica-quoted-approval-error-${message.message_id}`,
+      { chatType: 'group' },
+    );
+    audit('multica_quoted_approval_failed', message, senderOpenId, {
+      approvalRequestMessageId: metadata.quotedMessage?.messageId || '',
+      error: String(error?.message || error).slice(0, 1000),
+    });
+    return;
+  }
 
   const hasGroupMention = message.chat_type === 'group'
     && metadata.semanticCandidate !== true
@@ -3386,7 +3554,7 @@ function enqueueInbound(payload, source) {
   if (state.hasInbound(messageId)) return false;
   const rateLimitPolicy = interactiveInboundRateLimitPolicy(payload.metadata);
   const rateLimited = rateLimitPolicy.apply
-    && senderOpenId !== OWNER_OPEN_ID && !selfChat && !state.consumeRateLimit(
+    && senderOpenId !== OWNER_OPEN_ID && !selfChat && !ownerActivity && !state.consumeRateLimit(
     `sender:${senderOpenId || payload.message.chat_id}`,
     Date.now(),
     config.rateLimitWindowMs,
@@ -4039,6 +4207,64 @@ async function runDingTalkGroupHostRecoveryLoop() {
         detail: { failures, delayMs, error: summary },
       });
       console.error(`[dingtalk-group-host-recovery-error] retry in ${delayMs}ms:`, error);
+      await wait(delayMs);
+      continue;
+    }
+    await wait(Math.max(0, POLL_INTERVAL_MS - (Date.now() - startedAt)));
+  }
+}
+
+async function pollDingTalkQuotedApprovalsOnce() {
+  const nowMs = Date.now();
+  let enqueued = 0;
+  for (const chatId of quotedApprovals.pendingChatIds(nowMs)) {
+    const cursorMs = Number(state.get(
+      'dingtalk_quoted_approval_poller',
+      chatId,
+      nowMs - QUOTED_APPROVAL_TTL_MS,
+    ));
+    const { startMs, endMs } = planPollWindow(cursorMs, nowMs, {
+      overlapMs: POLL_OVERLAP_MS,
+      maxCatchupMs: QUOTED_APPROVAL_TTL_MS,
+      maxWindowMs: POLL_WINDOW_MS,
+    });
+    const payloads = await fetchDingTalkGroupHostRecoveryMessages(chatId, startMs, endMs);
+    for (const payload of payloads) {
+      payload.metadata = {
+        ...(payload.metadata || {}),
+        source: 'quoted-approval-poll',
+      };
+      if (enqueueInbound(payload, 'dingtalk-quoted-approval-poll')) enqueued += 1;
+    }
+    state.set('dingtalk_quoted_approval_poller', chatId, endMs);
+  }
+  state.set('health', 'last_dingtalk_quoted_approval_poll_at', new Date().toISOString());
+  state.unset('health', 'last_dingtalk_quoted_approval_poll_error');
+  if (enqueued) triggerDrain();
+  return enqueued;
+}
+
+async function runDingTalkQuotedApprovalPollingLoop() {
+  let failures = 0;
+  while (!stopping) {
+    const startedAt = Date.now();
+    try {
+      await pollDingTalkQuotedApprovalsOnce();
+      failures = 0;
+    } catch (error) {
+      if (stopping) break;
+      failures += 1;
+      const delayMs = pollFailureDelayMs(error, failures, {
+        baseIntervalMs: POLL_INTERVAL_MS,
+      });
+      const summary = processFailureSummary(error);
+      state.set('health', 'last_dingtalk_quoted_approval_poll_error', {
+        at: new Date().toISOString(), error: summary,
+      });
+      state.audit('dingtalk_quoted_approval_poll_error', {
+        detail: { failures, delayMs, error: summary },
+      });
+      console.error(`[dingtalk-quoted-approval-poll-error] retry in ${delayMs}ms:`, error);
       await wait(delayMs);
       continue;
     }
@@ -4941,6 +5167,10 @@ async function main() {
       dingTalkGroupHostRecoveryPromise = runDingTalkGroupHostRecoveryLoop()
         .catch(error => console.error('[dingtalk-group-host-recovery-fatal]', error));
     }
+    if (config.dingtalkEnabled && config.dingtalkOwnerOpenId) {
+      dingTalkQuotedApprovalPollingPromise = runDingTalkQuotedApprovalPollingLoop()
+        .catch(error => console.error('[dingtalk-quoted-approval-poll-fatal]', error));
+    }
     const dingTalkSemanticPolling = await initializeOptionalPoller(
       initializeDingTalkSemanticPolling,
     );
@@ -4980,6 +5210,9 @@ async function main() {
     if (dingTalkSupervisorPromise) await dingTalkSupervisorPromise.catch(() => {});
     if (dingTalkSelfPollingPromise) await dingTalkSelfPollingPromise.catch(() => {});
     if (dingTalkGroupHostRecoveryPromise) await dingTalkGroupHostRecoveryPromise.catch(() => {});
+    if (dingTalkQuotedApprovalPollingPromise) {
+      await dingTalkQuotedApprovalPollingPromise.catch(() => {});
+    }
     if (dingTalkSemanticPollingPromise) await dingTalkSemanticPollingPromise.catch(() => {});
     if (geWeMonitorPromise) await geWeMonitorPromise.catch(() => {});
     if (dailyLearningPromise) await dailyLearningPromise.catch(() => {});

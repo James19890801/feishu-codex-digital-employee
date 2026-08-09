@@ -6,6 +6,7 @@ import {
   buildDingTalkSelfPollingArgs,
   buildDingTalkConsumerArgs,
   buildDingTalkListAllPollingArgs,
+  buildDingTalkQuerySendStatusArgs,
   buildDingTalkSendArgs,
   formatChannelChatId,
   normalizeGeWeWebhook,
@@ -31,6 +32,15 @@ assert.equal(
   typeof imChannelHelpers.buildDingTalkGroupHostPollingArgs,
   'function',
   '群主持恢复轮询需要从游标时间向后拉取',
+);
+assert.deepEqual(
+  buildDingTalkQuerySendStatusArgs('corp:user', 'task-approval-1'),
+  [
+    '--profile', 'corp:user',
+    'chat', 'message', 'query-send-status',
+    '--open-task-id', 'task-approval-1',
+    '--format', 'json',
+  ],
 );
 if (typeof imChannelHelpers.buildDingTalkProcessEnv === 'function') {
   assert.deepEqual(imChannelHelpers.buildDingTalkProcessEnv({
