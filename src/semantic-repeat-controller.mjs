@@ -1,6 +1,7 @@
 import { semanticTopic } from './semantic-repeat-guard.mjs';
 
 export const SEMANTIC_REPEAT_CLOSE_REPLY = '这个话题我们先到这里，有新情况再 @ 我。';
+export const SEMANTIC_REPEAT_REQUIRED_ACK_REPLY = '收到，这条我看到了；相同内容我不重复展开，有新问题我继续接。';
 
 export function semanticRepeatEligibility({
   enabled,
@@ -32,6 +33,7 @@ export async function applySemanticRepeatGate({
   message,
   text,
   operatorCommand = null,
+  responseRequired = false,
   nowMs = Date.now(),
   sendClose,
   audit = () => {},
@@ -77,6 +79,19 @@ export async function applySemanticRepeatGate({
     );
     audit('semantic_repeat_closed', detail);
     return { handled: true, ...claim };
+  }
+  if (responseRequired) {
+    await sendClose(
+      SEMANTIC_REPEAT_REQUIRED_ACK_REPLY,
+      `aipro-semantic-repeat-required-ack-${message.message_id}`,
+    );
+    audit('semantic_repeat_required_acknowledged', detail);
+    return {
+      handled: true,
+      ...claim,
+      action: 'acknowledge_required',
+      suppressedAction: claim.action,
+    };
   }
   audit('semantic_repeat_suppressed', detail);
   return { handled: true, ...claim };

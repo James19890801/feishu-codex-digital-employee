@@ -120,6 +120,19 @@ try {
   });
   assert.equal(suppressed.action, 'suppress_cooldown');
   assert.equal(suppressed.handled, true);
+  const requiredDuringCooldown = await applyDiscussionBudgetGate({
+    ...base,
+    responseRequired: true,
+    message: { ...baseMessage, chat_id: lowChat, message_id: 'low-required' },
+    text: '这条我明确 @ 你，请确认收到。',
+    nowMs: 10_004.5,
+  });
+  assert.equal(requiredDuringCooldown.action, 'acknowledge_required');
+  assert.equal(requiredDuringCooldown.handled, true);
+  assert.deepEqual(sent.at(-1), {
+    text: '收到，这条我看到了；当前讨论刚收束，有新内容我继续接。',
+    idempotencyKey: 'aipro-discussion-required-ack-low-required',
+  });
 
   const restarted = await applyDiscussionBudgetGate({
     ...base,

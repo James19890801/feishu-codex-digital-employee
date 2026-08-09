@@ -29,7 +29,7 @@ const base = {
   chatType: 'group',
   messageType: 'text',
   currentSenderId: 'member-a',
-  aliases: ['AIPRO', '詹老师助理', '数字人'],
+  aliases: ['AIPRO', '詹老师助理', '数字人', '詹老师'],
   recentMessages: [],
   nowMs: Date.parse('2026-08-08T12:10:00.000Z'),
 };
@@ -90,6 +90,22 @@ assert.equal(assessGroupEngagement({
   mentionedOther: true,
   text: '@另一位同事 这个结论依据是什么？',
 }).action, 'observe');
+
+const productionMention = assessGroupEngagement({
+  ...base,
+  mentionedOther: true,
+  text: '这篇我收了，讲的就是咱们刚聊的那个度。回头有能落地的规则再同步你。 @詹老师',
+});
+assert.equal(productionMention.action, 'reply_named');
+assert.equal(productionMention.responseRequired, true);
+
+const mixedMention = assessGroupEngagement({
+  ...base,
+  mentionedOther: true,
+  text: '@另一位同事 这条也请你看看。 @詹老师',
+});
+assert.equal(mixedMention.action, 'reply_named');
+assert.equal(mixedMention.responseRequired, true);
 
 assert.deepEqual(parseSemanticEngagementDecision(
   '{"action":"reply","confidence":0.91,"reasonCode":"active_topic","targetSenderIds":["member-a"]}',

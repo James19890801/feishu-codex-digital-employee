@@ -59,8 +59,12 @@ import {
 } from './self-chat-guard.mjs';
 import { AgentState } from './state.mjs';
 import { evaluateLicenseGuard } from './licensing/guard.mjs';
-import { semanticRepeatEligibility } from './semantic-repeat-controller.mjs';
 import {
+  applySemanticRepeatGate,
+  semanticRepeatEligibility,
+} from './semantic-repeat-controller.mjs';
+import {
+  applyDiscussionBudgetGate,
   discussionBudgetEligibility,
   shouldUseSemanticRepeatFallback,
 } from './discussion-budget-controller.mjs';
@@ -579,6 +583,96 @@ contract('semantic-group-engagement', 'Does a named unmentioned message enter th
     enabled: true, chatType: 'group', messageType: 'text',
     text: '詹老师助理，这一点你怎么看？', aliases: ['詹老师助理'],
   }).action, 'reply_named');
+});
+
+contract('explicit-mention-priority', 'Does a production-shaped trailing assistant @ override mentioned-other?', () => {
+  const result = assessGroupEngagement({
+    enabled: true, chatType: 'group', messageType: 'text',
+    text: '这篇我收了，回头有能落地的规则再同步你。 @詹老师',
+    aliases: ['詹老师'], mentionedOther: true,
+  });
+  assert.equal(result.action, 'reply_named');
+  assert.equal(result.responseRequired, true);
+});
+
+contract('explicit-mention-priority', 'Does an @ of only another person remain silent?', () => {
+  assert.equal(assessGroupEngagement({
+    enabled: true, chatType: 'group', messageType: 'text',
+    text: '@另一位同事 这个问题你怎么看？',
+    aliases: ['詹老师'], mentionedOther: true,
+  }).action, 'observe');
+});
+
+contract('explicit-mention-priority', 'Does a mixed @ still require an assistant response?', () => {
+  const result = assessGroupEngagement({
+    enabled: true, chatType: 'group', messageType: 'text',
+    text: '@另一位同事 请一起看。 @詹老师',
+    aliases: ['詹老师'], mentionedOther: true,
+  });
+  assert.equal(result.action, 'reply_named');
+  assert.equal(result.responseRequired, true);
+});
+
+contract('explicit-mention-priority', 'Does repeat suppression acknowledge a required response?', async () => {
+  await withAsyncState('aipro-acceptance-explicit-repeat-', async state => {
+    const sent = [];
+    const base = {
+      state, enabled: true, windowMs: 30 * 60_000, maxReplies: 2,
+      channel: 'dingtalk', senderId: 'member-a',
+      message: {
+        message_id: 'repeat-1', chat_id: 'dingtalk:group:test',
+        chat_type: 'group', message_type: 'text',
+      },
+      text: '同一个话题需要本人确认',
+      sendClose: async (text, key) => sent.push({ text, key }),
+    };
+    await applySemanticRepeatGate({ ...base, nowMs: 1_000 });
+    await applySemanticRepeatGate({
+      ...base, message: { ...base.message, message_id: 'repeat-2' }, nowMs: 2_000,
+    });
+    await applySemanticRepeatGate({
+      ...base, message: { ...base.message, message_id: 'repeat-3' }, nowMs: 3_000,
+    });
+    const required = await applySemanticRepeatGate({
+      ...base,
+      responseRequired: true,
+      message: { ...base.message, message_id: 'repeat-required' },
+      nowMs: 4_000,
+    });
+    assert.equal(required.action, 'acknowledge_required');
+    assert.equal(sent.at(-1).key, 'aipro-semantic-repeat-required-ack-repeat-required');
+  });
+});
+
+contract('explicit-mention-priority', 'Does discussion cooldown acknowledge a required response?', async () => {
+  await withAsyncState('aipro-acceptance-explicit-discussion-', async state => {
+    const sent = [];
+    const baseMessage = {
+      message_id: 'discussion-start', chat_id: 'dingtalk:group:explicit',
+      chat_type: 'group', message_type: 'text',
+    };
+    const base = {
+      state, enabled: true, maxReplies: 100, lowValueLimit: 1,
+      cooldownMs: 30 * 60_000, channel: 'dingtalk', message: baseMessage,
+      sendClose: async (text, key) => sent.push({ text, key }),
+    };
+    await applyDiscussionBudgetGate({
+      ...base, text: '我认为流程规则治理会成为新的重点，因为例外必须有人负责。', nowMs: 1_000,
+    });
+    await applyDiscussionBudgetGate({
+      ...base,
+      message: { ...baseMessage, message_id: 'discussion-close' },
+      text: '收到。', nowMs: 2_000,
+    });
+    const required = await applyDiscussionBudgetGate({
+      ...base,
+      responseRequired: true,
+      message: { ...baseMessage, message_id: 'discussion-required' },
+      text: '我明确 @ 你，请确认收到。', nowMs: 3_000,
+    });
+    assert.equal(required.action, 'acknowledge_required');
+    assert.equal(sent.at(-1).key, 'aipro-discussion-required-ack-discussion-required');
+  });
 });
 
 contract('semantic-group-engagement', 'Is semantic classification limited to the preceding 30 group messages?', () => {
