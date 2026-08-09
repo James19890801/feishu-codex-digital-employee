@@ -480,6 +480,29 @@ if (typeof imChannelHelpers.normalizeDingTalkGroupHistoryMessages === 'function'
 
 {
   const payload = normalizeDingTalkEvent({
+    type: 'user_im_message_receive_group_all',
+    event_id: 'event-file',
+    message_id: 'msg-file',
+    conversation_id: 'cid-files',
+    sender_open_dingtalk_id: 'sender-file',
+    content: '[文件] 季度复盘.pptx fileId: file-node-123 注意：如需下载使用dws drive download命令下载',
+  });
+  assert.equal(payload.message.message_type, 'file');
+  assert.deepEqual(JSON.parse(payload.message.content), {
+    text: '',
+    file_id: 'file-node-123',
+    file_name: '季度复盘.pptx',
+  });
+  assert.deepEqual(payload.metadata.file, {
+    resourceId: 'file-node-123',
+    fileName: '季度复盘.pptx',
+    messageId: 'msg-file',
+    conversationId: 'cid-files',
+  });
+}
+
+{
+  const payload = normalizeDingTalkEvent({
     type: 'user_im_message_receive_o2o_all',
     event_id: 'event-2',
     conversation_id: 'cid-direct',

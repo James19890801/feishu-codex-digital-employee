@@ -7,6 +7,7 @@ import {
 
 assert.equal(artifactFormatForPath('/tmp/report.pdf'), 'pdf');
 assert.equal(artifactFormatForPath('/tmp/slides.PPTX'), 'pptx');
+assert.equal(artifactFormatForPath('/tmp/preview.html'), 'html');
 assert.equal(artifactFormatForPath('/tmp/unsafe.exe'), '');
 
 assert.deepEqual(buildFeishuArtifactSendArgs({
@@ -27,6 +28,34 @@ assert.deepEqual(buildDingTalkArtifactSendArgs({
   'chat', 'message', 'send', '--open-dingtalk-id', 'open-owner',
   '--msg-type', 'file', '--file-path', '/tmp/report.pdf',
   '--ai-tag=false', '--uuid', 'artifact-2', '--yes', '--format', 'json',
+]);
+
+assert.deepEqual(buildFeishuArtifactSendArgs({
+  chatId: 'oc_group',
+  relativePath: 'outputs/chart.png',
+  uuid: 'image-1',
+}), [
+  'im', '+messages-send', '--as', 'user', '--chat-id', 'oc_group',
+  '--image', 'outputs/chart.png', '--format', 'json',
+  '--idempotency-key', 'image-1',
+]);
+
+assert.deepEqual(buildFeishuArtifactSendArgs({
+  chatId: 'oc_group',
+  relativePath: 'outputs/demo.mp4',
+  videoCoverRelativePath: 'outputs/demo-cover.png',
+  uuid: 'video-1',
+}), [
+  'im', '+messages-send', '--as', 'user', '--chat-id', 'oc_group',
+  '--video', 'outputs/demo.mp4', '--video-cover', 'outputs/demo-cover.png',
+  '--format', 'json', '--idempotency-key', 'video-1',
+]);
+
+assert.deepEqual(buildFeishuArtifactSendArgs({
+  chatId: 'oc_group', relativePath: 'outputs/voice.opus',
+}), [
+  'im', '+messages-send', '--as', 'user', '--chat-id', 'oc_group',
+  '--audio', 'outputs/voice.opus', '--format', 'json',
 ]);
 
 assert.throws(() => buildFeishuArtifactSendArgs({

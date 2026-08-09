@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import {
+  buildDingTalkDriveDownloadArgs,
   buildDingTalkMediaDownloadArgs,
   buildFeishuMediaDownloadArgs,
   buildTranscriptionInvocation,
+  parseDingTalkFilePlaceholder,
   parseDingTalkMediaPlaceholder,
 } from './multimodal-content.mjs';
 
@@ -19,6 +21,29 @@ assert.deepEqual(
   { kind: 'video', resourceId: '@video_789', displayName: '视频消息' },
 );
 assert.equal(parseDingTalkMediaPlaceholder('普通文字消息'), null);
+
+assert.deepEqual(
+  parseDingTalkFilePlaceholder('[文件] 周报.pdf fileId: 54d69c1f-3f4e 注意：如需下载使用dws drive download命令下载'),
+  {
+    kind: 'document',
+    resourceId: '54d69c1f-3f4e',
+    fileName: '周报.pdf',
+    displayName: '周报.pdf',
+  },
+);
+assert.equal(parseDingTalkFilePlaceholder('[图片消息](mediaId=@image_456)'), null);
+
+assert.deepEqual(buildDingTalkDriveDownloadArgs({
+  profile: 'corp:user',
+  fileId: '54d69c1f-3f4e',
+  outputPath: '/tmp/aipro-media/周报.pdf',
+}), [
+  '--profile', 'corp:user',
+  'drive', 'download',
+  '--node', '54d69c1f-3f4e',
+  '--output', '/tmp/aipro-media/周报.pdf',
+  '--format', 'json',
+]);
 
 assert.deepEqual(buildDingTalkMediaDownloadArgs({
   profile: 'corp:user',

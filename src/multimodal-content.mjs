@@ -19,6 +19,36 @@ export function parseDingTalkMediaPlaceholder(content = '') {
   };
 }
 
+export function parseDingTalkFilePlaceholder(content = '') {
+  const text = String(content || '').trim();
+  const match = text.match(/^(?:\[文件\]\s*)+(.+?)\s+fileId\s*:\s*([^\s]+)/i);
+  if (!match) return null;
+  const fileName = basename(match[1].trim()) || '未命名文件';
+  return {
+    kind: 'document',
+    resourceId: match[2].trim(),
+    fileName,
+    displayName: fileName,
+  };
+}
+
+export function buildDingTalkDriveDownloadArgs({
+  profile = '',
+  fileId,
+  outputPath,
+} = {}) {
+  if (!String(fileId || '').trim() || !String(outputPath || '').trim()) {
+    throw new Error('DingTalk drive fileId and outputPath are required');
+  }
+  return [
+    ...(String(profile || '').trim() ? ['--profile', String(profile).trim()] : []),
+    'drive', 'download',
+    '--node', String(fileId).trim(),
+    '--output', String(outputPath),
+    '--format', 'json',
+  ];
+}
+
 export function buildDingTalkMediaDownloadArgs({
   profile = '',
   resourceId,

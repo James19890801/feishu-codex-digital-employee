@@ -3,25 +3,48 @@ import { extname } from 'node:path';
 const ALLOWED_FORMATS = new Set([
   'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'zip',
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp3', 'wav', 'm4a', 'ogg', 'mp4', 'mov',
+  'opus', 'html', 'htm',
 ]);
+
+const IMAGE_FORMATS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
+const VIDEO_FORMATS = new Set(['mp4', 'mov']);
 
 export function artifactFormatForPath(path) {
   const format = extname(String(path || '')).slice(1).toLowerCase();
   return ALLOWED_FORMATS.has(format) ? format : '';
 }
 
-export function buildFeishuArtifactSendArgs({ chatId, relativePath, uuid = '' }) {
+export function buildFeishuArtifactSendArgs({
+  chatId,
+  relativePath,
+  videoCoverRelativePath = '',
+  uuid = '',
+}) {
   const target = String(chatId || '').trim();
   const path = String(relativePath || '').trim();
   if (!target) throw new Error('Feishu artifact target is required');
   if (!path || path.startsWith('/') || path.split('/').includes('..')) {
     throw new Error('Feishu artifact requires a safe relative path');
   }
-  if (!artifactFormatForPath(path)) throw new Error('Unsupported artifact file format');
+  const format = artifactFormatForPath(path);
+  if (!format) throw new Error('Unsupported artifact file format');
   const args = [
     'im', '+messages-send', '--as', 'user', '--chat-id', target,
-    '--file', path, '--format', 'json',
   ];
+  if (IMAGE_FORMATS.has(format)) {
+    args.push('--image', path);
+  } else if (VIDEO_FORMATS.has(format)) {
+    const cover = String(videoCoverRelativePath || '').trim();
+    if (!cover || cover.startsWith('/') || cover.split('/').includes('..')) {
+      throw new Error('Feishu video artifact requires a safe relative cover path');
+    }
+    args.push('--video', path, '--video-cover', cover);
+  } else if (format === 'opus') {
+    args.push('--audio', path);
+  } else {
+    args.push('--file', path);
+  }
+  args.push('--format', 'json');
   if (uuid) args.push('--idempotency-key', String(uuid).slice(0, 50));
   return args;
 }

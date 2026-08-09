@@ -4,6 +4,7 @@ import {
   refersToRecentImages,
   requestedImageLimit,
   selectRecentFileRef,
+  selectRecentFileRefs,
   selectRecentImageRefs,
 } from './media-context.mjs';
 
@@ -35,6 +36,13 @@ const items = [
     create_time: String(currentTime - 500),
     sender: { sender_type: 'user', id: 'owner' },
     body: { content: JSON.stringify({ file_key: 'file-new', file_name: '说明.pdf' }) },
+  },
+  {
+    message_id: 'file-older',
+    msg_type: 'file',
+    create_time: String(currentTime - 1_500),
+    sender: { sender_type: 'user', id: 'owner' },
+    body: { content: JSON.stringify({ file_key: 'file-older', file_name: '附件.docx' }) },
   },
   {
     message_id: 'other-sender',
@@ -69,5 +77,19 @@ assert.deepEqual(selectRecentFileRef(items, {
   fileKey: 'file-new',
   fileName: '说明.pdf',
 });
+
+assert.deepEqual(selectRecentFileRefs(items, {
+  senderOpenId: 'owner',
+  currentTime,
+  limit: 2,
+}), [{
+  messageId: 'file-older',
+  fileKey: 'file-older',
+  fileName: '附件.docx',
+}, {
+  messageId: 'file-new',
+  fileKey: 'file-new',
+  fileName: '说明.pdf',
+}]);
 
 console.log('MEDIA_CONTEXT_TEST_OK');

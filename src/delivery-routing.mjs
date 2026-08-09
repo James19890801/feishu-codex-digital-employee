@@ -16,6 +16,7 @@ const FORMAT_PATTERNS = [
   ['jpg', /\bJPE?G\b|JPG图片/i],
   ['mp3', /\bMP3\b|音频文件/i],
   ['mp4', /\bMP4\b|视频文件/i],
+  ['html', /\bHTML\b|HTML文件|网页源文件/i],
 ];
 
 export function explicitArtifactFormats(request) {

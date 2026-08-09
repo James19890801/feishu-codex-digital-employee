@@ -697,6 +697,7 @@ Public web links:
 
     Up to two HTTP or HTTPS links extracted from one message by default
     HTML, XHTML, plain text, and JSON reading
+    Public PDF, Office, image, audio, and video links downloaded and routed by MIME type
     Script, style, navigation, and layout noise removal before AI processing
     Redirect revalidation, response-size limits, timeouts, and content limits
     Loopback, private-network, link-local, multicast, custom-port, credentialed,
@@ -705,6 +706,7 @@ Public web links:
 
 Short video:
 
+    Feishu media resources can be downloaded through the authenticated user identity
     DingTalk video resources can be downloaded through DWS
     A local Quick Look key frame and any available local speech transcript are
     passed to an image-capable runtime
@@ -713,7 +715,10 @@ Short video:
 Files:
 
     PDF
-    DOCX
+    Scanned PDF through local macOS Vision OCR
+    DOC and DOCX
+    XLS and XLSX
+    PPT and PPTX
     TXT
     Markdown source files
     CSV
@@ -743,11 +748,13 @@ previous 30 minutes. It does not substitute a file sent by another person.
 
 Output-format policy:
 
-    AIPRO does not infer an output format from keywords such as report, plan,
-    spreadsheet, PDF, or Word. It does not automatically create Feishu or
-    DingTalk documents, spreadsheets, or file attachments. The complete request
-    is passed to the selected local AI runtime, and the resulting answer is
-    returned to the original conversation.
+    AIPRO creates a file-delivery contract only when the requester explicitly
+    names an output format. Workspace artifacts may return to the originating
+    Feishu or DingTalk group or direct conversation. Feishu uses native image,
+    video, and Opus audio messages where possible; DingTalk local media is sent
+    as a downloadable file attachment because DWS cannot create an inline
+    mediaId from a local file. HTML source is supported and can also produce a
+    local preview image.
 
 Python dependencies for file processing are pinned in requirements.txt and are
 validated by npm run check.

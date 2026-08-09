@@ -10,6 +10,15 @@ import {
 } from './conversation-etiquette.mjs';
 import { buildDeliveryPlan } from './delivery-routing.mjs';
 import {
+  artifactFormatForPath,
+  buildFeishuArtifactSendArgs,
+} from './artifact-channel-delivery.mjs';
+import {
+  buildDingTalkDriveDownloadArgs,
+  parseDingTalkFilePlaceholder,
+} from './multimodal-content.mjs';
+import { classifyContentType } from './remote-content.mjs';
+import {
   applyOwnerActivityHistory,
   applyVerifiedOwnerHistory,
   evaluateHumanTakeover,
@@ -88,6 +97,34 @@ const identities = {
   ownerOpenId: 'ou_owner',
   dingtalkOwnerOpenId: 'dt_owner',
 };
+
+contract('multimodal-pipeline', 'Can a DingTalk group file placeholder become a downloadable drive reference?', () => {
+  const file = parseDingTalkFilePlaceholder('[文件] 复盘.pptx fileId: drive-node-1 注意：如需下载使用dws drive download命令下载');
+  assert.equal(file.fileName, '复盘.pptx');
+  assert.ok(buildDingTalkDriveDownloadArgs({
+    fileId: file.resourceId,
+    outputPath: '/tmp/复盘.pptx',
+  }).includes('drive-node-1'));
+});
+
+contract('multimodal-pipeline', 'Do public PDF and Office URLs route to document processing?', () => {
+  assert.equal(classifyContentType('application/pdf'), 'document');
+  assert.equal(classifyContentType('application/vnd.openxmlformats-officedocument.presentationml.presentation'), 'document');
+});
+
+contract('multimodal-pipeline', 'Can Feishu send workspace images and videos as native media?', () => {
+  assert.ok(buildFeishuArtifactSendArgs({
+    chatId: 'oc_test', relativePath: 'outputs/image.png',
+  }).includes('--image'));
+  assert.ok(buildFeishuArtifactSendArgs({
+    chatId: 'oc_test', relativePath: 'outputs/video.mp4',
+    videoCoverRelativePath: 'outputs/video.png',
+  }).includes('--video'));
+});
+
+contract('multimodal-pipeline', 'Is HTML a supported workspace artifact?', () => {
+  assert.equal(artifactFormatForPath('outputs/report.html'), 'html');
+});
 
 contract('licensing', 'Does development mode preserve the existing service path?', async () => {
   const result = await evaluateLicenseGuard({ enforced: false });
