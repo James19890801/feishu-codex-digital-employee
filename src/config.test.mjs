@@ -16,14 +16,37 @@ assert.equal(config.semanticGroupEngagementEnabled, true);
 assert.equal(config.semanticGroupReplyThreshold, 0.86);
 assert.equal(config.semanticGroupEntryCooldownMs, 120_000);
 assert.equal(config.semanticGroupAliases.includes('AIPRO'), true);
-assert.equal(config.groupHostModeEnabled, false);
-assert.deepEqual(config.groupHostChatIds, []);
+assert.equal(typeof config.groupHostModeEnabled, 'boolean');
+assert.equal(Array.isArray(config.groupHostChatIds), true);
 assert.equal(config.groupHostSilenceMs, 75_000);
 assert.equal(config.groupHostReplyCooldownMs, 180_000);
 
 const directory = mkdtempSync(join(tmpdir(), 'aipro-config-'));
 try {
   const example = JSON.parse(readFileSync(new URL('../config.example.json', import.meta.url), 'utf8'));
+  const defaultsPath = join(directory, 'group-host-defaults.json');
+  const defaultsInput = { ...example, feishuEnabled: false, allowAllChats: true };
+  delete defaultsInput.groupHostModeEnabled;
+  delete defaultsInput.groupHostChatIds;
+  delete defaultsInput.groupHostSilenceMs;
+  delete defaultsInput.groupHostReplyCooldownMs;
+  writeFileSync(defaultsPath, JSON.stringify(defaultsInput));
+  const defaults = spawnSync(process.execPath, [
+    '--input-type=module',
+    '--eval',
+    "const {config}=await import('./src/config.mjs'); console.log(JSON.stringify({enabled:config.groupHostModeEnabled,chats:config.groupHostChatIds,silence:config.groupHostSilenceMs,cooldown:config.groupHostReplyCooldownMs}))",
+  ], {
+    cwd: new URL('..', import.meta.url),
+    env: { ...process.env, DIGITAL_EMPLOYEE_CONFIG: defaultsPath },
+    encoding: 'utf8',
+  });
+  assert.equal(defaults.status, 0, defaults.stderr);
+  assert.deepEqual(JSON.parse(defaults.stdout), {
+    enabled: false,
+    chats: [],
+    silence: 75_000,
+    cooldown: 180_000,
+  });
   for (const [field, value] of [
     ['semanticRepeatMaxReplies', 1],
     ['adaptiveDiscussionMaxReplies', 101],
