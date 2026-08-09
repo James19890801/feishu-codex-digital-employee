@@ -10,9 +10,9 @@ SERVICE="gui/$(id -u)/$LABEL"
 LOCK_PATH="${AIPRO_SERVICE_LOCK_PATH:-$ROOT/data/service.lock}"
 mkdir -p "$HOME/Library/LaunchAgents"
 
-/usr/bin/python3 - "$PLIST" "$ROOT" "$NODE" <<'PY'
+/usr/bin/python3 - "$PLIST" "$ROOT" "$NODE" "$HOME" <<'PY'
 import plistlib, sys
-path, root, node = sys.argv[1:]
+path, root, node, home = sys.argv[1:]
 data = {
   'Label': 'com.local.feishu-codex-digital-employee',
   'ProgramArguments': [node, f'{root}/src/index.mjs'],
@@ -24,7 +24,10 @@ data = {
   'ExitTimeOut': 15,
   'StandardOutPath': f'{root}/bridge.log',
   'StandardErrorPath': f'{root}/bridge-error.log',
-  'EnvironmentVariables': {'PATH': f'{root}:{root}/node_modules/.bin:/usr/local/bin:/usr/bin:/bin'},
+  'EnvironmentVariables': {
+    'HOME': home,
+    'PATH': f'{root}:{root}/node_modules/.bin:{home}/.npm-global/bin:{home}/.local/bin:/usr/local/bin:/usr/bin:/bin',
+  },
 }
 with open(path, 'wb') as f: plistlib.dump(data, f)
 PY

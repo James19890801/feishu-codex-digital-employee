@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import * as imChannelHelpers from './im-channels.mjs';
 import {
+  buildDingTalkAuthStatusArgs,
   buildDingTalkConversationPollingArgs,
   buildDingTalkSelfPollingArgs,
   buildDingTalkConsumerArgs,
@@ -38,8 +39,10 @@ if (typeof imChannelHelpers.buildDingTalkProcessEnv === 'function') {
     nodeBin: '/opt/node/bin',
     pathEnv: '/usr/bin:/bin',
     baseEnv: { LANG: 'zh_CN.UTF-8' },
+    home: '/Users/example',
   }), {
     DWS_CHANNEL: 'channel-code',
+    HOME: '/Users/example',
     LANG: 'zh_CN.UTF-8',
     PATH: '/opt/dws/bin:/opt/node/bin:/usr/bin:/bin',
   });
@@ -149,6 +152,11 @@ assert.deepEqual(buildDingTalkConsumerArgs('corp:user'), [
   'user_im_message_receive_group_all',
   '--flatten',
   '--format', 'ndjson',
+]);
+assert.deepEqual(buildDingTalkAuthStatusArgs('corp:user'), [
+  '--profile', 'corp:user',
+  'auth', 'status',
+  '--format', 'json',
 ]);
 
 assert.deepEqual(buildDingTalkListAllPollingArgs(

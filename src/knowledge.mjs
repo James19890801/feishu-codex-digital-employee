@@ -8,7 +8,11 @@ export function normalizeKnowledgeText(value = '') {
 }
 
 export function looksLikeKnowledgeRequest(text = '') {
-  return /(会议|纪要|文档|资料|飞书)/.test(text);
+  const value = String(text || '');
+  if (!/(会议|纪要|文档|资料|飞书)/.test(value)) return false;
+  if (DOCX_URL_RE.test(value)) return true;
+  return /(查一下|找一下|搜索|检索|总结|阅读|打开|引用|看看|看一下)/.test(value)
+    || /(会议|纪要|文档|资料).*(内容|讲了|说了|包含|有哪些|是什么)/.test(value);
 }
 
 export function extractKnowledgeQuery(text = '') {

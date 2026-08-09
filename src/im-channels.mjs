@@ -11,12 +11,15 @@ export function buildDingTalkProcessEnv({
   nodeBin = '',
   pathEnv = '',
   baseEnv = {},
+  home = '',
 } = {}) {
   const executable = String(dingtalkBin || '').trim();
   if (!executable) throw new Error('DingTalk executable path is required');
   const channel = String(dingtalkChannel || '').trim();
+  const resolvedHome = String(home || baseEnv.HOME || process.env.HOME || '').trim();
   return {
     ...baseEnv,
+    ...(resolvedHome ? { HOME: resolvedHome } : {}),
     ...(channel ? { DWS_CHANNEL: channel } : {}),
     PATH: [dirname(executable), String(nodeBin || ''), String(pathEnv || '')]
       .filter(Boolean)
@@ -81,6 +84,14 @@ export function buildDingTalkConsumerArgs(profile = '') {
     'user_im_message_receive_group_all',
     '--flatten',
     '--format', 'ndjson',
+  ];
+}
+
+export function buildDingTalkAuthStatusArgs(profile = '') {
+  return [
+    ...(profile ? ['--profile', profile] : []),
+    'auth', 'status',
+    '--format', 'json',
   ];
 }
 

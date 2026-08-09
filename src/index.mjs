@@ -145,6 +145,7 @@ import {
   selectAiRuntime,
 } from './ai-runtime.mjs';
 import {
+  buildDingTalkAuthStatusArgs,
   buildDingTalkConversationPollingArgs,
   buildDingTalkGroupHostPollingArgs,
   buildDingTalkProcessEnv,
@@ -311,6 +312,7 @@ const POLL_OVERLAP_MS = config.pollOverlapMs;
 const POLL_INITIAL_LOOKBACK_MS = config.pollInitialLookbackMs;
 const POLL_MAX_CATCHUP_MS = config.pollMaxCatchupMs;
 const POLL_WINDOW_MS = config.pollWindowMs;
+const DINGTALK_AUTH_HEALTH_INTERVAL_MS = 30 * 60_000;
 const MAX_CONCURRENT_REPLIES = config.maxConcurrentReplies;
 const GROUP_HOST_CHAT_IDS = new Set(config.groupHostChatIds || []);
 const DASHBOARD_URL = `http://127.0.0.1:${config.dashboardPort}`;
@@ -2100,7 +2102,7 @@ async function syncRecentDingTalkTakeover(message, metadata = {}) {
   });
   if (!applied.changed) return applied;
   writeHumanTakeover(message.chat_id, applied.state);
-  const latest = applied.activities.at(-1);
+  const latest = (applied.activities || applied.controls || []).at(-1);
   state.audit(latest?.command === 'pause'
     ? 'takeover_paused'
     : latest?.command === 'resume' ? 'takeover_resume_requested' : 'owner_manual_activity', {
@@ -4170,7 +4172,84 @@ function dingtalkProcessEnv() {
     nodeBin: BUNDLED_NODE_BIN,
     pathEnv: process.env.PATH || '',
     baseEnv: process.env,
+    home: process.env.HOME || '/Users/Administrator',
   });
+}
+
+async function checkDingTalkAuthHealthOnce() {
+  if (!config.dingtalkEnabled || !existsSync(config.dingtalkBin)) return null;
+  const { stdout } = await runBufferedProcess(
+    config.dingtalkBin,
+    buildDingTalkAuthStatusArgs(config.dingtalkProfile),
+    {
+      cwd: WORKDIR,
+      env: dingtalkProcessEnv(),
+      timeoutMs: config.larkCliTimeoutMs,
+      maxStdoutBytes: 512 * 1024,
+      maxStderrBytes: 256 * 1024,
+    },
+  );
+  let status = null;
+  try {
+    status = JSON.parse(stdout || '{}');
+  } catch {
+    throw new Error(`DWS auth status returned non-JSON output: ${String(stdout || '').slice(0, 500)}`);
+  }
+  const authenticated = status.authenticated === true && status.token_valid === true;
+  const refreshTokenValid = status.refresh_token_valid !== false;
+  const checkedAt = new Date().toISOString();
+  updateImChannelStatus('dingtalk', {
+    authenticated,
+    refreshTokenValid,
+    tokenExpiresAt: status.expires_at || '',
+    refreshTokenExpiresAt: status.refresh_expires_at || '',
+    ...(authenticated
+      ? { lastAuthCheckAt: checkedAt, lastError: null }
+      : {
+          lastAuthCheckAt: checkedAt,
+          lastError: {
+            at: checkedAt,
+            error: refreshTokenValid
+              ? 'DWS access token is not currently valid'
+              : 'DWS refresh token is invalid; manual dws auth login is required',
+          },
+        }),
+  });
+  state.set('health', 'last_dingtalk_auth_status', {
+    at: checkedAt,
+    authenticated,
+    tokenValid: status.token_valid === true,
+    refreshTokenValid,
+    expiresAt: status.expires_at || '',
+    refreshExpiresAt: status.refresh_expires_at || '',
+  });
+  state.unset('health', 'last_dingtalk_auth_error');
+  return status;
+}
+
+async function runDingTalkAuthHealthLoop() {
+  let failures = 0;
+  while (!stopping) {
+    const startedAt = Date.now();
+    try {
+      await checkDingTalkAuthHealthOnce();
+      failures = 0;
+    } catch (error) {
+      failures += 1;
+      const summary = processFailureSummary(error);
+      const authenticationFailure = /auth|login|token|ciphertext|keychain|授权|登录态/i.test(summary);
+      const lastError = { at: new Date().toISOString(), failures, error: summary };
+      state.set('health', 'last_dingtalk_auth_error', lastError);
+      updateImChannelStatus('dingtalk', {
+        ...(authenticationFailure ? { authenticated: false, refreshTokenValid: false } : {}),
+        lastAuthCheckAt: lastError.at,
+        lastError,
+      });
+      state.audit('dingtalk_auth_health_error', { detail: lastError });
+      console.error('[dingtalk-auth-health-error]', error);
+    }
+    await wait(Math.max(1_000, DINGTALK_AUTH_HEALTH_INTERVAL_MS - (Date.now() - startedAt)));
+  }
 }
 
 function createDingTalkChannel() {
@@ -4298,6 +4377,8 @@ async function initializeAdditionalImChannels() {
       });
     } else {
       dingTalkChannel = createDingTalkChannel();
+      runDingTalkAuthHealthLoop()
+        .catch(error => console.error('[dingtalk-auth-health-fatal]', error));
       if (config.dingtalkTransport === 'event-stream') {
         state.unset('health', 'last_dingtalk_semantic_poll_error');
         dingTalkSupervisorPromise = superviseDingTalkEvents()

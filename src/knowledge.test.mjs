@@ -21,6 +21,8 @@ assert.equal(normalizeKnowledgeText('7 月 1 号会议？'), '7月1日会议');
 assert.equal(looksLikeKnowledgeRequest('帮我总结一下7月1日的会议内容'), true);
 assert.equal(looksLikeKnowledgeRequest('上面两张照片包含什么内容'), false);
 assert.equal(looksLikeKnowledgeRequest('帮我查一下飞书里的会议纪要'), true);
+assert.equal(looksLikeKnowledgeRequest('怎么让他学习，喂资料权限'), false);
+assert.equal(looksLikeKnowledgeRequest('怎么配置资料权限'), false);
 assert.equal(extractKnowledgeQuery('帮我总结一下7月1日的会议内容'), '7月1日的会议内容');
 assert.equal(resolveCatalogDocument('7月1号会议讲了什么', catalog)?.token, 'abc123');
 assert.equal(resolveCatalogDocument('https://x.feishu.cn/docx/abc123', catalog)?.token, 'abc123');
