@@ -21,6 +21,10 @@ const CONFIG_RULES = {
   semanticGroupReplyThreshold: { type: 'number', min: 0.5, max: 0.99, risk: 'single' },
   semanticGroupEntryCooldownMs: { type: 'integer', min: 30000, max: 3600000, risk: 'single' },
   semanticGroupAliases: { type: 'stringArray', maxItems: 20, maxLength: 100, risk: 'single' },
+  groupHostModeEnabled: { type: 'boolean', risk: 'single' },
+  groupHostChatIds: { type: 'stringArray', maxItems: 20, maxLength: 500, risk: 'single' },
+  groupHostSilenceMs: { type: 'integer', min: 30000, max: 180000, risk: 'single' },
+  groupHostReplyCooldownMs: { type: 'integer', min: 60000, max: 900000, risk: 'single' },
   aiRuntime: {
     type: 'enum',
     values: ['auto', 'codex', 'qoder', 'codebuddy', 'trae'],
