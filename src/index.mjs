@@ -192,6 +192,7 @@ import {
   shouldIntroduceAssistant,
 } from './conversation-etiquette.mjs';
 import { applySemanticRepeatGate } from './semantic-repeat-controller.mjs';
+import { resolveRequiredResponse } from './required-response-fallback.mjs';
 import {
   applyDiscussionBudgetGate,
   appendDiscussionInstruction,
@@ -3276,7 +3277,16 @@ async function processIncoming(client, message, sender, metadata = {}) {
       : fileRef
         ? `${cleanText || '请求读取文件'}：${fileRef.fileName || '未命名文件'}`
         : imageRefs.length ? `${cleanText || '发送了图片'}（含图片）` : task;
-    const answer = await runCodex(task, history, imagePaths, decision);
+    const requiredResponse = await resolveRequiredResponse({
+      responseRequired,
+      generate: () => runCodex(task, history, imagePaths, decision),
+    });
+    const answer = requiredResponse.text;
+    if (requiredResponse.fallback) {
+      audit('required_response_fallback_sent', message, senderOpenId, {
+        error: requiredResponse.error.slice(0, 1000),
+      });
+    }
     remember(message.chat_id, senderOpenId, 'assistant', answer);
     await sendText(client, message.chat_id, answer, `xiaozhao-${message.message_id}`);
     if (discussionResult.finalizeAfterReply) {

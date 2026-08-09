@@ -38,11 +38,11 @@ For every new mechanism, ask all five dimensions before implementation:
 | Decision boundary | 4 | Safe reads execute; external writes confirm; privacy and decision requests refuse |
 | Polling selection | 1 | Group @, direct chat, duplicate and Owner-message filtering remain deterministic |
 | Semantic group engagement | 3 | Direct addressing and high-confidence continuation can reply without treating ambient chat as a request |
-| Explicit mention priority | 5 | A direct assistant @ requires a visible response while other-person @ and hard safety still suppress |
+| Explicit mention priority | 6 | A direct assistant @ requires a visible response, including an immediate fallback when AI generation fails, while other-person @ and hard safety still suppress |
 | Group host mode | 9 | Only fresh, unanswered, safe allowlisted topics can receive a bounded host intervention |
 | Retry boundary | 4 | Attempts one and two retry; attempt three and later do not loop forever |
 
-Total: 116 mechanism contracts.
+Total: 117 mechanism contracts.
 
 ## Live verification boundary
 

@@ -68,6 +68,7 @@ import {
   discussionBudgetEligibility,
   shouldUseSemanticRepeatFallback,
 } from './discussion-budget-controller.mjs';
+import { resolveRequiredResponse } from './required-response-fallback.mjs';
 
 const cases = [];
 
@@ -673,6 +674,15 @@ contract('explicit-mention-priority', 'Does discussion cooldown acknowledge a re
     assert.equal(required.action, 'acknowledge_required');
     assert.equal(sent.at(-1).key, 'aipro-discussion-required-ack-discussion-required');
   });
+});
+
+contract('explicit-mention-priority', 'Does an AI runtime failure immediately fall back for a required response?', async () => {
+  const result = await resolveRequiredResponse({
+    responseRequired: true,
+    generate: async () => { throw new Error('empty response'); },
+  });
+  assert.equal(result.fallback, true);
+  assert.match(result.text, /收到/);
 });
 
 contract('semantic-group-engagement', 'Is semantic classification limited to the preceding 30 group messages?', () => {
