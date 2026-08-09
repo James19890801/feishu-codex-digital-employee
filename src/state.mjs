@@ -129,6 +129,24 @@ export class AgentState {
       );
       CREATE INDEX IF NOT EXISTS outbound_reply_guard_expiry
         ON outbound_reply_guard(expires_at_ms);
+      CREATE TABLE IF NOT EXISTS group_host_candidate (
+        message_id TEXT PRIMARY KEY,
+        chat_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        text TEXT NOT NULL,
+        topic TEXT NOT NULL,
+        status TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        created_at_ms INTEGER NOT NULL,
+        due_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL,
+        resolution TEXT NOT NULL DEFAULT '',
+        last_error TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS group_host_candidate_due
+        ON group_host_candidate(status, due_at_ms);
+      CREATE INDEX IF NOT EXISTS group_host_candidate_chat
+        ON group_host_candidate(chat_id, status);
       CREATE TABLE IF NOT EXISTS multica_issue_cache (
         issue_id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL,
@@ -382,6 +400,178 @@ export class AgentState {
       )
       ORDER BY createdAt ASC, id ASC`)
       .all(chatId, limit);
+  }
+
+  scheduleGroupHostCandidate({
+    messageId,
+    chatId,
+    senderId,
+    text,
+    topic,
+    createdAtMs = Date.now(),
+    dueAtMs,
+    maxPendingPerChat = 3,
+  }) {
+    const normalizedMessageId = String(messageId || '').slice(0, 500);
+    const normalizedChatId = String(chatId || '').slice(0, 500);
+    const normalizedSenderId = String(senderId || '').slice(0, 500);
+    const normalizedText = String(text || '').slice(0, 4000);
+    const normalizedCreatedAtMs = Math.max(0, Number(createdAtMs) || Date.now());
+    const normalizedDueAtMs = Math.max(normalizedCreatedAtMs, Number(dueAtMs) || normalizedCreatedAtMs);
+    const normalizedLimit = Math.max(1, Math.min(20, Number(maxPendingPerChat) || 3));
+    if (!normalizedMessageId || !normalizedChatId || !normalizedSenderId || !normalizedText || !topic) {
+      throw new Error('Group host candidate requires message, chat, sender, text, and topic');
+    }
+    const inserted = this.db.prepare(`INSERT OR IGNORE INTO group_host_candidate
+      (message_id, chat_id, sender_id, text, topic, status, attempts,
+       created_at_ms, due_at_ms, updated_at_ms, resolution, last_error)
+      VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, '', '')`).run(
+      normalizedMessageId,
+      normalizedChatId,
+      normalizedSenderId,
+      normalizedText,
+      JSON.stringify(topic),
+      normalizedCreatedAtMs,
+      normalizedDueAtMs,
+      normalizedCreatedAtMs,
+    ).changes === 1;
+    if (!inserted) return false;
+    this.db.prepare(`UPDATE group_host_candidate
+      SET status = 'completed', resolution = 'superseded', updated_at_ms = ?
+      WHERE message_id IN (
+        SELECT message_id FROM group_host_candidate
+        WHERE chat_id = ? AND status IN ('pending', 'failed')
+        ORDER BY created_at_ms DESC, message_id DESC
+        LIMIT -1 OFFSET ?
+      )`).run(normalizedCreatedAtMs, normalizedChatId, normalizedLimit);
+    return true;
+  }
+
+  claimDueGroupHostCandidate(nowMs = Date.now()) {
+    const normalizedNowMs = Math.max(0, Number(nowMs) || Date.now());
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const row = this.db.prepare(`SELECT message_id, chat_id, sender_id, text, topic,
+        status, attempts, created_at_ms, due_at_ms, updated_at_ms, resolution, last_error
+        FROM group_host_candidate
+        WHERE status IN ('pending', 'failed') AND due_at_ms <= ?
+        ORDER BY due_at_ms, created_at_ms, message_id LIMIT 1`).get(normalizedNowMs);
+      if (!row) {
+        this.db.exec('COMMIT');
+        return null;
+      }
+      const updated = this.db.prepare(`UPDATE group_host_candidate
+        SET status = 'processing', attempts = attempts + 1, updated_at_ms = ?
+        WHERE message_id = ? AND status IN ('pending', 'failed')`).run(
+        normalizedNowMs,
+        row.message_id,
+      ).changes === 1;
+      if (!updated) {
+        this.db.exec('ROLLBACK');
+        return null;
+      }
+      this.db.exec('COMMIT');
+      let parsedTopic = null;
+      try { parsedTopic = JSON.parse(row.topic); } catch { parsedTopic = null; }
+      return {
+        messageId: row.message_id,
+        chatId: row.chat_id,
+        senderId: row.sender_id,
+        text: row.text,
+        topic: parsedTopic,
+        attempts: Number(row.attempts || 0) + 1,
+        createdAtMs: Number(row.created_at_ms || 0),
+        dueAtMs: Number(row.due_at_ms || 0),
+        updatedAtMs: normalizedNowMs,
+        lastError: row.last_error,
+      };
+    } catch (error) {
+      try { this.db.exec('ROLLBACK'); } catch {}
+      throw error;
+    }
+  }
+
+  completeGroupHostCandidate(messageId, resolution, nowMs = Date.now()) {
+    return this.db.prepare(`UPDATE group_host_candidate
+      SET status = 'completed', resolution = ?, last_error = '', updated_at_ms = ?
+      WHERE message_id = ? AND status IN ('pending', 'failed', 'processing')`).run(
+      String(resolution || '').slice(0, 100),
+      Math.max(0, Number(nowMs) || Date.now()),
+      String(messageId || ''),
+    ).changes === 1;
+  }
+
+  retryGroupHostCandidate(
+    messageId,
+    error,
+    dueAtMs,
+    nowMs = Date.now(),
+    maxAttempts = 3,
+  ) {
+    const row = this.db.prepare(`SELECT attempts, status FROM group_host_candidate
+      WHERE message_id = ?`).get(String(messageId || ''));
+    if (!row || row.status !== 'processing') {
+      return {
+        updated: false,
+        deadLettered: row?.status === 'dead',
+        attempts: Number(row?.attempts || 0),
+      };
+    }
+    const attempts = Number(row.attempts || 0);
+    const deadLettered = attempts >= Math.max(1, Number(maxAttempts) || 3);
+    const normalizedNowMs = Math.max(0, Number(nowMs) || Date.now());
+    const updated = this.db.prepare(`UPDATE group_host_candidate
+      SET status = ?, due_at_ms = ?, updated_at_ms = ?, resolution = ?, last_error = ?
+      WHERE message_id = ? AND status = 'processing'`).run(
+      deadLettered ? 'dead' : 'failed',
+      Math.max(normalizedNowMs, Number(dueAtMs) || normalizedNowMs),
+      normalizedNowMs,
+      deadLettered ? 'retry_exhausted' : '',
+      String(error || '').slice(0, 1000),
+      String(messageId || ''),
+    ).changes === 1;
+    return { updated, deadLettered: updated && deadLettered, attempts };
+  }
+
+  recoverGroupHostCandidates(nowMs = Date.now(), staleAfterMs = 5 * 60_000) {
+    const normalizedNowMs = Math.max(0, Number(nowMs) || Date.now());
+    const staleBeforeMs = normalizedNowMs - Math.max(1_000, Number(staleAfterMs) || 5 * 60_000);
+    return this.db.prepare(`UPDATE group_host_candidate
+      SET status = 'pending', due_at_ms = ?, updated_at_ms = ?,
+          last_error = CASE WHEN last_error = '' THEN 'recovered stale processing candidate'
+                            ELSE last_error END
+      WHERE status = 'processing' AND updated_at_ms <= ?`).run(
+      normalizedNowMs,
+      normalizedNowMs,
+      staleBeforeMs,
+    ).changes;
+  }
+
+  pendingGroupHostCount(chatId = '') {
+    const normalizedChatId = String(chatId || '');
+    if (normalizedChatId) {
+      return Number(this.db.prepare(`SELECT COUNT(*) AS count FROM group_host_candidate
+        WHERE chat_id = ? AND status IN ('pending', 'failed', 'processing')`)
+        .get(normalizedChatId)?.count || 0);
+    }
+    return Number(this.db.prepare(`SELECT COUNT(*) AS count FROM group_host_candidate
+      WHERE status IN ('pending', 'failed', 'processing')`).get()?.count || 0);
+  }
+
+  groupHostStats(nowMs = Date.now()) {
+    const normalizedNowMs = Math.max(0, Number(nowMs) || Date.now());
+    const rows = this.db.prepare(`SELECT status, COUNT(*) AS count
+      FROM group_host_candidate GROUP BY status`).all();
+    const counts = Object.fromEntries(rows.map(row => [row.status, Number(row.count || 0)]));
+    const due = Number(this.db.prepare(`SELECT COUNT(*) AS count FROM group_host_candidate
+      WHERE status IN ('pending', 'failed') AND due_at_ms <= ?`).get(normalizedNowMs)?.count || 0);
+    return {
+      pending: Number(counts.pending || 0) + Number(counts.failed || 0),
+      processing: Number(counts.processing || 0),
+      completed: Number(counts.completed || 0),
+      dead: Number(counts.dead || 0),
+      due,
+    };
   }
 
   bindConversationIssue(chatId, senderId, issue) {
