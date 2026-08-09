@@ -21,6 +21,7 @@ for (const [chatId, request, formats] of [
   ['dingtalk:user:u1', '最后生成一份 Word 方案给我', ['docx']],
   ['oc_feishu_chat', '把报告做成PDF附件', ['pdf']],
   ['oc_feishu_chat', '最终给我PDF和Excel文件', ['pdf', 'xlsx']],
+  ['dingtalk:group:cid', '把完整页面作为HTML文件发到群里', ['html']],
 ]) {
   const plan = buildDeliveryPlan({ chatId, request });
   assert.equal(plan.kind, 'artifact');

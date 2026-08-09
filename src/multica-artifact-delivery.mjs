@@ -12,6 +12,7 @@ const FORMAT_LABELS = {
   pdf: 'PDF', doc: 'Word', docx: 'Word', xls: 'Excel', xlsx: 'Excel',
   ppt: 'PPT', pptx: 'PPT', zip: 'ZIP', png: 'PNG', jpg: 'JPG', jpeg: 'JPG',
   mp3: 'MP3', wav: 'WAV', m4a: 'M4A', ogg: 'OGG', mp4: 'MP4', mov: 'MOV',
+  html: 'HTML', htm: 'HTML', opus: 'Opus',
 };
 
 function normalizedFormats(formats) {
