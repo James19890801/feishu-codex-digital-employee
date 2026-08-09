@@ -148,6 +148,50 @@ assert.equal(prompt.includes('只输出一个 JSON 对象'), true);
 }
 
 {
+  let classifierCalls = 0;
+  const decision = await decideSemanticGroupEngagement({
+    assessment: { ...base, text: '大家怎么看 AI 对项目协作的影响？' },
+    deferHost: true,
+    runClassifier: async () => { classifierCalls += 1; return '{}'; },
+  });
+  assert.deepEqual(decision, {
+    shouldReply: false,
+    action: 'defer_host',
+    reasonCode: 'group_host_silence_window',
+    confidence: 1,
+    targetSenderIds: [],
+  });
+  assert.equal(classifierCalls, 0, '主持模式应先进入静默窗口，不能立刻调用介入分类器');
+}
+
+for (const assessment of [{
+  ...base,
+  text: '詹老师助理，这个问题你怎么看？',
+}, {
+  ...base,
+  text: '你刚才第二点的依据是什么？',
+  recentMessages: [{
+    role: 'assistant', senderId: 'member-a', content: '第二点是流程责任变化。',
+    createdAt: '2026-08-08T12:05:00.000Z',
+  }],
+}]) {
+  const decision = await decideSemanticGroupEngagement({
+    assessment,
+    deferHost: true,
+  });
+  assert.equal(decision.shouldReply, true, '直接点名或上下文续问仍应立即回复');
+}
+
+assert.equal((await decideSemanticGroupEngagement({
+  assessment: {
+    ...base,
+    text: '@另一位同事 这个问题大家怎么看？',
+    mentionedOther: true,
+  },
+  deferHost: true,
+})).action, 'observe');
+
+{
   const decision = await decideSemanticGroupEngagement({
     assessment: { ...base, text: 'AI 对流程管理的影响应该怎么评估？' },
     recentMessages: messages,

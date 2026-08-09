@@ -225,6 +225,7 @@ export async function processGroupHostCandidate({
   }));
   const reply = normalizeGroupHostReply(generated);
   if (!reply) return { action: 'observe', reasonCode: 'invalid_reply' };
-  await send(reply);
+  const sendResult = await send(reply);
+  if (sendResult?.suppressed) return { action: 'observe', reasonCode: 'send_suppressed' };
   return { action: 'replied', reasonCode: decision.reasonCode, reply };
 }

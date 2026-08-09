@@ -2031,6 +2031,9 @@ export class AgentState {
     const discussion = this.db.prepare(`DELETE FROM discussion_session
       WHERE status = 'cooldown' AND cooldown_until_ms < ? AND last_seen_ms < ?`)
       .run(nowMs, nowMs - auditRetentionMs).changes;
+    const groupHost = this.db.prepare(`DELETE FROM group_host_candidate
+      WHERE status IN ('completed', 'dead') AND updated_at_ms < ?`)
+      .run(nowMs - completedInboundRetentionMs).changes;
     const multicaNotification = this.db.prepare(`DELETE FROM multica_notification_outbox
       WHERE status = 'dead' AND dead_at < ?`).run(auditBefore).changes;
     const mutation = this.db.prepare(`DELETE FROM mutation_execution
@@ -2047,6 +2050,7 @@ export class AgentState {
       outboundReply: Number(outboundReply),
       semanticRepeat: Number(semanticRepeat),
       discussion: Number(discussion),
+      groupHost: Number(groupHost),
       multicaNotification: Number(multicaNotification),
       mutation: Number(mutation),
     };
