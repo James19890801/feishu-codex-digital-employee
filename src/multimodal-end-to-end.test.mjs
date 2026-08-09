@@ -9,5 +9,6 @@ await import('./artifact-channel-delivery.test.mjs');
 await import('./channel-artifact-delivery.test.mjs');
 await import('./html-preview.test.mjs');
 await import('./dingtalk-wukong-poller.test.mjs');
+await import('../scripts/multimodal-smoke.test.mjs');
 
 console.log('MULTIMODAL_END_TO_END_TEST_OK');
