@@ -38,6 +38,15 @@ function semanticGroupAliases(value) {
   return [...new Set(effective.map(item => item.trim()))];
 }
 
+function boundedStringArray(value, { name, maxItems = 20, maxLength = 500 } = {}) {
+  const effective = value === undefined ? [] : value;
+  if (!Array.isArray(effective) || effective.length > maxItems
+    || effective.some(item => typeof item !== 'string' || !item.trim() || item.length > maxLength)) {
+    throw new Error(`${name} must contain at most ${maxItems} non-empty strings`);
+  }
+  return [...new Set(effective.map(item => item.trim()))];
+}
+
 export const config = {
   feishuEnabled: raw.feishuEnabled !== false,
   feishuAppId: raw.feishuAppId || '',
@@ -97,6 +106,14 @@ export const config = {
     name: 'semanticGroupEntryCooldownMs', fallback: 120_000, min: 30_000, max: 60 * 60_000,
   }),
   semanticGroupAliases: semanticGroupAliases(raw.semanticGroupAliases),
+  groupHostModeEnabled: raw.groupHostModeEnabled === true,
+  groupHostChatIds: boundedStringArray(raw.groupHostChatIds, { name: 'groupHostChatIds' }),
+  groupHostSilenceMs: boundedInteger(raw.groupHostSilenceMs, {
+    name: 'groupHostSilenceMs', fallback: 75_000, min: 30_000, max: 180_000,
+  }),
+  groupHostReplyCooldownMs: boundedInteger(raw.groupHostReplyCooldownMs, {
+    name: 'groupHostReplyCooldownMs', fallback: 180_000, min: 60_000, max: 900_000,
+  }),
   adaptiveDiscussionEnabled: raw.adaptiveDiscussionEnabled !== false,
   adaptiveDiscussionMaxReplies: boundedInteger(raw.adaptiveDiscussionMaxReplies, {
     name: 'adaptiveDiscussionMaxReplies', fallback: 100, min: 10, max: 100,
