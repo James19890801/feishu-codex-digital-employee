@@ -1,6 +1,9 @@
 import { dirname } from 'node:path';
 import { matchHumanTakeoverCommand } from './human-takeover.mjs';
-import { parseDingTalkMediaPlaceholder } from './multimodal-content.mjs';
+import {
+  parseDingTalkFilePlaceholder,
+  parseDingTalkMediaPlaceholder,
+} from './multimodal-content.mjs';
 
 const CHANNEL_TARGET_PATTERN = /^(dingtalk|wecom|wechat):(group|user):(.+)$/;
 const DINGTALK_SELF_FILE_PLACEHOLDER = /^(?:\[文件\]\s*)+.*\bfileId\s*:/i;
@@ -207,18 +210,21 @@ export function normalizeDingTalkEvent(event) {
   if (!messageId || !targetId || !senderId) return null;
   const rawContent = String(event?.content || '');
   const media = parseDingTalkMediaPlaceholder(rawContent);
+  const file = parseDingTalkFilePlaceholder(rawContent);
   return {
     message: {
       message_id: `dingtalk:${messageId}`,
       chat_id: formatChannelChatId('dingtalk', group ? 'group' : 'user', targetId),
       chat_type: group ? 'group' : 'p2p',
-      message_type: media?.kind || 'text',
+      message_type: file ? 'file' : media?.kind || 'text',
       create_time: normalizedTimestamp(
         event?.create_time || event?.event_time || event?.timestamp,
       ),
-      content: JSON.stringify(media
-        ? { text: '', resource_id: media.resourceId, display_name: media.displayName }
-        : { text: rawContent }),
+      content: JSON.stringify(file
+        ? { text: '', file_id: file.resourceId, file_name: file.fileName }
+        : media
+          ? { text: '', resource_id: media.resourceId, display_name: media.displayName }
+          : { text: rawContent }),
       mentions: explicitGroupMention ? [{ id: 'dingtalk-current-user' }] : [],
     },
     sender: {
@@ -236,6 +242,14 @@ export function normalizeDingTalkEvent(event) {
         media: {
           kind: media.kind,
           resourceId: media.resourceId,
+          messageId,
+          conversationId: String(event?.conversation_id || '').trim(),
+        },
+      } : {}),
+      ...(file ? {
+        file: {
+          resourceId: file.resourceId,
+          fileName: file.fileName,
           messageId,
           conversationId: String(event?.conversation_id || '').trim(),
         },
@@ -306,18 +320,21 @@ export function normalizeDingTalkGroupHistoryMessages(result, {
     const content = String(item?.content || item?.text || '').trim();
     if (!messageId || !senderId || !content || conversationId !== expectedGroupId) return [];
     const media = parseDingTalkMediaPlaceholder(content);
-    if (!media && (/^\[(?:图片|文件|视频)消息\]/.test(content) || /^\[文件\]/.test(content))) return [];
+    const file = parseDingTalkFilePlaceholder(content);
+    if (!media && !file && (/^\[(?:图片|文件|视频)消息\]/.test(content) || /^\[文件\]/.test(content))) return [];
     const ownerActivity = Boolean(normalizedOwnerId && senderId === normalizedOwnerId);
     return [{
       message: {
         message_id: `dingtalk:${messageId}`,
         chat_id: formatChannelChatId('dingtalk', 'group', conversationId),
         chat_type: 'group',
-        message_type: media?.kind || 'text',
+        message_type: file ? 'file' : media?.kind || 'text',
         create_time: normalizedTimestamp(item?.createTime || item?.create_time),
-        content: JSON.stringify(media
-          ? { text: '', resource_id: media.resourceId, display_name: media.displayName }
-          : { text: content }),
+        content: JSON.stringify(file
+          ? { text: '', file_id: file.resourceId, file_name: file.fileName }
+          : media
+            ? { text: '', resource_id: media.resourceId, display_name: media.displayName }
+            : { text: content }),
         mentions: [],
       },
       sender: {
@@ -335,6 +352,14 @@ export function normalizeDingTalkGroupHistoryMessages(result, {
           media: {
             kind: media.kind,
             resourceId: media.resourceId,
+            messageId,
+            conversationId,
+          },
+        } : {}),
+        ...(file ? {
+          file: {
+            resourceId: file.resourceId,
+            fileName: file.fileName,
             messageId,
             conversationId,
           },
@@ -377,7 +402,8 @@ export function normalizeDingTalkListAllPage(result, {
       const content = String(item?.content || '').trim();
       if (!messageId || !senderId || !content) continue;
       const media = parseDingTalkMediaPlaceholder(content);
-      if (!media && (/^\[(?:图片|文件|视频)消息\]/.test(content) || /^\[文件\]/.test(content))) continue;
+      const file = parseDingTalkFilePlaceholder(content);
+      if (!media && !file && (/^\[(?:图片|文件|视频)消息\]/.test(content) || /^\[文件\]/.test(content))) continue;
 
       let targetId = '';
       let selfChat = false;
@@ -405,11 +431,13 @@ export function normalizeDingTalkListAllPage(result, {
           message_id: `dingtalk:${messageId}`,
           chat_id: formatChannelChatId('dingtalk', singleChat ? 'user' : 'group', targetId),
           chat_type: singleChat ? 'p2p' : 'group',
-          message_type: media?.kind || 'text',
+          message_type: file ? 'file' : media?.kind || 'text',
           create_time: normalizedTimestamp(item?.createTime),
-          content: JSON.stringify(media
-            ? { text: '', resource_id: media.resourceId, display_name: media.displayName }
-            : { text: content }),
+          content: JSON.stringify(file
+            ? { text: '', file_id: file.resourceId, file_name: file.fileName }
+            : media
+              ? { text: '', resource_id: media.resourceId, display_name: media.displayName }
+              : { text: content }),
           mentions: singleChat || semanticCandidate ? [] : [{ id: 'dingtalk-current-user' }],
         },
         sender: {
@@ -427,6 +455,14 @@ export function normalizeDingTalkListAllPage(result, {
             media: {
               kind: media.kind,
               resourceId: media.resourceId,
+              messageId,
+              conversationId,
+            },
+          } : {}),
+          ...(file ? {
+            file: {
+              resourceId: file.resourceId,
+              fileName: file.fileName,
               messageId,
               conversationId,
             },
