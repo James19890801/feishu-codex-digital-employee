@@ -5,6 +5,7 @@ import {
   buildGroupHostReplyPrompt,
   normalizeGroupHostReply,
   parseGroupHostDecision,
+  processGroupHostCandidate,
   relatedHumanReply,
 } from './group-host-mode.mjs';
 
@@ -88,5 +89,81 @@ assert.equal(normalizeGroupHostReply(validReply), validReply);
 assert.equal(normalizeGroupHostReply('大家怎么看？'), '');
 assert.equal(normalizeGroupHostReply('这个话题很重要，我们可以继续讨论，但这里没有提出任何开放问题。'), '');
 assert.equal(normalizeGroupHostReply(`${validReply} 还有第二个问题吗？`), '');
+
+let classifierCalls = 0;
+let generatorCalls = 0;
+let sendCalls = 0;
+const processorDeps = {
+  runDecisionClassifier: async () => {
+    classifierCalls += 1;
+    return '{"action":"host","confidence":0.94,"reasonCode":"silent_public_topic"}';
+  },
+  runReplyGenerator: async () => {
+    generatorCalls += 1;
+    return validReply;
+  },
+  send: async reply => {
+    sendCalls += 1;
+    assert.equal(reply, validReply);
+  },
+};
+
+assert.deepEqual(await processGroupHostCandidate({
+  candidate,
+  recentMessages: laterMessages,
+  ...processorDeps,
+}), { action: 'human_picked_up', reasonCode: 'related_human_reply' });
+assert.equal(classifierCalls, 0);
+assert.equal(sendCalls, 0);
+
+assert.deepEqual(await processGroupHostCandidate({
+  candidate,
+  recentMessages: [{ ...laterMessages[0], senderId: candidate.senderId }],
+  ...processorDeps,
+}), { action: 'replied', reasonCode: 'silent_public_topic', reply: validReply });
+assert.equal(classifierCalls, 1, '原发送者补充不应取消主持候选');
+assert.equal(generatorCalls, 1);
+assert.equal(sendCalls, 1);
+
+assert.deepEqual(await processGroupHostCandidate({
+  candidate,
+  recentMessages: [],
+  takeoverActive: true,
+  ...processorDeps,
+}), { action: 'suppressed', reasonCode: 'human_takeover' });
+assert.deepEqual(await processGroupHostCandidate({
+  candidate,
+  recentMessages: [],
+  cooldownActive: true,
+  ...processorDeps,
+}), { action: 'suppressed', reasonCode: 'reply_cooldown' });
+assert.equal(classifierCalls, 1);
+
+assert.deepEqual(await processGroupHostCandidate({
+  candidate,
+  recentMessages: [],
+  runDecisionClassifier: async () => 'not json',
+  runReplyGenerator: async () => { throw new Error('must not generate'); },
+  send: async () => { throw new Error('must not send'); },
+}), { action: 'observe', reasonCode: 'invalid_classifier_output' });
+
+assert.deepEqual(await processGroupHostCandidate({
+  candidate,
+  recentMessages: [],
+  runDecisionClassifier: processorDeps.runDecisionClassifier,
+  runReplyGenerator: async () => '太短了，大家怎么看？',
+  send: async () => { throw new Error('must not send'); },
+}), { action: 'observe', reasonCode: 'invalid_reply' });
+
+await assert.rejects(
+  processGroupHostCandidate({
+    candidate,
+    recentMessages: [],
+    runDecisionClassifier: processorDeps.runDecisionClassifier,
+    runReplyGenerator: processorDeps.runReplyGenerator,
+    send: async () => { throw new Error('send failed'); },
+  }),
+  /send failed/,
+);
 
 console.log('GROUP_HOST_MODE_TEST_OK');

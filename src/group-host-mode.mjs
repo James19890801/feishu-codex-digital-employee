@@ -150,3 +150,81 @@ export function normalizeGroupHostReply(output) {
   if (length < 60 || length > 180 || questions.length !== 1 || !/[?？]$/u.test(content)) return '';
   return content;
 }
+
+function messagesAfterCandidate(candidate, recentMessages = []) {
+  const messages = Array.isArray(recentMessages) ? recentMessages : [];
+  const sourceIndex = messages.findIndex(message => (
+    candidate?.messageId
+    && message?.sourceMessageId === candidate.messageId
+  ));
+  if (sourceIndex >= 0) return messages.slice(sourceIndex + 1);
+  const createdAtMs = Number(candidate?.createdAtMs || 0);
+  if (!createdAtMs) return messages;
+  return messages.filter(message => {
+    const messageCreatedAtMs = Date.parse(String(message?.createdAt || ''));
+    return Number.isFinite(messageCreatedAtMs) && messageCreatedAtMs > createdAtMs;
+  });
+}
+
+function decisionAction(output) {
+  try {
+    const parsed = JSON.parse(String(output || '').trim());
+    return !Array.isArray(parsed) && parsed && typeof parsed === 'object'
+      ? String(parsed.action || '')
+      : '';
+  } catch {
+    return '';
+  }
+}
+
+export async function processGroupHostCandidate({
+  candidate = {},
+  recentMessages = [],
+  takeoverActive = false,
+  cooldownActive = false,
+  runDecisionClassifier,
+  runReplyGenerator,
+  send,
+} = {}) {
+  if (takeoverActive) return { action: 'suppressed', reasonCode: 'human_takeover' };
+  if (cooldownActive) return { action: 'suppressed', reasonCode: 'reply_cooldown' };
+
+  const laterMessages = messagesAfterCandidate(candidate, recentMessages);
+  if (relatedHumanReply(candidate, laterMessages)) {
+    return { action: 'human_picked_up', reasonCode: 'related_human_reply' };
+  }
+  if (typeof runDecisionClassifier !== 'function') {
+    return { action: 'observe', reasonCode: 'classifier_unavailable' };
+  }
+
+  let classifierOutput = '';
+  try {
+    classifierOutput = await runDecisionClassifier(buildGroupHostDecisionPrompt({
+      candidate,
+      laterMessages,
+    }));
+  } catch {
+    return { action: 'observe', reasonCode: 'classifier_error' };
+  }
+  const decision = parseGroupHostDecision(classifierOutput);
+  if (!decision.shouldHost) {
+    return {
+      action: decisionAction(classifierOutput) === 'human_picked_up'
+        ? 'human_picked_up'
+        : 'observe',
+      reasonCode: decision.reasonCode,
+    };
+  }
+  if (typeof runReplyGenerator !== 'function' || typeof send !== 'function') {
+    return { action: 'observe', reasonCode: 'reply_path_unavailable' };
+  }
+
+  const generated = await runReplyGenerator(buildGroupHostReplyPrompt({
+    candidate,
+    recentMessages,
+  }));
+  const reply = normalizeGroupHostReply(generated);
+  if (!reply) return { action: 'observe', reasonCode: 'invalid_reply' };
+  await send(reply);
+  return { action: 'replied', reasonCode: decision.reasonCode, reply };
+}
