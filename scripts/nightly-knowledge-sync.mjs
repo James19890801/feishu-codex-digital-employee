@@ -128,6 +128,16 @@ async function collectDwsChat({ runDws, profile, state, now, lookbackDays, maxPa
   return { status: 'ok', cursor: encodeWindow(window), records };
 }
 
+function minutesArtifactResult(value) {
+  return value?.result ?? value ?? {};
+}
+
+function minutesActionText(action) {
+  if (typeof action !== 'string') return firstValue(action, ['value', 'title', 'content', 'text']);
+  try { return firstValue(JSON.parse(action), ['value', 'title', 'content', 'text'], action); }
+  catch { return action; }
+}
+
 async function collectDwsMinutes({ runDws, profile, state }) {
   const args = ['minutes', '+list-all', '--limit', '5'];
   if (state.cursor) args.push('--cursor', state.cursor);
@@ -135,21 +145,39 @@ async function collectDwsMinutes({ runDws, profile, state }) {
   const items = arrayValue(result, ['minutes', 'items', 'list']);
   const records = [];
   for (const item of items.slice(0, 5)) {
-    const id = firstValue(item, ['id', 'minutesId', 'recordId', 'objectId']);
+    const id = firstValue(item, ['taskUuid', 'id', 'minutesId', 'recordId', 'objectId']);
     if (!id) continue;
     let detail = item;
     try {
       detail = unwrap(await runDws(['minutes', '+detail', '--id', String(id), '--artifacts', 'basic,summary,keywords,transcript,todos']));
     } catch (error) { detail = { ...item, detailError: error.message }; }
+    const basic = minutesArtifactResult(detail.basic);
+    const summary = minutesArtifactResult(detail.summary);
+    const keywords = minutesArtifactResult(detail.keywords);
+    const transcript = minutesArtifactResult(detail.transcript);
+    const todos = minutesArtifactResult(detail.todos);
+    const keywordList = Array.isArray(keywords) ? keywords : arrayValue(keywords, ['keywords', 'items', 'list']);
+    const paragraphs = arrayValue(transcript, ['paragraphList', 'paragraphs', 'items', 'list']);
+    const actions = arrayValue(todos, ['actions', 'todos', 'items', 'list']).map(minutesActionText).filter(Boolean);
     const text = [
-      firstValue(detail, ['summary', 'meetingSummary', 'abstract']),
-      Array.isArray(detail.keywords) ? `关键词：${detail.keywords.join('、')}` : '',
-      firstValue(detail, ['transcript', 'content']),
+      firstValue(summary, ['fullSummary', 'summary', 'content', 'text'], firstValue(detail, ['meetingSummary', 'abstract'])),
+      keywordList.length ? `关键词：${keywordList.join('、')}` : '',
+      actions.length ? `待办：${actions.join('；')}` : '',
+      paragraphs.map(paragraph => {
+        const speaker = firstValue(paragraph, ['nickName', 'speakerName']) || firstValue(paragraph.speakerDisplay, ['nickName', 'name'], '发言人');
+        const content = firstValue(paragraph, ['paragraph', 'content', 'text']);
+        return content ? `${speaker}：${content}` : '';
+      }).filter(Boolean).join('\n'),
       detail.detailError ? `详情未读取：${detail.detailError}` : '',
     ].filter(Boolean).join('\n\n');
-    records.push({ id: String(id), title: firstValue(detail, ['title', 'subject', 'name'], `AI 听记 ${id}`), text: text || JSON.stringify(detail).slice(0, 12000), locator: `dingtalk:minutes:${id}` });
+    records.push({
+      id: String(id),
+      title: firstValue(basic, ['title', 'subject', 'name'], firstValue(item, ['title', 'subject', 'name'], `AI 听记 ${id}`)),
+      text: text || JSON.stringify(detail).slice(0, 12000),
+      locator: firstValue(basic, ['url'], firstValue(item, ['url'], `dingtalk:minutes:${id}`)),
+    });
   }
-  return { status: 'ok', cursor: firstValue(result, ['nextCursor'], ''), records };
+  return { status: 'ok', cursor: firstValue(result, ['nextToken', 'nextCursor'], ''), records };
 }
 
 async function collectDwsDocuments({ runDws, profile, state }) {
@@ -224,9 +252,12 @@ function findWorkspaceId(payload, name) {
 function findNodeId(payload, name) {
   const data = unwrap(payload);
   const items = arrayValue(data, ['nodes', 'items', 'documents', 'list', 'searchResults']);
-  const match = items.find(item => firstValue(item, ['name', 'title']) === name) || items[0];
+  const match = items.find(item => firstValue(item, ['name', 'title']) === name);
+  if (items.length > 0 && !match) return '';
   return firstValue(match || data, ['nodeId', 'fileId', 'id', 'dentryUuid']);
 }
+
+export { collectDwsMinutes, findNodeId };
 
 function buildRemoteWikiDigest(result) {
   const records = result.index.records.filter(record => record.date === result.date).slice(-100);

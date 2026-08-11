@@ -12,7 +12,7 @@
     "start": "node src/index.mjs",
     "dashboard": "node src/dashboard-server.mjs",
     "knowledge:sync": "node scripts/nightly-knowledge-sync.mjs",
-    "test:nightly-knowledge": "node src/nightly-knowledge.test.mjs && node src/local-wiki.test.mjs",
+    "test:nightly-knowledge": "node scripts/nightly-knowledge-sync.test.mjs && node src/nightly-knowledge.test.mjs && node src/local-wiki.test.mjs",
     "test:install-service": "node scripts/install-service.test.mjs",
     "test:multimodal": "node src/multimodal-content.test.mjs && node src/web-reader.test.mjs && node src/multimodal-pipeline.test.mjs",
     "test:operator-profile": "node src/operator-profile.test.mjs",
