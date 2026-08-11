@@ -15,7 +15,10 @@ import {
     profile: 'corp:user',
     run: async (bin, args) => {
       calls.push({ bin, args });
-      return { stdout: '{"success":true}', stderr: '' };
+      return {
+        stdout: '{"success":true,"result":{"messageId":"message-direct-1"}}',
+        stderr: '',
+      };
     },
     onStatus: status => statuses.push(status),
   });
@@ -87,6 +90,117 @@ import {
   assert.equal(calls[0].args.includes('--profile'), false);
   assert.equal(calls[0].args.includes('--ai-tag=false'), false);
   assert.equal(calls[0].args.includes('--open-dingtalk-id'), true);
+}
+
+{
+  const calls = [];
+  const channel = new DingTalkChannel({
+    bin: '/opt/dws',
+    profile: 'corp:user',
+    transport: 'event-stream',
+    run: async (bin, args) => {
+      calls.push({ bin, args });
+      if (args.includes('query-send-status')) {
+        return {
+          stdout: JSON.stringify({
+            success: true,
+            result: {
+              sendStatus: 'SUCCESS',
+              messageId: 'message-terminal-1',
+            },
+          }),
+          stderr: '',
+        };
+      }
+      return {
+        stdout: JSON.stringify({
+          success: true,
+          result: { openTaskId: 'task-event-stream-1' },
+        }),
+        stderr: '',
+      };
+    },
+  });
+
+  const result = await channel.send(
+    { channel: 'dingtalk', kind: 'user', id: 'open-colleague' },
+    '这是一段可能被钉钉重排的长 Markdown。',
+    'event-stream-send-1',
+  );
+
+  assert.equal(calls.length, 2, 'event-stream delivery must query terminal send status');
+  assert.deepEqual(calls[1].args, [
+    '--profile', 'corp:user',
+    'chat', 'message', 'query-send-status',
+    '--open-task-id', 'task-event-stream-1',
+    '--format', 'json',
+  ]);
+  assert.equal(result.result.messageId, 'message-terminal-1');
+  assert.equal(result.result.sendStatus, 'SUCCESS');
+}
+
+{
+  const calls = [];
+  let statusQueries = 0;
+  const channel = new DingTalkChannel({
+    bin: '/opt/dws',
+    profile: 'corp:user',
+    transport: 'event-stream',
+    sleep: async () => {},
+    sendStatusAttempts: 3,
+    run: async (bin, args) => {
+      calls.push({ bin, args });
+      if (!args.includes('query-send-status')) {
+        return {
+          stdout: JSON.stringify({
+            success: true,
+            result: { openTaskId: 'task-delayed-1' },
+          }),
+          stderr: '',
+        };
+      }
+      statusQueries += 1;
+      return {
+        stdout: JSON.stringify(statusQueries === 1
+          ? { success: true, result: { sendStatus: 'PROCESSING' } }
+          : {
+              success: true,
+              result: {
+                sendStatus: 'SUCCESS',
+                messageId: 'message-delayed-1',
+              },
+            }),
+        stderr: '',
+      };
+    },
+  });
+
+  const result = await channel.send(
+    { channel: 'dingtalk', kind: 'user', id: 'open-colleague' },
+    '等待终态后登记回声。',
+    'event-stream-delayed-1',
+  );
+
+  assert.equal(calls.length, 3, 'a non-terminal status must be queried again');
+  assert.equal(result.result.messageId, 'message-delayed-1');
+}
+
+{
+  const channel = new DingTalkChannel({
+    bin: '/opt/dws',
+    profile: 'corp:user',
+    transport: 'event-stream',
+    run: async () => ({ stdout: '{"success":true,"result":{}}', stderr: '' }),
+  });
+
+  await assert.rejects(
+    channel.send(
+      { channel: 'dingtalk', kind: 'user', id: 'open-colleague' },
+      '没有可核验回执的消息不能算发送完成。',
+      'event-stream-no-receipt-1',
+    ),
+    /no (?:messageId|openTaskId)/i,
+  );
 }
 
 {

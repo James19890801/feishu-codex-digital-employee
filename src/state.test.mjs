@@ -207,6 +207,17 @@ try {
     now: '2026-07-29T14:00:02.000Z',
   }), false);
 
+  state.recordOutboundEcho(
+    'dingtalk:user:whitespace-normalized',
+    '第一行\n第二行\n\n第三行',
+    { now, ttlMs: 120_000 },
+  );
+  assert.equal(state.hasOutboundEcho(
+    'dingtalk:user:whitespace-normalized',
+    '第一行 第二行  第三行',
+    { now: '2026-07-29T14:00:01.000Z' },
+  ), true, 'DingTalk history whitespace rewriting must not hide an automated outbound echo');
+
   const messageEchoId = state.recordOutboundEcho('dingtalk:user:self', '钉钉回复', {
     now,
     ttlMs: 120_000,

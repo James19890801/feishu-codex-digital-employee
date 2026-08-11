@@ -17,6 +17,11 @@ function outboundContentHash(content) {
   return createHash('sha256').update(String(content || '')).digest('hex');
 }
 
+function outboundEchoContentHash(content) {
+  const normalized = String(content || '').replace(/\s+/gu, ' ').trim();
+  return outboundContentHash(normalized);
+}
+
 export class AgentState {
   constructor(path) {
     mkdirSync(dirname(path), { recursive: true });
@@ -945,7 +950,7 @@ export class AgentState {
       (chat_id, content_hash, message_id, created_at, expires_at)
       VALUES (?, ?, ?, ?, ?)`).run(
       String(chatId || ''),
-      outboundContentHash(content),
+      outboundEchoContentHash(content),
       String(messageId || ''),
       now,
       expiresAt,
@@ -976,7 +981,7 @@ export class AgentState {
       : null;
     return Boolean(row || this.db.prepare(`SELECT id FROM outbound_echo
       WHERE chat_id = ? AND content_hash = ? AND expires_at >= ?
-      ORDER BY id LIMIT 1`).get(String(chatId || ''), outboundContentHash(content), now));
+      ORDER BY id LIMIT 1`).get(String(chatId || ''), outboundEchoContentHash(content), now));
   }
 
   consumeOutboundEcho(chatId, content, {
@@ -991,7 +996,7 @@ export class AgentState {
       : null;
     const matched = row || this.db.prepare(`SELECT id FROM outbound_echo
       WHERE chat_id = ? AND content_hash = ? AND expires_at >= ?
-      ORDER BY id LIMIT 1`).get(String(chatId || ''), outboundContentHash(content), now);
+      ORDER BY id LIMIT 1`).get(String(chatId || ''), outboundEchoContentHash(content), now);
     if (!matched) return false;
     return this.db.prepare('DELETE FROM outbound_echo WHERE id = ?')
       .run(matched.id).changes === 1;
