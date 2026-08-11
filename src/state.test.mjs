@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { AgentState } from './state.mjs';
+import { semanticTopic } from './semantic-repeat-guard.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'xiaozhao-state-'));
 try {
@@ -87,6 +88,59 @@ try {
   assert.equal(state.consumeRateLimit('sender:1', 2_000, 60_000, 2), true);
   assert.equal(state.consumeRateLimit('sender:1', 3_000, 60_000, 2), false);
   assert.equal(state.consumeRateLimit('sender:1', 61_001, 60_000, 2), true);
+
+  const semanticBase = {
+    channel: 'dingtalk',
+    chatId: 'dingtalk:group:semantic',
+    senderId: 'dingtalk:peer',
+    topic: semanticTopic('等本人确认后再推进'),
+    windowMs: 60_000,
+    maxReplies: 2,
+  };
+  assert.equal(state.claimSemanticRepeat({
+    ...semanticBase, messageId: 'semantic-1', nowMs: 1_000,
+  }).action, 'process');
+  assert.equal(state.claimSemanticRepeat({
+    ...semanticBase, messageId: 'semantic-2', nowMs: 2_000,
+  }).action, 'close');
+  assert.equal(state.claimSemanticRepeat({
+    ...semanticBase, messageId: 'semantic-3', nowMs: 3_000,
+  }).action, 'suppress');
+  assert.equal(state.claimSemanticRepeat({
+    ...semanticBase, messageId: 'semantic-3', nowMs: 3_100,
+  }).reason, 'same_inbound_retry');
+  assert.equal(state.claimSemanticRepeat({
+    ...semanticBase,
+    senderId: 'dingtalk:other-peer',
+    messageId: 'semantic-other-sender',
+    nowMs: 3_200,
+  }).action, 'process');
+  assert.equal(state.claimSemanticRepeat({
+    ...semanticBase,
+    chatId: 'dingtalk:group:other',
+    messageId: 'semantic-other-chat',
+    nowMs: 3_300,
+  }).action, 'process');
+  const changedSignal = state.claimSemanticRepeat({
+    ...semanticBase,
+    topic: semanticTopic('MYS-12 已完成，等本人确认后推进'),
+    messageId: 'semantic-new-signal',
+    nowMs: 4_000,
+  });
+  assert.equal(changedSignal.action, 'process');
+  assert.equal(changedSignal.reset, true);
+  const expiredTopic = state.claimSemanticRepeat({
+    ...semanticBase,
+    messageId: 'semantic-expired',
+    nowMs: 65_001,
+  });
+  assert.equal(expiredTopic.action, 'process');
+  assert.equal(expiredTopic.reason, 'expired');
+  assert.deepEqual(state.semanticRepeatStats(65_001), {
+    activeTopics: 1,
+    totalSuppressed: 1,
+    latestSuppression: null,
+  });
 
   state.markSelfChat('oc_self');
   assert.equal(state.isSelfChat('oc_self'), true);
@@ -404,6 +458,7 @@ try {
   assert.equal(pruned.conversation >= 1, true);
   assert.equal(pruned.pendingAction >= 1, true);
   assert.equal(pruned.mutation >= 1, true);
+  assert.equal(pruned.semanticRepeat >= 1, true);
   console.log('STATE_TEST_OK');
 } finally {
   rmSync(dir, { recursive: true, force: true });
