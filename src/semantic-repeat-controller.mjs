@@ -1,0 +1,114 @@
+import { semanticTopic } from './semantic-repeat-guard.mjs';
+
+export const SEMANTIC_REPEAT_CLOSE_REPLY = '这个话题我们先到这里，有新情况再 @ 我。';
+export const SEMANTIC_REPEAT_REQUIRED_ACK_REPLY =
+  '收到，这条我看到了；相同内容我不重复展开，有新问题我继续接。';
+
+export function semanticRepeatEligibility({
+  enabled,
+  channel,
+  chatType,
+  messageType,
+  text,
+  operatorCommand = null,
+} = {}) {
+  if (!enabled) return { eligible: false, reason: 'disabled' };
+  if (chatType !== 'group') return { eligible: false, reason: 'direct_message_bypass' };
+  if (!['feishu', 'dingtalk'].includes(channel)) {
+    return { eligible: false, reason: 'channel_bypass' };
+  }
+  if (!['text', 'post'].includes(messageType) || !String(text || '').trim()) {
+    return { eligible: false, reason: 'non_text_bypass' };
+  }
+  if (operatorCommand) return { eligible: false, reason: 'operator_command_bypass' };
+  return { eligible: true, reason: 'eligible' };
+}
+
+export async function applySemanticRepeatGate({
+  state,
+  enabled,
+  windowMs,
+  maxReplies,
+  channel,
+  senderId,
+  message,
+  text,
+  operatorCommand = null,
+  responseRequired = false,
+  nowMs = Date.now(),
+  sendClose,
+  audit = () => {},
+} = {}) {
+  const eligibility = semanticRepeatEligibility({
+    enabled,
+    channel,
+    chatType: message?.chat_type,
+    messageType: message?.message_type,
+    text,
+    operatorCommand,
+  });
+  if (!eligibility.eligible) {
+    return { handled: false, action: 'bypass', reason: eligibility.reason };
+  }
+
+  let claim;
+  try {
+    claim = state.claimSemanticRepeat({
+      channel,
+      chatId: message.chat_id,
+      senderId,
+      messageId: message.message_id,
+      topic: semanticTopic(text),
+      nowMs,
+      windowMs,
+      maxReplies,
+    });
+  } catch {
+    audit('semantic_repeat_state_error', {
+      channel,
+      chatId: String(message?.chat_id || ''),
+      senderId: String(senderId || ''),
+    });
+    return { handled: false, action: 'bypass', reason: 'state_error' };
+  }
+
+  const detail = {
+    channel,
+    chatId: message.chat_id,
+    senderId,
+    count: claim.count,
+    similarity: claim.similarity,
+    reason: claim.reason,
+    expiresAt: new Date(claim.expiresAtMs).toISOString(),
+  };
+  if (claim.action === 'process') {
+    audit(claim.reset ? 'semantic_repeat_reset' : 'semantic_repeat_first_seen', detail);
+    return { handled: false, ...claim };
+  }
+  if (typeof sendClose !== 'function') {
+    throw new Error('Semantic repeat close sender is required');
+  }
+  if (claim.action === 'close') {
+    await sendClose(
+      SEMANTIC_REPEAT_CLOSE_REPLY,
+      `james-semantic-repeat-close-${message.message_id}`,
+    );
+    audit('semantic_repeat_closed', detail);
+    return { handled: true, ...claim };
+  }
+  if (responseRequired) {
+    await sendClose(
+      SEMANTIC_REPEAT_REQUIRED_ACK_REPLY,
+      `james-semantic-repeat-required-ack-${message.message_id}`,
+    );
+    audit('semantic_repeat_required_acknowledged', detail);
+    return {
+      handled: true,
+      ...claim,
+      action: 'acknowledge_required',
+      suppressedAction: claim.action,
+    };
+  }
+  audit('semantic_repeat_suppressed', detail);
+  return { handled: true, ...claim };
+}

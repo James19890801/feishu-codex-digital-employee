@@ -83,6 +83,13 @@ export const config = {
     raw.responseMentionAliases,
     [operatorProfile.brandName, 'James', '詹老师', '数字人', 'AIPR0S'],
   ),
+  semanticRepeatGuardEnabled: raw.semanticRepeatGuardEnabled !== false,
+  semanticRepeatWindowMs: boundedInteger(raw.semanticRepeatWindowMs, {
+    name: 'semanticRepeatWindowMs', fallback: 30 * 60_000, min: 60_000, max: 24 * 60 * 60_000,
+  }),
+  semanticRepeatMaxReplies: boundedInteger(raw.semanticRepeatMaxReplies, {
+    name: 'semanticRepeatMaxReplies', fallback: 2, min: 2, max: 5,
+  }),
   webReaderEnabled: raw.webReaderEnabled !== false,
   webReaderMaxUrls: boundedInteger(raw.webReaderMaxUrls, {
     name: 'webReaderMaxUrls', fallback: 2, min: 1, max: 3,
