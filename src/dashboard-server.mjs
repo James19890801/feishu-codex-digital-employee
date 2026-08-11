@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync } from 'node:fs';
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { config } from './config.mjs';
@@ -50,15 +50,10 @@ import {
   discoverAiRuntimes,
   selectAiRuntime,
 } from './ai-runtime.mjs';
-import { WeChatPocDashboardControl } from './wechat-poc/dashboard-control.mjs';
-import { createLicensingFetch, LicensingClient } from './licensing/client.mjs';
-import { LicensingDashboardApi } from './licensing/dashboard-api.mjs';
-import { LicensingStore } from './licensing/store.mjs';
 
 const HOST = '127.0.0.1';
 const PORT = config.dashboardPort;
 const DATA_DIR = join(config.workdir, 'data');
-const WECHAT_POC_DIR = join(DATA_DIR, 'wechat-poc');
 const DB_PATH = join(DATA_DIR, 'agent-state.sqlite');
 const LOCK_PATH = join(DATA_DIR, 'service.lock');
 const NOTIFICATION_STATE_PATH = join(DATA_DIR, 'dashboard-notification-state.json');
@@ -69,43 +64,17 @@ const CONFIG_ASSISTANT_SESSION_TOKEN = randomBytes(32).toString('hex');
 const INITIAL_PUBLIC_CONFIGURATION = publicConfiguration(config);
 const SERVICE_LABEL = 'com.local.feishu-codex-digital-employee';
 const ALLOWED_HOSTS = new Set([`${HOST}:${PORT}`, `localhost:${PORT}`]);
-const licensingStore = new LicensingStore();
-const licensingFetch = createLicensingFetch({ proxyUrl: config.licensingProxyUrl });
-const licensingClient = config.licensingServiceUrl
-  ? new LicensingClient({ serviceUrl: config.licensingServiceUrl, fetchImpl: licensingFetch })
-  : null;
-const licensingApi = new LicensingDashboardApi({
-  store: licensingStore,
-  client: licensingClient,
-  publicKey: config.licensingPublicKey,
-  product: config.licensingProductId,
-  enforced: config.licensingEnforced,
-});
 const staticFiles = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
-  ['/capability-ui.js', ['capability-ui.js', 'text/javascript; charset=utf-8']],
   ['/config-ui.js', ['config-ui.js', 'text/javascript; charset=utf-8']],
-  ['/i18n.js', ['i18n.js', 'text/javascript; charset=utf-8']],
-  ['/licensing-ui.js', ['licensing-ui.js', 'text/javascript; charset=utf-8']],
 ]);
 
 let eventCache = { checkedAt: 0, processPid: null, active: false, activeConsumers: 0 };
 let eventCheckInFlight = null;
 const pendingConfigurationPlans = new PendingConfigurationPlans();
 const configurationMutationQueue = new SerialKeyQueue();
-const wechatPocControl = new WeChatPocDashboardControl({
-  directory: WECHAT_POC_DIR,
-  audit: async event => {
-    await mkdir(WECHAT_POC_DIR, { recursive: true, mode: 0o700 });
-    await appendFile(
-      join(WECHAT_POC_DIR, 'control-audit.jsonl'),
-      `${JSON.stringify(event)}\n`,
-      { encoding: 'utf8', mode: 0o600 },
-    );
-  },
-});
 let lastNotificationState = await readFile(NOTIFICATION_STATE_PATH, 'utf8')
   .then(value => JSON.parse(value)?.state || '')
   .catch(() => '');
@@ -133,7 +102,7 @@ function safeDetail(value) {
     for (const key of [
       'failures', 'delayMs', 'error', 'attemptNumber', 'retryAt',
       'fastPath', 'answerChars', 'capability', 'rateLimited',
-      'action', 'identifier', 'issueId', 'workspaceId', 'changedFields',
+      'action', 'identifier', 'issueId', 'workspaceId', 'workitemId', 'projectId', 'changedFields',
       'recipients', 'changes', 'notified', 'scanned',
       'dead', 'replayed', 'uncertain', 'channel',
     ]) {
@@ -241,16 +210,19 @@ async function collectStatus() {
     lastPollDurationMs: 0,
     lastPollError: null,
     lastWebsocketReadyAt: '',
+    lastMulticaSyncAt: '',
+    lastMulticaSyncError: null,
+    lastMulticaSyncResult: null,
+    multicaDeadCount: 0,
+    a1Authenticated: false,
     lastA1SyncAt: '',
     lastA1SyncError: null,
     lastA1SyncResult: null,
-    a1PendingCount: 0,
     a1DeadCount: 0,
     lastBackupAt: '',
     lastBackupError: null,
     lastAiRuntimeSuccessAt: '',
     lastAiRuntimeError: null,
-    selfChatCircuitLast: null,
     dingtalkChannel: {
       enabled: config.dingtalkEnabled,
       installed: existsSync(config.dingtalkBin),
@@ -300,18 +272,21 @@ async function collectStatus() {
         lastPollDurationMs: Number(parseSetting(db, 'health', 'last_poll_duration_ms', 0)),
         lastPollError: parseSetting(db, 'health', 'last_poll_error', null),
         lastWebsocketReadyAt: parseSetting(db, 'health', 'last_websocket_ready_at', ''),
+        lastMulticaSyncAt: parseSetting(db, 'health', 'last_multica_sync_at', ''),
+        lastMulticaSyncError: parseSetting(db, 'health', 'last_multica_sync_error', null),
+        lastMulticaSyncResult: parseSetting(db, 'health', 'last_multica_sync_result', null),
+        multicaDeadCount: Number(db.prepare(`SELECT COUNT(*) count
+          FROM multica_notification_outbox WHERE status = 'dead'`).get()?.count || 0),
+        a1Authenticated: Boolean(parseSetting(db, 'health', 'a1_authenticated', false)),
         lastA1SyncAt: parseSetting(db, 'health', 'last_a1_sync_at', ''),
         lastA1SyncError: parseSetting(db, 'health', 'last_a1_sync_error', null),
         lastA1SyncResult: parseSetting(db, 'health', 'last_a1_sync_result', null),
-        a1PendingCount: Number(db.prepare(`SELECT COUNT(*) count
-          FROM a1_notification_outbox WHERE status = 'pending'`).get()?.count || 0),
         a1DeadCount: Number(db.prepare(`SELECT COUNT(*) count
           FROM a1_notification_outbox WHERE status = 'dead'`).get()?.count || 0),
         lastBackupAt: parseSetting(db, 'health', 'last_database_backup_at', ''),
         lastBackupError: parseSetting(db, 'health', 'last_database_backup_error', null),
         lastAiRuntimeSuccessAt: parseSetting(db, 'health', 'last_ai_runtime_success_at', ''),
         lastAiRuntimeError: parseSetting(db, 'health', 'last_ai_runtime_error', null),
-        selfChatCircuitLast: parseSetting(db, 'health', 'self_chat_circuit_last', null),
         dingtalkChannel: {
           ...defaults.dingtalkChannel,
           ...parseSetting(db, 'channel', 'dingtalk', {}),
@@ -347,30 +322,25 @@ async function collectStatus() {
     };
   }
 
-  const view = buildOperatorView({
+  return buildOperatorView({
     nowMs,
-    operator: {
-      displayName: config.ownerDisplayName,
-      role: config.ownerRole,
-      brandName: config.digitalHumanBrand,
-    },
     processAlive: processInfo.alive,
     processPid: processInfo.pid,
     processStartedAt: processInfo.startedAt,
-    feishuEnabled: config.feishuEnabled,
     maxPollAgeMs: Math.max(60_000, config.pollIntervalMs * 12),
+    feishuEnabled: config.feishuEnabled,
     websocketActive: websocket.active,
     activeConsumers: websocket.activeConsumers,
     codexProxyReachable,
     credentialBlocked: isCredentialAccessBlocked(database.lastPollError),
     codexModel: config.codexModel,
-    webReaderEnabled: config.webReaderEnabled,
-    audioTranscriberAvailable: Boolean(
-      config.audioTranscriptionCommand && existsSync(config.audioTranscriptionCommand)
-    ),
     aiRuntime,
     a1Enabled: config.a1Enabled,
-    maxA1SyncAgeMs: Math.max(600_000, config.a1SyncIntervalMs * 3),
+    a1Installed: existsSync(config.a1Bin),
+    a1Authenticated: database.a1Authenticated,
+    maxA1SyncAgeMs: Math.max(60_000, config.a1SyncIntervalMs * 6),
+    multicaEnabled: config.multicaEnabled,
+    maxMulticaSyncAgeMs: Math.max(60_000, config.multicaSyncIntervalMs * 6),
     backupRequired: true,
     maxBackupAgeMs: 12 * 60 * 60_000,
     configuration: {
@@ -379,6 +349,7 @@ async function collectStatus() {
       pollIntervalMs: config.pollIntervalMs,
       eventTransport: config.eventTransport,
       aiRuntime: config.aiRuntime,
+      feishuEnabled: config.feishuEnabled,
       dingtalkEnabled: config.dingtalkEnabled,
       dingtalkProfile: config.dingtalkProfile,
       wecomEnabled: config.wecomEnabled,
@@ -389,29 +360,16 @@ async function collectStatus() {
       geweCallbackPort: config.geweCallbackPort,
       geweMentionNames: config.geweMentionNames,
       a1Enabled: config.a1Enabled,
-      a1WebAgentProjectId: config.a1WebAgentProjectId,
-      a1AiCollaborationProjectId: config.a1AiCollaborationProjectId,
-      a1WebAgentRepo: config.a1WebAgentRepo,
-      a1AiCollaborationRepo: config.a1AiCollaborationRepo,
-      a1AiCollaborationBranch: config.a1AiCollaborationBranch,
+      a1DefaultProjectId: config.a1DefaultProjectId,
       a1SyncIntervalMs: config.a1SyncIntervalMs,
+      a1MaxWorkitems: config.a1MaxWorkitems,
+      multicaEnabled: config.multicaEnabled,
+      multicaProfile: config.multicaProfile,
+      multicaDefaultWorkspaceId: config.multicaDefaultWorkspaceId,
+      multicaSyncIntervalMs: config.multicaSyncIntervalMs,
     },
     ...database,
   });
-  const wechatPoc = await wechatPocControl.status().catch(error => ({
-    version: 1,
-    installed: false,
-    processAlive: false,
-    state: 'offline',
-    control: { enabled: false, generation: 0, failClosed: true },
-    permissionState: 'unknown',
-    clientRunning: false,
-    lastError: { at: new Date().toISOString(), error: String(error?.message || error).slice(0, 300) },
-    pending: 0,
-  }));
-  view.wechatPoc = wechatPoc;
-  view.channels = { ...view.channels, wechatPoc };
-  return view;
 }
 
 async function notifyState(view) {
@@ -424,8 +382,8 @@ async function notifyState(view) {
   }), { mode: 0o600 }).catch(() => {});
   if (!event) return;
   const title = event === 'recovered'
-    ? '数字人已恢复'
-    : event === 'partial_recovery' ? '数字人正在恢复' : '数字人通道断线';
+    ? 'AIPRO 已恢复'
+    : event === 'partial_recovery' ? 'AIPRO 正在恢复' : 'AIPRO 通道断线';
   const message = event === 'recovered'
     ? '主轮询、WebSocket 和数据库已恢复正常。'
     : event === 'partial_recovery'
@@ -865,127 +823,6 @@ const server = createServer(async (request, response) => {
     }
     if (request.method === 'GET' && url.pathname === '/api/status') {
       sendJson(response, 200, await collectStatus());
-      return;
-    }
-    if (request.method === 'GET' && url.pathname === '/api/licensing/status') {
-      sendJson(response, 200, {
-        ...await licensingApi.status(),
-        sessionToken: CONFIG_ASSISTANT_SESSION_TOKEN,
-      });
-      return;
-    }
-    if (request.method === 'GET' && url.pathname === '/api/licensing/contact-card') {
-      if (!config.licensingServiceUrl) {
-        sendJson(response, 503, { ok: false, error: 'contact card unavailable' });
-        return;
-      }
-      const remote = await licensingFetch(new URL('/v1/contact-card', config.licensingServiceUrl), {
-        headers: { accept: 'image/jpeg,image/png,image/webp' },
-        signal: AbortSignal.timeout(8_000),
-      });
-      const contentType = String(remote.headers.get('content-type') || '').split(';')[0];
-      const declared = Number(remote.headers.get('content-length') || 0);
-      if (!remote.ok
-        || !['image/jpeg', 'image/png', 'image/webp'].includes(contentType)
-        || declared > 2 * 1024 * 1024) {
-        sendJson(response, 502, { ok: false, error: 'contact card unavailable' });
-        return;
-      }
-      const content = Buffer.from(await remote.arrayBuffer());
-      if (content.length > 2 * 1024 * 1024) {
-        sendJson(response, 502, { ok: false, error: 'contact card unavailable' });
-        return;
-      }
-      response.writeHead(200, {
-        ...securityHeaders(contentType),
-        'Content-Length': String(content.length),
-      });
-      response.end(content);
-      return;
-    }
-    if (request.method === 'POST' && url.pathname === '/api/licensing/activate') {
-      if (!allowedConfigAction(request, 'licensing-activate')) {
-        sendJson(response, 403, { ok: false, error: 'licensing action rejected' });
-        return;
-      }
-      try {
-        const body = await readDashboardJson(request);
-        if (Object.keys(body).some(key => key !== 'code')) {
-          throw Object.assign(new Error('Activation request is invalid.'), {
-            code: 'invalid_activation_request',
-          });
-        }
-        const result = await licensingApi.activate(body);
-        sendJson(response, 200, result);
-        restartMainService().catch(error => console.error('[licensing-restart-error]', error));
-      } catch (error) {
-        sendJson(response, 400, {
-          ok: false,
-          code: String(error?.code || 'activation_failed'),
-          error: 'Invitation code could not be activated.',
-        });
-      }
-      return;
-    }
-    if (request.method === 'POST' && url.pathname === '/api/licensing/invites') {
-      if (!allowedConfigAction(request, 'licensing-generate')) {
-        sendJson(response, 403, { ok: false, error: 'licensing action rejected' });
-        return;
-      }
-      try {
-        const body = await readDashboardJson(request);
-        sendJson(response, 201, { ok: true, batch: await licensingApi.generate(body) });
-      } catch (error) {
-        const unauthorized = error?.code === 'issuer_not_authorized';
-        sendJson(response, unauthorized ? 403 : 400, {
-          ok: false,
-          code: String(error?.code || 'invitation_generation_failed'),
-          error: unauthorized
-            ? 'Founder issuer is not authorized.'
-            : 'Invitation codes could not be generated.',
-        });
-      }
-      return;
-    }
-    if (request.method === 'GET' && url.pathname === '/api/wechat-poc/status') {
-      sendJson(response, 200, await wechatPocControl.status());
-      return;
-    }
-    if (request.method === 'POST' && url.pathname === '/api/wechat-poc/control') {
-      if (!allowedConfigAction(request, 'wechat-poc-control')) {
-        sendJson(response, 403, { ok: false, error: 'personal WeChat control rejected' });
-        return;
-      }
-      const body = await readDashboardJson(request);
-      const result = await wechatPocControl.setEnabled(body.enabled, {
-        confirmed: body.confirmed === true,
-      });
-      sendJson(response, 200, result);
-      return;
-    }
-    if (request.method === 'POST' && url.pathname === '/api/wechat-poc/emergency-stop') {
-      if (!allowedConfigAction(request, 'wechat-poc-stop')) {
-        sendJson(response, 403, { ok: false, error: 'personal WeChat emergency stop rejected' });
-        return;
-      }
-      sendJson(response, 200, await wechatPocControl.emergencyStop());
-      return;
-    }
-    if (request.method === 'POST' && url.pathname === '/api/wechat-poc/open-client') {
-      if (!allowedConfigAction(request, 'wechat-poc-open')) {
-        sendJson(response, 403, { ok: false, error: 'personal WeChat client action rejected' });
-        return;
-      }
-      await runBufferedProcess('/usr/bin/open', ['-a', 'WeChat'], {
-        timeoutMs: 8_000,
-        maxStdoutBytes: 8 * 1024,
-        maxStderrBytes: 16 * 1024,
-      });
-      sendJson(response, 200, {
-        ok: true,
-        message: 'Official WeChat client opened; scan the QR code in WeChat if login is required.',
-        status: await wechatPocControl.status(),
-      });
       return;
     }
     if (request.method === 'GET' && url.pathname === '/api/config') {

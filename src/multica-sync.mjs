@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { multicaIssueUrl } from './multica-links.mjs';
 
 const STATUS_LABELS = {
   backlog: '需求池',
@@ -37,70 +36,6 @@ function fieldValue(field, value) {
   return String(value || '未设置');
 }
 
-function truncate(value, maxLength = 1800) {
-  const text = String(value || '').trim();
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, Math.max(1, maxLength - 1)).trimEnd()}…`;
-}
-
-function firstStructuredValue(description, labels) {
-  const lines = String(description || '').split(/\r?\n/);
-  for (const line of lines) {
-    const normalized = line.trim().replace(/^[-*]\s*/, '');
-    for (const label of labels) {
-      const prefix = `${label}：`;
-      const asciiPrefix = `${label}:`;
-      if (normalized.startsWith(prefix)) return normalized.slice(prefix.length).trim();
-      if (normalized.startsWith(asciiPrefix)) return normalized.slice(asciiPrefix.length).trim();
-    }
-  }
-  return '';
-}
-
-function firstDescriptionParagraph(description) {
-  return String(description || '')
-    .split(/\n\s*\n/)
-    .map(item => item.replace(/^#+\s*/, '').trim())
-    .find(Boolean) || '';
-}
-
-function issueProvenance(issue) {
-  const description = String(issue.description || '');
-  const metadata = issue.metadata && typeof issue.metadata === 'object'
-    ? issue.metadata
-    : {};
-  const purpose = issue.purpose
-    || metadata.purpose
-    || firstStructuredValue(description, ['原始需求', '用户需求', '目标', '目的', '需求'])
-    || firstDescriptionParagraph(description)
-    || 'Multica 未记录具体内容';
-  const reason = issue.reason
-    || metadata.reason
-    || firstStructuredValue(description, ['补充说明', '提出原因', '原因', '背景'])
-    || 'Multica 未单独记录提出原因';
-  const proposer = issue.requester_name
-    || issue.reporter_name
-    || issue.creator_name
-    || metadata.requester_name
-    || metadata.reporter_name
-    || firstStructuredValue(description, ['来源发送者', '提出人', '发起人', '反馈人'])
-    || (issue.creator_id
-      ? `${issue.creator_type === 'agent' ? 'Multica Agent' : 'Multica 成员'}（${issue.creator_id}）`
-      : 'Multica 未记录提出人');
-  const source = issue.source_channel
-    || metadata.source_channel
-    || metadata.channel
-    || firstStructuredValue(description, ['来源渠道', '来源平台'])
-    || `Multica${issue.creator_type ? `（${issue.creator_type} 创建）` : ''}`;
-  return {
-    purpose: truncate(purpose, 700),
-    reason: truncate(reason, 700),
-    proposer: truncate(proposer, 300),
-    source: truncate(source, 200),
-    description: truncate(description, 1800),
-  };
-}
-
 function uniqueRecipients(items) {
   const seen = new Set();
   return items.filter(item => {
@@ -119,28 +54,15 @@ function notificationKey(issue, chatId) {
   return `multica-sync-${digest}`;
 }
 
-export function formatMulticaChange(change, { appUrl, detailed = false } = {}) {
+export function formatMulticaChange(change) {
   const issue = change.after;
-  const link = multicaIssueUrl(issue, appUrl);
   const workspace = issue.workspace_name ? ` · ${issue.workspace_name}` : '';
-  const provenance = detailed ? issueProvenance(issue) : null;
   if (change.isNew) {
     return [
       `Multica 新 Issue：${issue.identifier}${workspace}`,
-      ...(detailed ? [
-        `标题：${issue.title || '未命名 Issue'}`,
-        `做什么：${provenance.purpose}`,
-        `为什么：${provenance.reason}`,
-        `谁提出：${provenance.proposer}`,
-        `来源：${provenance.source}`,
-      ] : [issue.title || '未命名 Issue']),
+      issue.title || '未命名 Issue',
       `状态：${STATUS_LABELS[issue.status] || issue.status || '未设置'}`,
       `优先级：${PRIORITY_LABELS[issue.priority] || issue.priority || '未设置'}`,
-      ...(detailed && issue.created_at ? [`创建时间：${issue.created_at}`] : []),
-      ...(detailed && provenance.description
-        ? [`完整说明：\n${provenance.description}`]
-        : []),
-      ...(link ? [`查看：${link}`] : []),
     ].join('\n');
   }
   const lines = change.changedFields.map(field => {
@@ -151,18 +73,8 @@ export function formatMulticaChange(change, { appUrl, detailed = false } = {}) {
   });
   return [
     `Multica Issue 更新：${issue.identifier}${workspace}`,
-    ...(detailed ? [
-      `标题：${issue.title || change.before?.title || '未命名 Issue'}`,
-      `做什么：${provenance.purpose}`,
-      `为什么：${provenance.reason}`,
-      `谁提出：${provenance.proposer}`,
-      `来源：${provenance.source}`,
-    ] : [issue.title || change.before?.title || '未命名 Issue']),
+    issue.title || change.before?.title || '未命名 Issue',
     ...lines,
-    ...(detailed && provenance.description
-      ? [`完整说明：\n${provenance.description}`]
-      : []),
-    ...(link ? [`查看：${link}`] : []),
   ].join('\n');
 }
 
@@ -173,8 +85,6 @@ export class MulticaSynchronizer {
     notify,
     audit = () => {},
     maxNotificationAttempts = 10,
-    appUrl,
-    ownerRecipient,
   }) {
     this.client = client;
     this.state = state;
@@ -184,13 +94,6 @@ export class MulticaSynchronizer {
       1,
       Math.min(50, Number(maxNotificationAttempts) || 10),
     );
-    this.appUrl = appUrl;
-    this.ownerRecipient = ownerRecipient?.chatId ? {
-      chatId: String(ownerRecipient.chatId),
-      senderId: String(ownerRecipient.senderId || ''),
-      chatType: String(ownerRecipient.chatType || 'p2p'),
-      isOwner: true,
-    } : null;
   }
 
   async deliverNotifications(now = new Date()) {
@@ -200,13 +103,7 @@ export class MulticaSynchronizer {
     const due = this.state.listDueMulticaNotifications(now.toISOString(), 200);
     for (const item of due) {
       try {
-        const result = await this.notify(item.chatId, item.content, item.notificationKey, {
-          senderId: item.senderId,
-          chatType: item.chatType,
-        });
-        if (result?.suppressed === true) {
-          throw new Error(`notification suppressed: ${result.reason || 'unknown reason'}`);
-        }
+        await this.notify(item.chatId, item.content, item.notificationKey);
         this.state.completeMulticaNotification(item.notificationKey);
         notified += 1;
       } catch (error) {
@@ -258,22 +155,14 @@ export class MulticaSynchronizer {
       const issueSubscribers = change.isNew
         ? []
         : this.state.multicaIssueSubscribers(change.after.id);
-      const recipients = uniqueRecipients([
-        ...(this.ownerRecipient ? [this.ownerRecipient] : []),
-        ...issueSubscribers,
-        ...globalSubscribers,
-      ]);
+      const recipients = uniqueRecipients([...globalSubscribers, ...issueSubscribers]);
+      const message = formatMulticaChange(change);
       for (const recipient of recipients) {
-        const message = formatMulticaChange(change, {
-          appUrl: this.appUrl,
-          detailed: recipient.isOwner === true,
-        });
         this.state.enqueueMulticaNotification({
           notificationKey: notificationKey(change.after, recipient.chatId),
           issueId: change.after.id,
           chatId: recipient.chatId,
           senderId: recipient.senderId,
-          chatType: recipient.chatType,
           content: message,
           availableAt: now.toISOString(),
         });
@@ -285,7 +174,6 @@ export class MulticaSynchronizer {
         isNew: change.isNew,
         changedFields: change.changedFields,
         recipients: recipients.length,
-        ownerNotified: recipients.some(item => item.isOwner === true),
       });
     }
     const delivery = await this.deliverNotifications(now);

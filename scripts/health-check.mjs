@@ -5,28 +5,9 @@ import { createConnection } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { evaluateHealth } from '../src/reliability.mjs';
 import { discoverAiRuntimes, selectAiRuntime } from '../src/ai-runtime.mjs';
-import { evaluateLicenseGuard } from '../src/licensing/guard.mjs';
-import { LicensingStore } from '../src/licensing/store.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const config = JSON.parse(readFileSync(join(root, 'config.local.json'), 'utf8'));
-if (config.licensingEnforced === true) {
-  const license = await evaluateLicenseGuard({
-    enforced: true,
-    store: new LicensingStore(),
-    publicKey: String(config.licensingPublicKey || ''),
-    product: String(config.licensingProductId || 'James'),
-  });
-  if (!license.allowed) {
-    console.log(JSON.stringify({
-      healthy: false,
-      state: 'activation_required',
-      issues: ['licensing_activation_required'],
-      metrics: { licensing: { enforced: true, reason: license.reason } },
-    }, null, 2));
-    process.exit(2);
-  }
-}
 const db = new DatabaseSync(join(root, 'data', 'agent-state.sqlite'), { readOnly: true });
 const nowMs = Date.now();
 const tcpReachable = url => new Promise(resolve => {
@@ -64,8 +45,8 @@ const processingCount = Number(db.prepare(`SELECT COUNT(*) AS count FROM inbound
 const failedCount = Number(db.prepare(`SELECT COUNT(*) AS count FROM inbound_message
   WHERE status = 'dead' OR (status = 'failed' AND available_at < ?)`)
   .get(new Date(nowMs - 60_000).toISOString())?.count || 0);
-const a1PendingCount = Number(db.prepare(`SELECT COUNT(*) AS count
-  FROM a1_notification_outbox WHERE status = 'pending'`).get()?.count || 0);
+const multicaDeadCount = Number(db.prepare(`SELECT COUNT(*) AS count
+  FROM multica_notification_outbox WHERE status = 'dead'`).get()?.count || 0);
 const a1DeadCount = Number(db.prepare(`SELECT COUNT(*) AS count
   FROM a1_notification_outbox WHERE status = 'dead'`).get()?.count || 0);
 const proxyReachable = await tcpReachable(config.codexProxyUrl || '');
@@ -91,6 +72,10 @@ const lastPollError = setting('health', 'last_poll_error', null);
 const lastPollSuccessAt = setting('health', 'last_poll_success_at', '');
 const lastPollDurationMs = Number(setting('health', 'last_poll_duration_ms', 0));
 const lastWebsocketReadyAt = setting('health', 'last_websocket_ready_at', '');
+const lastMulticaSyncAt = setting('health', 'last_multica_sync_at', '');
+const lastMulticaSyncError = setting('health', 'last_multica_sync_error', null);
+const lastMulticaSyncResult = setting('health', 'last_multica_sync_result', null);
+const a1Authenticated = setting('health', 'a1_authenticated', false) === true;
 const lastA1SyncAt = setting('health', 'last_a1_sync_at', '');
 const lastA1SyncError = setting('health', 'last_a1_sync_error', null);
 const lastA1SyncResult = setting('health', 'last_a1_sync_result', null);
@@ -98,7 +83,6 @@ const lastBackupAt = setting('health', 'last_database_backup_at', '');
 const lastBackupError = setting('health', 'last_database_backup_error', null);
 const lastAiRuntimeSuccessAt = setting('health', 'last_ai_runtime_success_at', '');
 const lastAiRuntimeError = setting('health', 'last_ai_runtime_error', null);
-const selfChatCircuitLast = setting('health', 'self_chat_circuit_last', null);
 const dingtalkChannel = setting('channel', 'dingtalk', {});
 const wecomChannel = setting('channel', 'wecom', {});
 const geweChannel = setting('channel', 'wechat', {});
@@ -116,8 +100,6 @@ if (config.feishuEnabled !== false
   && lastPollError?.at && (!lastPollSuccessAt || lastPollError.at > lastPollSuccessAt)) {
   result.issues.push('poller_last_run_failed');
 }
-const selfChatCircuitOpen = Number(selfChatCircuitLast?.openUntilMs || 0) > nowMs;
-if (selfChatCircuitOpen) result.issues.push('self_chat_circuit_open');
 if (config.dingtalkEnabled === true && !dingtalkChannel.connected) {
   result.issues.push('dingtalk_channel_unavailable');
 }
@@ -127,26 +109,41 @@ if (config.wecomEnabled === true && !wecomChannel.connected) {
 if (config.geweEnabled === true && !geweChannel.connected) {
   result.issues.push('wechat_channel_unavailable');
 }
+let multicaSyncAgeMs = null;
+if (config.multicaEnabled) {
+  multicaSyncAgeMs = lastMulticaSyncAt
+    ? nowMs - new Date(lastMulticaSyncAt).getTime()
+    : null;
+  const maxMulticaSyncAgeMs = Math.max(
+    60_000,
+    Number(config.multicaSyncIntervalMs || 10_000) * 6,
+  );
+  if (multicaSyncAgeMs === null || !Number.isFinite(multicaSyncAgeMs)
+    || multicaSyncAgeMs > maxMulticaSyncAgeMs) {
+    result.issues.push('multica_sync_stale');
+  }
+  if (lastMulticaSyncError) result.issues.push('multica_sync_error');
+  if (Number(lastMulticaSyncResult?.pending || 0) > 0) {
+    result.issues.push('multica_delivery_pending');
+  }
+  if (multicaDeadCount > 0) result.issues.push('multica_delivery_dead');
+}
 let a1SyncAgeMs = null;
 if (config.a1Enabled) {
-  a1SyncAgeMs = lastA1SyncAt
-    ? nowMs - new Date(lastA1SyncAt).getTime()
-    : null;
-  const maxA1SyncAgeMs = Math.max(
-    600_000,
-    Number(config.a1SyncIntervalMs || 300_000) * 3,
-  );
+  a1SyncAgeMs = lastA1SyncAt ? nowMs - new Date(lastA1SyncAt).getTime() : null;
+  const maxA1SyncAgeMs = Math.max(60_000, Number(config.a1SyncIntervalMs || 30_000) * 6);
+  if (!a1Authenticated) result.issues.push('a1_auth_unavailable');
   if (a1SyncAgeMs === null || !Number.isFinite(a1SyncAgeMs)
     || a1SyncAgeMs > maxA1SyncAgeMs) {
     result.issues.push('a1_sync_stale');
   }
   if (lastA1SyncError) result.issues.push('a1_sync_error');
-  if (a1PendingCount > 0) result.issues.push('a1_delivery_pending');
+  if (Number(lastA1SyncResult?.pending || 0) > 0) result.issues.push('a1_delivery_pending');
   if (a1DeadCount > 0) result.issues.push('a1_delivery_dead');
 }
 result.healthy = result.issues.length === 0;
 result.metrics = {
-  pollAgeMs: config.feishuEnabled === false ? null : nowMs - cursorMs,
+  pollAgeMs: nowMs - cursorMs,
   staleProcessing: processingCount,
   overdueFailed: failedCount,
   sqliteIntegrity: integrity,
@@ -158,19 +155,27 @@ result.metrics = {
   aiRuntimeSelected: selectedAiRuntime?.id || '',
   aiRuntimeLabel: selectedAiRuntime?.label || '',
   a1Enabled: config.a1Enabled === true,
+  a1Authenticated,
   lastA1SyncAt,
   a1SyncAgeMs,
-  a1Scanned: Number(lastA1SyncResult?.fetched || 0),
-  a1Changes: Number(lastA1SyncResult?.changed || 0),
-  a1Notified: Number(lastA1SyncResult?.delivered || 0),
-  a1Pending: a1PendingCount,
+  a1Scanned: Number(lastA1SyncResult?.scanned || 0),
+  a1Changes: Number(lastA1SyncResult?.changes || 0),
+  a1Notified: Number(lastA1SyncResult?.notified || 0),
+  a1Pending: Number(lastA1SyncResult?.pending || 0),
   a1Failed: Number(lastA1SyncResult?.failed || 0),
   a1Dead: a1DeadCount,
+  multicaEnabled: config.multicaEnabled === true,
+  lastMulticaSyncAt,
+  multicaSyncAgeMs,
+  multicaScanned: Number(lastMulticaSyncResult?.scanned || 0),
+  multicaChanges: Number(lastMulticaSyncResult?.changes || 0),
+  multicaNotified: Number(lastMulticaSyncResult?.notified || 0),
+  multicaPending: Number(lastMulticaSyncResult?.pending || 0),
+  multicaFailed: Number(lastMulticaSyncResult?.failed || 0),
+  multicaDead: multicaDeadCount,
   lastDatabaseBackupAt: lastBackupAt,
   databaseBackupAgeMs: backupAgeMs,
   lastAiRuntimeSuccessAt,
-  selfChatCircuitOpen,
-  selfChatCircuitLast,
   channels: {
     feishu: {
       enabled: config.feishuEnabled !== false,

@@ -97,29 +97,21 @@ function normalizeFields(fields, allowed, { creating = false } = {}) {
     if (!allowed.has(key)) throw new Error(`Issue field is not allowed: ${key}`);
   }
   const normalized = {};
-  if ('title' in fields) {
-    const value = text(fields.title, 'Issue title', 500, { required: creating });
-    if (value) normalized.title = value;
-  }
+  if ('title' in fields) normalized.title = text(fields.title, 'Issue title', 500, {
+    required: creating,
+  });
   if (creating && !normalized.title) throw new Error('Issue title is required');
-  if ('description' in fields) {
-    const value = text(fields.description, 'Issue description', 20_000);
-    if (value) normalized.description = value;
-  }
+  if ('description' in fields) normalized.description = text(fields.description, 'Issue description', 20_000);
   if ('status' in fields) {
-    const value = text(fields.status, 'Issue status', 50);
-    if (value && !STATUSES.has(value)) throw new Error(`Invalid issue status: ${value}`);
-    if (value) normalized.status = value;
-  }
-  if (creating && !normalized.status) {
+    if (!STATUSES.has(fields.status)) throw new Error(`Invalid issue status: ${fields.status}`);
+    normalized.status = fields.status;
+  } else if (creating) {
     normalized.status = 'todo';
   }
   if ('priority' in fields) {
-    const value = text(fields.priority, 'Issue priority', 50);
-    if (value && !PRIORITIES.has(value)) throw new Error(`Invalid issue priority: ${value}`);
-    if (value) normalized.priority = value;
-  }
-  if (creating && !normalized.priority) {
+    if (!PRIORITIES.has(fields.priority)) throw new Error(`Invalid issue priority: ${fields.priority}`);
+    normalized.priority = fields.priority;
+  } else if (creating) {
     normalized.priority = 'none';
   }
   for (const [key, label, maxLength] of [
@@ -128,22 +120,13 @@ function normalizeFields(fields, allowed, { creating = false } = {}) {
     ['project', 'Project ID', 200],
     ['parent', 'Parent issue', 200],
   ]) {
-    if (key in fields) {
-      const value = text(fields[key], label, maxLength);
-      if (value) normalized[key] = value;
-    }
+    if (key in fields) normalized[key] = text(fields[key], label, maxLength);
   }
   if (normalized.assignee && normalized.assigneeId) {
     throw new Error('Use assignee or assigneeId, not both');
   }
-  if ('dueDate' in fields) {
-    const value = date(fields.dueDate, 'Due date');
-    if (value) normalized.dueDate = value;
-  }
-  if ('startDate' in fields) {
-    const value = date(fields.startDate, 'Start date');
-    if (value) normalized.startDate = value;
-  }
+  if ('dueDate' in fields) normalized.dueDate = date(fields.dueDate, 'Due date');
+  if ('startDate' in fields) normalized.startDate = date(fields.startDate, 'Start date');
   return normalized;
 }
 
@@ -230,7 +213,7 @@ export function buildMulticaPlannerPrompt({
     default: item.id === defaultWorkspaceId,
   }));
   return `
-You are the James Multica action planner. Convert the operator's Simplified
+You are the AIPRO Multica action planner. Convert the operator's Simplified
 Chinese request into one constrained action. You plan only; you do not execute
 commands and you never include credentials.
 

@@ -6,9 +6,6 @@ NODE="$(command -v node 2>/dev/null || true)"
 test -x "$NODE" || NODE="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
 test -x "$NODE"
 LABEL="com.local.feishu-codex-dashboard"
-LAUNCHCTL="${ACHONG_LAUNCHCTL:-launchctl}"
-RETRIES="${ACHONG_SERVICE_RETRIES:-10}"
-WAIT_SECONDS="${ACHONG_SERVICE_WAIT_SECONDS:-1}"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 mkdir -p "$HOME/Library/LaunchAgents"
 
@@ -34,15 +31,15 @@ with open(path, 'wb') as f:
   plistlib.dump(data, f)
 PY
 
-"$LAUNCHCTL" bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 loaded=0
-for attempt in $(seq 1 "$RETRIES"); do
-  if "$LAUNCHCTL" bootstrap "gui/$(id -u)" "$PLIST"; then
+for attempt in {1..10}; do
+  if launchctl bootstrap "gui/$(id -u)" "$PLIST"; then
     loaded=1
     break
   fi
-  sleep "$WAIT_SECONDS"
+  sleep 1
 done
 test "$loaded" -eq 1
-"$LAUNCHCTL" kickstart "gui/$(id -u)/$LABEL"
+launchctl kickstart "gui/$(id -u)/$LABEL"
 echo "DASHBOARD_STARTED http://127.0.0.1:17655"

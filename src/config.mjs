@@ -2,12 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boundedInteger } from './reliability.mjs';
-import {
-  validateDingTalkConfiguration,
-  validateFeishuConfiguration,
-} from './runtime-mode.mjs';
-import { normalizeOperatorProfile } from './operator-profile.mjs';
-import { normalizeCommunicationBlocklist } from './communication-blocklist.mjs';
+import { validateFeishuConfiguration } from './runtime-mode.mjs';
 
 const srcDir = dirname(fileURLToPath(import.meta.url));
 const workdir = resolve(srcDir, '..');
@@ -17,31 +12,17 @@ if (!existsSync(configPath)) {
 }
 const raw = JSON.parse(readFileSync(configPath, 'utf8'));
 const home = process.env.HOME || '';
-const operatorProfile = normalizeOperatorProfile({
-  displayName: raw.ownerDisplayName,
-  role: raw.ownerRole,
-  aliases: raw.ownerAliases,
-  brandName: raw.digitalHumanBrand,
-});
 if (!Array.isArray(raw.authorizedChatIds || [])) {
   throw new Error('config.local.json 的 authorizedChatIds 必须是数组');
 }
 
 export const config = {
-  ownerDisplayName: operatorProfile.displayName,
-  ownerRole: operatorProfile.role,
-  ownerAliases: operatorProfile.aliases,
-  digitalHumanBrand: operatorProfile.brandName,
-  automaticCommunicationBlocklist: normalizeCommunicationBlocklist(
-    raw.automaticCommunicationBlocklist,
-  ),
   feishuEnabled: raw.feishuEnabled !== false,
   feishuAppId: raw.feishuAppId || '',
   ownerOpenId: raw.ownerOpenId || '',
   keychainService: raw.keychainService || 'codex-feishu-digital-employee',
   authorizedChatIds: raw.authorizedChatIds || [],
   allowAllChats: raw.allowAllChats === true,
-  ownerContactPhone: String(raw.ownerContactPhone || '').trim(),
   actionItemDocumentToken: raw.actionItemDocumentToken || '',
   digitalTwinLabel: raw.digitalTwinLabel ?? '【AI数字分身】',
   eventTransport: raw.eventTransport || 'lark-cli',
@@ -78,29 +59,17 @@ export const config = {
   rateLimitMaxMessages: boundedInteger(raw.rateLimitMaxMessages, {
     name: 'rateLimitMaxMessages', fallback: 10, min: 1, max: 100,
   }),
-  webReaderEnabled: raw.webReaderEnabled !== false,
-  webReaderMaxUrls: boundedInteger(raw.webReaderMaxUrls, {
-    name: 'webReaderMaxUrls', fallback: 2, min: 1, max: 3,
-  }),
-  audioTranscriptionCommand: String(raw.audioTranscriptionCommand
-    || join(home, 'Applications', 'James.app', 'Contents', 'MacOS', 'JamesTranscribe')).trim(),
-  audioTranscriptionArgs: Array.isArray(raw.audioTranscriptionArgs)
-    ? raw.audioTranscriptionArgs.map(value => String(value)).slice(0, 20)
-    : ['{input}', 'zh-CN'],
   aiRuntime: raw.aiRuntime || 'auto',
   dingtalkEnabled: raw.dingtalkEnabled === true,
-  dingtalkTransport: String(raw.dingtalkTransport || 'event-stream').trim(),
   dingtalkProfile: raw.dingtalkProfile || '',
-  dingtalkChannel: String(raw.dingtalkChannel || '').trim(),
-  dingtalkOwnerOpenId: String(raw.dingtalkOwnerOpenId || '').trim(),
   dingtalkBin: raw.dingtalkBin || join(home, '.npm-global', 'bin', 'dws'),
   wecomEnabled: raw.wecomEnabled === true,
   wecomBotId: raw.wecomBotId || '',
-  wecomKeychainService: raw.wecomKeychainService || 'james-wecom-bot',
+  wecomKeychainService: raw.wecomKeychainService || 'aipro-wecom-bot',
   wecomWebsocketUrl: raw.wecomWebsocketUrl || 'wss://openws.work.weixin.qq.com',
   geweEnabled: raw.geweEnabled === true,
   geweAppId: raw.geweAppId || '',
-  geweKeychainService: raw.geweKeychainService || 'james-gewe',
+  geweKeychainService: raw.geweKeychainService || 'aipro-gewe',
   geweApiBaseUrl: raw.geweApiBaseUrl || 'https://api.geweapi.com',
   gewePublicCallbackBaseUrl: raw.gewePublicCallbackBaseUrl || '',
   geweCallbackPort: boundedInteger(raw.geweCallbackPort, {
@@ -111,24 +80,16 @@ export const config = {
     : [],
   a1Enabled: raw.a1Enabled === true,
   a1Bin: raw.a1Bin || join(home, '.qoderwork', 'bin', 'a1'),
-  a1WebAgentProjectId: String(raw.a1WebAgentProjectId || '2165415').trim(),
-  a1AiCollaborationProjectId: String(raw.a1AiCollaborationProjectId || '2168196').trim(),
-  a1WebAgentRepo: String(raw.a1WebAgentRepo || 'enterprise-development/ai-lab-agent').trim(),
-  a1AiCollaborationRepo: String(raw.a1AiCollaborationRepo
-    || 'enterprise-development/ai-native-flow-platform').trim(),
-  a1AiCollaborationBranch: String(raw.a1AiCollaborationBranch
-    || 'feature/20260606_29656382_init_project_1').trim(),
+  a1DefaultProjectId: raw.a1DefaultProjectId || '',
   a1SyncIntervalMs: boundedInteger(raw.a1SyncIntervalMs, {
-    name: 'a1SyncIntervalMs', fallback: 300000, min: 5000, max: 300000,
+    name: 'a1SyncIntervalMs', fallback: 30000, min: 10000, max: 300000,
   }),
   a1MaxWorkitems: boundedInteger(raw.a1MaxWorkitems, {
-    name: 'a1MaxWorkitems', fallback: 500, min: 50, max: 5000,
+    name: 'a1MaxWorkitems', fallback: 500, min: 25, max: 5000,
   }),
   multicaEnabled: raw.multicaEnabled === true,
   multicaProfile: raw.multicaProfile || 'desktop-api.multica.ai',
-  multicaAppUrl: raw.multicaAppUrl || 'https://multica.ai',
   multicaDefaultWorkspaceId: raw.multicaDefaultWorkspaceId || '',
-  multicaOwnerSquad: String(raw.multicaOwnerSquad || '').trim(),
   multicaSyncIntervalMs: boundedInteger(raw.multicaSyncIntervalMs, {
     name: 'multicaSyncIntervalMs', fallback: 10000, min: 5000, max: 300000,
   }),
@@ -138,12 +99,8 @@ export const config = {
   dashboardPort: boundedInteger(raw.dashboardPort, {
     name: 'dashboardPort', fallback: 17655, min: 1024, max: 65535,
   }),
-  licensingEnforced: raw.licensingEnforced === true,
-  licensingServiceUrl: String(raw.licensingServiceUrl || '').trim(),
-  licensingProxyUrl: String(raw.licensingProxyUrl || raw.codexProxyUrl || '').trim(),
-  licensingPublicKey: String(raw.licensingPublicKey || '').trim(),
-  licensingProductId: String(raw.licensingProductId || 'James').trim(),
   workdir,
+  artifactDir: raw.artifactDir || join(home, 'Desktop', '数字员工交付物'),
   codexBin: raw.codexBin || '/Applications/ChatGPT.app/Contents/Resources/codex',
   codexModel: raw.codexModel || 'gpt-5.6-terra',
   codexProxyUrl: raw.codexProxyUrl || '',
@@ -154,59 +111,11 @@ export const config = {
     || '/Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/multica',
 };
 
-export function validateCoreConfiguration(value = config) {
-  validateFeishuConfiguration(value);
-  if (!value.allowAllChats && !value.authorizedChatIds.length) {
-    throw new Error('未启用 allowAllChats 时，config.local.json 至少需要一个 authorizedChatIds');
-  }
-}
-
-if (!config.licensingEnforced) validateCoreConfiguration(config);
-if (config.ownerContactPhone
-  && !/^\+?[0-9][0-9 ()-]{5,28}[0-9]$/.test(config.ownerContactPhone)) {
-  throw new Error('ownerContactPhone 格式无效');
-}
+validateFeishuConfiguration(config);
 if (config.codexProxyUrl) {
   const proxy = new URL(config.codexProxyUrl);
   if (!['http:', 'https:'].includes(proxy.protocol)) {
     throw new Error('codexProxyUrl 只能使用 http 或 https');
-  }
-}
-if (config.licensingServiceUrl) {
-  const licensingUrl = new URL(config.licensingServiceUrl);
-  if (licensingUrl.protocol !== 'https:'
-    || licensingUrl.username
-    || licensingUrl.password
-    || licensingUrl.search
-    || licensingUrl.hash) {
-    throw new Error('licensingServiceUrl 必须是不含凭据、查询或锚点的 HTTPS 地址');
-  }
-}
-if (config.licensingProxyUrl) {
-  const proxy = new URL(config.licensingProxyUrl);
-  if (!['http:', 'https:'].includes(proxy.protocol)
-    || proxy.username
-    || proxy.password
-    || proxy.search
-    || proxy.hash
-    || !['', '/'].includes(proxy.pathname)) {
-    throw new Error('licensingProxyUrl 必须是不含凭据、查询、路径或锚点的 http/https 地址');
-  }
-}
-if (config.licensingEnforced) {
-  if (!config.licensingServiceUrl) throw new Error('启用 licensingEnforced 时必须填写 licensingServiceUrl');
-  if (!/^[A-Za-z0-9_-]{40,256}$/.test(config.licensingPublicKey)) {
-    throw new Error('启用 licensingEnforced 时必须填写有效的 licensingPublicKey');
-  }
-  if (config.licensingProductId !== 'James') {
-    throw new Error('licensingProductId 必须是 James');
-  }
-}
-{
-  const multicaAppUrl = new URL(config.multicaAppUrl);
-  if (!['http:', 'https:'].includes(multicaAppUrl.protocol)
-    || multicaAppUrl.username || multicaAppUrl.password) {
-    throw new Error('multicaAppUrl 只能使用 http 或 https，且不能包含账号密码');
   }
 }
 if (!['lark-cli', 'sdk'].includes(config.eventTransport)) {
@@ -215,7 +124,6 @@ if (!['lark-cli', 'sdk'].includes(config.eventTransport)) {
 if (!['auto', 'codex', 'qoder', 'codebuddy', 'trae'].includes(config.aiRuntime)) {
   throw new Error('aiRuntime 只能是 auto、codex、qoder、codebuddy 或 trae');
 }
-validateDingTalkConfiguration(config);
 if (config.wecomEnabled && !config.wecomBotId) {
   throw new Error('启用 wecomEnabled 时必须填写 wecomBotId');
 }
@@ -237,17 +145,9 @@ if (config.multicaDefaultWorkspaceId
     .test(config.multicaDefaultWorkspaceId)) {
   throw new Error('multicaDefaultWorkspaceId 必须是 UUID');
 }
-if (config.a1Enabled) {
-  for (const [name, value] of [
-    ['a1WebAgentProjectId', config.a1WebAgentProjectId],
-    ['a1AiCollaborationProjectId', config.a1AiCollaborationProjectId],
-  ]) {
-    if (!/^\d{5,20}$/.test(value)) throw new Error(`${name} 必须是数字项目 ID`);
-  }
-  for (const [name, value] of [
-    ['a1WebAgentRepo', config.a1WebAgentRepo],
-    ['a1AiCollaborationRepo', config.a1AiCollaborationRepo],
-  ]) {
-    if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(value)) throw new Error(`${name} 必须是 group/repo 路径`);
-  }
+if (config.a1DefaultProjectId && !/^\d{1,20}$/.test(config.a1DefaultProjectId)) {
+  throw new Error('a1DefaultProjectId 必须是数字项目 ID');
+}
+if (!config.allowAllChats && !config.authorizedChatIds.length) {
+  throw new Error('未启用 allowAllChats 时，config.local.json 至少需要一个 authorizedChatIds');
 }

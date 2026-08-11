@@ -39,7 +39,7 @@ assert.throws(() => selectAiRuntime(runtimes, 'trae'), /not available/i);
 const qoderInvocation = buildAiRuntimeInvocation(
   runtimes.find(item => item.id === 'qoder'),
   {
-    cwd: '/tmp/james-runtime',
+    cwd: '/tmp/aipro-runtime',
     model: '',
     images: ['/tmp/screenshot.png'],
   },
@@ -51,13 +51,13 @@ assert.equal(qoderInvocation.args.includes('private prompt'), false);
 assert.equal(
   qoderInvocation.args.includes('--max-output-tokens'),
   false,
-  'Qoder versions accept different token-size syntaxes, so James must use the provider default',
+  'Qoder versions accept different token-size syntaxes, so AIPRO must use the provider default',
 );
 
 const codexInvocation = buildAiRuntimeInvocation(
   runtimes.find(item => item.id === 'codex'),
   {
-    cwd: '/tmp/james-runtime',
+    cwd: '/tmp/aipro-runtime',
     model: 'gpt-5.6-terra',
     images: [],
   },
@@ -70,14 +70,14 @@ const client = new AiRuntimeClient({
   runtime: runtimes.find(item => item.id === 'qoder'),
   runner: async (command, args, options) => {
     calls.push({ command, args, options });
-    return { stdout: 'JAMES_RUNTIME_OK\n', stderr: '' };
+    return { stdout: 'AIPRO_RUNTIME_OK\n', stderr: '' };
   },
 });
 const result = await client.run('private prompt', {
-  cwd: '/tmp/james-runtime',
+  cwd: '/tmp/aipro-runtime',
   timeoutMs: 30_000,
 });
-assert.equal(result.text, 'JAMES_RUNTIME_OK');
+assert.equal(result.text, 'AIPRO_RUNTIME_OK');
 assert.equal(calls[0].options.input, 'private prompt');
 assert.equal(calls[0].args.includes('private prompt'), false);
 

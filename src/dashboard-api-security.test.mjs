@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 
 const security = await import('./dashboard-api-security.mjs').catch(() => ({}));
 
@@ -31,16 +30,5 @@ assert.deepEqual(security.parseDashboardJson('{"message":"hello"}'), { message: 
 assert.throws(() => security.parseDashboardJson('[]'), /object/i);
 assert.throws(() => security.parseDashboardJson('{broken'), /invalid json/i);
 assert.throws(() => security.parseDashboardJson('{"x":"' + 'a'.repeat(70000) + '"}'), /too large/i);
-
-const dashboardServer = await readFile(new URL('./dashboard-server.mjs', import.meta.url), 'utf8');
-for (const route of [
-  '/api/licensing/status',
-  '/api/licensing/activate',
-  '/api/licensing/invites',
-]) {
-  assert.equal(dashboardServer.includes(route), true, `${route} must be registered`);
-}
-assert.equal(dashboardServer.includes("allowedConfigAction(request, 'licensing-activate')"), true);
-assert.equal(dashboardServer.includes("allowedConfigAction(request, 'licensing-generate')"), true);
 
 console.log('DASHBOARD_API_SECURITY_TEST_OK');

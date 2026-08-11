@@ -5,9 +5,7 @@ import { config } from '../src/config.mjs';
 import { discoverAiRuntimes, selectAiRuntime } from '../src/ai-runtime.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const configuredPath = process.env.DIGITAL_EMPLOYEE_CONFIG || join(root, 'config.local.json');
-if (!existsSync(configuredPath)) throw new Error(`缺少配置文件：${configuredPath}`);
-const requiredFiles = ['PERSONA.md', 'BIBLE.md', 'knowledge-catalog.json'];
+const requiredFiles = ['config.local.json', 'PERSONA.md', 'BIBLE.md', 'knowledge-catalog.json'];
 for (const file of requiredFiles) {
   if (!existsSync(join(root, file))) throw new Error(`缺少 ${file}`);
 }
@@ -32,6 +30,7 @@ for (const [name, path] of [
   ['pythonBin', config.pythonBin],
   ['node', join(config.nodeBin, 'node')],
   ...(config.dingtalkEnabled ? [['dingtalkBin', config.dingtalkBin]] : []),
+  ...(config.a1Enabled ? [['a1Bin', config.a1Bin]] : []),
   ...(config.multicaEnabled ? [['multicaBin', config.multicaBin]] : []),
 ]) {
   if (!existsSync(path)) throw new Error(`${name} 不存在：${path}`);

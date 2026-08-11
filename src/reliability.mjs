@@ -46,14 +46,6 @@ export function canPerformMutation(senderOpenId, ownerOpenId) {
   return Boolean(senderOpenId) && senderOpenId === ownerOpenId;
 }
 
-export async function initializeOptionalPoller(initialize) {
-  try {
-    return { active: Boolean(await initialize()), error: null };
-  } catch (error) {
-    return { active: false, error };
-  }
-}
-
 export function evaluateHealth({
   nowMs,
   cursorMs,

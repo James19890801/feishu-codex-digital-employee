@@ -35,12 +35,8 @@ function serializeDocuments(documents) {
   if (typeof documents.persona !== 'string' || typeof documents.bible !== 'string') {
     throw new Error('Persona and Bible documents must be strings');
   }
-  const catalogIsV2 = documents.knowledgeCatalog
-    && !Array.isArray(documents.knowledgeCatalog)
-    && Number(documents.knowledgeCatalog.version) === 2
-    && Array.isArray(documents.knowledgeCatalog.sources);
-  if (!Array.isArray(documents.knowledgeCatalog) && !catalogIsV2) {
-    throw new Error('Knowledge catalog must be an array or a version 2 object');
+  if (!Array.isArray(documents.knowledgeCatalog)) {
+    throw new Error('Knowledge catalog must be an array');
   }
   return {
     config: `${JSON.stringify(documents.config, null, 2)}\n`,
@@ -51,7 +47,7 @@ function serializeDocuments(documents) {
 }
 
 async function atomicWrite(path, content) {
-  const temporary = `${path}.james-${process.pid}-${randomUUID()}.tmp`;
+  const temporary = `${path}.aipro-${process.pid}-${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, content, { mode: 0o600 });
     await rename(temporary, path);

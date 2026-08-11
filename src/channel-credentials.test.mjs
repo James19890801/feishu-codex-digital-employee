@@ -5,7 +5,7 @@ const credentials = await import('./channel-credentials.mjs').catch(() => ({}));
 assert.equal(typeof credentials.keychainCredentialExists, 'function');
 assert.equal(typeof credentials.replaceKeychainCredential, 'function');
 
-const target = { service: 'james-test', account: 'account-1', label: 'Test Secret' };
+const target = { service: 'aipro-test', account: 'account-1', label: 'Test Secret' };
 assert.equal(await credentials.keychainCredentialExists(target, {
   run: async () => ({ stdout: 'stored-value\n' }),
 }), true);

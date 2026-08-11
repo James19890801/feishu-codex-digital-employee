@@ -4,15 +4,6 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NODE_BIN="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin"
 export PATH="$NODE_BIN:$HOME/.local/bin:$PATH"
 cd "$ROOT"
-node --check src/multimodal-content.mjs
-node --check src/web-reader.mjs
-SDK_MAJOR="$(xcrun --show-sdk-version | awk -F. '{print $1}')"
-if [[ "$SDK_MAJOR" -ge 26 ]]; then
-  xcrun swiftc -parse-as-library -typecheck macos/James/JamesTranscribe.swift
-else
-  echo "Skipping JamesTranscribe typecheck: macOS 26 SDK required." >&2
-fi
-npm run test:multimodal
 npm run check
 npm test
 npm run runtime-smoke
@@ -20,6 +11,10 @@ npm run health
 npm run backup-smoke
 FEISHU_ENABLED="$(node -e "const c=require('./config.local.json'); process.stdout.write(String(c.feishuEnabled !== false))")"
 MULTICA_ENABLED="$(node -e "const c=require('./config.local.json'); process.stdout.write(String(c.multicaEnabled === true))")"
+A1_ENABLED="$(node -e "const c=require('./config.local.json'); process.stdout.write(String(c.a1Enabled === true))")"
+if [[ "$A1_ENABLED" == "true" ]]; then
+  npm run a1-smoke
+fi
 if [[ "$MULTICA_ENABLED" == "true" ]]; then
   npm run multica-smoke
 fi

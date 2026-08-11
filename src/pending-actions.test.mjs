@@ -36,24 +36,15 @@ try {
     'create',
   );
 
-  pending.set('multica_feedback', 'dingtalk:user:owner', 'dingtalk:owner', {
-    originalRequest: '创建一个培训课件 Issue',
-    sourceMessageId: 'message-feedback-1',
-    context: {
-      chatId: 'dingtalk:user:owner',
-      senderId: 'dingtalk:owner',
-      chatType: 'p2p',
-      metadata: { channel: 'dingtalk', selfChat: true },
+  pending.set('a1', 'dingtalk:chat-1', 'dingtalk:user-1', {
+    confirmationCode: '731204',
+    pending: {
+      plan: { action: 'update', workitemId: '84886503', fields: { status: '开发中' } },
     },
   }, 4_000);
   assert.equal(
-    pending.get(
-      'multica_feedback',
-      'dingtalk:user:owner',
-      'dingtalk:owner',
-      4_001,
-    ).originalRequest,
-    '创建一个培训课件 Issue',
+    pending.get('a1', 'dingtalk:chat-1', 'dingtalk:user-1', 4_001).pending.plan.workitemId,
+    '84886503',
   );
   console.log('PENDING_ACTIONS_TEST_OK');
 } finally {

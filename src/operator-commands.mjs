@@ -24,10 +24,9 @@ export function buildHelpReply({ dashboardUrl }) {
     '• 群聊 @ 我，再写清楚问题',
     '• 单聊直接发送问题',
     '• 发送“状态”查看通道健康',
-    '• 账号本人发送“数字人请退场”、“数字人停止”或“数字人先不要你了”，当前会话静默至少 5 分钟',
-    '• 可以查询、创建、更新和跟进 1A 需求；需求会直接写入、回读并返回真实链接',
-    '• 新需求会先确认 WebAgent、AI协同空间或其他产品，再按对应需求池处理',
-    '• 已创建需求的真实状态变化会自动通知原提出人',
+    '• 发送“暂停接管”或“恢复接管”切换真人接管',
+    '• 可以查询、创建、更新和跟进 A1 工作项；写入前会先让请求人确认',
+    '• 发送“把 A1 项目变化同步到这里”开启研发变化同步',
     '',
     `可视化面板：${dashboardUrl}`,
     '面板仅在这台 Mac 上可以打开。',
@@ -36,25 +35,34 @@ export function buildHelpReply({ dashboardUrl }) {
 
 export function buildStatusReply({
   nowMs = Date.now(),
+  feishuEnabled = true,
   startedAt,
   lastPollSuccessAt,
   lastPollError,
   websocketConnected,
   aiRuntimeLabel = '',
+  dingtalkChannel = {},
   a1Enabled = false,
   lastA1SyncAt = '',
   lastA1SyncError = null,
-  maxA1SyncAgeMs = 600_000,
+  maxA1SyncAgeMs = 60_000,
   a1Pending = 0,
   a1Dead = 0,
+  multicaEnabled = false,
+  lastMulticaSyncAt = '',
+  lastMulticaSyncError = null,
+  maxMulticaSyncAgeMs = 60_000,
+  multicaPending = 0,
+  multicaDead = 0,
   inboxCounts = {},
   dashboardUrl,
   detailed = false,
 }) {
   const pollTimestamp = Date.parse(lastPollSuccessAt || '');
-  const pollHealthy = Number.isFinite(pollTimestamp)
+  const pollHealthy = !feishuEnabled || (Number.isFinite(pollTimestamp)
     && nowMs - pollTimestamp <= 60_000
-    && !lastPollError;
+    && !lastPollError);
+  const dingtalkHealthy = !dingtalkChannel.enabled || Boolean(dingtalkChannel.connected);
   const a1Timestamp = Date.parse(lastA1SyncAt || '');
   const a1Healthy = !a1Enabled || (
     Number.isFinite(a1Timestamp)
@@ -63,19 +71,46 @@ export function buildStatusReply({
     && Number(a1Pending || 0) === 0
     && Number(a1Dead || 0) === 0
   );
-  const healthy = pollHealthy && websocketConnected && a1Healthy
+  const multicaTimestamp = Date.parse(lastMulticaSyncAt || '');
+  const multicaHealthy = !multicaEnabled || (
+    Number.isFinite(multicaTimestamp)
+    && nowMs - multicaTimestamp <= maxMulticaSyncAgeMs
+    && !lastMulticaSyncError
+    && Number(multicaPending || 0) === 0
+    && Number(multicaDead || 0) === 0
+  );
+  const transportHealthy = feishuEnabled
+    ? Boolean(websocketConnected)
+    : Boolean(dingtalkChannel.enabled && dingtalkChannel.connected);
+  const healthy = pollHealthy && transportHealthy && dingtalkHealthy && a1Healthy && multicaHealthy
     && Number(inboxCounts.dead || 0) === 0;
   const lines = [
     `运行状态：${healthy ? '正常' : '需要维护'}`,
-    `主消息轮询：${formatAge(nowMs, lastPollSuccessAt)}`,
-    `辅助监听：${websocketConnected ? '已连接' : '未连接'}`,
   ];
+  if (feishuEnabled) {
+    lines.push(
+      `主消息轮询：${formatAge(nowMs, lastPollSuccessAt)}`,
+      `辅助监听：${websocketConnected ? '已连接' : '未连接'}`,
+    );
+  } else {
+    lines.push('飞书：本机禁用');
+  }
+  if (dingtalkChannel.enabled) {
+    lines.push(`钉钉：${dingtalkChannel.connected ? '已连接' : '未连接'}`);
+  }
   if (aiRuntimeLabel) lines.push(`AI 运行时：${aiRuntimeLabel}`);
   if (a1Enabled) {
     lines.push(
-      `1A 同步：${formatAge(nowMs, lastA1SyncAt)}`
+      `A1 同步：${formatAge(nowMs, lastA1SyncAt)}`
       + (a1Pending ? `，待补发 ${a1Pending}` : '')
       + (a1Dead ? `，死信 ${a1Dead}` : ''),
+    );
+  }
+  if (multicaEnabled) {
+    lines.push(
+      `Multica 同步：${formatAge(nowMs, lastMulticaSyncAt)}`
+      + (multicaPending ? `，待补发 ${multicaPending}` : '')
+      + (multicaDead ? `，死信 ${multicaDead}` : ''),
     );
   }
   if (detailed) {

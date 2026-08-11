@@ -7,12 +7,3 @@ BIBLE.md
 data/
 *.log
 .DS_Store
-.worktrees/
-dist/
-.wrangler/
-**/.wrangler/
-**/.dev.vars
-*.james-recovery
-*.james-license
-*.founder-recovery.json
-james-founder-recovery-*.json

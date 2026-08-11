@@ -145,14 +145,14 @@ export function normalizeChannelConfigurationRequest(channel, payload = {}) {
 export function channelCredentialTarget(channel, configuration) {
   if (channel === 'wecom') {
     return {
-      service: String(configuration.wecomKeychainService || 'james-wecom-bot'),
+      service: String(configuration.wecomKeychainService || 'aipro-wecom-bot'),
       account: String(configuration.wecomBotId || ''),
       label: 'WeCom Bot Secret',
     };
   }
   if (channel === 'wechat') {
     return {
-      service: String(configuration.geweKeychainService || 'james-gewe'),
+      service: String(configuration.geweKeychainService || 'aipro-gewe'),
       account: String(configuration.geweAppId || ''),
       label: 'GeWe API Token',
     };

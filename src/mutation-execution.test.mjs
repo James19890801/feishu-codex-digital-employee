@@ -8,7 +8,7 @@ import {
   executeMutationOnce,
 } from './mutation-execution.mjs';
 
-const dir = mkdtempSync(join(tmpdir(), 'james-mutation-'));
+const dir = mkdtempSync(join(tmpdir(), 'aipro-mutation-'));
 try {
   const state = new AgentState(join(dir, 'state.sqlite'));
   let executions = 0;

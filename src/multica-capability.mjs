@@ -1,5 +1,3 @@
-import { multicaIssueUrl } from './multica-links.mjs';
-
 const STATUS_LABELS = {
   backlog: '需求池',
   todo: '待处理',
@@ -45,16 +43,14 @@ function previewValue(key, value) {
 }
 
 function requireContext(context) {
-  if (!context?.chatId) throw new Error('IM chat context is required');
+  if (!context?.chatId) throw new Error('Feishu chat context is required');
   return {
     chatId: String(context.chatId),
     senderId: String(context.senderId || ''),
-    chatType: String(context.chatType || ''),
   };
 }
 
-function issueLines(issue, { includeDescription = true, appUrl } = {}) {
-  const link = multicaIssueUrl(issue, appUrl);
+function issueLines(issue, { includeDescription = true } = {}) {
   const lines = [
     `${issue.identifier} · ${issue.title || '未命名 Issue'}`,
     `空间：${issue.workspace_name || issue.workspace_id}`,
@@ -62,50 +58,32 @@ function issueLines(issue, { includeDescription = true, appUrl } = {}) {
   ];
   if (issue.due_date) lines.push(`截止：${issue.due_date}`);
   if (issue.assignee_name) lines.push(`负责人：${issue.assignee_name}`);
-  if (link) lines.push(`查看：${link}`);
   if (includeDescription && issue.description) {
     lines.push('', String(issue.description).slice(0, 1600));
   }
   return lines;
 }
 
-function issueListText(issues, emptyText, appUrl) {
+function issueListText(issues, emptyText) {
   if (!issues.length) return emptyText;
   const visible = issues.slice(0, 10);
-  const lines = visible.map((issue, index) => {
-    const link = multicaIssueUrl(issue, appUrl);
-    return `${index + 1}. ${issue.identifier} · ${issue.title || '未命名'}`
-      + `（${statusLabel(issue.status)}，${issue.workspace_name || issue.workspace_id}）`
-      + (link ? `\n   查看：${link}` : '');
-  });
+  const lines = visible.map((issue, index) => (
+    `${index + 1}. ${issue.identifier} · ${issue.title || '未命名'}`
+    + `（${statusLabel(issue.status)}，${issue.workspace_name || issue.workspace_id}）`
+  ));
   if (issues.length > visible.length) lines.push(`还有 ${issues.length - visible.length} 条未展开。`);
   return lines.join('\n');
 }
 
 export class MulticaCapability {
-  constructor({ client, state, appUrl, authorizeWrite = () => false }) {
+  constructor({ client, state }) {
     this.client = client;
     this.state = state;
-    this.appUrl = appUrl;
-    this.authorizeWrite = authorizeWrite;
-  }
-
-  assertWriteAuthorized(context) {
-    if (this.authorizeWrite(context) === true) return;
-    const error = new Error('Verified Owner authorization is required for Multica writes');
-    error.code = 'MULTICA_OWNER_REQUIRED';
-    throw error;
-  }
-
-  follow(issue, context) {
-    this.state.subscribeMulticaIssue(issue.id, context.chatId, context.senderId, {
-      chatType: context.chatType,
-    });
   }
 
   cacheAndFollow(issue, context) {
     this.state.upsertMulticaIssue(issue);
-    this.follow(issue, context);
+    this.state.subscribeMulticaIssue(issue.id, context.chatId, context.senderId);
   }
 
   async execute(plan, rawContext) {
@@ -129,7 +107,7 @@ export class MulticaCapability {
       });
       return {
         kind: 'reply',
-        text: issueListText(issues, '没有查到符合条件的 Multica Issue。', this.appUrl),
+        text: issueListText(issues, '没有查到符合条件的 Multica Issue。'),
       };
     }
     if (plan.action === 'search') {
@@ -141,29 +119,20 @@ export class MulticaCapability {
       const issues = await this.client.searchIssues(plan.query, { workspaces });
       return {
         kind: 'reply',
-        text: issueListText(
-          issues,
-          `没有找到与“${plan.query}”匹配的 Issue。`,
-          this.appUrl,
-        ),
+        text: issueListText(issues, `没有找到与“${plan.query}”匹配的 Issue。`),
       };
     }
     if (plan.action === 'get') {
       const issue = await this.client.getIssue(plan.issue);
       this.cacheAndFollow(issue, context);
-      return {
-        kind: 'reply',
-        text: issueLines(issue, { appUrl: this.appUrl, includeDescription: false }).join('\n'),
-        issue,
-      };
+      return { kind: 'reply', text: issueLines(issue).join('\n'), issue };
     }
     if (plan.action === 'follow') {
       const issue = await this.client.getIssue(plan.issue);
       this.cacheAndFollow(issue, context);
       return {
         kind: 'reply',
-        text: `已经开始跟进 ${issue.identifier}。后续状态或关键信息变化会同步到当前会话。`
-          + `${multicaIssueUrl(issue, this.appUrl) ? `\n查看：${multicaIssueUrl(issue, this.appUrl)}` : ''}`,
+        text: `已经开始跟进 ${issue.identifier}。后续状态或关键信息变化会同步到当前会话。`,
         issue,
       };
     }
@@ -177,9 +146,7 @@ export class MulticaCapability {
       };
     }
     if (plan.action === 'sync_here') {
-      this.state.subscribeMulticaGlobal(context.chatId, context.senderId, {
-        chatType: context.chatType,
-      });
+      this.state.subscribeMulticaGlobal(context.chatId, context.senderId);
       return {
         kind: 'reply',
         text: '已经开启 Multica 全空间同步。新 Issue 和已有 Issue 的关键变化会同步到当前会话。',
@@ -196,7 +163,6 @@ export class MulticaCapability {
   }
 
   async prepareMutation(plan, rawContext) {
-    this.assertWriteAuthorized(rawContext);
     const context = requireContext(rawContext);
     if (!['create', 'update', 'comment'].includes(plan.action)
       || !['single', 'double'].includes(plan.confirmationLevel)) {
@@ -206,21 +172,15 @@ export class MulticaCapability {
       plan: structuredClone(plan),
       chatId: context.chatId,
       senderId: context.senderId,
-      chatType: context.chatType,
       expectedUpdatedAt: '',
       resolvedIssueId: '',
       resolvedWorkspaceId: '',
-      resolvedWorkspaceName: '',
-      resolvedWorkspaceSlug: '',
     };
     const lines = [`准备执行：${plan.summary}`];
     if (plan.action === 'create') {
       const workspaces = await this.client.listWorkspaces();
       const workspace = workspaces.find(item => item.id === plan.workspaceId);
       if (!workspace) throw new Error('The target Multica workspace is no longer available');
-      pending.resolvedWorkspaceId = workspace.id;
-      pending.resolvedWorkspaceName = workspace.name;
-      pending.resolvedWorkspaceSlug = workspace.slug;
       lines.push(`空间：${workspace.name}`);
       for (const [key, value] of Object.entries(plan.fields)) {
         lines.push(`${FIELD_LABELS[key] || key}：${previewValue(key, value)}`);
@@ -230,8 +190,6 @@ export class MulticaCapability {
       pending.expectedUpdatedAt = String(issue.updated_at || '');
       pending.resolvedIssueId = issue.id;
       pending.resolvedWorkspaceId = issue.workspace_id;
-      pending.resolvedWorkspaceName = issue.workspace_name || '';
-      pending.resolvedWorkspaceSlug = issue.workspace_slug || '';
       lines.push(`Issue：${issue.identifier} · ${issue.title}`);
       if (plan.action === 'comment') {
         lines.push(`评论：${plan.content}`);
@@ -249,7 +207,6 @@ export class MulticaCapability {
   }
 
   async applyMutation(pending, rawContext) {
-    this.assertWriteAuthorized(rawContext);
     const context = requireContext(rawContext);
     if (pending.chatId !== context.chatId || pending.senderId !== context.senderId) {
       throw new Error('Multica confirmation context does not match the original request');
@@ -260,19 +217,11 @@ export class MulticaCapability {
         workspaceId: plan.workspaceId,
         ...plan.fields,
       });
-      const decoratedIssue = {
-        ...issue,
-        workspace_name: pending.resolvedWorkspaceName,
-        workspace_slug: pending.resolvedWorkspaceSlug,
-      };
-      this.cacheAndFollow(decoratedIssue, context);
+      this.cacheAndFollow(issue, context);
       return {
         kind: 'reply',
-        text: `Issue 已创建：\n${issueLines(decoratedIssue, {
-          includeDescription: false,
-          appUrl: this.appUrl,
-        }).join('\n')}`,
-        issue: decoratedIssue,
+        text: `Issue 已创建：\n${issueLines(issue, { includeDescription: false }).join('\n')}`,
+        issue,
       };
     }
     const current = await this.client.getIssue(
@@ -287,21 +236,11 @@ export class MulticaCapability {
         workspaceId: current.workspace_id,
         ...plan.fields,
       });
-      const decoratedIssue = {
-        ...issue,
-        ...(pending.resolvedWorkspaceName
-          ? { workspace_name: pending.resolvedWorkspaceName } : {}),
-        ...(pending.resolvedWorkspaceSlug
-          ? { workspace_slug: pending.resolvedWorkspaceSlug } : {}),
-      };
-      this.follow(decoratedIssue, context);
+      this.cacheAndFollow(issue, context);
       return {
         kind: 'reply',
-        text: `Issue 已更新：\n${issueLines(decoratedIssue, {
-          includeDescription: false,
-          appUrl: this.appUrl,
-        }).join('\n')}`,
-        issue: decoratedIssue,
+        text: `Issue 已更新：\n${issueLines(issue, { includeDescription: false }).join('\n')}`,
+        issue,
       };
     }
     if (plan.action === 'comment') {
@@ -310,20 +249,11 @@ export class MulticaCapability {
         plan.content,
         current.workspace_id,
       );
-      const decoratedIssue = {
-        ...result.issue,
-        ...(pending.resolvedWorkspaceName
-          ? { workspace_name: pending.resolvedWorkspaceName } : {}),
-        ...(pending.resolvedWorkspaceSlug
-          ? { workspace_slug: pending.resolvedWorkspaceSlug } : {}),
-      };
-      this.cacheAndFollow(decoratedIssue, context);
-      const link = multicaIssueUrl(decoratedIssue, this.appUrl);
+      this.cacheAndFollow(result.issue, context);
       return {
         kind: 'reply',
-        text: `已在 ${current.identifier} 添加跟进评论：\n${plan.content}`
-          + (link ? `\n查看：${link}` : ''),
-        issue: decoratedIssue,
+        text: `已在 ${current.identifier} 添加跟进评论：\n${plan.content}`,
+        issue: result.issue,
       };
     }
     throw new Error(`Unsupported Multica mutation: ${plan.action}`);

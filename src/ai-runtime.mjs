@@ -70,7 +70,7 @@ function defaultCandidates({
     ],
     // TRAE's desktop launcher has a `chat` command, but it opens the GUI and
     // does not return an answer to a background caller. Do not report it as a
-    // usable James runtime until a stable headless binary is available.
+    // usable AIPRO runtime until a stable headless binary is available.
     trae: [
       ...pathCandidates(['trae-cli'], pathEnv),
       join(homeDir, '.local', 'bin', 'trae-cli'),
@@ -147,7 +147,7 @@ export function buildAiRuntimeInvocation(runtime, {
   if (!cwd) throw new Error('AI runtime working directory is required');
   const safeImages = Array.isArray(images) ? images.filter(Boolean) : [];
   if (safeImages.length && !runtime.supportsImages) {
-    throw new Error(`${runtime.label} does not support image attachments in James`);
+    throw new Error(`${runtime.label} does not support image attachments in AIPRO`);
   }
   if (runtime.id === 'codex') {
     const args = [
@@ -185,7 +185,7 @@ export function buildAiRuntimeInvocation(runtime, {
     if (model) args.push('--model', model);
     return { command: runtime.path, args };
   }
-  throw new Error(`${runtime.label} does not have a safe James headless adapter`);
+  throw new Error(`${runtime.label} does not have a safe AIPRO headless adapter`);
 }
 
 export class AiRuntimeClient {

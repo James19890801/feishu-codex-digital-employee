@@ -43,7 +43,7 @@ with sync_playwright() as playwright:
     expect(page.locator('[data-channel-fields="wechat"]')).to_be_visible()
     expect(page.locator("#channelWechatCallback")).to_be_visible()
     expect(page.locator("#channelWechatCredential")).to_have_attribute("type", "password")
-    page.screenshot(path="/tmp/james-im-channel-config.png", full_page=True)
+    page.screenshot(path="/tmp/aipro-im-channel-config.png", full_page=True)
     page.locator("#channelDialogClose").click()
 
     assert not console_errors, f"browser console errors: {console_errors}"

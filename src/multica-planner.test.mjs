@@ -39,29 +39,6 @@ assert.equal(create.workspaceId, 'ws-2');
 assert.equal(create.confirmationLevel, 'single');
 assert.equal(create.fields.priority, 'high');
 
-const createWithTemplatePlaceholders = normalizeMulticaPlan({
-  summary: 'Create from a planner template',
-  action: 'create',
-  workspaceId: 'ws-1',
-  fields: {
-    title: 'Research human-AI organization design',
-    description: '',
-    status: '',
-    priority: '',
-    assignee: '',
-    assigneeId: '',
-    project: '',
-    parent: '',
-    dueDate: '',
-    startDate: '',
-  },
-}, context);
-assert.deepEqual(createWithTemplatePlaceholders.fields, {
-  title: 'Research human-AI organization design',
-  status: 'todo',
-  priority: 'none',
-});
-
 const update = normalizeMulticaPlan({
   summary: 'Block the issue',
   action: 'update',
@@ -73,21 +50,6 @@ const update = normalizeMulticaPlan({
 }, context);
 assert.equal(update.confirmationLevel, 'single');
 assert.deepEqual(update.fields, { status: 'blocked', priority: 'urgent' });
-
-const updateWithTemplatePlaceholders = normalizeMulticaPlan({
-  summary: 'Rename without placeholder mutations',
-  action: 'update',
-  issue: 'MYS-2',
-  fields: {
-    title: 'Renamed issue',
-    status: '',
-    priority: '',
-    assignee: '',
-    project: '',
-    dueDate: '',
-  },
-}, context);
-assert.deepEqual(updateWithTemplatePlaceholders.fields, { title: 'Renamed issue' });
 
 const cancel = normalizeMulticaPlan({
   summary: 'Cancel the issue',
