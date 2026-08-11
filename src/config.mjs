@@ -8,6 +8,7 @@ import {
 } from './runtime-mode.mjs';
 import { normalizeOperatorProfile } from './operator-profile.mjs';
 import { normalizeCommunicationBlocklist } from './communication-blocklist.mjs';
+import { normalizeResponseMentionAliases } from './response-obligation.mjs';
 
 const srcDir = dirname(fileURLToPath(import.meta.url));
 const workdir = resolve(srcDir, '..');
@@ -78,6 +79,10 @@ export const config = {
   rateLimitMaxMessages: boundedInteger(raw.rateLimitMaxMessages, {
     name: 'rateLimitMaxMessages', fallback: 60, min: 1, max: 100,
   }),
+  responseMentionAliases: normalizeResponseMentionAliases(
+    raw.responseMentionAliases,
+    [operatorProfile.brandName, 'James', '詹老师', '数字人', 'AIPR0S'],
+  ),
   webReaderEnabled: raw.webReaderEnabled !== false,
   webReaderMaxUrls: boundedInteger(raw.webReaderMaxUrls, {
     name: 'webReaderMaxUrls', fallback: 2, min: 1, max: 3,

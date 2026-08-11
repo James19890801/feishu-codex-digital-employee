@@ -25,6 +25,7 @@
   "helperTimeoutMs": 30000,
   "rateLimitWindowMs": 300000,
   "rateLimitMaxMessages": 60,
+  "responseMentionAliases": ["James", "詹老师", "数字人", "AIPR0S"],
   "webReaderEnabled": true,
   "webReaderMaxUrls": 2,
   "audioTranscriptionCommand": "",
