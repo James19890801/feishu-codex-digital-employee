@@ -5,29 +5,28 @@ const L3_PATTERNS = [
   /(?:密码|验证码|私钥|身份证号)/,
   /(?:冒充|假装是|不要让.{0,8}知道是AI|分不清.{0,8}真人)/i,
   /(?:删除|清空).{0,10}(?:全部|重要|数据|文件|记录)/,
+  /(?:替|代替|代表).{0,20}(?:决定|拍板|批准|同意|选择|表态)/i,
+  /(?:决定|拍板|批准|同意|选择|表态).{0,20}(?:替|代替|代表)/i,
+  /(?:原文|逐字|完整|全部).{0,16}(?:桌面|本机|文件|资料|聊天记录|通讯录|客户名单|隐私|敏感数据).{0,12}(?:发|给|转发|公开|提供|导出)/,
+  /(?:发|给|转发|公开|提供|导出).{0,16}(?:桌面|本机|文件|资料|聊天记录|通讯录|客户名单|隐私|敏感数据).{0,12}(?:原文|逐字|完整|全部)/,
+  /(?:桌面|本机|聊天记录|通讯录|客户名单|隐私|敏感数据).{0,20}(?:原文|逐字|完整|全部).{0,12}(?:发|给|转发|公开|提供|导出)/,
 ];
 
 const L2_PATTERNS = [
   /(?:发给|发送给|转发给|回复给).{0,30}(?:老师|领导|客户|同事|群|邮箱)/,
   /(?:发布|投稿|提交|报名|申请|答复邀约)/,
   /(?:创建|新建|修改|取消).{0,8}(?:待办|任务|日程|会议|群聊|权限)/,
-  /(?:创建|新建).{0,20}(?:multica|issue|问题单)/i,
-  /(?:更新|修改|评论|备注|跟进|取消).{0,12}(?:[A-Z][A-Z0-9]{0,15}-\d+|multica|issue|问题单)/i,
-  /(?:[A-Z][A-Z0-9]{0,15}-\d+).{0,12}(?:更新|修改|评论|备注|跟进|取消)/i,
-  /(?:创建|新建|更新|修改|评论|备注|跟进|取消).{0,18}(?:A1|1A|工作项|研发需求|研发缺陷)/i,
-  /(?:A1|1A|工作项|研发需求|研发缺陷).{0,18}(?:创建|新建|更新|修改|评论|备注|跟进|取消)/i,
   /(?:代表我|以我的名义|替我承诺)/,
 ];
 
 export function classifyIntent(text = '', context = {}) {
   if (context.hasImages) return 'image_understanding';
   if (context.hasFile) return 'file_understanding';
-  if (/\bmultica\b|\bissue\b|[A-Za-z][A-Za-z0-9]{0,15}-\d+\b|问题单/i.test(text)) {
-    return 'multica_issue';
+  if (/(?:需求|工作项|需求池).{0,20}(?:创建|新建|更新|修改|补充|进展|进度|状态|查询|查看)|(?:创建|新建|更新|修改|补充|查询|查看).{0,20}(?:需求|工作项|需求池)|\b\d{6,12}\b.{0,20}(?:需求|工作项|进展|进度|状态)/i.test(text)) {
+    return 'a1_requirement';
   }
-  if (/\bA1\b|\b1A\b|工作项|研发需求|研发缺陷/i.test(text)) {
-    return 'a1_workitem';
-  }
+  if (/(?:发邮件|回复第\s*\d+\s*封|回复全部第\s*\d+\s*封|转发第\s*\d+\s*封)/u.test(text)) return 'mail_write';
+  if (/(?:邮件|收件箱|已发送)/u.test(text)) return 'mail_read';
   if (/(待办|任务|提醒)/.test(text)) return 'task';
   if (/(日程|日历|安排|会议时间)/.test(text)) return 'calendar';
   if (/(报告|方案|对比|总结).{0,12}(?:生成|制作|输出|整理|发回)|(?:生成|制作|输出|整理).{0,12}(?:报告|方案|对比|总结)/.test(text)) return 'artifact';
@@ -42,6 +41,9 @@ export function decideWorkflow(text = '', context = {}) {
   }
   if (L2_PATTERNS.some(pattern => pattern.test(text))) {
     return { intent, level: 'L2', action: 'preview_confirm', reason: '会影响外部对象或真实工作状态' };
+  }
+  if (intent === 'mail_write') {
+    return { intent, level: 'L2', action: 'preview_confirm', reason: '邮件写入会影响外部收件人' };
   }
   if (intent === 'artifact') {
     return { intent, level: 'L1', action: 'execute_report', reason: '当前会话明确要求低风险交付物' };

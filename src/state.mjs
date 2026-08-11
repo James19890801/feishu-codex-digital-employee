@@ -1,6 +1,9 @@
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { normalizeMemoryCandidate } from './memory-policy.mjs';
+import { compareSemanticTopics, semanticTopic } from './semantic-repeat-guard.mjs';
 
 function parseStoredPayload(value) {
   try {
@@ -8,6 +11,15 @@ function parseStoredPayload(value) {
   } catch {
     return { payload: null, payloadParseError: true };
   }
+}
+
+function outboundContentHash(content) {
+  return createHash('sha256').update(String(content || '')).digest('hex');
+}
+
+function outboundEchoContentHash(content) {
+  const normalized = String(content || '').replace(/\s+/gu, ' ').trim();
+  return outboundContentHash(normalized);
 }
 
 export class AgentState {
@@ -28,6 +40,42 @@ export class AgentState {
         scope TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
         updated_at TEXT NOT NULL, PRIMARY KEY(scope, key)
       );
+      CREATE TABLE IF NOT EXISTS identity_tombstone (
+        term TEXT PRIMARY KEY,
+        reason TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS memory_item (
+        memory_id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        content TEXT NOT NULL,
+        source_refs TEXT NOT NULL,
+        confidence TEXT NOT NULL,
+        valid_from TEXT NOT NULL DEFAULT '',
+        valid_until TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS memory_item_active
+        ON memory_item(status, kind, updated_at DESC);
+      CREATE TABLE IF NOT EXISTS knowledge_source (
+        source_id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        locator TEXT NOT NULL,
+        owner_id TEXT NOT NULL DEFAULT '',
+        reader_ids TEXT NOT NULL DEFAULT '[]',
+        sensitivity TEXT NOT NULL DEFAULT 'internal',
+        status TEXT NOT NULL DEFAULT 'active',
+        freshness_at TEXT NOT NULL DEFAULT '',
+        summary TEXT NOT NULL DEFAULT '',
+        exclusion_reason TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS knowledge_source_active
+        ON knowledge_source(status, type, updated_at DESC);
       CREATE TABLE IF NOT EXISTS audit (
         id INTEGER PRIMARY KEY, event TEXT NOT NULL, chat_id TEXT,
         sender_id TEXT, message_id TEXT, detail TEXT NOT NULL,
@@ -53,6 +101,80 @@ export class AgentState {
         count INTEGER NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS semantic_repeat_guard (
+        channel TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        topic TEXT NOT NULL,
+        reply_count INTEGER NOT NULL DEFAULT 1,
+        suppressed_count INTEGER NOT NULL DEFAULT 0,
+        first_seen_ms INTEGER NOT NULL,
+        last_seen_ms INTEGER NOT NULL,
+        expires_at_ms INTEGER NOT NULL,
+        last_action TEXT NOT NULL DEFAULT 'process',
+        last_similarity REAL NOT NULL DEFAULT 0,
+        last_message_id TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY(channel, chat_id, sender_id)
+      );
+      CREATE INDEX IF NOT EXISTS semantic_repeat_expiry
+        ON semantic_repeat_guard(expires_at_ms);
+      CREATE TABLE IF NOT EXISTS outbound_reply_guard (
+        id INTEGER PRIMARY KEY,
+        chat_id TEXT NOT NULL,
+        audience_key TEXT NOT NULL DEFAULT '',
+        reply_signature TEXT NOT NULL,
+        topic TEXT NOT NULL DEFAULT '{}',
+        created_at_ms INTEGER NOT NULL,
+        expires_at_ms INTEGER NOT NULL,
+        UNIQUE(chat_id, audience_key, reply_signature)
+      );
+      CREATE INDEX IF NOT EXISTS outbound_reply_guard_expiry
+        ON outbound_reply_guard(expires_at_ms);
+      CREATE TABLE IF NOT EXISTS outbound_echo (
+        id INTEGER PRIMARY KEY,
+        chat_id TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        message_id TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS outbound_echo_lookup
+        ON outbound_echo(chat_id, content_hash, expires_at);
+      CREATE INDEX IF NOT EXISTS outbound_echo_message
+        ON outbound_echo(message_id, expires_at);
+      CREATE TABLE IF NOT EXISTS a1_workitem_cache (
+        workitem_id TEXT PRIMARY KEY,
+        snapshot TEXT NOT NULL,
+        seen_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS a1_workitem_subscription (
+        workitem_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        chat_type TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        PRIMARY KEY(workitem_id, chat_id, sender_id)
+      );
+      CREATE INDEX IF NOT EXISTS a1_subscription_workitem
+        ON a1_workitem_subscription(workitem_id, created_at);
+      CREATE TABLE IF NOT EXISTS a1_notification_outbox (
+        notification_key TEXT PRIMARY KEY,
+        workitem_id TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        chat_type TEXT NOT NULL DEFAULT '',
+        content TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        available_at TEXT NOT NULL,
+        last_error TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        dead_at TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS a1_notification_due
+        ON a1_notification_outbox(status, available_at, created_at);
       CREATE TABLE IF NOT EXISTS multica_issue_cache (
         issue_id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL,
@@ -67,12 +189,14 @@ export class AgentState {
         issue_id TEXT NOT NULL,
         chat_id TEXT NOT NULL,
         sender_id TEXT NOT NULL,
+        chat_type TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         PRIMARY KEY(issue_id, chat_id, sender_id)
       );
       CREATE TABLE IF NOT EXISTS multica_global_subscription (
         chat_id TEXT NOT NULL,
         sender_id TEXT NOT NULL,
+        chat_type TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         PRIMARY KEY(chat_id, sender_id)
       );
@@ -81,6 +205,7 @@ export class AgentState {
         issue_id TEXT NOT NULL,
         chat_id TEXT NOT NULL,
         sender_id TEXT NOT NULL,
+        chat_type TEXT NOT NULL DEFAULT '',
         content TEXT NOT NULL,
         attempts INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'pending',
@@ -92,36 +217,19 @@ export class AgentState {
       );
       CREATE INDEX IF NOT EXISTS multica_notification_due
         ON multica_notification_outbox(available_at, created_at);
-      CREATE TABLE IF NOT EXISTS a1_workitem_cache (
-        workitem_id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        snapshot TEXT NOT NULL,
-        workitem_updated_at TEXT NOT NULL,
-        seen_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS a1_workitem_cache_project
-        ON a1_workitem_cache(project_id, workitem_updated_at DESC);
-      CREATE TABLE IF NOT EXISTS a1_workitem_subscription (
-        workitem_id TEXT NOT NULL,
-        chat_id TEXT NOT NULL,
-        sender_id TEXT NOT NULL,
+      CREATE TABLE IF NOT EXISTS multica_feedback_registration (
+        registration_key TEXT PRIMARY KEY,
+        issue_id TEXT NOT NULL,
+        issue_snapshot TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        PRIMARY KEY(workitem_id, chat_id, sender_id)
+        updated_at TEXT NOT NULL
       );
-      CREATE TABLE IF NOT EXISTS a1_project_subscription (
-        project_id TEXT NOT NULL,
-        chat_id TEXT NOT NULL,
-        sender_id TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        PRIMARY KEY(project_id, chat_id, sender_id)
-      );
-      CREATE TABLE IF NOT EXISTS a1_notification_outbox (
-        notification_key TEXT PRIMARY KEY,
-        workitem_id TEXT NOT NULL,
-        chat_id TEXT NOT NULL,
-        sender_id TEXT NOT NULL,
-        content TEXT NOT NULL,
+      CREATE INDEX IF NOT EXISTS multica_feedback_issue
+        ON multica_feedback_registration(issue_id);
+      CREATE TABLE IF NOT EXISTS multica_dispatch_outbox (
+        issue_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        assignee TEXT NOT NULL,
         attempts INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'pending',
         available_at TEXT NOT NULL,
@@ -130,8 +238,8 @@ export class AgentState {
         updated_at TEXT NOT NULL,
         dead_at TEXT NOT NULL DEFAULT ''
       );
-      CREATE INDEX IF NOT EXISTS a1_notification_due
-        ON a1_notification_outbox(status, available_at, created_at);
+      CREATE INDEX IF NOT EXISTS multica_dispatch_due
+        ON multica_dispatch_outbox(status, available_at, created_at);
       CREATE TABLE IF NOT EXISTS mutation_execution (
         execution_key TEXT PRIMARY KEY,
         kind TEXT NOT NULL,
@@ -156,6 +264,61 @@ export class AgentState {
     if (!notificationColumns.has('dead_at')) {
       this.db.exec(`ALTER TABLE multica_notification_outbox
         ADD COLUMN dead_at TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!notificationColumns.has('chat_type')) {
+      this.db.exec(`ALTER TABLE multica_notification_outbox
+        ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''`);
+    }
+    const issueSubscriptionColumns = new Set(
+      this.db.prepare('PRAGMA table_info(multica_issue_subscription)')
+        .all()
+        .map(row => row.name),
+    );
+    if (!issueSubscriptionColumns.has('chat_type')) {
+      this.db.exec(`ALTER TABLE multica_issue_subscription
+        ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''`);
+    }
+    const globalSubscriptionColumns = new Set(
+      this.db.prepare('PRAGMA table_info(multica_global_subscription)')
+        .all()
+        .map(row => row.name),
+    );
+    if (!globalSubscriptionColumns.has('chat_type')) {
+      this.db.exec(`ALTER TABLE multica_global_subscription
+        ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''`);
+    }
+    const a1CacheColumns = new Set(
+      this.db.prepare('PRAGMA table_info(a1_workitem_cache)').all().map(row => row.name),
+    );
+    if (!a1CacheColumns.has('project_id')) {
+      this.db.exec(`ALTER TABLE a1_workitem_cache
+        ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!a1CacheColumns.has('title')) {
+      this.db.exec(`ALTER TABLE a1_workitem_cache
+        ADD COLUMN title TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!a1CacheColumns.has('workitem_updated_at')) {
+      this.db.exec(`ALTER TABLE a1_workitem_cache
+        ADD COLUMN workitem_updated_at TEXT NOT NULL DEFAULT ''`);
+    }
+    const a1SubscriptionColumns = new Set(
+      this.db.prepare('PRAGMA table_info(a1_workitem_subscription)').all().map(row => row.name),
+    );
+    if (!a1SubscriptionColumns.has('project_id')) {
+      this.db.exec(`ALTER TABLE a1_workitem_subscription
+        ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`);
+    }
+    if (!a1SubscriptionColumns.has('chat_type')) {
+      this.db.exec(`ALTER TABLE a1_workitem_subscription
+        ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''`);
+    }
+    const a1OutboxColumns = new Set(
+      this.db.prepare('PRAGMA table_info(a1_notification_outbox)').all().map(row => row.name),
+    );
+    if (!a1OutboxColumns.has('chat_type')) {
+      this.db.exec(`ALTER TABLE a1_notification_outbox
+        ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''`);
     }
   }
 
@@ -188,6 +351,235 @@ export class AgentState {
 
   unset(scope, key) {
     this.db.prepare('DELETE FROM settings WHERE scope = ? AND key = ?').run(scope, key);
+  }
+
+  registerA1Subscription({
+    workitemId, projectId, chatId, senderId = '', chatType = '', snapshot = null,
+  }) {
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT INTO a1_workitem_subscription
+      (workitem_id, project_id, chat_id, sender_id, chat_type, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(workitem_id, chat_id, sender_id) DO UPDATE SET
+        project_id=excluded.project_id, chat_type=excluded.chat_type`)
+      .run(String(workitemId), String(projectId), String(chatId), String(senderId), String(chatType), now);
+    if (snapshot) this.cacheA1Workitem(snapshot);
+  }
+
+  a1WorkitemIds() {
+    return this.db.prepare(`SELECT DISTINCT workitem_id
+      FROM a1_workitem_subscription ORDER BY workitem_id`).all().map(row => row.workitem_id);
+  }
+
+  a1Subscribers(workitemId) {
+    return this.db.prepare(`SELECT chat_id, sender_id, chat_type
+      FROM a1_workitem_subscription WHERE workitem_id = ? ORDER BY created_at, chat_id`)
+      .all(String(workitemId)).map(row => ({
+        chatId: row.chat_id,
+        senderId: row.sender_id,
+        chatType: row.chat_type,
+      }));
+  }
+
+  getA1WorkitemSnapshot(workitemId) {
+    const row = this.db.prepare('SELECT snapshot FROM a1_workitem_cache WHERE workitem_id = ?')
+      .get(String(workitemId));
+    if (!row) return null;
+    try { return JSON.parse(row.snapshot); } catch { return null; }
+  }
+
+  cacheA1Workitem(snapshot) {
+    const workitemId = String(snapshot?.id || '');
+    if (!workitemId) throw new Error('A1 workitem snapshot id is required');
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT INTO a1_workitem_cache
+      (workitem_id, project_id, title, snapshot, workitem_updated_at, seen_at)
+      VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(workitem_id) DO UPDATE SET
+        project_id=excluded.project_id, title=excluded.title, snapshot=excluded.snapshot,
+        workitem_updated_at=excluded.workitem_updated_at, seen_at=excluded.seen_at`)
+      .run(
+        workitemId,
+        String(snapshot?.projectId || ''),
+        String(snapshot?.title || ''),
+        JSON.stringify(snapshot),
+        String(snapshot?.updatedAt || ''),
+        now,
+      );
+  }
+
+  enqueueA1Notification({
+    notificationKey, workitemId, chatId, senderId = '', chatType = '', content,
+    availableAt = new Date().toISOString(),
+  }) {
+    const now = new Date().toISOString();
+    return this.db.prepare(`INSERT OR IGNORE INTO a1_notification_outbox
+      (notification_key, workitem_id, chat_id, sender_id, chat_type, content,
+       attempts, status, available_at, last_error, created_at, updated_at, dead_at)
+      VALUES (?, ?, ?, ?, ?, ?, 0, 'pending', ?, '', ?, ?, '')`)
+      .run(notificationKey, String(workitemId), String(chatId), String(senderId),
+        String(chatType), String(content), availableAt, now, now).changes === 1;
+  }
+
+  listDueA1Notifications(now = new Date().toISOString(), limit = 200) {
+    return this.db.prepare(`SELECT notification_key, workitem_id, chat_id, sender_id,
+      chat_type, content, attempts, available_at, last_error
+      FROM a1_notification_outbox WHERE status = 'pending' AND available_at <= ?
+      ORDER BY available_at, created_at LIMIT ?`)
+      .all(now, Math.max(1, Math.min(1000, Number(limit) || 200)))
+      .map(row => ({
+        notificationKey: row.notification_key,
+        workitemId: row.workitem_id,
+        chatId: row.chat_id,
+        senderId: row.sender_id,
+        chatType: row.chat_type,
+        content: row.content,
+        attempts: Number(row.attempts || 0),
+        availableAt: row.available_at,
+        lastError: row.last_error,
+      }));
+  }
+
+  completeA1Notification(notificationKey) {
+    return this.db.prepare('DELETE FROM a1_notification_outbox WHERE notification_key = ?')
+      .run(String(notificationKey)).changes === 1;
+  }
+
+  failA1Notification(notificationKey, error, availableAt, maxAttempts = 10) {
+    const row = this.db.prepare(`SELECT attempts, status FROM a1_notification_outbox
+      WHERE notification_key = ?`).get(String(notificationKey));
+    if (!row || row.status !== 'pending') {
+      return { updated: false, deadLettered: row?.status === 'dead', attempts: Number(row?.attempts || 0) };
+    }
+    const attempts = Number(row.attempts || 0) + 1;
+    const deadLettered = attempts >= Math.max(1, Number(maxAttempts) || 10);
+    const now = new Date().toISOString();
+    const updated = this.db.prepare(`UPDATE a1_notification_outbox SET
+      attempts = ?, status = ?, available_at = ?, last_error = ?, updated_at = ?, dead_at = ?
+      WHERE notification_key = ? AND status = 'pending'`)
+      .run(attempts, deadLettered ? 'dead' : 'pending', String(availableAt),
+        String(error || '').slice(0, 1000), now, deadLettered ? now : '',
+        String(notificationKey)).changes === 1;
+    return { updated, deadLettered: updated && deadLettered, attempts };
+  }
+
+  a1NotificationCount(status = 'pending') {
+    return Number(this.db.prepare(`SELECT COUNT(*) AS count FROM a1_notification_outbox
+      WHERE status = ?`).get(String(status))?.count || 0);
+  }
+
+  upsertMemoryItem(candidate) {
+    const item = normalizeMemoryCandidate(candidate);
+    if (!item.memoryId) throw new Error('memoryId is required');
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT INTO memory_item
+      (memory_id, kind, subject, content, source_refs, confidence,
+       valid_from, valid_until, status, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+      ON CONFLICT(memory_id) DO UPDATE SET
+        kind=excluded.kind, subject=excluded.subject, content=excluded.content,
+        source_refs=excluded.source_refs, confidence=excluded.confidence,
+        valid_from=excluded.valid_from, valid_until=excluded.valid_until,
+        status='active', updated_at=excluded.updated_at`)
+      .run(
+        item.memoryId,
+        item.kind,
+        item.subject,
+        item.content,
+        JSON.stringify(item.sourceRefs),
+        item.confidence,
+        item.validFrom,
+        item.validUntil,
+        now,
+      );
+    return this.getMemoryItem(item.memoryId);
+  }
+
+  getMemoryItem(memoryId) {
+    const row = this.db.prepare('SELECT * FROM memory_item WHERE memory_id = ?').get(memoryId);
+    if (!row) return null;
+    return {
+      memoryId: row.memory_id,
+      kind: row.kind,
+      subject: row.subject,
+      content: row.content,
+      sourceRefs: JSON.parse(row.source_refs),
+      confidence: row.confidence,
+      validFrom: row.valid_from,
+      validUntil: row.valid_until,
+      status: row.status,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  listActiveMemories(query = '', limit = 20) {
+    const needle = `%${String(query || '').trim()}%`;
+    return this.db.prepare(`SELECT memory_id FROM memory_item
+      WHERE status = 'active' AND (subject LIKE ? OR content LIKE ?)
+      ORDER BY updated_at DESC LIMIT ?`)
+      .all(needle, needle, Math.max(1, Math.min(100, Number(limit) || 20)))
+      .map(row => this.getMemoryItem(row.memory_id));
+  }
+
+  forgetMemory(memoryId) {
+    return this.db.prepare(`UPDATE memory_item SET status = 'forgotten', updated_at = ?
+      WHERE memory_id = ? AND status != 'forgotten'`)
+      .run(new Date().toISOString(), memoryId).changes === 1;
+  }
+
+  upsertKnowledgeSource(source = {}) {
+    const sourceId = String(source.sourceId || '').trim();
+    const type = String(source.type || '').trim();
+    const title = String(source.title || '').trim();
+    const locator = String(source.locator || '').trim();
+    if (!sourceId || !type || !title || !locator) throw new Error('Knowledge source is incomplete');
+    if (/\bALT\b/iu.test(`${title}\n${locator}\n${source.summary || ''}`)) {
+      throw new Error('Knowledge source rejected: excluded_scope');
+    }
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT INTO knowledge_source
+      (source_id, type, title, locator, owner_id, reader_ids, sensitivity,
+       status, freshness_at, summary, exclusion_reason, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(source_id) DO UPDATE SET
+        type=excluded.type, title=excluded.title, locator=excluded.locator,
+        owner_id=excluded.owner_id, reader_ids=excluded.reader_ids,
+        sensitivity=excluded.sensitivity, status=excluded.status,
+        freshness_at=excluded.freshness_at, summary=excluded.summary,
+        exclusion_reason=excluded.exclusion_reason, updated_at=excluded.updated_at`)
+      .run(
+        sourceId,
+        type,
+        title,
+        locator,
+        String(source.ownerId || ''),
+        JSON.stringify(Array.isArray(source.readerIds) ? source.readerIds : []),
+        String(source.sensitivity || 'internal'),
+        String(source.status || 'active'),
+        String(source.freshnessAt || ''),
+        String(source.summary || ''),
+        String(source.exclusionReason || ''),
+        now,
+      );
+    return this.getKnowledgeSource(sourceId);
+  }
+
+  getKnowledgeSource(sourceId) {
+    const row = this.db.prepare('SELECT * FROM knowledge_source WHERE source_id = ?').get(sourceId);
+    if (!row) return null;
+    return {
+      sourceId: row.source_id,
+      type: row.type,
+      title: row.title,
+      locator: row.locator,
+      ownerId: row.owner_id,
+      readerIds: JSON.parse(row.reader_ids),
+      sensitivity: row.sensitivity,
+      status: row.status,
+      freshnessAt: row.freshness_at,
+      summary: row.summary,
+      exclusionReason: row.exclusion_reason,
+      updatedAt: row.updated_at,
+    };
   }
 
   audit(event, {
@@ -266,6 +658,12 @@ export class AgentState {
     return Number(result.changes);
   }
 
+  nextInboundAvailableAt() {
+    return this.db.prepare(`SELECT MIN(available_at) AS available_at
+      FROM inbound_message WHERE status IN ('pending', 'failed')`)
+      .get()?.available_at || null;
+  }
+
   listReadyInbound(now = new Date().toISOString(), limit = 20) {
     return this.db.prepare(`SELECT message_id, source, payload, attempts
       FROM inbound_message
@@ -318,6 +716,296 @@ export class AgentState {
       WHERE subject = ? AND window_start_ms = ? AND count < ?`)
       .run(new Date(nowMs).toISOString(), subject, windowStartMs, limit);
     return result.changes === 1;
+  }
+
+  claimSemanticRepeat({
+    channel,
+    chatId,
+    senderId,
+    messageId = '',
+    topic,
+    nowMs = Date.now(),
+    windowMs = 30 * 60_000,
+    maxReplies = 2,
+  } = {}) {
+    const normalizedChannel = String(channel || '').trim();
+    const normalizedChatId = String(chatId || '').trim();
+    const normalizedSenderId = String(senderId || '').trim();
+    if (!normalizedChannel || !normalizedChatId || !normalizedSenderId || !topic?.signature) {
+      throw new Error('Semantic repeat claim requires channel, chat, sender, and topic');
+    }
+    const currentMs = Number(nowMs);
+    const effectiveWindowMs = Math.max(60_000, Number(windowMs) || 30 * 60_000);
+    const effectiveMaxReplies = Math.max(2, Math.min(5, Number(maxReplies) || 2));
+    const expiresAtMs = currentMs + effectiveWindowMs;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const prior = this.db.prepare(`SELECT topic, reply_count, suppressed_count,
+          first_seen_ms, expires_at_ms, last_action, last_similarity, last_message_id
+        FROM semantic_repeat_guard
+        WHERE channel = ? AND chat_id = ? AND sender_id = ?`)
+        .get(normalizedChannel, normalizedChatId, normalizedSenderId);
+      if (messageId && prior?.last_message_id === String(messageId)) {
+        this.db.exec('COMMIT');
+        return {
+          action: prior.last_action,
+          count: Number(prior.reply_count),
+          reset: false,
+          similarity: Number(prior.last_similarity || 0),
+          reason: 'same_inbound_retry',
+          expiresAtMs: Number(prior.expires_at_ms),
+        };
+      }
+      let priorTopic = null;
+      try { priorTopic = prior ? JSON.parse(prior.topic) : null; } catch { priorTopic = null; }
+      const expired = Boolean(prior && Number(prior.expires_at_ms) <= currentMs);
+      const comparison = expired || !priorTopic
+        ? { repeat: false, similarity: 0, reason: expired ? 'expired' : 'first_seen' }
+        : compareSemanticTopics(priorTopic, topic);
+      const reset = Boolean(prior && !comparison.repeat);
+      let action = 'process';
+      let count = 1;
+      let suppressedCount = Number(prior?.suppressed_count || 0);
+      let firstSeenMs = currentMs;
+      if (prior && comparison.repeat) {
+        count = Math.min(effectiveMaxReplies + 1, Number(prior.reply_count || 1) + 1);
+        firstSeenMs = Number(prior.first_seen_ms || currentMs);
+        if (count === effectiveMaxReplies) action = 'close';
+        if (count > effectiveMaxReplies) {
+          action = 'suppress';
+          suppressedCount += 1;
+        }
+      }
+      this.db.prepare(`INSERT INTO semantic_repeat_guard
+        (channel, chat_id, sender_id, topic, reply_count, suppressed_count,
+         first_seen_ms, last_seen_ms, expires_at_ms, last_action, last_similarity, last_message_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(channel, chat_id, sender_id) DO UPDATE SET
+          topic=excluded.topic,
+          reply_count=excluded.reply_count,
+          suppressed_count=excluded.suppressed_count,
+          first_seen_ms=excluded.first_seen_ms,
+          last_seen_ms=excluded.last_seen_ms,
+          expires_at_ms=excluded.expires_at_ms,
+          last_action=excluded.last_action,
+          last_similarity=excluded.last_similarity,
+          last_message_id=excluded.last_message_id`)
+        .run(
+          normalizedChannel,
+          normalizedChatId,
+          normalizedSenderId,
+          JSON.stringify(comparison.repeat && priorTopic ? priorTopic : topic),
+          count,
+          suppressedCount,
+          firstSeenMs,
+          currentMs,
+          expiresAtMs,
+          action,
+          Number(comparison.similarity || 0),
+          String(messageId || ''),
+        );
+      this.db.exec('COMMIT');
+      return {
+        action,
+        count,
+        reset,
+        similarity: Number(comparison.similarity || 0),
+        reason: comparison.reason,
+        expiresAtMs,
+      };
+    } catch (error) {
+      try { this.db.exec('ROLLBACK'); } catch {}
+      throw error;
+    }
+  }
+
+  semanticRepeatStats(nowMs = Date.now()) {
+    const activeTopics = Number(this.db.prepare(`SELECT COUNT(*) AS count
+      FROM semantic_repeat_guard WHERE expires_at_ms > ?`).get(Number(nowMs))?.count || 0);
+    const totalSuppressed = Number(this.db.prepare(`SELECT COALESCE(SUM(suppressed_count), 0) AS count
+      FROM semantic_repeat_guard`).get()?.count || 0);
+    const latest = this.db.prepare(`SELECT channel, chat_id, sender_id, last_seen_ms,
+        reply_count, suppressed_count, last_similarity
+      FROM semantic_repeat_guard WHERE last_action = 'suppress'
+      ORDER BY last_seen_ms DESC LIMIT 1`).get();
+    return {
+      activeTopics,
+      totalSuppressed,
+      latestSuppression: latest ? {
+        channel: latest.channel,
+        chatId: latest.chat_id,
+        senderId: latest.sender_id,
+        at: new Date(Number(latest.last_seen_ms)).toISOString(),
+        count: Number(latest.reply_count),
+        suppressedCount: Number(latest.suppressed_count),
+        similarity: Number(latest.last_similarity),
+      } : null,
+    };
+  }
+
+  claimOutboundReply({
+    chatId,
+    audienceKey = '',
+    content,
+    nowMs = Date.now(),
+    windowMs = 10 * 60_000,
+  } = {}) {
+    const normalizedChatId = String(chatId || '').trim();
+    const normalizedContent = String(content || '').trim();
+    if (!normalizedChatId || !normalizedContent) {
+      throw new Error('Outbound reply claim requires chat and content');
+    }
+    const currentMs = Number(nowMs);
+    const expiresAtMs = currentMs + Math.max(60_000, Number(windowMs) || 10 * 60_000);
+    const topic = semanticTopic(normalizedContent);
+    const signature = topic.signature || outboundContentHash(normalizedContent);
+    const normalizedAudience = String(audienceKey || '').trim().slice(0, 1000);
+    this.db.prepare('DELETE FROM outbound_reply_guard WHERE expires_at_ms <= ?').run(currentMs);
+    const recent = this.db.prepare(`SELECT id, topic, expires_at_ms
+      FROM outbound_reply_guard
+      WHERE chat_id = ? AND audience_key = ? AND expires_at_ms > ?
+      ORDER BY id DESC LIMIT 20`).all(normalizedChatId, normalizedAudience, currentMs);
+    for (const row of recent) {
+      let previousTopic = null;
+      try { previousTopic = JSON.parse(row.topic || '{}'); } catch { previousTopic = null; }
+      if (!previousTopic?.signature) continue;
+      const comparison = compareSemanticTopics(previousTopic, topic);
+      const semanticRepeat = comparison.repeat && (
+        comparison.reason !== 'semantic_similarity' || comparison.similarity >= 0.9
+      );
+      if (semanticRepeat) {
+        return {
+          allowed: false,
+          claimId: 0,
+          expiresAtMs: Number(row.expires_at_ms),
+          similarity: Number(comparison.similarity || 0),
+          reason: comparison.reason,
+        };
+      }
+    }
+    const result = this.db.prepare(`INSERT OR IGNORE INTO outbound_reply_guard
+      (chat_id, audience_key, reply_signature, topic, created_at_ms, expires_at_ms)
+      VALUES (?, ?, ?, ?, ?, ?)`).run(
+      normalizedChatId,
+      normalizedAudience,
+      signature,
+      JSON.stringify(topic),
+      currentMs,
+      expiresAtMs,
+    );
+    if (result.changes === 1) {
+      return { allowed: true, claimId: Number(result.lastInsertRowid), expiresAtMs };
+    }
+    return { allowed: false, claimId: 0, expiresAtMs, similarity: 1, reason: 'exact_signature' };
+  }
+
+  releaseOutboundReplyClaim(claimId) {
+    if (!Number.isInteger(Number(claimId)) || Number(claimId) <= 0) return false;
+    return this.db.prepare('DELETE FROM outbound_reply_guard WHERE id = ?')
+      .run(Number(claimId)).changes === 1;
+  }
+
+  markSelfChat(chatId) {
+    const normalized = String(chatId || '').trim();
+    if (!normalized) return false;
+    this.set('self_chat', normalized, true);
+    return true;
+  }
+
+  isSelfChat(chatId) {
+    const normalized = String(chatId || '').trim();
+    return normalized ? this.get('self_chat', normalized, false) === true : false;
+  }
+
+  claimSelfChatOutbound(chatId, nowMs = Date.now(), {
+    windowMs = 60_000,
+    limit = 3,
+    cooldownMs = 120_000,
+  } = {}) {
+    const normalized = String(chatId || '').trim();
+    if (!normalized) return { allowed: false, tripped: false, openUntilMs: 0 };
+    const circuit = this.get('self_chat_circuit', normalized, null);
+    const openUntilMs = Number(circuit?.openUntilMs || 0);
+    if (openUntilMs > nowMs) {
+      return { allowed: false, tripped: false, openUntilMs };
+    }
+    if (openUntilMs) this.unset('self_chat_circuit', normalized);
+    const allowed = this.consumeRateLimit(
+      `self-chat-outbound:${normalized}`,
+      nowMs,
+      Math.max(1_000, Number(windowMs) || 60_000),
+      Math.max(1, Number(limit) || 3),
+    );
+    if (allowed) return { allowed: true, tripped: false, openUntilMs: 0 };
+    const nextOpenUntilMs = nowMs + Math.max(10_000, Number(cooldownMs) || 120_000);
+    this.set('self_chat_circuit', normalized, {
+      openUntilMs: nextOpenUntilMs,
+      trippedAt: new Date(nowMs).toISOString(),
+    });
+    return { allowed: false, tripped: true, openUntilMs: nextOpenUntilMs };
+  }
+
+  recordOutboundEcho(chatId, content, {
+    messageId = '',
+    now = new Date().toISOString(),
+    ttlMs = 10 * 60_000,
+  } = {}) {
+    const expiresAt = new Date(new Date(now).getTime() + Math.max(5_000, Number(ttlMs) || 120_000))
+      .toISOString();
+    const result = this.db.prepare(`INSERT INTO outbound_echo
+      (chat_id, content_hash, message_id, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?)`).run(
+      String(chatId || ''),
+      outboundEchoContentHash(content),
+      String(messageId || ''),
+      now,
+      expiresAt,
+    );
+    return Number(result.lastInsertRowid);
+  }
+
+  attachOutboundMessageId(id, messageId) {
+    if (!messageId) return false;
+    return this.db.prepare('UPDATE outbound_echo SET message_id = ? WHERE id = ?')
+      .run(String(messageId), Number(id)).changes === 1;
+  }
+
+  cancelOutboundEcho(id) {
+    return this.db.prepare('DELETE FROM outbound_echo WHERE id = ?')
+      .run(Number(id)).changes === 1;
+  }
+
+  hasOutboundEcho(chatId, content, {
+    messageId = '',
+    now = new Date().toISOString(),
+  } = {}) {
+    this.db.prepare('DELETE FROM outbound_echo WHERE expires_at < ?').run(now);
+    const row = messageId
+      ? this.db.prepare(`SELECT id FROM outbound_echo
+          WHERE message_id = ? AND expires_at >= ? ORDER BY id LIMIT 1`)
+        .get(String(messageId), now)
+      : null;
+    return Boolean(row || this.db.prepare(`SELECT id FROM outbound_echo
+      WHERE chat_id = ? AND content_hash = ? AND expires_at >= ?
+      ORDER BY id LIMIT 1`).get(String(chatId || ''), outboundEchoContentHash(content), now));
+  }
+
+  consumeOutboundEcho(chatId, content, {
+    messageId = '',
+    now = new Date().toISOString(),
+  } = {}) {
+    this.db.prepare('DELETE FROM outbound_echo WHERE expires_at < ?').run(now);
+    const row = messageId
+      ? this.db.prepare(`SELECT id FROM outbound_echo
+          WHERE message_id = ? AND expires_at >= ? ORDER BY id LIMIT 1`)
+        .get(String(messageId), now)
+      : null;
+    const matched = row || this.db.prepare(`SELECT id FROM outbound_echo
+      WHERE chat_id = ? AND content_hash = ? AND expires_at >= ?
+      ORDER BY id LIMIT 1`).get(String(chatId || ''), outboundEchoContentHash(content), now);
+    if (!matched) return false;
+    return this.db.prepare('DELETE FROM outbound_echo WHERE id = ?')
+      .run(matched.id).changes === 1;
   }
 
   beginMutationExecution(executionKey, kind, now = new Date().toISOString()) {
@@ -438,10 +1126,15 @@ export class AgentState {
     try { return JSON.parse(row.snapshot); } catch { return null; }
   }
 
-  subscribeMulticaIssue(issueId, chatId, senderId, createdAt = new Date().toISOString()) {
-    this.db.prepare(`INSERT OR IGNORE INTO multica_issue_subscription
-      (issue_id, chat_id, sender_id, created_at) VALUES (?, ?, ?, ?)`)
-      .run(issueId, chatId, senderId || '', createdAt);
+  subscribeMulticaIssue(issueId, chatId, senderId, options = {}) {
+    const legacyCreatedAt = typeof options === 'string' ? options : '';
+    const chatType = typeof options === 'object' ? String(options.chatType || '') : '';
+    const createdAt = legacyCreatedAt || options.createdAt || new Date().toISOString();
+    this.db.prepare(`INSERT INTO multica_issue_subscription
+      (issue_id, chat_id, sender_id, chat_type, created_at) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(issue_id, chat_id, sender_id) DO UPDATE SET
+        chat_type=CASE WHEN excluded.chat_type <> '' THEN excluded.chat_type ELSE chat_type END`)
+      .run(issueId, chatId, senderId || '', chatType, createdAt);
   }
 
   unsubscribeMulticaIssue(issueId, chatId, senderId) {
@@ -451,16 +1144,25 @@ export class AgentState {
   }
 
   multicaIssueSubscribers(issueId) {
-    return this.db.prepare(`SELECT chat_id, sender_id
+    return this.db.prepare(`SELECT chat_id, sender_id, chat_type
       FROM multica_issue_subscription WHERE issue_id = ? ORDER BY created_at, chat_id`)
       .all(issueId)
-      .map(row => ({ chatId: row.chat_id, senderId: row.sender_id }));
+      .map(row => ({
+        chatId: row.chat_id,
+        senderId: row.sender_id,
+        chatType: row.chat_type,
+      }));
   }
 
-  subscribeMulticaGlobal(chatId, senderId, createdAt = new Date().toISOString()) {
-    this.db.prepare(`INSERT OR IGNORE INTO multica_global_subscription
-      (chat_id, sender_id, created_at) VALUES (?, ?, ?)`)
-      .run(chatId, senderId || '', createdAt);
+  subscribeMulticaGlobal(chatId, senderId, options = {}) {
+    const legacyCreatedAt = typeof options === 'string' ? options : '';
+    const chatType = typeof options === 'object' ? String(options.chatType || '') : '';
+    const createdAt = legacyCreatedAt || options.createdAt || new Date().toISOString();
+    this.db.prepare(`INSERT INTO multica_global_subscription
+      (chat_id, sender_id, chat_type, created_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(chat_id, sender_id) DO UPDATE SET
+        chat_type=CASE WHEN excluded.chat_type <> '' THEN excluded.chat_type ELSE chat_type END`)
+      .run(chatId, senderId || '', chatType, createdAt);
   }
 
   unsubscribeMulticaGlobal(chatId, senderId) {
@@ -469,10 +1171,150 @@ export class AgentState {
   }
 
   multicaGlobalSubscribers() {
-    return this.db.prepare(`SELECT chat_id, sender_id
+    return this.db.prepare(`SELECT chat_id, sender_id, chat_type
       FROM multica_global_subscription ORDER BY created_at, chat_id`)
       .all()
-      .map(row => ({ chatId: row.chat_id, senderId: row.sender_id }));
+      .map(row => ({
+        chatId: row.chat_id,
+        senderId: row.sender_id,
+        chatType: row.chat_type,
+      }));
+  }
+
+  bindMulticaFeedbackRegistration({
+    registrationKey,
+    issue,
+    createdAt = new Date().toISOString(),
+  }) {
+    if (!registrationKey || !issue?.id || !issue?.workspace_id || !issue?.identifier) {
+      throw new Error('Multica feedback registration requires a key and complete issue');
+    }
+    const result = this.db.prepare(`INSERT OR IGNORE INTO multica_feedback_registration
+      (registration_key, issue_id, issue_snapshot, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)`).run(
+      String(registrationKey),
+      String(issue.id),
+      JSON.stringify(structuredClone(issue)),
+      createdAt,
+      createdAt,
+    );
+    return result.changes === 1;
+  }
+
+  getMulticaFeedbackRegistration(registrationKey) {
+    const row = this.db.prepare(`SELECT registration_key, issue_snapshot, created_at, updated_at
+      FROM multica_feedback_registration WHERE registration_key = ?`)
+      .get(String(registrationKey || ''));
+    if (!row) return null;
+    let issue = null;
+    try { issue = JSON.parse(row.issue_snapshot); } catch { return null; }
+    return {
+      registrationKey: row.registration_key,
+      issue,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  enqueueMulticaDispatch({
+    issueId,
+    workspaceId,
+    assignee,
+    availableAt = new Date().toISOString(),
+  }) {
+    const now = new Date().toISOString();
+    const result = this.db.prepare(`INSERT OR IGNORE INTO multica_dispatch_outbox
+      (issue_id, workspace_id, assignee, attempts, status, available_at,
+       last_error, created_at, updated_at, dead_at)
+      VALUES (?, ?, ?, 0, 'pending', ?, '', ?, ?, '')`).run(
+      String(issueId || ''),
+      String(workspaceId || ''),
+      String(assignee || ''),
+      availableAt,
+      now,
+      now,
+    );
+    return result.changes === 1;
+  }
+
+  listDueMulticaDispatches(now = new Date().toISOString(), limit = 100) {
+    return this.db.prepare(`SELECT issue_id, workspace_id, assignee, attempts,
+      available_at, last_error FROM multica_dispatch_outbox
+      WHERE status = 'pending' AND available_at <= ?
+      ORDER BY available_at, created_at LIMIT ?`)
+      .all(now, Math.max(1, Math.min(1000, Number(limit) || 100)))
+      .map(row => ({
+        issueId: row.issue_id,
+        workspaceId: row.workspace_id,
+        assignee: row.assignee,
+        attempts: Number(row.attempts || 0),
+        availableAt: row.available_at,
+        lastError: row.last_error,
+      }));
+  }
+
+  completeMulticaDispatch(issueId) {
+    return this.db.prepare(`UPDATE multica_dispatch_outbox
+      SET status = 'completed', last_error = '', updated_at = ?, dead_at = ''
+      WHERE issue_id = ? AND status = 'pending'`)
+      .run(new Date().toISOString(), String(issueId || '')).changes === 1;
+  }
+
+  getMulticaDispatch(issueId) {
+    const row = this.db.prepare(`SELECT issue_id, workspace_id, assignee, attempts,
+      status, available_at, last_error, created_at, updated_at, dead_at
+      FROM multica_dispatch_outbox WHERE issue_id = ?`).get(String(issueId || ''));
+    if (!row) return null;
+    return {
+      issueId: row.issue_id,
+      workspaceId: row.workspace_id,
+      assignee: row.assignee,
+      attempts: Number(row.attempts || 0),
+      status: row.status,
+      availableAt: row.available_at,
+      lastError: row.last_error,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      deadAt: row.dead_at,
+    };
+  }
+
+  failMulticaDispatch(issueId, error, availableAt, maxAttempts = 10) {
+    const row = this.db.prepare(`SELECT attempts, status FROM multica_dispatch_outbox
+      WHERE issue_id = ?`).get(String(issueId || ''));
+    if (!row || row.status !== 'pending') {
+      return {
+        updated: false,
+        deadLettered: row?.status === 'dead',
+        attempts: Number(row?.attempts || 0),
+      };
+    }
+    const attempts = Number(row.attempts || 0) + 1;
+    const deadLettered = attempts >= Math.max(1, Number(maxAttempts) || 10);
+    const updatedAt = new Date().toISOString();
+    const updated = this.db.prepare(`UPDATE multica_dispatch_outbox
+      SET attempts = ?, status = ?, available_at = ?, last_error = ?,
+          updated_at = ?, dead_at = ?
+      WHERE issue_id = ? AND status = 'pending'`).run(
+      attempts,
+      deadLettered ? 'dead' : 'pending',
+      availableAt,
+      String(error || '').slice(0, 1000),
+      updatedAt,
+      deadLettered ? updatedAt : '',
+      String(issueId || ''),
+    ).changes === 1;
+    return { updated, deadLettered: updated && deadLettered, attempts };
+  }
+
+  multicaDispatchPendingCount() {
+    return Number(this.db.prepare(`SELECT COUNT(*) AS count FROM multica_dispatch_outbox
+      WHERE status = 'pending'`).get()?.count || 0);
+  }
+
+  multicaDispatchDeadCount() {
+    return Number(this.db.prepare(`SELECT COUNT(*) AS count FROM multica_dispatch_outbox
+      WHERE status = 'dead'`).get()?.count || 0);
   }
 
   enqueueMulticaNotification({
@@ -480,20 +1322,21 @@ export class AgentState {
     issueId,
     chatId,
     senderId = '',
+    chatType = '',
     content,
     availableAt = new Date().toISOString(),
   }) {
     const now = new Date().toISOString();
     const result = this.db.prepare(`INSERT OR IGNORE INTO multica_notification_outbox
-      (notification_key, issue_id, chat_id, sender_id, content, attempts,
+      (notification_key, issue_id, chat_id, sender_id, chat_type, content, attempts,
        status, available_at, last_error, created_at, updated_at, dead_at)
-      VALUES (?, ?, ?, ?, ?, 0, 'pending', ?, '', ?, ?, '')`)
-      .run(notificationKey, issueId, chatId, senderId, content, availableAt, now, now);
+      VALUES (?, ?, ?, ?, ?, ?, 0, 'pending', ?, '', ?, ?, '')`)
+      .run(notificationKey, issueId, chatId, senderId, chatType, content, availableAt, now, now);
     return result.changes === 1;
   }
 
   listDueMulticaNotifications(now = new Date().toISOString(), limit = 200) {
-    return this.db.prepare(`SELECT notification_key, issue_id, chat_id, sender_id,
+    return this.db.prepare(`SELECT notification_key, issue_id, chat_id, sender_id, chat_type,
       content, attempts, available_at, last_error
       FROM multica_notification_outbox
       WHERE status = 'pending' AND available_at <= ?
@@ -505,6 +1348,7 @@ export class AgentState {
         issueId: row.issue_id,
         chatId: row.chat_id,
         senderId: row.sender_id,
+        chatType: row.chat_type,
         content: row.content,
         attempts: Number(row.attempts || 0),
         availableAt: row.available_at,
@@ -557,196 +1401,6 @@ export class AgentState {
     ).get()?.count || 0);
   }
 
-  upsertA1Workitem(workitem, seenAt = new Date().toISOString()) {
-    if (!workitem?.id || !workitem?.projectId || !workitem?.title) {
-      throw new Error('A1 workitem cache requires id, projectId, and title');
-    }
-    const normalized = structuredClone(workitem);
-    const priorRow = this.db.prepare(
-      'SELECT snapshot FROM a1_workitem_cache WHERE workitem_id = ?',
-    ).get(String(workitem.id));
-    let before = null;
-    try {
-      before = priorRow ? JSON.parse(priorRow.snapshot) : null;
-    } catch {
-      before = null;
-    }
-    const trackedFields = [
-      'title',
-      'description',
-      'status',
-      'assignee',
-      'category',
-      'type',
-      'projectId',
-      'projectName',
-    ];
-    const changedFields = before
-      ? trackedFields.filter(key => JSON.stringify(before[key] ?? null)
-        !== JSON.stringify(normalized[key] ?? null))
-      : [];
-    this.db.prepare(`INSERT INTO a1_workitem_cache
-      (workitem_id, project_id, title, snapshot, workitem_updated_at, seen_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(workitem_id) DO UPDATE SET
-        project_id=excluded.project_id,
-        title=excluded.title,
-        snapshot=excluded.snapshot,
-        workitem_updated_at=excluded.workitem_updated_at,
-        seen_at=excluded.seen_at`)
-      .run(
-        String(workitem.id),
-        String(workitem.projectId),
-        String(workitem.title),
-        JSON.stringify(normalized),
-        String(workitem.updatedAt || ''),
-        seenAt,
-      );
-    return {
-      isNew: !before,
-      changedFields,
-      before,
-      after: normalized,
-    };
-  }
-
-  getA1Workitem(workitemId) {
-    const row = this.db.prepare(
-      'SELECT snapshot FROM a1_workitem_cache WHERE workitem_id = ?',
-    ).get(String(workitemId));
-    if (!row) return null;
-    try { return JSON.parse(row.snapshot); } catch { return null; }
-  }
-
-  subscribeA1Workitem(workitemId, chatId, senderId, createdAt = new Date().toISOString()) {
-    this.db.prepare(`INSERT OR IGNORE INTO a1_workitem_subscription
-      (workitem_id, chat_id, sender_id, created_at) VALUES (?, ?, ?, ?)`)
-      .run(String(workitemId), chatId, senderId || '', createdAt);
-  }
-
-  unsubscribeA1Workitem(workitemId, chatId, senderId) {
-    this.db.prepare(`DELETE FROM a1_workitem_subscription
-      WHERE workitem_id = ? AND chat_id = ? AND sender_id = ?`)
-      .run(String(workitemId), chatId, senderId || '');
-  }
-
-  a1WorkitemSubscribers(workitemId) {
-    return this.db.prepare(`SELECT chat_id, sender_id
-      FROM a1_workitem_subscription WHERE workitem_id = ? ORDER BY created_at, chat_id`)
-      .all(String(workitemId))
-      .map(row => ({ chatId: row.chat_id, senderId: row.sender_id }));
-  }
-
-  a1SubscribedWorkitemIds() {
-    return this.db.prepare(`SELECT DISTINCT workitem_id
-      FROM a1_workitem_subscription ORDER BY workitem_id`)
-      .all()
-      .map(row => row.workitem_id);
-  }
-
-  subscribeA1Project(projectId, chatId, senderId, createdAt = new Date().toISOString()) {
-    this.db.prepare(`INSERT OR IGNORE INTO a1_project_subscription
-      (project_id, chat_id, sender_id, created_at) VALUES (?, ?, ?, ?)`)
-      .run(String(projectId), chatId, senderId || '', createdAt);
-  }
-
-  unsubscribeA1Project(projectId, chatId, senderId) {
-    this.db.prepare(`DELETE FROM a1_project_subscription
-      WHERE project_id = ? AND chat_id = ? AND sender_id = ?`)
-      .run(String(projectId), chatId, senderId || '');
-  }
-
-  a1ProjectSubscribers(projectId) {
-    return this.db.prepare(`SELECT chat_id, sender_id
-      FROM a1_project_subscription WHERE project_id = ? ORDER BY created_at, chat_id`)
-      .all(String(projectId))
-      .map(row => ({ chatId: row.chat_id, senderId: row.sender_id }));
-  }
-
-  enqueueA1Notification({
-    notificationKey,
-    workitemId,
-    chatId,
-    senderId = '',
-    content,
-    availableAt = new Date().toISOString(),
-  }) {
-    const now = new Date().toISOString();
-    const result = this.db.prepare(`INSERT OR IGNORE INTO a1_notification_outbox
-      (notification_key, workitem_id, chat_id, sender_id, content, attempts,
-       status, available_at, last_error, created_at, updated_at, dead_at)
-      VALUES (?, ?, ?, ?, ?, 0, 'pending', ?, '', ?, ?, '')`)
-      .run(notificationKey, String(workitemId), chatId, senderId, content, availableAt, now, now);
-    return result.changes === 1;
-  }
-
-  listDueA1Notifications(now = new Date().toISOString(), limit = 200) {
-    return this.db.prepare(`SELECT notification_key, workitem_id, chat_id, sender_id,
-      content, attempts, available_at, last_error
-      FROM a1_notification_outbox
-      WHERE status = 'pending' AND available_at <= ?
-      ORDER BY available_at, created_at
-      LIMIT ?`)
-      .all(now, Math.max(1, Math.min(1000, Number(limit) || 200)))
-      .map(row => ({
-        notificationKey: row.notification_key,
-        workitemId: row.workitem_id,
-        chatId: row.chat_id,
-        senderId: row.sender_id,
-        content: row.content,
-        attempts: Number(row.attempts || 0),
-        availableAt: row.available_at,
-        lastError: row.last_error,
-      }));
-  }
-
-  completeA1Notification(notificationKey) {
-    return this.db.prepare(
-      'DELETE FROM a1_notification_outbox WHERE notification_key = ?',
-    ).run(notificationKey).changes === 1;
-  }
-
-  failA1Notification(notificationKey, error, availableAt, maxAttempts = 10) {
-    const row = this.db.prepare(`SELECT attempts, status
-      FROM a1_notification_outbox WHERE notification_key = ?`).get(notificationKey);
-    if (!row || row.status !== 'pending') {
-      return {
-        updated: false,
-        deadLettered: row?.status === 'dead',
-        attempts: Number(row?.attempts || 0),
-      };
-    }
-    const attempts = Number(row.attempts || 0) + 1;
-    const deadLettered = attempts >= Math.max(1, Number(maxAttempts) || 10);
-    const now = new Date().toISOString();
-    const updated = this.db.prepare(`UPDATE a1_notification_outbox
-      SET attempts = ?, status = ?, available_at = ?, last_error = ?,
-          updated_at = ?, dead_at = ?
-      WHERE notification_key = ? AND status = 'pending'`)
-      .run(
-        attempts,
-        deadLettered ? 'dead' : 'pending',
-        availableAt,
-        String(error || '').slice(0, 1000),
-        now,
-        deadLettered ? now : '',
-        notificationKey,
-      ).changes === 1;
-    return { updated, deadLettered: updated && deadLettered, attempts };
-  }
-
-  a1NotificationCount() {
-    return Number(this.db.prepare(
-      `SELECT COUNT(*) AS count FROM a1_notification_outbox WHERE status = 'pending'`,
-    ).get()?.count || 0);
-  }
-
-  a1NotificationDeadCount() {
-    return Number(this.db.prepare(
-      `SELECT COUNT(*) AS count FROM a1_notification_outbox WHERE status = 'dead'`,
-    ).get()?.count || 0);
-  }
-
   prune({
     now = new Date().toISOString(),
     completedInboundRetentionMs = 30 * 86400_000,
@@ -766,9 +1420,13 @@ export class AgentState {
       WHERE scope = 'pending_action'
         AND CAST(json_extract(value, '$.expiresAt') AS INTEGER) <= ?`).run(nowMs).changes;
     const rateLimit = this.db.prepare('DELETE FROM rate_limit WHERE updated_at < ?').run(auditBefore).changes;
+    const outboundEcho = this.db.prepare('DELETE FROM outbound_echo WHERE expires_at < ?').run(now).changes;
+    const semanticRepeat = this.db.prepare(`DELETE FROM semantic_repeat_guard
+      WHERE expires_at_ms < ? AND last_seen_ms < ?`)
+      .run(nowMs, nowMs - auditRetentionMs).changes;
+    const outboundReply = this.db.prepare('DELETE FROM outbound_reply_guard WHERE expires_at_ms <= ?')
+      .run(nowMs).changes;
     const multicaNotification = this.db.prepare(`DELETE FROM multica_notification_outbox
-      WHERE status = 'dead' AND dead_at < ?`).run(auditBefore).changes;
-    const a1Notification = this.db.prepare(`DELETE FROM a1_notification_outbox
       WHERE status = 'dead' AND dead_at < ?`).run(auditBefore).changes;
     const mutation = this.db.prepare(`DELETE FROM mutation_execution
       WHERE status IN ('succeeded', 'failed_safe') AND updated_at < ?`)
@@ -780,8 +1438,10 @@ export class AgentState {
       conversation: Number(conversation),
       pendingAction: Number(pendingAction),
       rateLimit: Number(rateLimit),
+      outboundEcho: Number(outboundEcho),
+      semanticRepeat: Number(semanticRepeat),
+      outboundReply: Number(outboundReply),
       multicaNotification: Number(multicaNotification),
-      a1Notification: Number(a1Notification),
       mutation: Number(mutation),
     };
   }

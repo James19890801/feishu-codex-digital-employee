@@ -1,16 +1,17 @@
 import assert from 'node:assert/strict';
 import { MulticaCapability } from './multica-capability.mjs';
+import { isAuthorizedMulticaOwner } from './multica-access.mjs';
 
 const subscriptions = [];
 const globalSubscriptions = [];
 const cached = [];
 const state = {
-  subscribeMulticaIssue: (issueId, chatId, senderId) => {
-    subscriptions.push({ issueId, chatId, senderId });
+  subscribeMulticaIssue: (issueId, chatId, senderId, options) => {
+    subscriptions.push({ issueId, chatId, senderId, options });
   },
   unsubscribeMulticaIssue: () => {},
-  subscribeMulticaGlobal: (chatId, senderId) => {
-    globalSubscriptions.push({ chatId, senderId });
+  subscribeMulticaGlobal: (chatId, senderId, options) => {
+    globalSubscriptions.push({ chatId, senderId, ...options });
   },
   unsubscribeMulticaGlobal: () => {},
   upsertMulticaIssue: issue => cached.push(issue),
@@ -19,6 +20,7 @@ const baseIssue = {
   id: 'issue-1',
   workspace_id: 'ws-1',
   workspace_name: 'My Space',
+  workspace_slug: 'my-space',
   identifier: 'MYS-1',
   title: 'Commercial launch',
   description: 'Prepare the launch.',
@@ -42,6 +44,7 @@ const client = {
       title: 'Growth plan',
       workspace_id: 'ws-2',
       workspace_name: 'Huangshan',
+      workspace_slug: 'huangshan',
     }];
     return workspaces ? all.filter(item => workspaces.some(ws => ws.id === item.workspace_id)) : all;
   },
@@ -52,6 +55,7 @@ const client = {
     title: 'Growth plan',
     workspace_id: 'ws-2',
     workspace_name: 'Huangshan',
+    workspace_slug: 'huangshan',
   }] : [],
   getIssue: async reference => {
     if (['MYS-1', 'issue-1'].includes(reference)) return structuredClone(liveIssue);
@@ -79,8 +83,20 @@ const client = {
   }),
 };
 
-const capability = new MulticaCapability({ client, state });
-const context = { chatId: 'chat-1', senderId: 'user-1' };
+const capability = new MulticaCapability({
+  client,
+  state,
+  authorizeWrite: candidate => isAuthorizedMulticaOwner(candidate, {
+    ownerOpenId: 'ou_owner',
+    dingtalkOwnerOpenId: 'dt_owner',
+  }),
+});
+const context = {
+  chatId: 'chat-1',
+  senderId: 'ou_owner',
+  chatType: 'p2p',
+  metadata: { channel: 'feishu', selfChat: true },
+};
 
 const getResult = await capability.execute({
   action: 'get',
@@ -90,10 +106,13 @@ const getResult = await capability.execute({
 assert.equal(getResult.kind, 'reply');
 assert.match(getResult.text, /MYS-1/);
 assert.match(getResult.text, /待处理/);
+assert.match(getResult.text, /https:\/\/multica\.ai\/my-space\/issues\/MYS-1/);
+assert.doesNotMatch(getResult.text, /Prepare the launch\./);
 assert.deepEqual(subscriptions[0], {
   issueId: 'issue-1',
   chatId: 'chat-1',
-  senderId: 'user-1',
+  senderId: 'ou_owner',
+  options: { chatType: 'p2p' },
 });
 
 const searchResult = await capability.execute({
@@ -103,13 +122,18 @@ const searchResult = await capability.execute({
   confirmationLevel: 'none',
 }, context);
 assert.match(searchResult.text, /WS-15/);
+assert.match(searchResult.text, /https:\/\/multica\.ai\/huangshan\/issues\/WS-15/);
 
 const syncResult = await capability.execute({
   action: 'sync_here',
   confirmationLevel: 'none',
 }, context);
 assert.match(syncResult.text, /同步/);
-assert.deepEqual(globalSubscriptions[0], context);
+assert.deepEqual(globalSubscriptions[0], {
+  chatId: 'chat-1',
+  senderId: 'ou_owner',
+  chatType: 'p2p',
+});
 
 const createPreview = await capability.prepareMutation({
   summary: 'Create issue',
@@ -129,8 +153,48 @@ assert.equal(createPreview.pending.plan.action, 'create');
 
 const createResult = await capability.applyMutation(createPreview.pending, context);
 assert.match(createResult.text, /MYS-2/);
+assert.match(createResult.text, /https:\/\/multica\.ai\/my-space\/issues\/MYS-2/);
 assert.equal(cached.some(item => item.identifier === 'MYS-2'), true);
 assert.equal(subscriptions.some(item => item.issueId === 'issue-new'), true);
+
+const unauthorizedContext = {
+  ...context,
+  chatType: 'group',
+  metadata: { channel: 'feishu', selfChat: true },
+};
+
+for (const unauthorizedPlan of [{
+    summary: 'Unauthorized create',
+    action: 'create',
+    workspaceId: 'ws-1',
+    confirmationLevel: 'single',
+    fields: { title: 'Must not be created', status: 'todo', priority: 'none' },
+  }, {
+    summary: 'Unauthorized assignment',
+    action: 'update',
+    issue: 'MYS-1',
+    confirmationLevel: 'double',
+    fields: { assignee: 'Forbidden Squad' },
+  }, {
+    summary: 'Unauthorized comment',
+    action: 'comment',
+    issue: 'MYS-1',
+    confirmationLevel: 'single',
+    content: 'Must not be written',
+  }]) {
+  await assert.rejects(
+    capability.prepareMutation(unauthorizedPlan, unauthorizedContext),
+    error => error?.code === 'MULTICA_OWNER_REQUIRED',
+  );
+}
+
+await assert.rejects(
+  capability.applyMutation(createPreview.pending, {
+    ...context,
+    metadata: { channel: 'feishu' },
+  }),
+  error => error?.code === 'MULTICA_OWNER_REQUIRED',
+);
 
 const updatePreview = await capability.prepareMutation({
   summary: 'Start issue',
@@ -140,8 +204,26 @@ const updatePreview = await capability.prepareMutation({
   fields: { status: 'in_progress' },
 }, context);
 assert.equal(updatePreview.pending.expectedUpdatedAt, '2026-07-30T10:00:00Z');
+const cachedBeforeUpdate = cached.length;
 const updateResult = await capability.applyMutation(updatePreview.pending, context);
 assert.match(updateResult.text, /进行中/);
+assert.equal(
+  cached.length,
+  cachedBeforeUpdate,
+  'platform updates must leave the previous cache snapshot for the synchronizer to diff',
+);
+assert.equal(subscriptions.at(-1).issueId, 'issue-1');
+
+const commentPreview = await capability.prepareMutation({
+  summary: 'Add follow-up',
+  action: 'comment',
+  issue: 'MYS-1',
+  confirmationLevel: 'single',
+  content: 'Following up.',
+}, context);
+const commentResult = await capability.applyMutation(commentPreview.pending, context);
+assert.match(commentResult.text, /Following up\./);
+assert.match(commentResult.text, /https:\/\/multica\.ai\/my-space\/issues\/MYS-1/);
 
 liveIssue = { ...liveIssue, updated_at: '2026-07-30T12:00:00Z' };
 const stalePreview = await capability.prepareMutation({

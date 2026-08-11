@@ -21,3 +21,19 @@ export function validateFeishuConfiguration(configuration = {}) {
     throw new Error('ownerOpenId 格式无效');
   }
 }
+
+export function validateDingTalkConfiguration(configuration = {}) {
+  const transport = String(configuration.dingtalkTransport || 'event-stream').trim();
+  if (transport !== 'event-stream') {
+    throw new Error('dingtalkTransport 仅允许 event-stream；Wukong 已被部署策略禁用');
+  }
+  const ownerOpenId = String(configuration.dingtalkOwnerOpenId || '').trim();
+  if (ownerOpenId && !/^[A-Za-z0-9_-]{8,256}$/.test(ownerOpenId)) {
+    throw new Error('dingtalkOwnerOpenId 格式无效');
+  }
+  if (configuration.dingtalkEnabled === true
+    && configuration.multicaEnabled === true
+    && !ownerOpenId) {
+    throw new Error('启用钉钉 Multica Owner 写入时必须填写 dingtalkOwnerOpenId');
+  }
+}

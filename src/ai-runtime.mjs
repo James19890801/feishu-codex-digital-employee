@@ -70,7 +70,7 @@ function defaultCandidates({
     ],
     // TRAE's desktop launcher has a `chat` command, but it opens the GUI and
     // does not return an answer to a background caller. Do not report it as a
-    // usable AIPRO runtime until a stable headless binary is available.
+    // usable James runtime until a stable headless binary is available.
     trae: [
       ...pathCandidates(['trae-cli'], pathEnv),
       join(homeDir, '.local', 'bin', 'trae-cli'),
@@ -147,7 +147,7 @@ export function buildAiRuntimeInvocation(runtime, {
   if (!cwd) throw new Error('AI runtime working directory is required');
   const safeImages = Array.isArray(images) ? images.filter(Boolean) : [];
   if (safeImages.length && !runtime.supportsImages) {
-    throw new Error(`${runtime.label} does not support image attachments in AIPRO`);
+    throw new Error(`${runtime.label} does not support image attachments in James`);
   }
   if (runtime.id === 'codex') {
     const args = [
@@ -185,7 +185,7 @@ export function buildAiRuntimeInvocation(runtime, {
     if (model) args.push('--model', model);
     return { command: runtime.path, args };
   }
-  throw new Error(`${runtime.label} does not have a safe AIPRO headless adapter`);
+  throw new Error(`${runtime.label} does not have a safe James headless adapter`);
 }
 
 export class AiRuntimeClient {
@@ -230,4 +230,16 @@ export class AiRuntimeClient {
       throw new Error(`${this.runtime.label} failed: ${processFailureSummary(error)}`);
     }
   }
+}
+
+export async function runAiRuntimeStartupProbe(client, options = {}) {
+  if (!client || typeof client.run !== 'function') {
+    throw new Error('AI runtime client is required for startup probe');
+  }
+  const expected = 'AIPR0S_RUNTIME_OK';
+  const result = await client.run(`这是启动健康探针。只回复：${expected}`, options);
+  if (String(result?.text || '').trim() !== expected) {
+    throw new Error('AI runtime startup probe returned an unexpected response');
+  }
+  return result;
 }

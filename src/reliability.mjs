@@ -46,6 +46,109 @@ export function canPerformMutation(senderOpenId, ownerOpenId) {
   return Boolean(senderOpenId) && senderOpenId === ownerOpenId;
 }
 
+export function shouldRecycleAiRuntime(error) {
+  const message = String(error?.message || error || '');
+  return message.includes('Codex CLI failed:')
+    && message.includes('Operation not permitted (os error 1)');
+}
+
+export class EarliestDueScheduler {
+  #timer = null;
+  #dueAtMs = null;
+  #stopped = false;
+
+  constructor({ onDue, onError = error => console.error('[retry-wake-error]', error) }) {
+    if (typeof onDue !== 'function') throw new Error('EarliestDueScheduler requires onDue');
+    this.onDue = onDue;
+    this.onError = onError;
+  }
+
+  schedule(availableAt) {
+    if (this.#stopped) return false;
+    if (!availableAt) {
+      this.clear();
+      return false;
+    }
+    const dueAtMs = Date.parse(availableAt);
+    if (!Number.isFinite(dueAtMs)) throw new Error('Retry availableAt must be a valid timestamp');
+    if (this.#timer && this.#dueAtMs <= dueAtMs) return false;
+    this.clear();
+    this.#dueAtMs = dueAtMs;
+    this.#timer = setTimeout(() => {
+      this.#timer = null;
+      this.#dueAtMs = null;
+      Promise.resolve(this.onDue()).catch(this.onError);
+    }, Math.max(0, dueAtMs - Date.now()));
+    this.#timer.unref?.();
+    return true;
+  }
+
+  clear() {
+    if (this.#timer) clearTimeout(this.#timer);
+    this.#timer = null;
+    this.#dueAtMs = null;
+  }
+
+  stop() {
+    this.#stopped = true;
+    this.clear();
+  }
+}
+
+export class InboundDrainController {
+  #active = null;
+  #stopped = false;
+
+  constructor({
+    drain,
+    nextAvailableAt,
+    onError = error => console.error('[inbound-drain-error]', error),
+  }) {
+    if (typeof drain !== 'function') throw new Error('InboundDrainController requires drain');
+    if (typeof nextAvailableAt !== 'function') {
+      throw new Error('InboundDrainController requires nextAvailableAt');
+    }
+    this.drain = drain;
+    this.nextAvailableAt = nextAvailableAt;
+    this.onError = onError;
+    this.scheduler = new EarliestDueScheduler({
+      onDue: () => this.trigger(),
+      onError,
+    });
+  }
+
+  trigger(...args) {
+    if (this.#stopped) return Promise.resolve();
+    if (this.#active) return this.#active;
+    this.scheduler.clear();
+    this.#active = Promise.resolve()
+      .then(() => this.drain(...args))
+      .catch(this.onError)
+      .finally(() => {
+        this.#active = null;
+        if (!this.#stopped) this.scheduler.schedule(this.nextAvailableAt());
+      });
+    return this.#active;
+  }
+
+  get pending() {
+    return this.#active;
+  }
+
+  stop() {
+    this.#stopped = true;
+    this.scheduler.stop();
+  }
+}
+
+export async function initializeOptionalPoller(initialize) {
+  try {
+    return { active: Boolean(await initialize()), error: null };
+  } catch (error) {
+    return { active: false, error };
+  }
+}
+
 export function evaluateHealth({
   nowMs,
   cursorMs,

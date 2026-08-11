@@ -34,4 +34,42 @@ assert.doesNotThrow(() => runtime.validateFeishuConfiguration({
   ownerOpenId: 'ou_abc123',
 }));
 
+assert.throws(
+  () => runtime.validateDingTalkConfiguration({
+    dingtalkEnabled: true,
+    multicaEnabled: false,
+    dingtalkTransport: 'wukong-polling',
+    dingtalkOwnerOpenId: '',
+  }),
+  /event-stream.*Wukong|Wukong.*event-stream/,
+);
+assert.doesNotThrow(() => runtime.validateDingTalkConfiguration({
+  dingtalkEnabled: true,
+  multicaEnabled: false,
+  dingtalkTransport: 'event-stream',
+  dingtalkOwnerOpenId: '',
+}));
+assert.throws(
+  () => runtime.validateDingTalkConfiguration({
+    dingtalkEnabled: true,
+    multicaEnabled: false,
+    dingtalkTransport: 'automatic-fallback',
+    dingtalkOwnerOpenId: '',
+  }),
+  /dingtalkTransport/,
+);
+assert.throws(
+  () => runtime.validateDingTalkConfiguration({
+    dingtalkEnabled: true,
+    multicaEnabled: true,
+    dingtalkOwnerOpenId: '',
+  }),
+  /dingtalkOwnerOpenId/,
+);
+assert.doesNotThrow(() => runtime.validateDingTalkConfiguration({
+  dingtalkEnabled: true,
+  multicaEnabled: true,
+  dingtalkOwnerOpenId: 'open-id-owner-123',
+}));
+
 console.log('RUNTIME_MODE_TEST_OK');

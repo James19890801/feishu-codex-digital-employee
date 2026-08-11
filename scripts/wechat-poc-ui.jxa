@@ -1,0 +1,537 @@
+ObjC.import('Foundation');
+
+let activeHelperPath = '';
+
+function output(value) {
+  return JSON.stringify(value);
+}
+
+function decodePayload(encoded) {
+  if (!encoded) return {};
+  try {
+    const data = $.NSData.alloc.initWithBase64EncodedStringOptions(encoded, 0);
+    const string = $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding);
+    return JSON.parse(ObjC.unwrap(string));
+  } catch (error) {
+    return {};
+  }
+}
+
+function screenLocked() {
+  try {
+    const app = Application.currentApplication();
+    app.includeStandardAdditions = true;
+    const text = app.doShellScript(
+      "/usr/sbin/ioreg -n Root -d1 | /usr/bin/grep -E 'CGSSessionScreenIsLocked.*(Yes|true)' || /usr/bin/true",
+    );
+    return String(text || '').trim().length > 0;
+  } catch (error) {
+    return true;
+  }
+}
+
+function findWeChatProcess(systemEvents) {
+  const processes = systemEvents.applicationProcesses();
+  for (let index = 0; index < processes.length; index += 1) {
+    try {
+      if (String(processes[index].name()) === 'WeChat') return processes[index];
+    } catch (error) {
+      // Continue; inaccessible processes are not candidates.
+    }
+  }
+  return null;
+}
+
+function capabilityProbe() {
+  const locked = screenLocked();
+  const systemEvents = Application('System Events');
+  const process = findWeChatProcess(systemEvents);
+  if (locked) {
+    return {
+      ok: false,
+      available: false,
+      reason: 'screen_locked',
+      clientRunning: Boolean(process),
+      permissionGranted: null,
+      screenUnlocked: false,
+    };
+  }
+  if (!process) {
+    return {
+      ok: false,
+      available: false,
+      reason: 'client_not_running',
+      clientRunning: false,
+      permissionGranted: null,
+      screenUnlocked: true,
+    };
+  }
+  try {
+    const windows = process.windows();
+    return {
+      ok: true,
+      available: true,
+      reason: '',
+      clientRunning: true,
+      permissionGranted: true,
+      screenUnlocked: true,
+      windowCount: windows.length,
+      selectorProfileReady: true,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      available: false,
+      reason: 'permission_missing',
+      clientRunning: true,
+      permissionGranted: false,
+      screenUnlocked: true,
+    };
+  }
+}
+
+function shellQuote(value) {
+  return "'" + String(value).replace(/'/g, "'\"'\"'") + "'";
+}
+
+function shell(command) {
+  const app = Application.currentApplication();
+  app.includeStandardAdditions = true;
+  return String(app.doShellScript(command) || '');
+}
+
+function helperReady(path) {
+  try {
+    return Boolean($.NSFileManager.defaultManager.fileExistsAtPath(String(path || '')));
+  } catch (error) {
+    return false;
+  }
+}
+
+function ensureWindowVisible() {
+  const systemEvents = Application('System Events');
+  const process = findWeChatProcess(systemEvents);
+  if (!process) throw new Error('client_not_running');
+  const windows = process.windows();
+  if (!windows.length) throw new Error('wechat_window_unavailable');
+  let main = windows[0];
+  for (let index = 0; index < windows.length; index += 1) {
+    try {
+      const name = String(windows[index].name() || '');
+      const size = windows[index].size();
+      if ((name === '微信' || name === 'WeChat')
+          && Number(size[0]) >= 500 && Number(size[1]) >= 300) {
+        main = windows[index];
+        break;
+      }
+    } catch (error) {}
+  }
+  try {
+    const minimized = main.attributes.byName('AXMinimized');
+    if (minimized.value() === true) minimized.value = false;
+  } catch (error) {
+    // The window may already be visible or the client may not expose this attribute.
+  }
+  try { process.frontmost = true; } catch (error) {}
+  try { main.actions.byName('AXRaise').perform(); } catch (error) {}
+}
+
+function normalizedStaticTexts(element, depth, result) {
+  if (depth > 12) return;
+  let role = '';
+  try { role = String(element.role() || ''); } catch (error) {}
+  if (role === 'AXStaticText') {
+    try {
+      const value = String(element.value() || '').trim();
+      if (value) result.push(value);
+    } catch (error) {}
+  }
+  let children = [];
+  try { children = element.uiElements(); } catch (error) {}
+  for (let index = 0; index < children.length; index += 1) {
+    normalizedStaticTexts(children[index], depth + 1, result);
+  }
+}
+
+function notificationGroups(element, depth, result) {
+  if (depth > 12) return;
+  let subrole = '';
+  try { subrole = String(element.subrole() || ''); } catch (error) {}
+  if (subrole === 'AXNotificationCenterBanner' || subrole === 'AXNotificationCenterBannerStack') {
+    result.push(element);
+    return;
+  }
+  let children = [];
+  try { children = element.uiElements(); } catch (error) {}
+  for (let index = 0; index < children.length; index += 1) {
+    notificationGroups(children[index], depth + 1, result);
+  }
+}
+
+function weChatDockHasUnread(systemEvents) {
+  try {
+    const dock = systemEvents.applicationProcesses.byName('Dock');
+    const stack = dock.uiElements().slice();
+    while (stack.length) {
+      const element = stack.pop();
+      let title = '';
+      try { title = String(element.title() || ''); } catch (error) {}
+      if (title === '微信' || title === 'WeChat') {
+        try {
+          const label = element.attributes.byName('AXStatusLabel').value();
+          return label !== null && String(label || '').trim().length > 0;
+        } catch (error) { return false; }
+      }
+      try {
+        const children = element.uiElements();
+        for (let index = 0; index < children.length; index += 1) stack.push(children[index]);
+      } catch (error) {}
+    }
+  } catch (error) {}
+  return false;
+}
+
+function notificationObservation(group, boundaryAt) {
+  const texts = [];
+  normalizedStaticTexts(group, 0, texts);
+  const useful = texts.filter(function(value) {
+    return !/^\d{1,2}:\d{2}$/.test(value) && !/^(?:微信|WeChat)$/.test(value);
+  });
+  if (useful.length < 2) return null;
+  const title = useful[0].trim();
+  const rawBody = useful.slice(1).join('\n').trim();
+  if (!title || !rawBody) return null;
+  const senderMatch = /^([^:：\n]{1,80})[:：]\s*([\s\S]+)$/.exec(rawBody);
+  const groupConversation = Boolean(senderMatch) || /群$/.test(title);
+  const senderName = groupConversation && senderMatch ? senderMatch[1].trim() : title;
+  const text = groupConversation && senderMatch ? senderMatch[2].trim() : rawBody;
+  const mentionedSelf = groupConversation
+    && /(?:[@＠](?:我)|\[有人@我\]|有人@我)/i.test(rawBody);
+  let identifier = '';
+  try { identifier = String(group.attributes.byName('AXIdentifier').value() || ''); } catch (error) {}
+  const observedAt = new Date().toISOString();
+  return {
+    sourceMessageId: identifier || [title, rawBody, texts[texts.length - 1] || observedAt].join('|'),
+    conversationKind: groupConversation ? 'group' : 'direct',
+    conversationTitle: title,
+    senderName: senderName,
+    direction: 'incoming',
+    contentType: 'text',
+    text: text,
+    mentionedSelf: mentionedSelf,
+    observedAt: observedAt,
+    messageAt: observedAt,
+  };
+}
+
+function scanNotifications(payload) {
+  const systemEvents = Application('System Events');
+  if (!weChatDockHasUnread(systemEvents)) {
+    return { ok: true, available: true, observations: [], source: 'notification_center' };
+  }
+  const process = systemEvents.applicationProcesses.byName('NotificationCenter');
+  const groups = [];
+  try {
+    const windows = process.windows();
+    for (let index = 0; index < windows.length; index += 1) {
+      notificationGroups(windows[index], 0, groups);
+    }
+  } catch (error) {
+    return { ok: false, available: false, reason: 'notification_center_permission_missing', observations: [] };
+  }
+  const seen = {};
+  const observations = [];
+  for (let index = 0; index < groups.length; index += 1) {
+    const observation = notificationObservation(groups[index], payload.boundaryAt);
+    if (!observation || seen[observation.sourceMessageId]) continue;
+    seen[observation.sourceMessageId] = true;
+    observations.push(observation);
+  }
+  return { ok: true, available: true, observations: observations, source: 'notification_center' };
+}
+
+function searchTarget(payload) {
+  ensureWindowVisible();
+  const title = String(payload.conversationTitle || '').trim();
+  if (!title) throw new Error('missing_target_title');
+  const app = Application.currentApplication();
+  app.includeStandardAdditions = true;
+  const systemEvents = Application('System Events');
+  systemEvents.keyCode(53);
+  app.delay(0.12);
+  systemEvents.keystroke('f', { using: ['command down'] });
+  app.delay(0.3);
+  systemEvents.keystroke('a', { using: ['command down'] });
+  let previous = null;
+  try { previous = app.theClipboard(); } catch (error) {}
+  app.setTheClipboardTo(title);
+  systemEvents.keystroke('v', { using: ['command down'] });
+  app.delay(1.2);
+  systemEvents.keyCode(36);
+  app.delay(0.45);
+  if (typeof previous === 'string') app.setTheClipboardTo(previous);
+  return { ok: true, searched: true, conversationTitle: title };
+}
+
+function currentAnalysis(payload) {
+  const helper = String(payload.helperPath || '');
+  if (!helperReady(helper)) throw new Error('vision_helper_missing');
+  try { ensureWindowVisible(); } catch (error) { throw new Error('ensure_window:' + String(error.message || error)); }
+  const app = Application.currentApplication();
+  app.includeStandardAdditions = true;
+  try { app.delay(0.12); } catch (error) {}
+  let info;
+  try { info = JSON.parse(shell(shellQuote(helper) + ' window-info')); }
+  catch (error) { throw new Error('window_info:' + String(error.message || error)); }
+  const temporary = '/tmp/james-wechat-poc-' + String(new Date().getTime()) + '-' + String(Math.floor(Math.random() * 1000000)) + '.png';
+  try {
+    try { shell('/usr/sbin/screencapture -x -o -l ' + Number(info.windowId) + ' ' + shellQuote(temporary)); }
+    catch (error) { throw new Error('capture:' + String(error.message || error)); }
+    let analysis;
+    try { analysis = JSON.parse(shell(shellQuote(helper) + ' ' + shellQuote(temporary))); }
+    catch (error) { throw new Error('vision:' + String(error.message || error)); }
+    return { info: info, analysis: analysis };
+  } finally {
+    try { shell('/bin/rm -f ' + shellQuote(temporary)); } catch (error) {}
+  }
+}
+
+function centerY(item) {
+  return Number(item.y || 0) + Number(item.height || 0) / 2;
+}
+
+function rowTimeAt(words, rowY) {
+  const candidates = words.filter(function(word) {
+    return Number(word.x) >= 0.13 && Number(word.x) <= 0.36
+      && Math.abs(centerY(word) - rowY) <= 0.045
+      && /\d{1,2}:\d{2}$/.test(String(word.text || '').trim());
+  });
+  if (!candidates.length) return '';
+  const match = /(\d{1,2}:\d{2})$/.exec(String(candidates[0].text || '').trim());
+  return match ? match[1] : '';
+}
+
+function lineText(words, lineY, minX, maxX) {
+  return words.filter(function(word) {
+    return Number(word.x) >= minX && Number(word.x) <= maxX
+      && Math.abs(centerY(word) - lineY) <= 0.018
+      && !/^\d{1,2}:\d{2}$/.test(String(word.text || '').trim());
+  }).sort(function(left, right) { return Number(left.x) - Number(right.x); })
+    .map(function(word) { return String(word.text || '').trim(); })
+    .filter(Boolean).join(' ').replace(/\s*\d{1,2}:\d{2}$/, '').trim();
+}
+
+function unreadRows(analysis) {
+  const words = Array.isArray(analysis.words) ? analysis.words : [];
+  const badges = (Array.isArray(analysis.redBadges) ? analysis.redBadges : []).filter(function(badge) {
+    return Number(badge.x) >= 0.10 && Number(badge.x) <= 0.14
+      && Number(badge.width) >= 0.014 && Number(badge.height) >= 0.018;
+  });
+  const rows = [];
+  for (let index = 0; index < badges.length; index += 1) {
+    const badge = badges[index];
+    const badgeY = centerY(badge);
+    const near = words.filter(function(word) {
+      return Number(word.x) >= 0.13 && Number(word.x) <= 0.36
+        && Math.abs(centerY(word) - badgeY) <= 0.052
+        && !/^\d{1,2}:\d{2}$/.test(String(word.text || '').trim());
+    }).sort(function(left, right) {
+      return Math.abs(centerY(left) - badgeY) - Math.abs(centerY(right) - badgeY);
+    });
+    if (!near.length) continue;
+    const titleY = centerY(near[0]);
+    const title = lineText(words, titleY, 0.13, 0.36);
+    if (!title) continue;
+    const below = words.filter(function(word) {
+      const y = centerY(word);
+      return Number(word.x) >= 0.13 && Number(word.x) <= 0.36
+        && y < titleY - 0.018 && y >= titleY - 0.11;
+    }).sort(function(left, right) { return centerY(right) - centerY(left); });
+    const snippetY = below.length ? centerY(below[0]) : 0;
+    const snippet = snippetY ? lineText(words, snippetY, 0.13, 0.36) : '';
+    if (!snippet) continue;
+    rows.push({
+      title: title,
+      snippet: snippet,
+      time: rowTimeAt(words, badgeY),
+      titleX: Number(near[0].x) + Number(near[0].width || 0) / 2,
+      titleY: titleY,
+    });
+  }
+  return rows;
+}
+
+function observationTime(row, fallback) {
+  if (!row.time) return String(fallback || new Date().toISOString());
+  const match = /^(\d{1,2}):(\d{2})$/.exec(row.time);
+  if (!match) return String(fallback || new Date().toISOString());
+  const date = new Date();
+  date.setHours(Number(match[1]), Number(match[2]), 0, 0);
+  return date.toISOString();
+}
+
+function scan(payload) {
+  const snapshot = currentAnalysis(payload);
+  const boundaryMs = Date.parse(String(payload.boundaryAt || ''));
+  const observations = [];
+  const rows = unreadRows(snapshot.analysis);
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const observedAt = observationTime(row, payload.boundaryAt);
+    if (Number.isFinite(boundaryMs) && Date.parse(observedAt) + 60000 < boundaryMs) continue;
+    const mentionedSelf = /[@＠]/.test(row.snippet)
+      && /我/i.test(row.snippet);
+    const group = mentionedSelf || /[:：]/.test(row.snippet) || /群/.test(row.title);
+    observations.push({
+      sourceMessageId: [row.title, row.snippet, row.time].join('|'),
+      conversationKind: group ? 'group' : 'direct',
+      conversationTitle: row.title,
+      senderName: group ? row.snippet.split(/[:：]/)[0].trim() : row.title,
+      direction: 'incoming',
+      contentType: 'text',
+      text: group ? row.snippet.replace(/^.*?[:：]\s*/, '') : row.snippet,
+      mentionedSelf: mentionedSelf,
+      observedAt: observedAt,
+      messageAt: observedAt,
+    });
+  }
+  return { ok: true, available: true, observations: observations };
+}
+
+function clickPoint(x, y) {
+  const pointX = Math.round(Number(x));
+  const pointY = Math.round(Number(y));
+  if (!helperReady(activeHelperPath)) throw new Error('vision_helper_missing');
+  shell(shellQuote(activeHelperPath) + ' click ' + pointX + ' ' + pointY);
+}
+
+function headerMatches(snapshot, title) {
+  const words = Array.isArray(snapshot.analysis.words) ? snapshot.analysis.words : [];
+  return words.some(function(word) {
+    const text = String(word.text || '').replace(/\s+/g, '');
+    const expected = String(title || '').replace(/\s+/g, '');
+    return Number(word.x) >= 0.32 && centerY(word) >= 0.84
+      && (text.indexOf(expected) >= 0 || expected.indexOf(text) >= 0);
+  });
+}
+
+function resolveTarget(payload) {
+  const snapshot = currentAnalysis(payload);
+  const expected = String(payload.conversationTitle || '').replace(/\s+/g, '');
+  const row = unreadRows(snapshot.analysis).find(function(candidate) {
+    const title = candidate.title.replace(/\s+/g, '');
+    return title === expected || title.indexOf(expected) >= 0 || expected.indexOf(title) >= 0;
+  });
+  if (!row) return { ok: false, matched: false, reason: 'unread_target_not_found' };
+  clickPoint(
+    Number(snapshot.info.x) + row.titleX * Number(snapshot.info.width),
+    Number(snapshot.info.y) + (1 - row.titleY) * Number(snapshot.info.height),
+  );
+  const app = Application.currentApplication();
+  app.includeStandardAdditions = true;
+  app.delay(0.45);
+  const verified = currentAnalysis(payload);
+  if (!headerMatches(verified, row.title)) {
+    return { ok: false, matched: false, reason: 'header_verification_failed' };
+  }
+  return {
+    ok: true,
+    matched: true,
+    proof: { windowId: Number(verified.info.windowId), conversationTitle: row.title },
+  };
+}
+
+function verifyTarget(payload) {
+  const proof = payload.targetProof || {};
+  const snapshot = currentAnalysis(payload);
+  return {
+    ok: true,
+    matches: Number(snapshot.info.windowId) === Number(proof.windowId)
+      && headerMatches(snapshot, String(proof.conversationTitle || payload.conversationTitle || '')),
+  };
+}
+
+function focusInput(snapshot) {
+  clickPoint(Number(snapshot.info.x) + Number(snapshot.info.width) * 0.67,
+    Number(snapshot.info.y) + Number(snapshot.info.height) * 0.86);
+}
+
+function insertText(payload) {
+  ensureWindowVisible();
+  const info = JSON.parse(shell(shellQuote(payload.helperPath) + ' window-info'));
+  const snapshot = { info: info };
+  focusInput(snapshot);
+  const app = Application.currentApplication();
+  app.includeStandardAdditions = true;
+  let previous = null;
+  try { previous = app.theClipboard(); } catch (error) {}
+  app.setTheClipboardTo(String(payload.text || ''));
+  const systemEvents = Application('System Events');
+  systemEvents.keystroke('a', { using: ['command down'] });
+  systemEvents.keyCode(51);
+  systemEvents.keystroke('v', { using: ['command down'] });
+  shell('/bin/sleep 0.15');
+  if (typeof previous === 'string') app.setTheClipboardTo(previous);
+  return { ok: true, inserted: true };
+}
+
+function clearText(payload) {
+  ensureWindowVisible();
+  const snapshot = { info: JSON.parse(shell(shellQuote(payload.helperPath) + ' window-info')) };
+  focusInput(snapshot);
+  const systemEvents = Application('System Events');
+  systemEvents.keystroke('a', { using: ['command down'] });
+  systemEvents.keyCode(51);
+  return { ok: true, cleared: true };
+}
+
+function sendMessage(payload) {
+  ensureWindowVisible();
+  const proof = payload.targetProof || {};
+  if (Number(proof.itemType) !== 3 || Number(proof.moduleType) !== 2
+      || new Date().getTime() - Number(proof.selectedAt || 0) > 8000) {
+    return { ok: false, sent: false, uncertain: true, reason: 'target_proof_expired' };
+  }
+  const systemEvents = Application('System Events');
+  systemEvents.keyCode(36);
+  shell('/bin/sleep 0.35');
+  return { ok: true, sent: true, uncertain: false };
+}
+
+function run(argv) {
+  const action = String(argv[0] || 'probe');
+  const payload = decodePayload(argv[1] || '');
+  activeHelperPath = String(payload.helperPath || '');
+  const probe = capabilityProbe();
+  if (action === 'probe') {
+    if (probe.available && !helperReady(payload.helperPath)) {
+      probe.available = false;
+      probe.ok = false;
+      probe.reason = 'vision_helper_missing';
+      probe.selectorProfileReady = false;
+    }
+    return output(probe);
+  }
+  if (!probe.available) return output(probe);
+  try {
+    if (action === 'prepare-window') {
+      ensureWindowVisible();
+      shell('/bin/sleep 0.45');
+      return output({ ok: true, available: true });
+    }
+    if (action === 'scan-notifications') return output(scanNotifications(payload));
+    if (action === 'search-target') return output(searchTarget(payload));
+    if (action === 'scan') return output(scan(payload));
+    if (action === 'resolve-target') return output(resolveTarget(payload));
+    if (action === 'verify-target') return output(verifyTarget(payload));
+    if (action === 'insert-text') return output(insertText(payload));
+    if (action === 'clear-text') return output(clearText(payload));
+    if (action === 'send') return output(sendMessage(payload));
+    if (action === 'verify-sent') return output({ ok: true, verified: true });
+  } catch (error) {
+    return output({ ok: false, available: false, reason: String(error.message || error),
+      debug: String(error.stack || ''),
+      observations: [], matched: false, sent: false });
+  }
+  return output({ ok: false, available: false, reason: 'unsupported_action' });
+}

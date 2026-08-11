@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import * as reliability from './reliability.mjs';
 import {
   assertCompleteSearchResult,
   boundedInteger,
@@ -10,6 +11,19 @@ import {
   planPollWindow,
   validateInboundPayload,
 } from './reliability.mjs';
+
+{
+  assert.equal(typeof reliability.initializeOptionalPoller, 'function');
+  const unavailable = new Error('enterprise permission is unavailable');
+  assert.deepEqual(
+    await reliability.initializeOptionalPoller(async () => { throw unavailable; }),
+    { active: false, error: unavailable },
+  );
+  assert.deepEqual(
+    await reliability.initializeOptionalPoller(async () => true),
+    { active: true, error: null },
+  );
+}
 
 {
   assert.deepEqual(validateInboundPayload({
@@ -105,6 +119,59 @@ import {
     maxCatchupMs: 500_000,
     maxWindowMs: 300_000,
   }), { startMs: 490_000, endMs: 790_000 });
+}
+
+{
+  assert.equal(typeof reliability.shouldRecycleAiRuntime, 'function');
+  assert.equal(reliability.shouldRecycleAiRuntime(
+    new Error('Codex CLI failed: Operation not permitted (os error 1)'),
+  ), true);
+  assert.equal(reliability.shouldRecycleAiRuntime(
+    new Error('Codex CLI failed: process timed out after 120000ms'),
+  ), false);
+  assert.equal(reliability.shouldRecycleAiRuntime(
+    new Error('DWS failed: Operation not permitted (os error 1)'),
+  ), false);
+}
+
+{
+  let dueRuns = 0;
+  const scheduler = new reliability.EarliestDueScheduler({
+    onDue: async () => { dueRuns += 1; },
+  });
+  scheduler.schedule(new Date(Date.now() + 250).toISOString());
+  await new Promise(resolve => setTimeout(resolve, 10));
+  scheduler.schedule(new Date(Date.now() + 30).toISOString());
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(dueRuns, 1, 'an earlier retry must wake without another inbound event');
+  await new Promise(resolve => setTimeout(resolve, 220));
+  assert.equal(dueRuns, 1, 'rescheduling must cancel the superseded timer');
+  scheduler.stop();
+}
+
+{
+  let dueRuns = 0;
+  const scheduler = new reliability.EarliestDueScheduler({
+    onDue: async () => { dueRuns += 1; },
+  });
+  scheduler.schedule(new Date(Date.now() + 30).toISOString());
+  scheduler.stop();
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(dueRuns, 0, 'shutdown must cancel a pending retry wake-up');
+}
+
+{
+  let drainRuns = 0;
+  const retryAt = new Date(Date.now() + 30).toISOString();
+  const controller = new reliability.InboundDrainController({
+    drain: async () => { drainRuns += 1; },
+    nextAvailableAt: () => (drainRuns === 1 ? retryAt : null),
+  });
+  await controller.trigger();
+  assert.equal(drainRuns, 1);
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(drainRuns, 2, 'a due retry must drain without a new inbound event');
+  controller.stop();
 }
 
 console.log('RELIABILITY_TEST_OK');

@@ -29,69 +29,8 @@ const base = {
   codexProxyReachable: true,
   inboxCounts: { completed: 4 },
   recentEvents: [],
+  operator: { displayName: '新用户', role: '产品经理', brandName: '新用户的数字人' },
 };
-
-{
-  const view = buildOperatorView({
-    ...base,
-    feishuEnabled: false,
-    pollCursorMs: NaN,
-    lastPollSuccessAt: '',
-    lastPollError: null,
-    websocketActive: true,
-    dingtalkChannel: {
-      enabled: true,
-      installed: true,
-      configured: true,
-      authenticated: true,
-      connected: true,
-      identityMode: 'user',
-    },
-    a1Enabled: true,
-    a1Installed: true,
-    a1Authenticated: true,
-    lastA1SyncAt: '2026-07-30T00:59:55.000Z',
-    maxA1SyncAgeMs: 60_000,
-    lastA1SyncError: null,
-    lastA1SyncResult: { scanned: 12, changes: 1, notified: 1 },
-    a1DeadCount: 0,
-  });
-  assert.equal(view.state, 'online');
-  assert.equal(view.channels.feishu.enabled, false);
-  assert.equal(view.channels.feishu.connected, false);
-  assert.equal(view.channels.feishu.healthy, true);
-  assert.equal(view.channels.feishu.transport, 'disabled');
-  assert.equal(view.a1.enabled, true);
-  assert.equal(view.a1.installed, true);
-  assert.equal(view.a1.authenticated, true);
-  assert.equal(view.a1.healthy, true);
-  assert.equal(view.a1.scanned, 12);
-  assert.equal(view.issues.includes('poll_cursor_stale'), false);
-  assert.equal(view.issues.includes('credential_access_blocked'), false);
-}
-
-{
-  const view = buildOperatorView({
-    ...base,
-    feishuEnabled: false,
-    pollCursorMs: NaN,
-    lastPollSuccessAt: '',
-    websocketActive: true,
-    dingtalkChannel: { enabled: true, installed: true, authenticated: true, connected: true },
-    a1Enabled: true,
-    a1Installed: true,
-    a1Authenticated: false,
-    lastA1SyncAt: '',
-    maxA1SyncAgeMs: 60_000,
-    lastA1SyncError: { error: 'A1 login required' },
-    a1DeadCount: 1,
-  });
-  assert.equal(view.state, 'degraded');
-  assert.equal(view.issues.includes('a1_auth_unavailable'), true);
-  assert.equal(view.issues.includes('a1_sync_error'), true);
-  assert.equal(view.issues.includes('a1_delivery_dead'), true);
-  assert.equal(view.a1.lastError.error, 'A1 login required');
-}
 
 {
   const view = buildOperatorView(base);
@@ -99,9 +38,45 @@ const base = {
   assert.equal(view.healthy, true);
   assert.equal(view.process.pid, 123);
   assert.equal(view.channels.feishu.healthy, true);
+  assert.deepEqual(view.channels.feishu.capabilities, {
+    text: true,
+    image: true,
+    audio: false,
+    link: false,
+  });
   assert.equal(view.channels.dingtalk.enabled, false);
   assert.equal(view.channels.wecom.enabled, false);
   assert.equal(view.channels.wechat.enabled, false);
+  assert.deepEqual(view.operator, {
+    displayName: '新用户', role: '产品经理', brandName: '新用户的数字人',
+  });
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    webReaderEnabled: true,
+    audioTranscriberAvailable: true,
+    dingtalkChannel: {
+      enabled: true,
+      installed: true,
+      authenticated: true,
+      connected: true,
+      identityMode: 'user',
+    },
+  });
+  assert.deepEqual(view.channels.dingtalk.capabilities, {
+    text: true,
+    image: true,
+    audio: true,
+    link: true,
+  });
+  assert.deepEqual(view.channels.wecom.capabilities, {
+    text: false,
+    image: false,
+    audio: false,
+    link: false,
+  });
 }
 
 {
@@ -151,6 +126,56 @@ const base = {
   assert.equal(view.channels.dingtalk.identityMode, 'user');
   assert.equal(view.channels.wecom.healthy, true);
   assert.equal(view.channels.wecom.identityMode, 'bot');
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    feishuEnabled: false,
+    pollCursorMs: Number.NaN,
+    websocketActive: true,
+    dingtalkChannel: {
+      enabled: true,
+      installed: true,
+      authenticated: true,
+      connected: true,
+      identityMode: 'user',
+      lastReadyAt: '2026-07-30T00:59:55.000Z',
+    },
+  });
+  assert.equal(view.state, 'online');
+  assert.equal(view.issues.includes('poll_cursor_stale'), false);
+  assert.equal(view.channels.feishu.enabled, false);
+  assert.equal(view.channels.feishu.healthy, true);
+  assert.equal(view.channels.feishu.transport, 'disabled');
+  assert.equal(view.channels.dingtalk.healthy, true);
+  assert.equal(view.primaryChannel, 'dingtalk');
+  assert.equal(view.polling.applicable, false);
+  assert.equal(view.polling.ageMs, null);
+  assert.equal(view.websocket.lastReadyAt, '2026-07-30T00:59:55.000Z');
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    feishuEnabled: false,
+    pollCursorMs: Number.NaN,
+    websocketActive: false,
+    dingtalkChannel: {
+      enabled: true,
+      installed: true,
+      configured: true,
+      authenticated: true,
+      connected: true,
+      identityMode: 'user',
+      transport: 'Wukong DWS polling',
+      lastReadyAt: '2026-07-30T00:59:58.000Z',
+    },
+  });
+  assert.equal(view.state, 'online');
+  assert.equal(view.issues.includes('websocket_consumer_missing'), false);
+  assert.equal(view.channels.dingtalk.transport, 'Wukong DWS polling');
+  assert.equal(view.channels.dingtalk.lastReadyAt, '2026-07-30T00:59:58.000Z');
 }
 
 {
@@ -274,44 +299,71 @@ const base = {
 {
   const view = buildOperatorView({
     ...base,
-    multicaEnabled: true,
-    lastMulticaSyncAt: '2026-07-30T00:59:55.000Z',
-    maxMulticaSyncAgeMs: 60_000,
-    lastMulticaSyncError: null,
-    lastMulticaSyncResult: { scanned: 17, changes: 0, notified: 0 },
+    selfChatCircuitLast: {
+      chatId: 'oc_self',
+      openUntilMs: base.nowMs + 60_000,
+      trippedAt: '2026-07-30T00:59:30.000Z',
+    },
   });
-  assert.equal(view.multica.enabled, true);
-  assert.equal(view.multica.healthy, true);
-  assert.equal(view.multica.scanned, 17);
+  assert.equal(view.state, 'degraded');
+  assert.equal(view.issues.includes('self_chat_circuit_open'), true);
+  assert.equal(view.maintenance.selfChatCircuitOpen, true);
 }
 
 {
   const view = buildOperatorView({
     ...base,
-    multicaEnabled: true,
-    lastMulticaSyncAt: '2026-07-30T00:59:55.000Z',
-    maxMulticaSyncAgeMs: 60_000,
-    lastMulticaSyncError: null,
-    lastMulticaSyncResult: { scanned: 17, changes: 1, notified: 0, pending: 1 },
+    selfChatCircuitLast: {
+      chatId: 'oc_self',
+      openUntilMs: base.nowMs - 1,
+      trippedAt: '2026-07-30T00:57:00.000Z',
+    },
   });
-  assert.equal(view.state, 'degraded');
-  assert.equal(view.issues.includes('multica_delivery_pending'), true);
-  assert.equal(view.multica.pending, 1);
+  assert.equal(view.issues.includes('self_chat_circuit_open'), false);
 }
 
 {
   const view = buildOperatorView({
     ...base,
-    multicaEnabled: true,
-    lastMulticaSyncAt: '2026-07-30T00:59:55.000Z',
-    maxMulticaSyncAgeMs: 60_000,
-    lastMulticaSyncError: null,
-    lastMulticaSyncResult: { scanned: 17, changes: 0, notified: 0 },
-    multicaDeadCount: 1,
+    a1Enabled: true,
+    lastA1SyncAt: '2026-07-30T00:59:55.000Z',
+    maxA1SyncAgeMs: 600_000,
+    lastA1SyncError: null,
+    lastA1SyncResult: { fetched: 17, changed: 0, delivered: 0 },
+  });
+  assert.equal(view.a1.enabled, true);
+  assert.equal(view.a1.healthy, true);
+  assert.equal(view.a1.scanned, 17);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    a1Enabled: true,
+    lastA1SyncAt: '2026-07-30T00:59:55.000Z',
+    maxA1SyncAgeMs: 600_000,
+    lastA1SyncError: null,
+    lastA1SyncResult: { fetched: 17, changed: 1, delivered: 0 },
+    a1PendingCount: 1,
   });
   assert.equal(view.state, 'degraded');
-  assert.equal(view.issues.includes('multica_delivery_dead'), true);
-  assert.equal(view.multica.dead, 1);
+  assert.equal(view.issues.includes('a1_delivery_pending'), true);
+  assert.equal(view.a1.pending, 1);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    a1Enabled: true,
+    lastA1SyncAt: '2026-07-30T00:59:55.000Z',
+    maxA1SyncAgeMs: 600_000,
+    lastA1SyncError: null,
+    lastA1SyncResult: { fetched: 17, changed: 0, delivered: 0 },
+    a1DeadCount: 1,
+  });
+  assert.equal(view.state, 'degraded');
+  assert.equal(view.issues.includes('a1_delivery_dead'), true);
+  assert.equal(view.a1.dead, 1);
 }
 
 {
@@ -332,14 +384,14 @@ const base = {
 {
   const view = buildOperatorView({
     ...base,
-    multicaEnabled: true,
-    lastMulticaSyncAt: '2026-07-30T00:50:00.000Z',
-    maxMulticaSyncAgeMs: 60_000,
-    lastMulticaSyncError: { error: 'timeout' },
+    a1Enabled: true,
+    lastA1SyncAt: '2026-07-30T00:40:00.000Z',
+    maxA1SyncAgeMs: 600_000,
+    lastA1SyncError: { error: 'timeout' },
   });
   assert.equal(view.state, 'degraded');
-  assert.equal(view.issues.includes('multica_sync_stale'), true);
-  assert.equal(view.issues.includes('multica_sync_error'), true);
+  assert.equal(view.issues.includes('a1_sync_stale'), true);
+  assert.equal(view.issues.includes('a1_sync_error'), true);
 }
 
 console.log('DASHBOARD_MODEL_TEST_OK');

@@ -4,19 +4,26 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NODE_BIN="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin"
 export PATH="$NODE_BIN:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
+CONFIG_TEMPLATE="${JAMES_CONFIG_TEMPLATE:-$ROOT/config.example.json}"
 
 command -v node >/dev/null 2>&1 || { echo "未找到 Node.js"; exit 1; }
-command -v lark-cli >/dev/null 2>&1 || {
-  echo "未找到 lark-cli。请先按 README 安装飞书官方 CLI。"; exit 1;
-}
+test -f "$CONFIG_TEMPLATE" || { echo "配置模板不存在：$CONFIG_TEMPLATE"; exit 1; }
 PYTHON_BIN="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
 test -x "$PYTHON_BIN" || PYTHON_BIN="$(command -v python3 2>/dev/null || true)"
 test -x "$PYTHON_BIN" || { echo "未找到 Python 3"; exit 1; }
 
-test -f "$ROOT/config.local.json" || cp "$ROOT/config.example.json" "$ROOT/config.local.json"
+test -f "$ROOT/config.local.json" || cp "$CONFIG_TEMPLATE" "$ROOT/config.local.json"
 test -f "$ROOT/PERSONA.md" || cp "$ROOT/templates/PERSONA.example.md" "$ROOT/PERSONA.md"
 test -f "$ROOT/BIBLE.md" || cp "$ROOT/templates/BIBLE.example.md" "$ROOT/BIBLE.md"
+test -f "$ROOT/knowledge-catalog.json" || cp "$ROOT/templates/knowledge-catalog.example.json" "$ROOT/knowledge-catalog.json"
 mkdir -p "$ROOT/data"
+
+FEISHU_ENABLED="$(node -e "const c=require(process.argv[1]);process.stdout.write(String(c.feishuEnabled===true))" "$ROOT/config.local.json")"
+if [[ "$FEISHU_ENABLED" == "true" ]]; then
+  command -v lark-cli >/dev/null 2>&1 || {
+    echo "飞书已启用，但未找到 lark-cli。"; exit 1;
+  }
+fi
 
 node --input-type=module -e "
   import { discoverAiRuntimes, selectAiRuntime } from '$ROOT/src/ai-runtime.mjs';
@@ -32,7 +39,12 @@ if command -v pnpm >/dev/null 2>&1; then
 else
   npm install
 fi
-"$PYTHON_BIN" -m pip install --disable-pip-version-check -r "$ROOT/requirements.txt"
+if [[ ! -x "$ROOT/.venv/bin/python" ]]; then
+  "$PYTHON_BIN" -m venv "$ROOT/.venv"
+fi
+VENV_PYTHON="$ROOT/.venv/bin/python"
+test -x "$VENV_PYTHON" || VENV_PYTHON="$PYTHON_BIN"
+"$VENV_PYTHON" -m pip install --disable-pip-version-check -r "$ROOT/requirements.txt"
 
 if command -v dws >/dev/null 2>&1; then
   echo "DingTalk runtime detected: $(dws version | head -n 1)"

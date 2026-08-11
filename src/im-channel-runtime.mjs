@@ -29,11 +29,13 @@ export class DingTalkChannel {
   constructor({
     bin,
     profile = '',
+    transport = 'event-stream',
     run,
     onStatus = () => {},
   }) {
     this.bin = bin;
     this.profile = profile;
+    this.transport = transport;
     this.run = run;
     this.onStatus = onStatus;
   }
@@ -66,10 +68,13 @@ export class DingTalkChannel {
     return true;
   }
 
-  async send(target, text, uuid = '') {
+  async send(target, text, uuid = '', options = {}) {
     const args = [
-      ...(this.profile ? ['--profile', this.profile] : []),
-      ...buildDingTalkSendArgs(target, text, uuid),
+      ...(this.transport === 'event-stream' && this.profile ? ['--profile', this.profile] : []),
+      ...buildDingTalkSendArgs(target, text, uuid, {
+        ...options,
+        transport: this.transport,
+      }),
     ];
     const result = await this.run(this.bin, args);
     let payload;
@@ -80,6 +85,9 @@ export class DingTalkChannel {
     }
     if (payload.success === false || payload.error) {
       throw new Error(`dws send failed: ${JSON.stringify(payload.error || payload).slice(0, 800)}`);
+    }
+    if (this.transport === 'wukong-polling' && !payload?.result?.openTaskId) {
+      throw new Error(`dws send returned no openTaskId: ${JSON.stringify(payload).slice(0, 800)}`);
     }
     return payload;
   }

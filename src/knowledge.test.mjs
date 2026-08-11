@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import {
   canReadDocument,
   extractKnowledgeQuery,
+  filterKnowledgeSources,
   looksLikeKnowledgeRequest,
+  normalizeKnowledgeCatalog,
   normalizeKnowledgeText,
   resolveCatalogDocument,
   sourceLine,
@@ -31,5 +33,32 @@ assert.equal(canReadDocument(catalog[0], 'reader-2', 'owner'), false);
 assert.equal(tokenFromSearchResult({ result_meta: { token: 'xyz' } }), 'xyz');
 assert.equal(stripHighlight('<em>AI</em>专题学习会'), 'AI专题学习会');
 assert.match(sourceLine(catalog[0]), /来源：/);
+
+const v2Catalog = normalizeKnowledgeCatalog({
+  version: 2,
+  sources: [
+    {
+      sourceId: 'repo:webagent', type: 'code_repository', title: 'WebAgent 代码仓库',
+      locator: 'enterprise-development/ai-lab-agent', ownerId: 'owner', status: 'active',
+      readerIds: [], aliases: ['WebAgent'],
+    },
+    {
+      sourceId: 'doc:alt', type: 'local_document', title: 'ALT 平台方案',
+      locator: '/approved/alt.md', ownerId: 'owner', status: 'active', readerIds: [],
+    },
+    {
+      sourceId: 'chat:private', type: 'dingtalk_chat', title: '无关私人聊天',
+      locator: 'chat-private', ownerId: 'other', status: 'active', readerIds: ['other'],
+    },
+  ],
+});
+assert.equal(v2Catalog.version, 2);
+assert.equal(v2Catalog.sources.length, 3);
+assert.deepEqual(
+  filterKnowledgeSources(v2Catalog.sources, { senderId: 'owner', ownerId: 'owner' })
+    .map(source => source.sourceId),
+  ['repo:webagent'],
+);
+assert.equal(resolveCatalogDocument('WebAgent 的代码在哪', v2Catalog)?.sourceId, 'repo:webagent');
 
 console.log('KNOWLEDGE_TEST_OK');

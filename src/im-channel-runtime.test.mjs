@@ -48,6 +48,45 @@ import {
     '--profile', 'corp:user', 'chat', 'message', 'send',
   ]);
   assert.ok(calls[0].args.includes('--ai-tag=false'));
+
+  await channel.send(
+    { channel: 'dingtalk', kind: 'group', id: 'group-1' },
+    '<@user-1>\nIssue 已更新',
+    'uuid-mention',
+    { atOpenDingTalkIds: ['user-1'] },
+  );
+  assert.equal(
+    calls[1].args[calls[1].args.indexOf('--at-open-dingtalk-ids') + 1],
+    'user-1',
+  );
+}
+
+{
+  const calls = [];
+  const channel = new DingTalkChannel({
+    bin: '/opt/wukong/dws',
+    profile: 'corp:user',
+    transport: 'wukong-polling',
+    run: async (bin, args) => {
+      calls.push({ bin, args });
+      return {
+        stdout: JSON.stringify({
+          success: true,
+          result: { openTaskId: 'task-wukong-1' },
+        }),
+        stderr: '',
+      };
+    },
+  });
+  await channel.send(
+    { channel: 'dingtalk', kind: 'user', id: 'open-colleague' },
+    '阿充稍后回复你。',
+    'wukong-send-1',
+  );
+  assert.equal(calls[0].bin, '/opt/wukong/dws');
+  assert.equal(calls[0].args.includes('--profile'), false);
+  assert.equal(calls[0].args.includes('--ai-tag=false'), false);
+  assert.equal(calls[0].args.includes('--open-dingtalk-id'), true);
 }
 
 {
@@ -149,14 +188,14 @@ import {
   assert.equal(calls[0].options.headers['X-GEWE-TOKEN'], 'super-secret-token');
   assert.deepEqual(JSON.parse(calls[0].options.body), { appId: 'device-a' });
 
-  await channel.setCallback('https://aipro.example.com/webhooks/gewe/callback_secret_1234567890123456');
+  await channel.setCallback('https://james.example.com/webhooks/gewe/callback_secret_1234567890123456');
   assert.equal(calls[1].url, 'https://api.geweapi.com/gewe/v2/api/login/setCallback');
   assert.deepEqual(JSON.parse(calls[1].options.body), {
     token: 'super-secret-token',
-    callbackUrl: 'https://aipro.example.com/webhooks/gewe/callback_secret_1234567890123456',
+    callbackUrl: 'https://james.example.com/webhooks/gewe/callback_secret_1234567890123456',
   });
   await assert.rejects(
-    channel.setCallback('http://aipro.example.com/webhooks/gewe/insecure'),
+    channel.setCallback('http://james.example.com/webhooks/gewe/insecure'),
     /https/i,
   );
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 const assistant = await import('./config-assistant.mjs').catch(() => ({}));
+const fakeApiToken = ['sk', 'abcdefghijklmnopqrstuvwxyz123456'].join('-');
 
 assert.equal(
   typeof assistant.createChangePlan,
@@ -21,6 +22,7 @@ const documents = {
     keychainService: 'codex-feishu-digital-employee',
     authorizedChatIds: [],
     allowAllChats: true,
+    ownerContactPhone: '010-0000-0000',
     digitalTwinLabel: '',
     eventTransport: 'lark-cli',
     pollIntervalMs: 5000,
@@ -35,7 +37,6 @@ const documents = {
     rateLimitWindowMs: 300000,
     rateLimitMaxMessages: 10,
     dashboardPort: 17655,
-    artifactDir: '',
     codexBin: '/Applications/ChatGPT.app/Contents/Resources/codex',
     codexModel: 'gpt-5.6-terra',
     codexProxyUrl: '',
@@ -51,6 +52,14 @@ const documents = {
     geweAppId: '',
     gewePublicCallbackBaseUrl: '',
     geweMentionNames: [],
+    a1Enabled: false,
+    a1WebAgentProjectId: '2165415',
+    a1AiCollaborationProjectId: '2168196',
+    a1WebAgentRepo: 'enterprise-development/ai-lab-agent',
+    a1AiCollaborationRepo: 'enterprise-development/ai-native-flow-platform',
+    a1AiCollaborationBranch: 'feature/20260606_29656382_init_project_1',
+    a1SyncIntervalMs: 300000,
+    a1MaxWorkitems: 500,
   },
   persona: '# Persona\n\n- Keep replies concise.\n',
   bible: '# Bible\n\n- Never make payments.\n',
@@ -72,47 +81,43 @@ assert.equal(safePlan.confirmationLevel, 'single');
 assert.equal(safePlan.changes[0].before, 5000);
 assert.equal(safePlan.changes[0].after, 3000);
 
-const multicaPlan = assistant.createChangePlan({
-  summary: 'Enable Multica integration',
-  changes: [{
-    target: 'config',
-    key: 'multicaEnabled',
-    value: true,
-  }, {
-    target: 'config',
-    key: 'multicaSyncIntervalMs',
-    value: 10000,
-  }],
-}, documents);
-assert.equal(multicaPlan.confirmationLevel, 'double');
-assert.equal(multicaPlan.changes[0].after, true);
-
 const a1Plan = assistant.createChangePlan({
-  summary: 'Configure A1 integration',
+  summary: 'Configure A1 requirement integration',
   changes: [{
     target: 'config',
     key: 'a1Enabled',
     value: true,
   }, {
     target: 'config',
-    key: 'a1DefaultProjectId',
-    value: '2165415',
-  }, {
-    target: 'config',
     key: 'a1SyncIntervalMs',
-    value: 30000,
+    value: 300000,
   }],
 }, documents);
 assert.equal(a1Plan.confirmationLevel, 'double');
 assert.equal(a1Plan.changes[0].after, true);
-assert.equal(a1Plan.changes[1].after, '2165415');
-assert.throws(
-  () => assistant.createChangePlan({
-    summary: 'Invalid A1 project',
-    changes: [{ target: 'config', key: 'a1DefaultProjectId', value: 'project-name' }],
-  }, documents),
-  /numeric ID/i,
-);
+assert.throws(() => assistant.createChangePlan({
+  summary: 'Legacy requirement platform is read-only',
+  changes: [{ target: 'config', key: 'multicaEnabled', value: true }],
+}, documents), /cannot be changed/);
+
+const contactPlan = assistant.createChangePlan({
+  summary: 'Update the owner handoff phone',
+  changes: [{
+    target: 'config',
+    key: 'ownerContactPhone',
+    value: '010-0000-0001',
+  }],
+}, documents);
+assert.equal(contactPlan.confirmationLevel, 'double');
+assert.equal(contactPlan.changes[0].after, '010-0000-0001');
+assert.throws(() => assistant.createChangePlan({
+  summary: 'Reject an invalid phone',
+  changes: [{
+    target: 'config',
+    key: 'ownerContactPhone',
+    value: 'call-me-with-javascript',
+  }],
+}, documents), /phone/i);
 
 const runtimePlan = assistant.createChangePlan({
   summary: 'Switch AI runtime',
@@ -150,7 +155,7 @@ const channelPlan = assistant.createChangePlan({
   }, {
     target: 'config',
     key: 'wecomBotId',
-    value: 'bot-aipro',
+    value: 'bot-james',
   }],
 }, documents);
 assert.equal(channelPlan.confirmationLevel, 'double');
@@ -169,7 +174,7 @@ const wechatPlan = assistant.createChangePlan({
   }, {
     target: 'config',
     key: 'gewePublicCallbackBaseUrl',
-    value: 'https://aipro.example.com',
+    value: 'https://james.example.com',
   }, {
     target: 'config',
     key: 'geweEnabled',
@@ -235,7 +240,7 @@ assert.throws(() => assistant.createChangePlan({
   summary: 'Store a secret in Persona',
   changes: [{
     target: 'persona',
-    content: 'API token: sk-abcdefghijklmnopqrstuvwxyz123456',
+    content: `API token: ${fakeApiToken}`,
   }],
 }, documents), /credential/i);
 
@@ -252,6 +257,10 @@ assert.equal(personaPlan.confirmationLevel, 'single');
 const updatedDocuments = assistant.applyChangePlan(documents, personaPlan);
 assert.match(updatedDocuments.persona, /three sentences/);
 assert.equal(documents.persona, '# Persona\n\n- Keep replies concise.\n');
+assert.throws(() => assistant.createChangePlan({
+  summary: 'Reject excluded identity context',
+  changes: [{ target: 'persona', content: '# Persona\n\n- ALT platform operator.' }],
+}, documents), /excluded identity/i);
 
 assert.doesNotThrow(() => assistant.assertPlanMatchesDocuments(documents, safePlan));
 assert.throws(
@@ -305,7 +314,7 @@ assert.deepEqual(
 
 assert.equal(assistant.validateAssistantRequest('Make routine replies shorter.'), 'Make routine replies shorter.');
 assert.throws(
-  () => assistant.validateAssistantRequest('Use token sk-abcdefghijklmnopqrstuvwxyz123456'),
+  () => assistant.validateAssistantRequest(`Use token ${fakeApiToken}`),
   /credential/i,
 );
 assert.throws(

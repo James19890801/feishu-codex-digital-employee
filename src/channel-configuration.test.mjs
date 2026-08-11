@@ -13,11 +13,11 @@ const configuration = {
   dingtalkProfile: 'desktop-api.dingtalk',
   wecomEnabled: true,
   wecomBotId: 'bot-production-01',
-  wecomKeychainService: 'aipro-wecom-bot',
+  wecomKeychainService: 'james-wecom-bot',
   geweEnabled: false,
   geweAppId: 'wxid_example',
-  geweKeychainService: 'aipro-gewe',
-  gewePublicCallbackBaseUrl: 'https://callback.example.com/aipro',
+  geweKeychainService: 'james-gewe',
+  gewePublicCallbackBaseUrl: 'https://callback.example.com/james',
   geweMentionNames: ['James', '詹老师'],
 };
 
@@ -69,7 +69,7 @@ assert.deepEqual(
   channelConfiguration.normalizeChannelConfigurationRequest('wechat', {
     enabled: true,
     appId: 'wxid_example',
-    publicCallbackBaseUrl: 'https://callback.example.com/aipro/',
+    publicCallbackBaseUrl: 'https://callback.example.com/james/',
     mentionNames: 'James, 詹老师\nJames',
     credential: 'gewe-private-token',
   }),
@@ -78,7 +78,7 @@ assert.deepEqual(
     changes: {
       geweEnabled: true,
       geweAppId: 'wxid_example',
-      gewePublicCallbackBaseUrl: 'https://callback.example.com/aipro',
+      gewePublicCallbackBaseUrl: 'https://callback.example.com/james',
       geweMentionNames: ['James', '詹老师'],
     },
     credential: 'gewe-private-token',
@@ -114,12 +114,12 @@ assert.throws(
 );
 
 assert.deepEqual(channelConfiguration.channelCredentialTarget('wecom', configuration), {
-  service: 'aipro-wecom-bot',
+  service: 'james-wecom-bot',
   account: 'bot-production-01',
   label: 'WeCom Bot Secret',
 });
 assert.deepEqual(channelConfiguration.channelCredentialTarget('wechat', configuration), {
-  service: 'aipro-gewe',
+  service: 'james-gewe',
   account: 'wxid_example',
   label: 'GeWe API Token',
 });

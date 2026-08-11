@@ -1,5 +1,5 @@
 const ISSUE_LABELS = {
-  process_not_running: 'AIPRO 主进程已停止',
+  process_not_running: '数字人主进程已停止',
   poll_cursor_stale: '主消息轮询已停止推进',
   messages_processing_stale: '存在超时处理中消息',
   messages_failed: '存在待处理失败或死信',
@@ -11,19 +11,14 @@ const ISSUE_LABELS = {
   ai_runtime_unavailable: '所选 AI 编码运行时不可用',
   ai_runtime_last_call_failed: 'AI 运行时最近一次调用失败',
   credential_access_blocked: '后台进程无法读取飞书用户凭据',
-  multica_sync_stale: 'Multica 全空间同步已停止推进',
-  multica_sync_error: 'Multica 最近一次同步失败',
-  multica_delivery_pending: 'Multica 变化通知正在等待重试',
-  multica_delivery_dead: 'Multica 变化通知已进入死信，需要人工处理',
-  a1_runtime_unavailable: 'A1 CLI 未安装或不可执行',
-  a1_auth_unavailable: 'A1 身份认证不可用',
-  a1_sync_stale: 'A1 工作项同步已停止推进',
-  a1_sync_error: 'A1 最近一次同步失败',
-  a1_delivery_pending: 'A1 变化通知正在等待重试',
-  a1_delivery_dead: 'A1 变化通知已进入死信，需要人工处理',
+  a1_sync_stale: '1A 需求状态同步已停止推进',
+  a1_sync_error: '1A 最近一次同步失败',
+  a1_delivery_pending: '1A 状态通知正在等待重试',
+  a1_delivery_dead: '1A 状态通知已进入死信，需要人工处理',
   dingtalk_channel_unavailable: '钉钉通道已启用但未连接',
   wecom_channel_unavailable: '企业微信通道已启用但未连接',
   wechat_channel_unavailable: '个人微信通道已启用但未连接',
+  self_chat_circuit_open: '自聊防循环熔断器已开启，当前正在静默冷却',
 };
 
 export function isCredentialAccessBlocked(lastPollError) {
@@ -31,20 +26,24 @@ export function isCredentialAccessBlocked(lastPollError) {
 }
 
 export function buildOperatorView(input) {
-  const pollAgeMs = Number.isFinite(input.pollCursorMs)
+  const feishuEnabled = input.feishuEnabled !== false;
+  const pollAgeMs = feishuEnabled
+    && Number.isFinite(input.pollCursorMs)
+    && input.pollCursorMs > 0
     ? Math.max(0, input.nowMs - input.pollCursorMs)
     : null;
   const issues = [];
-  const feishuEnabled = input.feishuEnabled !== false;
-  const multicaSyncAgeMs = input.multicaEnabled && input.lastMulticaSyncAt
-    ? Math.max(0, input.nowMs - new Date(input.lastMulticaSyncAt).getTime())
-    : null;
+  const dingtalkChannel = input.dingtalkChannel || {};
+  const wecomChannel = input.wecomChannel || {};
+  const geweChannel = input.geweChannel || {};
   const a1SyncAgeMs = input.a1Enabled && input.lastA1SyncAt
     ? Math.max(0, input.nowMs - new Date(input.lastA1SyncAt).getTime())
     : null;
   const backupAgeMs = input.backupRequired && input.lastBackupAt
     ? Math.max(0, input.nowMs - new Date(input.lastBackupAt).getTime())
     : null;
+  const webReaderAvailable = input.webReaderEnabled === true;
+  const audioTranscriberAvailable = input.audioTranscriberAvailable === true;
   if (!input.processAlive) issues.push('process_not_running');
   if (feishuEnabled && (pollAgeMs === null || pollAgeMs > input.maxPollAgeMs)) {
     issues.push('poll_cursor_stale');
@@ -58,7 +57,9 @@ export function buildOperatorView(input) {
     issues.push('database_backup_stale');
   }
   if (input.backupRequired && input.lastBackupError) issues.push('database_backup_error');
-  if ((feishuEnabled || input.dingtalkChannel?.enabled) && !input.websocketActive) {
+  const dingtalkNeedsWebsocket = dingtalkChannel.enabled
+    && dingtalkChannel.transport !== 'Wukong DWS polling';
+  if ((feishuEnabled || dingtalkNeedsWebsocket) && !input.websocketActive) {
     issues.push('websocket_consumer_missing');
   }
   if (!input.codexProxyReachable) issues.push('codex_proxy_unreachable');
@@ -69,35 +70,20 @@ export function buildOperatorView(input) {
     issues.push('ai_runtime_last_call_failed');
   }
   if (feishuEnabled && input.credentialBlocked) issues.push('credential_access_blocked');
-  if (input.multicaEnabled
-    && (multicaSyncAgeMs === null || !Number.isFinite(multicaSyncAgeMs)
-      || multicaSyncAgeMs > input.maxMulticaSyncAgeMs)) {
-    issues.push('multica_sync_stale');
-  }
-  if (input.multicaEnabled && input.lastMulticaSyncError) issues.push('multica_sync_error');
-  if (input.multicaEnabled && Number(input.lastMulticaSyncResult?.pending || 0) > 0) {
-    issues.push('multica_delivery_pending');
-  }
-  if (input.multicaEnabled && Number(input.multicaDeadCount || 0) > 0) {
-    issues.push('multica_delivery_dead');
-  }
-  if (input.a1Enabled && !input.a1Installed) issues.push('a1_runtime_unavailable');
-  if (input.a1Enabled && !input.a1Authenticated) issues.push('a1_auth_unavailable');
+  const selfChatCircuitOpen = Number(input.selfChatCircuitLast?.openUntilMs || 0) > input.nowMs;
+  if (selfChatCircuitOpen) issues.push('self_chat_circuit_open');
   if (input.a1Enabled
     && (a1SyncAgeMs === null || !Number.isFinite(a1SyncAgeMs)
       || a1SyncAgeMs > input.maxA1SyncAgeMs)) {
     issues.push('a1_sync_stale');
   }
   if (input.a1Enabled && input.lastA1SyncError) issues.push('a1_sync_error');
-  if (input.a1Enabled && Number(input.lastA1SyncResult?.pending || 0) > 0) {
+  if (input.a1Enabled && Number(input.a1PendingCount || 0) > 0) {
     issues.push('a1_delivery_pending');
   }
   if (input.a1Enabled && Number(input.a1DeadCount || 0) > 0) {
     issues.push('a1_delivery_dead');
   }
-  const dingtalkChannel = input.dingtalkChannel || {};
-  const wecomChannel = input.wecomChannel || {};
-  const geweChannel = input.geweChannel || {};
   if (dingtalkChannel.enabled && !dingtalkChannel.connected) {
     issues.push('dingtalk_channel_unavailable');
   }
@@ -109,9 +95,18 @@ export function buildOperatorView(input) {
   }
 
   const state = !input.processAlive ? 'offline' : issues.length ? 'degraded' : 'online';
+  const primaryChannel = dingtalkChannel.enabled
+    ? 'dingtalk'
+    : feishuEnabled ? 'feishu' : '';
   return {
     state,
     healthy: state === 'online',
+    primaryChannel,
+    operator: {
+      displayName: String(input.operator?.displayName || '账号本人'),
+      role: String(input.operator?.role || ''),
+      brandName: String(input.operator?.brandName || 'Personal Digital Human'),
+    },
     checkedAt: new Date(input.nowMs).toISOString(),
     issues,
     issueLabels: issues.map(issue => ISSUE_LABELS[issue] || issue),
@@ -121,8 +116,9 @@ export function buildOperatorView(input) {
       startedAt: input.processStartedAt || '',
     },
     polling: {
+      applicable: feishuEnabled,
       healthy: !issues.includes('poll_cursor_stale'),
-      cursorAt: Number.isFinite(input.pollCursorMs)
+      cursorAt: pollAgeMs !== null
         ? new Date(input.pollCursorMs).toISOString()
         : '',
       ageMs: pollAgeMs,
@@ -133,7 +129,9 @@ export function buildOperatorView(input) {
     websocket: {
       active: Boolean(input.websocketActive),
       activeConsumers: Number(input.activeConsumers || 0),
-      lastReadyAt: input.lastWebsocketReadyAt || '',
+      lastReadyAt: (dingtalkNeedsWebsocket ? dingtalkChannel.lastReadyAt : '')
+        || input.lastWebsocketReadyAt
+        || '',
     },
     channels: {
       feishu: {
@@ -150,6 +148,13 @@ export function buildOperatorView(input) {
         transport: feishuEnabled ? 'polling + websocket' : 'disabled',
         lastReadyAt: input.lastPollSuccessAt || '',
         lastError: input.lastPollError || null,
+        capabilities: {
+          text: feishuEnabled && Boolean(input.processAlive),
+          image: feishuEnabled && Boolean(input.processAlive) && !input.credentialBlocked,
+          audio: feishuEnabled && Boolean(input.processAlive)
+            && !input.credentialBlocked && audioTranscriberAvailable,
+          link: feishuEnabled && Boolean(input.processAlive) && webReaderAvailable,
+        },
       },
       dingtalk: {
         enabled: Boolean(dingtalkChannel.enabled),
@@ -162,6 +167,14 @@ export function buildOperatorView(input) {
         transport: dingtalkChannel.transport || 'websocket',
         lastReadyAt: dingtalkChannel.lastReadyAt || '',
         lastError: dingtalkChannel.lastError || null,
+        capabilities: {
+          text: Boolean(dingtalkChannel.enabled && dingtalkChannel.connected),
+          image: Boolean(dingtalkChannel.enabled && dingtalkChannel.connected),
+          audio: Boolean(dingtalkChannel.enabled && dingtalkChannel.connected
+            && audioTranscriberAvailable),
+          link: Boolean(dingtalkChannel.enabled && dingtalkChannel.connected
+            && webReaderAvailable),
+        },
       },
       wecom: {
         enabled: Boolean(wecomChannel.enabled),
@@ -174,6 +187,13 @@ export function buildOperatorView(input) {
         transport: wecomChannel.transport || 'websocket',
         lastReadyAt: wecomChannel.lastReadyAt || '',
         lastError: wecomChannel.lastError || null,
+        capabilities: {
+          text: Boolean(wecomChannel.enabled && wecomChannel.connected),
+          image: false,
+          audio: false,
+          link: Boolean(wecomChannel.enabled && wecomChannel.connected
+            && webReaderAvailable),
+        },
       },
       wechat: {
         enabled: Boolean(geweChannel.enabled),
@@ -187,6 +207,13 @@ export function buildOperatorView(input) {
         lastReadyAt: geweChannel.lastReadyAt || '',
         lastError: geweChannel.lastError || null,
         risk: 'third-party-unofficial-wechat-api',
+        capabilities: {
+          text: Boolean(geweChannel.enabled && geweChannel.connected),
+          image: false,
+          audio: false,
+          link: Boolean(geweChannel.enabled && geweChannel.connected
+            && webReaderAvailable),
+        },
       },
     },
     codex: {
@@ -208,41 +235,20 @@ export function buildOperatorView(input) {
         ? structuredClone(input.aiRuntime.runtimes)
         : [],
     },
-    multica: {
-      enabled: Boolean(input.multicaEnabled),
-      healthy: !input.multicaEnabled
-        || (!issues.includes('multica_sync_stale')
-          && !issues.includes('multica_sync_error')
-          && !issues.includes('multica_delivery_pending')
-          && !issues.includes('multica_delivery_dead')),
-      lastSyncAt: input.lastMulticaSyncAt || '',
-      ageMs: multicaSyncAgeMs,
-      lastError: input.lastMulticaSyncError || null,
-      scanned: Number(input.lastMulticaSyncResult?.scanned || 0),
-      changes: Number(input.lastMulticaSyncResult?.changes || 0),
-      notified: Number(input.lastMulticaSyncResult?.notified || 0),
-      pending: Number(input.lastMulticaSyncResult?.pending || 0),
-      failed: Number(input.lastMulticaSyncResult?.failed || 0),
-      dead: Number(input.multicaDeadCount || 0),
-    },
     a1: {
       enabled: Boolean(input.a1Enabled),
-      installed: Boolean(input.a1Installed),
-      authenticated: Boolean(input.a1Authenticated),
       healthy: !input.a1Enabled
-        || (!issues.includes('a1_runtime_unavailable')
-          && !issues.includes('a1_auth_unavailable')
-          && !issues.includes('a1_sync_stale')
+        || (!issues.includes('a1_sync_stale')
           && !issues.includes('a1_sync_error')
           && !issues.includes('a1_delivery_pending')
           && !issues.includes('a1_delivery_dead')),
       lastSyncAt: input.lastA1SyncAt || '',
       ageMs: a1SyncAgeMs,
       lastError: input.lastA1SyncError || null,
-      scanned: Number(input.lastA1SyncResult?.scanned || 0),
-      changes: Number(input.lastA1SyncResult?.changes || 0),
-      notified: Number(input.lastA1SyncResult?.notified || 0),
-      pending: Number(input.lastA1SyncResult?.pending || 0),
+      scanned: Number(input.lastA1SyncResult?.fetched || 0),
+      changes: Number(input.lastA1SyncResult?.changed || 0),
+      notified: Number(input.lastA1SyncResult?.delivered || 0),
+      pending: Number(input.a1PendingCount || 0),
       failed: Number(input.lastA1SyncResult?.failed || 0),
       dead: Number(input.a1DeadCount || 0),
     },
@@ -266,6 +272,8 @@ export function buildOperatorView(input) {
     configuration: input.configuration || {},
     maintenance: {
       credentialBlocked: Boolean(input.credentialBlocked),
+      selfChatCircuitOpen,
+      selfChatCircuitLast: input.selfChatCircuitLast || null,
     },
   };
 }

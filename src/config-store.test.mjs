@@ -16,7 +16,7 @@ assert.equal(typeof store.listConfigurationSnapshots, 'function');
 assert.equal(typeof store.restoreConfigurationSnapshot, 'function');
 assert.equal(typeof store.appendConfigurationAudit, 'function');
 
-const root = await mkdtemp(join(tmpdir(), 'aipro-config-store-'));
+const root = await mkdtemp(join(tmpdir(), 'james-config-store-'));
 try {
   await mkdir(join(root, 'data'), { recursive: true });
   await writeFile(join(root, 'config.local.json'), JSON.stringify({
@@ -49,6 +49,22 @@ try {
   const updated = await store.readConfigurationDocuments(root);
   assert.equal(updated.config.pollIntervalMs, 3000);
   assert.match(updated.persona, /Updated/);
+
+  const versionedCatalog = {
+    version: 2,
+    sources: [{
+      sourceId: 'repo:webagent',
+      type: 'code_repository',
+      title: 'WebAgent',
+      locator: 'enterprise-development/ai-lab-agent',
+      status: 'active',
+    }],
+  };
+  await store.writeConfigurationDocuments(root, {
+    ...updated,
+    knowledgeCatalog: versionedCatalog,
+  });
+  assert.deepEqual((await store.readConfigurationDocuments(root)).knowledgeCatalog, versionedCatalog);
 
   const history = await store.listConfigurationSnapshots(root);
   assert.equal(history.length, 1);
