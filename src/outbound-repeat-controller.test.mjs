@@ -29,6 +29,7 @@ try {
     text: '后面流程管理相关的我都会先检索，再基于材料回复。',
   });
   assert.equal(first.suppressed, undefined);
+  assert.equal(first.sentText, '后面流程管理相关的我都会先检索，再基于材料回复。');
 
   const repeated = await sendUnlessRecentRepeat({
     ...base,
@@ -46,14 +47,16 @@ try {
   });
   assert.equal(required.acknowledged, true);
   assert.equal(required.reason, 'outbound_repeat');
+  assert.equal(required.sentText, SEMANTIC_REPEAT_REQUIRED_ACK_REPLY);
   assert.equal(sent.at(-1), SEMANTIC_REPEAT_REQUIRED_ACK_REPLY);
 
-  await sendUnlessRecentRepeat({
+  const otherRequester = await sendUnlessRecentRepeat({
     ...base,
     audienceKey: 'dingtalk:other-requester',
     nowMs: 4_000,
     text: '后面流程管理相关的我都会先检索，再基于材料回复。',
   });
+  assert.equal(otherRequester.sentText, '后面流程管理相关的我都会先检索，再基于材料回复。');
   assert.equal(sent.length, 3);
 
   await sendUnlessRecentRepeat({
@@ -86,13 +89,14 @@ try {
   });
   assert.equal(sent.includes('临时发送失败'), true);
 
-  await sendUnlessRecentRepeat({
+  const downstreamSuppressed = await sendUnlessRecentRepeat({
     ...base,
     chatId: 'dingtalk:group:downstream',
     nowMs: 9_000,
     text: '下游暂时抑制',
     send: async () => ({ suppressed: true, reason: 'hard_boundary' }),
   });
+  assert.equal(downstreamSuppressed.sentText, undefined);
   await sendUnlessRecentRepeat({
     ...base,
     chatId: 'dingtalk:group:downstream',
@@ -115,6 +119,7 @@ try {
     audit: (event, detail) => failOpenAudits.push({ event, detail }),
   });
   assert.equal(failOpen.suppressed, undefined);
+  assert.equal(failOpen.sentText, '状态库失败仍要发送');
   assert.deepEqual(failOpenSent, ['状态库失败仍要发送']);
   assert.deepEqual(failOpenAudits, [{
     event: 'outbound_repeat_state_error',

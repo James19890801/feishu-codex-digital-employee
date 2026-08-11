@@ -41,6 +41,14 @@ import {
   AutomationPeerGuard,
   handleAutomationPeerInbound,
 } from './automation-peer-guard.mjs';
+import { assessResponseObligation } from './response-obligation.mjs';
+import { REQUIRED_RESPONSE_FALLBACK_REPLY } from './required-response-fallback.mjs';
+import { semanticRepeatEligibility } from './semantic-repeat-controller.mjs';
+import {
+  evaluateStableResponseInbound,
+  generateStableResponse,
+  sendStableGeneratedReply,
+} from './stable-response-policy.mjs';
 
 const cases = [];
 
@@ -331,6 +339,110 @@ contract('loop-prevention', 'Can the same outbound echo be consumed twice?', () 
     assert.equal(state.consumeOutboundEcho('self', '回复', { now }), true);
     assert.equal(state.consumeOutboundEcho('self', '回复', { now }), false);
   });
+});
+
+contract('stable-response', 'Does an admitted DingTalk group @ create a response obligation?', () => {
+  assert.equal(assessResponseObligation({
+    message: { chat_type: 'group', mentions: [{ id: 'dingtalk-current-user' }] },
+    metadata: { channel: 'dingtalk', eventType: 'user_im_message_receive_at' },
+    text: '@James 看一下',
+    aliases: ['James', '詹老师'],
+  }).responseRequired, true);
+});
+
+contract('stable-response', 'Does a repeated explicit mention stop before AI but stay visible?', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'james-acceptance-stable-response-'));
+  const state = new AgentState(join(dir, 'state.sqlite'));
+  try {
+    const sent = [];
+    const base = {
+      state,
+      config: {
+        responseMentionAliases: ['James'],
+        semanticRepeatGuardEnabled: true,
+        semanticRepeatWindowMs: 60_000,
+        semanticRepeatMaxReplies: 2,
+      },
+      channel: 'dingtalk',
+      senderId: 'dingtalk:peer',
+      message: {
+        message_id: 'stable-1', chat_id: 'dingtalk:group:stable',
+        chat_type: 'group', message_type: 'text', mentions: [{ id: 'current' }],
+      },
+      metadata: { channel: 'dingtalk', eventType: 'user_im_message_receive_at' },
+      text: '这个需要本人确认 @James',
+      sendClose: async text => sent.push(text),
+    };
+    await evaluateStableResponseInbound({ ...base, nowMs: 1_000 });
+    await evaluateStableResponseInbound({
+      ...base, message: { ...base.message, message_id: 'stable-2' }, nowMs: 2_000,
+    });
+    const third = await evaluateStableResponseInbound({
+      ...base, message: { ...base.message, message_id: 'stable-3' }, nowMs: 3_000,
+    });
+    let aiCalls = 0;
+    if (!third.handled) {
+      await generateStableResponse({
+        responseRequired: third.responseRequired,
+        generate: async () => { aiCalls += 1; return '不应执行'; },
+      });
+    }
+    assert.equal(third.repeat.action, 'acknowledge_required');
+    assert.equal(aiCalls, 0);
+    assert.equal(sent.length, 2);
+  } finally {
+    state.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+contract('stable-response', 'Does required generation failure return a visible fallback?', async () => {
+  const result = await generateStableResponse({
+    responseRequired: true,
+    generate: async () => { throw new Error('AI unavailable'); },
+  });
+  assert.equal(result.text, REQUIRED_RESPONSE_FALLBACK_REPLY);
+  assert.equal(result.fallback, true);
+});
+
+contract('stable-response', 'Does a repeated required outbound answer acknowledge instead of silence?', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'james-acceptance-outbound-response-'));
+  const state = new AgentState(join(dir, 'state.sqlite'));
+  try {
+    const sent = [];
+    const base = {
+      state,
+      message: { message_id: 'out-1', chat_id: 'group', chat_type: 'group' },
+      senderId: 'requester',
+      text: '这是相同的最终结论',
+      responseRequired: true,
+      nowMs: 1_000,
+      windowMs: 60_000,
+      send: async text => { sent.push(text); return { ok: true }; },
+    };
+    await sendStableGeneratedReply(base);
+    const repeat = await sendStableGeneratedReply({
+      ...base,
+      message: { ...base.message, message_id: 'out-2' },
+      text: '这是相同的最终结论！',
+      nowMs: 2_000,
+    });
+    assert.equal(repeat.acknowledged, true);
+    assert.equal(sent.length, 2);
+  } finally {
+    state.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+contract('stable-response', 'Do direct messages bypass the inbound semantic repeat gate?', () => {
+  assert.equal(semanticRepeatEligibility({
+    enabled: true,
+    channel: 'dingtalk',
+    chatType: 'p2p',
+    messageType: 'text',
+    text: '同样内容',
+  }).reason, 'direct_message_bypass');
 });
 
 contract('loop-prevention', 'Does the circuit breaker isolate different self chats?', () => {

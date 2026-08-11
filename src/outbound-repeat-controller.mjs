@@ -20,7 +20,9 @@ export async function sendUnlessRecentRepeat({
       chatId: String(chatId || ''),
       audienceKey: String(audienceKey || ''),
     });
-    return send(text);
+    const result = await send(text);
+    if (result?.suppressed) return result;
+    return { ...(result && typeof result === 'object' ? result : {}), sentText: text };
   }
   const detail = {
     chatId: String(chatId || ''),
@@ -32,16 +34,28 @@ export async function sendUnlessRecentRepeat({
   if (!claim.allowed) {
     if (responseRequired) {
       const result = await send(SEMANTIC_REPEAT_REQUIRED_ACK_REPLY);
+      if (result?.suppressed) return result;
       audit('outbound_repeat_required_acknowledged', detail);
-      return { ...result, acknowledged: true, reason: 'outbound_repeat' };
+      return {
+        ...(result && typeof result === 'object' ? result : {}),
+        acknowledged: true,
+        reason: 'outbound_repeat',
+        sentText: SEMANTIC_REPEAT_REQUIRED_ACK_REPLY,
+      };
     }
     audit('outbound_repeat_suppressed', detail);
     return { suppressed: true, reason: 'outbound_repeat' };
   }
   try {
     const result = await send(text);
-    if (result?.suppressed) state.releaseOutboundReplyClaim(claim.claimId);
-    return result;
+    if (result?.suppressed) {
+      state.releaseOutboundReplyClaim(claim.claimId);
+      return result;
+    }
+    return {
+      ...(result && typeof result === 'object' ? result : {}),
+      sentText: text,
+    };
   } catch (error) {
     state.releaseOutboundReplyClaim(claim.claimId);
     throw error;

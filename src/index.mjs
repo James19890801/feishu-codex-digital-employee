@@ -195,6 +195,12 @@ import {
   automaticCommunicationDecision,
   canSendBlockedRecipient,
 } from './communication-blocklist.mjs';
+import { assessResponseObligation } from './response-obligation.mjs';
+import {
+  evaluateStableResponseInbound,
+  generateStableResponse,
+  sendStableGeneratedReply,
+} from './stable-response-policy.mjs';
 
 const CORE_LICENSE_GUARD = await evaluateLicenseGuard({
   enforced: config.licensingEnforced,
@@ -1680,6 +1686,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
   } catch { return; }
   const cleanText = cleanTask(String(text || '').slice(0, 20_000));
   const senderOpenId = sender?.sender_id?.open_id || '';
+  const operatorCommand = matchOperatorCommand(cleanText);
   audit('message_received', message, senderOpenId, {
     type: message.message_type,
     text: redactMailAuditText(cleanText).slice(0, 300),
@@ -1750,8 +1757,13 @@ async function processIncoming(client, message, sender, metadata = {}) {
     return;
   }
 
-  if (message.chat_type === 'group'
-    && (!Array.isArray(message.mentions) || message.mentions.length === 0)) return;
+  const responseObligation = assessResponseObligation({
+    message,
+    metadata,
+    text: cleanText,
+    aliases: config.responseMentionAliases,
+  });
+  if (message.chat_type === 'group' && !responseObligation.responseRequired) return;
 
   const automationPeerResult = await handleAutomationPeerInbound({
     guard: automationPeerGuard,
@@ -1793,6 +1805,32 @@ async function processIncoming(client, message, sender, metadata = {}) {
     }
     return;
   }
+
+  const stableResponse = await evaluateStableResponseInbound({
+    state,
+    config,
+    channel: String(
+      metadata.channel
+      || parseChannelChatId(message.chat_id)?.channel
+      || (client ? 'feishu' : ''),
+    ).trim().toLowerCase(),
+    senderId: senderOpenId,
+    message,
+    metadata,
+    text: cleanText,
+    operatorCommand,
+    nowMs,
+    sendClose: (reply, idempotencyKey) => sendText(
+      client,
+      message.chat_id,
+      reply,
+      idempotencyKey,
+      { chatType: message.chat_type },
+    ),
+    audit: (event, detail) => audit(event, message, senderOpenId, detail),
+  });
+  const responseRequired = stableResponse.responseRequired;
+  if (stableResponse.handled) return;
 
   if (config.multicaEnabled
     && await applyPendingFeedback(message, senderOpenId, cleanText, metadata)) return;
@@ -1836,7 +1874,6 @@ async function processIncoming(client, message, sender, metadata = {}) {
     return;
   }
 
-  const operatorCommand = matchOperatorCommand(cleanText);
   if (operatorCommand === 'help') {
     const answer = buildHelpReply({ dashboardUrl: DASHBOARD_URL });
     await sendText(client, message.chat_id, answer, `xiaozhao-help-${message.message_id}`);
@@ -2490,29 +2527,58 @@ async function processIncoming(client, message, sender, metadata = {}) {
               ? `${cleanText || '发送了视频'}（含视频）`
               : task;
     remember(message.chat_id, senderOpenId, 'user', historyLabel);
-    const answer = target?.channel === 'dingtalk'
-      ? await executeGroundedReply({
-          contextService: REPLY_CONTEXT_SERVICE,
-          task: cleanText || task,
-          historyRequest: buildDingTalkReplyHistoryRequest({
-            message,
-            senderOpenId,
-            cleanText: cleanText || task,
-            metadata,
-          }),
-          generate: ({ replyContextInstruction }) => runCodex(
-            task,
-            history,
-            imagePaths,
-            decision,
-            replyContextInstruction,
-          ),
-        })
-      : await runCodex(task, history, imagePaths, decision);
-    remember(message.chat_id, senderOpenId, 'assistant', answer);
-    await sendText(client, message.chat_id, answer, `xiaozhao-${message.message_id}`);
-    audit('message_replied', message, senderOpenId, { artifact: false, answerChars: answer.length });
-    console.log(`[reply] ${message.message_id}: ok`);
+    const generated = await generateStableResponse({
+      responseRequired,
+      generate: () => target?.channel === 'dingtalk'
+        ? executeGroundedReply({
+            contextService: REPLY_CONTEXT_SERVICE,
+            task: cleanText || task,
+            historyRequest: buildDingTalkReplyHistoryRequest({
+              message,
+              senderOpenId,
+              cleanText: cleanText || task,
+              metadata,
+            }),
+            generate: ({ replyContextInstruction }) => runCodex(
+              task,
+              history,
+              imagePaths,
+              decision,
+              replyContextInstruction,
+            ),
+          })
+        : runCodex(task, history, imagePaths, decision),
+      audit: (event, detail) => audit(event, message, senderOpenId, detail),
+    });
+    const answer = generated.text;
+    const sendResult = await sendStableGeneratedReply({
+      state,
+      message,
+      senderId: senderOpenId,
+      text: answer,
+      responseRequired,
+      windowMs: config.outboundRepeatWindowMs,
+      send: outboundText => sendText(
+        client,
+        message.chat_id,
+        outboundText,
+        `xiaozhao-${message.message_id}`,
+        { chatType: message.chat_type },
+      ),
+      audit: (event, detail) => audit(event, message, senderOpenId, detail),
+    });
+    if (!sendResult?.suppressed) {
+      const sentAnswer = sendResult?.sentText || answer;
+      remember(message.chat_id, senderOpenId, 'assistant', sentAnswer);
+      audit('message_replied', message, senderOpenId, {
+        artifact: false,
+        answerChars: sentAnswer.length,
+        fallback: generated.fallback === true,
+      });
+      console.log(`[reply] ${message.message_id}: ok`);
+    } else {
+      console.log(`[reply] ${message.message_id}: suppressed (${sendResult.reason || 'policy'})`);
+    }
   } catch (error) {
     console.error(`[error] ${message.message_id}:`, error);
     throw error;
