@@ -29,7 +29,8 @@ assert.deepEqual(commands.chat.slice(0, 3), ['chat', 'message', 'list-all']);
 assert.ok(commands.chat.includes('--profile'));
 assert.ok(commands.chat.includes('corp:user'));
 assert.ok(commands.chat.includes('--format'));
-assert.ok(commands.minutes.includes('+list-all'));
+assert.deepEqual(commands.minutes.slice(0, 3), ['minutes', 'list', 'all']);
+assert.ok(commands.minutes.includes('30'));
 assert.ok(commands.documents.includes('recent'));
 assert.equal(commands.documents[0], 'drive');
 

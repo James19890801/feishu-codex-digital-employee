@@ -148,6 +148,7 @@ import {
   evaluateHumanTakeover,
   humanTakeoverStatus,
   takeoverSyncFailurePolicy,
+  takeoverSyncFailureTerminalEvent,
 } from './human-takeover.mjs';
 import {
   buildFirstTakeoverGreeting,
@@ -1712,7 +1713,15 @@ async function processIncoming(client, message, sender, metadata = {}) {
         error: processFailureSummary(error),
       });
       console.error(`[takeover-control-check-error] ${message.message_id}:`, error);
-      if (failurePolicy === 'suppress') return;
+      const terminalEvent = takeoverSyncFailureTerminalEvent(failurePolicy);
+      if (terminalEvent) {
+        audit(terminalEvent, message, senderOpenId, {
+          channel: 'dingtalk',
+          failurePolicy,
+          reason: 'active_human_takeover_state_preserved',
+        });
+        return;
+      }
       if (failurePolicy === 'retry') throw error;
     }
   }

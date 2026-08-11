@@ -1,18 +1,14 @@
 import { dirname } from 'node:path';
 import { matchHumanTakeoverCommand } from './human-takeover.mjs';
 import { parseDingTalkMediaPlaceholder } from './multimodal-content.mjs';
+import { isPassiveDingTalkSystemNotice } from './dingtalk-system-notice.mjs';
 
 const CHANNEL_TARGET_PATTERN = /^(dingtalk|wecom|wechat):(group|user):(.+)$/;
 const DINGTALK_SELF_FILE_PLACEHOLDER = /^(?:\[文件\]\s*)+.*\bfileId\s*:/i;
 const DINGTALK_CALENDAR_RESPONSE_RECEIPT = /^.{1,80}接受了你的日程$/u;
-const DINGTALK_PASSIVE_CALL_NOTICE = /^(?:最近通话[：:]|未接来电[：:]|\[?语音通话\]?\s*已取消$)/u;
 
 function isGeneratedDingTalkCalendarResponseReceipt(content) {
   return DINGTALK_CALENDAR_RESPONSE_RECEIPT.test(String(content || '').trim());
-}
-
-function isPassiveDingTalkSystemNotice(content) {
-  return DINGTALK_PASSIVE_CALL_NOTICE.test(String(content || '').trim());
 }
 
 export function buildDingTalkProcessEnv({

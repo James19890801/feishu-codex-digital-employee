@@ -111,6 +111,47 @@ assert.deepEqual(appended.messages.map(item => item.messageId), ['old-1', 'curre
 assert.equal(appended.currentMessage.messageId, 'current-1');
 assert.equal(appended.latestCounterpartyMessage.content, '你看这个怎么做');
 
+const withoutPassiveCallNotices = normalizeConversationHistory(
+  {
+    result: {
+      messages: [
+        {
+          openMessageId: 'call-1', senderOpenDingTalkId: 'system', sender: '系统',
+          content: '最近通话：00:21', createTime: '2026-08-03 14:57:00',
+          openConversationId: 'cid-direct',
+        },
+        {
+          openMessageId: 'call-2', senderOpenDingTalkId: 'system', sender: '系统',
+          content: '未接来电：对方已挂断', createTime: '2026-08-03 14:58:00',
+          openConversationId: 'cid-direct',
+        },
+        {
+          openMessageId: 'call-3', senderOpenDingTalkId: 'owner-open', sender: '账号本人',
+          content: '[语音通话] 已取消', createTime: '2026-08-03 14:59:00',
+          openConversationId: 'cid-direct',
+        },
+        {
+          openMessageId: 'real-1', senderOpenDingTalkId: 'owner-open', sender: '账号本人',
+          content: '我稍后确认', createTime: '2026-08-03 14:59:30',
+          openConversationId: 'cid-direct',
+        },
+      ],
+    },
+  },
+  {
+    conversationId: 'cid-direct', ownerIds: ['owner-open'],
+    currentMessage: {
+      messageId: 'current-call-filter', conversationId: 'cid-direct', senderId: 'colleague-open',
+      senderName: '同事甲', content: '请帮我看一下', createdAt: '2026-08-03 15:00:00',
+    },
+  },
+);
+assert.deepEqual(
+  withoutPassiveCallNotices.messages.map(item => item.messageId),
+  ['real-1', 'current-call-filter'],
+);
+assert.deepEqual(withoutPassiveCallNotices.styleSamples.map(item => item.content), ['我稍后确认']);
+
 const rawShape = normalizeConversationHistory(
   {
     messages: [{

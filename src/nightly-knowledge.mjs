@@ -48,7 +48,7 @@ export function buildDwsSourceCommands({ profile, startMs, endMs, cursor = '0' }
   const common = ['--profile', String(profile), '--format', 'json'];
   return {
     chat: ['chat', 'message', 'list-all', '--start', String(startMs), '--end', String(endMs), '--cursor', String(cursor || '0'), '--limit', '50', ...common],
-    minutes: ['minutes', '+list-all', '--limit', '50', ...common],
+    minutes: ['minutes', 'list', 'all', '--limit', '30', ...common],
     documents: ['drive', 'recent', '--operate-type', '0,1', '--limit', '5', ...common],
   };
 }

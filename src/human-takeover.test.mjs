@@ -37,6 +37,17 @@ assert.equal(humanTakeoverModule.takeoverSyncFailurePolicy({
   attemptNumber: 3,
   maxAttempts: 3,
 }), 'suppress');
+assert.equal(
+  typeof humanTakeoverModule.takeoverSyncFailureTerminalEvent,
+  'function',
+  'suppressed takeover sync failures need an explicit terminal audit event',
+);
+assert.equal(
+  humanTakeoverModule.takeoverSyncFailureTerminalEvent('suppress'),
+  'message_skipped_takeover_control_unavailable',
+);
+assert.equal(humanTakeoverModule.takeoverSyncFailureTerminalEvent('retry'), '');
+assert.equal(humanTakeoverModule.takeoverSyncFailureTerminalEvent('proceed_degraded'), '');
 
 for (const phrase of [
   '数字人请退场',

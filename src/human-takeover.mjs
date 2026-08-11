@@ -47,6 +47,12 @@ export function takeoverSyncFailurePolicy({
   return Number(attemptNumber) < Number(maxAttempts) ? 'retry' : 'proceed_degraded';
 }
 
+export function takeoverSyncFailureTerminalEvent(failurePolicy) {
+  return failurePolicy === 'suppress'
+    ? 'message_skipped_takeover_control_unavailable'
+    : '';
+}
+
 export function activateHumanTakeover(previous, {
   nowMs = Date.now(),
   sourceMessageId = '',

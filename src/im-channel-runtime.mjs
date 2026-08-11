@@ -25,6 +25,18 @@ function errorState(error) {
   };
 }
 
+function nestedMessageId(value, depth = 0) {
+  if (!value || typeof value !== 'object' || depth > 5) return '';
+  for (const key of ['messageId', 'message_id', 'openMessageId', 'open_message_id']) {
+    if (typeof value[key] === 'string' && value[key].trim()) return value[key].trim();
+  }
+  for (const child of Object.values(value)) {
+    const found = nestedMessageId(child, depth + 1);
+    if (found) return found;
+  }
+  return '';
+}
+
 export class DingTalkChannel {
   constructor({
     bin,
@@ -32,12 +44,18 @@ export class DingTalkChannel {
     transport = 'event-stream',
     run,
     onStatus = () => {},
+    sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
+    sendStatusAttempts = 8,
+    sendStatusDelayMs = 500,
   }) {
     this.bin = bin;
     this.profile = profile;
     this.transport = transport;
     this.run = run;
     this.onStatus = onStatus;
+    this.sleep = sleep;
+    this.sendStatusAttempts = Math.max(1, Number(sendStatusAttempts) || 1);
+    this.sendStatusDelayMs = Math.max(0, Number(sendStatusDelayMs) || 0);
   }
 
   consumerArgs() {
@@ -88,6 +106,50 @@ export class DingTalkChannel {
     }
     if (this.transport === 'wukong-polling' && !payload?.result?.openTaskId) {
       throw new Error(`dws send returned no openTaskId: ${JSON.stringify(payload).slice(0, 800)}`);
+    }
+    const openTaskId = String(payload?.result?.openTaskId || '').trim();
+    if (this.transport === 'event-stream' && !nestedMessageId(payload) && !openTaskId) {
+      throw new Error(`dws send returned no messageId or openTaskId: ${JSON.stringify(payload).slice(0, 800)}`);
+    }
+    if (this.transport === 'event-stream' && openTaskId) {
+      let lastStatusPayload = null;
+      for (let attempt = 0; attempt < this.sendStatusAttempts; attempt += 1) {
+        const statusResult = await this.run(this.bin, [
+          ...(this.profile ? ['--profile', this.profile] : []),
+          'chat', 'message', 'query-send-status',
+          '--open-task-id', openTaskId,
+          '--format', 'json',
+        ]);
+        try {
+          lastStatusPayload = JSON.parse(statusResult.stdout || '{}');
+        } catch {
+          throw new Error(`dws returned invalid send-status JSON: ${(statusResult.stderr || statusResult.stdout || '').slice(-500)}`);
+        }
+        if (lastStatusPayload.success === false || lastStatusPayload.error) {
+          throw new Error(`dws send-status query failed: ${JSON.stringify(lastStatusPayload.error || lastStatusPayload).slice(0, 800)}`);
+        }
+        const sendStatus = String(
+          lastStatusPayload?.result?.sendStatus || lastStatusPayload?.sendStatus || '',
+        ).trim().toUpperCase();
+        const messageId = nestedMessageId(lastStatusPayload);
+        if (sendStatus === 'SUCCESS' && messageId) {
+          return {
+            ...payload,
+            result: {
+              ...(payload.result || {}),
+              ...(lastStatusPayload.result || {}),
+              messageId,
+            },
+          };
+        }
+        if (sendStatus.includes('FAIL') || sendStatus === 'ERROR') {
+          throw new Error(`dws send failed with terminal status ${sendStatus}: ${JSON.stringify(lastStatusPayload).slice(0, 800)}`);
+        }
+        if (attempt + 1 < this.sendStatusAttempts) {
+          await this.sleep(this.sendStatusDelayMs);
+        }
+      }
+      throw new Error(`dws send did not return terminal SUCCESS with messageId: ${JSON.stringify(lastStatusPayload).slice(0, 800)}`);
     }
     return payload;
   }

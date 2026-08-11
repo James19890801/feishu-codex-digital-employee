@@ -82,6 +82,37 @@ assert.equal(result.text, 'JAMES_RUNTIME_OK');
 assert.equal(calls[0].options.input, 'private prompt');
 assert.equal(calls[0].args.includes('private prompt'), false);
 
+const privateFailureSentinel = 'PRIVATE_CHAT_SENTINEL_MUST_NOT_PERSIST';
+const failingClient = new AiRuntimeClient({
+  runtime: runtimes.find(item => item.id === 'qoder'),
+  runner: async () => {
+    const error = new Error(`process stderr included ${privateFailureSentinel}`);
+    error.code = 'PROCESS_EXIT';
+    throw error;
+  },
+});
+await assert.rejects(
+  () => failingClient.run('private prompt', { cwd: '/tmp/james-runtime' }),
+  error => {
+    assert.equal(error.message, 'Qoder CLI failed: PROCESS_EXIT');
+    assert.doesNotMatch(error.message, new RegExp(privateFailureSentinel));
+    return true;
+  },
+);
+
+const emptyResponseClient = new AiRuntimeClient({
+  runtime: runtimes.find(item => item.id === 'qoder'),
+  runner: async () => ({ stdout: '', stderr: privateFailureSentinel }),
+});
+await assert.rejects(
+  () => emptyResponseClient.run('private prompt', { cwd: '/tmp/james-runtime' }),
+  error => {
+    assert.equal(error.message, 'Qoder CLI failed: AI_RUNTIME_EMPTY_RESPONSE');
+    assert.doesNotMatch(error.message, new RegExp(privateFailureSentinel));
+    return true;
+  },
+);
+
 assert.equal(typeof aiRuntime.runAiRuntimeStartupProbe, 'function');
 const probeClient = new AiRuntimeClient({
   runtime: runtimes.find(item => item.id === 'qoder'),
