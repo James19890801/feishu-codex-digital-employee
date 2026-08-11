@@ -39,6 +39,7 @@ The port uses focused modules with narrow interfaces:
 - `src/semantic-repeat-guard.mjs`: normalize group topics and conservatively compare them without invoking an AI model.
 - `src/semantic-repeat-controller.mjs`: turn an atomic repeat claim into process, close, acknowledge, or suppress behavior.
 - `src/outbound-repeat-controller.mjs`: stop recent semantically equivalent outbound replies from being resent, while preserving visible acknowledgement for required responses.
+- `src/stable-response-policy.mjs`: compose obligation detection, inbound repeat handling, generation fallback, and outbound duplicate handling behind a testable integration boundary.
 - `src/state.mjs`: persist and atomically claim inbound semantic topics and outbound semantic replies.
 - `src/index.mjs`: place the new decisions in the existing inbound and send pipelines.
 
