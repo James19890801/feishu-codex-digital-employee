@@ -138,19 +138,93 @@ function minutesActionText(action) {
   catch { return action; }
 }
 
-async function collectDwsMinutes({ runDws, profile, state }) {
-  const args = ['minutes', '+list-all', '--limit', '5'];
-  if (state.cursor) args.push('--cursor', state.cursor);
-  const result = unwrap(await runDws([...args, '--profile', profile, '--format', 'json']));
-  const items = arrayValue(result, ['minutes', 'items', 'list']);
-  const records = [];
-  for (const item of items.slice(0, 5)) {
-    const id = firstValue(item, ['taskUuid', 'id', 'minutesId', 'recordId', 'objectId']);
-    if (!id) continue;
-    let detail = item;
+function minutesDetailHasContent(detail) {
+  const summary = minutesArtifactResult(detail?.summary);
+  const transcript = minutesArtifactResult(detail?.transcript);
+  const todos = minutesArtifactResult(detail?.todos);
+  return Boolean(
+    firstValue(summary, ['fullSummary', 'summary', 'content', 'text'], firstValue(detail, ['meetingSummary', 'abstract']))
+    || arrayValue(transcript, ['paragraphList', 'paragraphs', 'items', 'list']).length
+    || arrayValue(todos, ['actions', 'todos', 'items', 'list']).length
+  );
+}
+
+function shanghaiDayWindow(now) {
+  const shifted = new Date(now.getTime() + 8 * 60 * 60 * 1000).toISOString();
+  const date = shifted.slice(0, 10);
+  return {
+    start: `${date}T00:00:00+08:00`,
+    end: `${date}T${shifted.slice(11, 19)}+08:00`,
+  };
+}
+
+async function collectDwsMinutes({
+  runDws,
+  profile,
+  now = new Date(),
+  maxPages = 10,
+  retryAttempts = 5,
+  retryDelayMs = 15000,
+  wait = delayMs => new Promise(resolveWait => setTimeout(resolveWait, delayMs)),
+}) {
+  const window = shanghaiDayWindow(now);
+  let items = [];
+  let lastError;
+  for (let attempt = 0; attempt < retryAttempts; attempt += 1) {
     try {
-      detail = unwrap(await runDws(['minutes', '+detail', '--id', String(id), '--artifacts', 'basic,summary,keywords,transcript,todos']));
-    } catch (error) { detail = { ...item, detailError: error.message }; }
+      const listed = [];
+      let cursor = '';
+      let completed = false;
+      for (let page = 0; page < maxPages; page += 1) {
+        const args = [
+          'minutes', 'list', 'all', '--start', window.start, '--end', window.end, '--limit', '30',
+        ];
+        if (cursor) args.push('--cursor', cursor);
+        if (attempt > 0) args.push('--timeout', '60', '--verbose');
+        const result = unwrap(await runDws([...args, '--profile', profile, '--format', 'json']));
+        listed.push(...arrayValue(result, ['itemList', 'minutes', 'items', 'list']));
+        if (!result.hasMore) {
+          completed = true;
+          break;
+        }
+        cursor = firstValue(result, ['nextToken', 'nextCursor']);
+        if (!cursor) throw new Error('AI 听记分页缺少 nextToken');
+      }
+      if (!completed) throw new Error(`AI 听记分页超过 ${maxPages} 页安全上限`);
+      if (!listed.length) throw new Error(`AI 听记当天列表为空（${window.start} 至 ${window.end}）`);
+      items = listed;
+      lastError = null;
+      break;
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 < retryAttempts) await wait(retryDelayMs);
+    }
+  }
+  if (lastError) {
+    throw new Error(`AI 听记未读取：${lastError.message}（已尝试 ${retryAttempts} 次）`);
+  }
+  const records = [];
+  for (const item of items) {
+    const id = firstValue(item, ['taskUuid', 'uuid', 'id', 'minutesId', 'recordId', 'objectId']);
+    if (!id) continue;
+    let detail;
+    let detailError;
+    for (let attempt = 0; attempt < retryAttempts; attempt += 1) {
+      try {
+        const args = ['minutes', '+detail', '--id', String(id), '--artifacts', 'basic,summary,keywords,transcript,todos'];
+        if (attempt > 0) args.push('--timeout', '60', '--verbose');
+        detail = unwrap(await runDws(args));
+        if (!minutesDetailHasContent(detail)) throw new Error('AI 听记纪要内容尚未生成');
+        detailError = null;
+        break;
+      } catch (error) {
+        detailError = error;
+        if (attempt + 1 < retryAttempts) await wait(retryDelayMs);
+      }
+    }
+    if (detailError) {
+      throw new Error(`AI 听记详情未读取（${id}）：${detailError.message}（已尝试 ${retryAttempts} 次）`);
+    }
     const basic = minutesArtifactResult(detail.basic);
     const summary = minutesArtifactResult(detail.summary);
     const keywords = minutesArtifactResult(detail.keywords);
@@ -168,16 +242,15 @@ async function collectDwsMinutes({ runDws, profile, state }) {
         const content = firstValue(paragraph, ['paragraph', 'content', 'text']);
         return content ? `${speaker}：${content}` : '';
       }).filter(Boolean).join('\n'),
-      detail.detailError ? `详情未读取：${detail.detailError}` : '',
     ].filter(Boolean).join('\n\n');
     records.push({
       id: String(id),
       title: firstValue(basic, ['title', 'subject', 'name'], firstValue(item, ['title', 'subject', 'name'], `AI 听记 ${id}`)),
       text: text || JSON.stringify(detail).slice(0, 12000),
-      locator: firstValue(basic, ['url'], firstValue(item, ['url'], `dingtalk:minutes:${id}`)),
+      locator: firstValue(basic, ['url'], firstValue(item, ['shareUrl', 'url'], `dingtalk:minutes:${id}`)),
     });
   }
-  return { status: 'ok', cursor: firstValue(result, ['nextToken', 'nextCursor'], ''), records };
+  return { status: 'ok', cursor: now.toISOString(), records };
 }
 
 async function collectDwsDocuments({ runDws, profile, state }) {
