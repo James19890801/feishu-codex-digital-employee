@@ -142,6 +142,37 @@ try {
     latestSuppression: null,
   });
 
+  const outboundClaim = state.claimOutboundReply({
+    chatId: 'dingtalk:group:outbound',
+    audienceKey: 'dingtalk:requester',
+    content: '基于资料回复这个结论',
+    nowMs: 70_000,
+    windowMs: 60_000,
+  });
+  assert.equal(outboundClaim.allowed, true);
+  assert.equal(state.claimOutboundReply({
+    chatId: 'dingtalk:group:outbound',
+    audienceKey: 'dingtalk:requester',
+    content: '基于资料回复这个结论！',
+    nowMs: 71_000,
+    windowMs: 60_000,
+  }).allowed, false);
+  assert.equal(state.claimOutboundReply({
+    chatId: 'dingtalk:group:outbound',
+    audienceKey: 'dingtalk:other',
+    content: '基于资料回复这个结论',
+    nowMs: 72_000,
+    windowMs: 60_000,
+  }).allowed, true);
+  assert.equal(state.releaseOutboundReplyClaim(outboundClaim.claimId), true);
+  assert.equal(state.claimOutboundReply({
+    chatId: 'dingtalk:group:outbound',
+    audienceKey: 'dingtalk:requester',
+    content: '基于资料回复这个结论',
+    nowMs: 73_000,
+    windowMs: 60_000,
+  }).allowed, true);
+
   state.markSelfChat('oc_self');
   assert.equal(state.isSelfChat('oc_self'), true);
   assert.equal(state.isSelfChat('oc_normal'), false);
@@ -459,6 +490,7 @@ try {
   assert.equal(pruned.pendingAction >= 1, true);
   assert.equal(pruned.mutation >= 1, true);
   assert.equal(pruned.semanticRepeat >= 1, true);
+  assert.equal(pruned.outboundReply >= 1, true);
   console.log('STATE_TEST_OK');
 } finally {
   rmSync(dir, { recursive: true, force: true });

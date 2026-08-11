@@ -90,6 +90,9 @@ export const config = {
   semanticRepeatMaxReplies: boundedInteger(raw.semanticRepeatMaxReplies, {
     name: 'semanticRepeatMaxReplies', fallback: 2, min: 2, max: 5,
   }),
+  outboundRepeatWindowMs: boundedInteger(raw.outboundRepeatWindowMs, {
+    name: 'outboundRepeatWindowMs', fallback: 10 * 60_000, min: 60_000, max: 60 * 60_000,
+  }),
   webReaderEnabled: raw.webReaderEnabled !== false,
   webReaderMaxUrls: boundedInteger(raw.webReaderMaxUrls, {
     name: 'webReaderMaxUrls', fallback: 2, min: 1, max: 3,

@@ -29,6 +29,7 @@
   "semanticRepeatGuardEnabled": true,
   "semanticRepeatWindowMs": 1800000,
   "semanticRepeatMaxReplies": 2,
+  "outboundRepeatWindowMs": 600000,
   "webReaderEnabled": true,
   "webReaderMaxUrls": 2,
   "audioTranscriptionCommand": "",
