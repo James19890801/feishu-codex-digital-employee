@@ -182,7 +182,7 @@ contract('human-takeover', 'Does cached human takeover still win during an API o
   }
 });
 
-contract('human-takeover', 'Can an assistant echo accidentally extend human takeover?', () => {
+contract('human-takeover', 'Can ordinary owner traffic or an assistant echo accidentally activate human takeover?', () => {
   const applied = applyOwnerActivityHistory([{
     content: '真人说话', createTime: '2026-08-02 08:00:00',
     openMessageId: 'owner-1', senderOpenDingTalkId: 'owner',
@@ -195,8 +195,9 @@ contract('human-takeover', 'Can an assistant echo accidentally extend human take
     parseTime: value => Date.parse(String(value).replace(' ', 'T') + '+08:00'),
     isAssistantMessage: message => message.openMessageId === 'assistant-1',
   });
-  assert.equal(applied.activities.length, 1);
-  assert.equal(applied.state.lastActivityMessageId, 'owner-1');
+  assert.equal(applied.activities.length, 0);
+  assert.equal(applied.state, null);
+  assert.equal(applied.active, false);
 });
 
 for (const [question, input, expected] of [
