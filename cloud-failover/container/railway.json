@@ -8,7 +8,7 @@
     "healthcheckPath": "/live",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ALWAYS",
-    "overlapSeconds": 20,
+    "overlapSeconds": 0,
     "drainingSeconds": 30
   }
 }
