@@ -286,24 +286,22 @@ export class StandbyDwsWorker {
   async backfill(generation) {
     const end = new Date(this.now()).toISOString();
     const start = new Date(this.now() - 3 * 60_000).toISOString();
-    for (const chatId of this.policy.allowedChatIds) {
-      const result = await this.runner(this.bin, [
-        'chat', 'message', 'list-mentions', '--group', chatId,
-        '--start', start, '--end', end, '--limit', '100', '--cursor', '0',
-        '--format', 'json', ...this.commonArgs(),
-      ], this.dwsOptions());
-      let parsed = {};
-      try { parsed = JSON.parse(result.stdout); } catch { parsed = {}; }
-      const root = parsed.result || parsed.data || parsed;
-      if (root.hasMore === true) throw new Error('DWS mention backfill exceeded one page');
-      const conversations = Array.isArray(root.conversationMessagesList) ? root.conversationMessagesList : [];
-      const items = conversations.flatMap(conversation => (
-        Array.isArray(conversation.messages)
-          ? conversation.messages.map(message => ({ ...message, openConversationId: conversation.openConversationId }))
-          : []
-      ));
-      for (const message of items) await this.processMessage(message);
-    }
+    const result = await this.runner(this.bin, [
+      'chat', 'message', 'list-mentions',
+      '--start', start, '--end', end, '--limit', '100', '--cursor', '0',
+      '--format', 'json', ...this.commonArgs(),
+    ], this.dwsOptions());
+    let parsed = {};
+    try { parsed = JSON.parse(result.stdout); } catch { parsed = {}; }
+    const root = parsed.result || parsed.data || parsed;
+    if (root.hasMore === true) throw new Error('DWS mention backfill exceeded one page');
+    const conversations = Array.isArray(root.conversationMessagesList) ? root.conversationMessagesList : [];
+    const items = conversations.flatMap(conversation => (
+      Array.isArray(conversation.messages)
+        ? conversation.messages.map(message => ({ ...message, openConversationId: conversation.openConversationId }))
+        : []
+    ));
+    for (const message of items) await this.processMessage(message);
     this.backfilledGeneration = generation;
   }
 

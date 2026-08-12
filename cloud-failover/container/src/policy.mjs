@@ -14,13 +14,16 @@ export function validateContainerEnvironment(env = {}) {
   }
   const required = [
     'DINGTALK_DWS_AUTH_BUNDLE_B64',
-    'AIPROS_CLOUD_DWS_CHANNEL', 'AIPROS_COORDINATOR_URL', 'AIPROS_CONTAINER_TOKEN', 'AIPROS_ALLOWED_CHAT_IDS',
-    'AIPROS_ALLOWED_SENDER_IDS',
+    'AIPROS_CLOUD_DWS_CHANNEL', 'AIPROS_COORDINATOR_URL', 'AIPROS_CONTAINER_TOKEN',
   ];
   for (const key of required) if (!String(env[key] || '').trim()) throw new Error(`${key} is required`);
+  if (String(env.AIPROS_ACCESS_MODE || '').trim().toLowerCase() !== 'blacklist') {
+    throw new Error('AIPROS_ACCESS_MODE must be blacklist');
+  }
   return {
-    allowedChatIds: new Set(String(env.AIPROS_ALLOWED_CHAT_IDS).split(',').map(x => x.trim()).filter(Boolean)),
-    allowedSenderIds: new Set(String(env.AIPROS_ALLOWED_SENDER_IDS).split(',').map(x => x.trim()).filter(Boolean)),
+    accessMode: 'blacklist',
+    blockedChatIds: new Set(String(env.AIPROS_BLOCKED_CHAT_IDS || '').split(',').map(x => x.trim()).filter(Boolean)),
+    blockedSenderIds: new Set(String(env.AIPROS_BLOCKED_SENDER_IDS || '').split(',').map(x => x.trim()).filter(Boolean)),
   };
 }
 
@@ -50,11 +53,13 @@ export function normalizeDwsMessage(input = {}) {
   return { messageId, chatId, senderId, text, createdAt, messageType, raw: undefined };
 }
 
-export function evaluateCloudMessage(message, { allowedChatIds, allowedSenderIds, generation, expectedGeneration, now = Date.now() }) {
+export function evaluateCloudMessage(message, {
+  blockedChatIds, blockedSenderIds, generation, expectedGeneration, now = Date.now(),
+}) {
   if (Number(generation) !== Number(expectedGeneration)) return { allowed: false, reason: 'stale_generation' };
   if (!message.messageId || !message.chatId || !message.senderId) return { allowed: false, reason: 'invalid_message' };
-  if (!allowedChatIds.has(message.chatId)) return { allowed: false, reason: 'unauthorized_chat' };
-  if (allowedSenderIds.size && !allowedSenderIds.has(message.senderId)) return { allowed: false, reason: 'unauthorized_sender' };
+  if (blockedChatIds?.has(message.chatId)) return { allowed: false, reason: 'blocked_chat' };
+  if (blockedSenderIds?.has(message.senderId)) return { allowed: false, reason: 'blocked_sender' };
   if (message.createdAt < now - 3 * 60_000) return { allowed: false, reason: 'outside_backfill_window' };
   if (message.messageType !== 'text') return { allowed: false, reason: 'non_text' };
   if (HIGH_RISK.test(message.text)) return { allowed: true, level: 'L3', handoff: true };

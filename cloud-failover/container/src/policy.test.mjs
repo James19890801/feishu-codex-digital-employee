@@ -7,8 +7,8 @@ import {
 const env = {
   DINGTALK_DWS_AUTH_BUNDLE_B64: 'bundle', AIPROS_COORDINATOR_URL: 'https://internal.test',
   AIPROS_CLOUD_DWS_CHANNEL: 'cloud-channel',
-  AIPROS_CONTAINER_TOKEN: 'token', AIPROS_ALLOWED_CHAT_IDS: 'chat-1,chat-2',
-  AIPROS_ALLOWED_SENDER_IDS: 'user-1',
+  AIPROS_CONTAINER_TOKEN: 'token', AIPROS_ACCESS_MODE: 'blacklist',
+  AIPROS_BLOCKED_CHAT_IDS: 'blocked-chat', AIPROS_BLOCKED_SENDER_IDS: 'blocked-user',
 };
 const policy = validateContainerEnvironment(env);
 assert.throws(() => validateContainerEnvironment({ ...env, DINGTALK_CLIENT_ID: 'cloud-app' }),
@@ -20,8 +20,8 @@ assert.throws(() => validateContainerEnvironment({ ...env, DWS_PROFILE: 'local:u
 assert.throws(() => validateContainerEnvironment({ ...env, DWS_CHANNEL: 'local-channel' }), /prohibited/);
 assert.throws(() => validateContainerEnvironment({ ...env, AIPROS_CLOUD_DWS_CHANNEL: '' }),
   /AIPROS_CLOUD_DWS_CHANNEL is required/);
-assert.throws(() => validateContainerEnvironment({ ...env, AIPROS_ALLOWED_SENDER_IDS: '' }),
-  /AIPROS_ALLOWED_SENDER_IDS is required/);
+assert.throws(() => validateContainerEnvironment({ ...env, AIPROS_ACCESS_MODE: 'allowlist' }),
+  /AIPROS_ACCESS_MODE must be blacklist/);
 const now = 1_786_060_800_000;
 const message = normalizeDwsMessage({ messageId: 'm1', chatId: 'chat-1', senderId: 'user-1', text: '你好', createdAt: now });
 assert.deepEqual(normalizeDwsMessage({
@@ -40,8 +40,10 @@ assert.deepEqual(normalizeDwsMessage({
 });
 assert.deepEqual(evaluateCloudMessage(message, { ...policy, generation: 2, expectedGeneration: 2, now }),
   { allowed: true, level: 'L0', handoff: false });
-assert.equal(evaluateCloudMessage({ ...message, chatId: 'other' }, { ...policy, generation: 2, expectedGeneration: 2, now }).reason,
-  'unauthorized_chat');
+assert.equal(evaluateCloudMessage({ ...message, chatId: 'blocked-chat' }, { ...policy, generation: 2, expectedGeneration: 2, now }).reason,
+  'blocked_chat');
+assert.equal(evaluateCloudMessage({ ...message, senderId: 'blocked-user' }, { ...policy, generation: 2, expectedGeneration: 2, now }).reason,
+  'blocked_sender');
 assert.equal(evaluateCloudMessage({ ...message, createdAt: now - 180_001 }, { ...policy, generation: 2, expectedGeneration: 2, now }).reason,
   'outside_backfill_window');
 assert.equal(evaluateCloudMessage({ ...message, text: '帮我转账100元' }, { ...policy, generation: 2, expectedGeneration: 2, now }).handoff,
