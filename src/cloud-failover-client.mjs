@@ -113,9 +113,17 @@ export class CloudFailoverClient {
   }
 
   async execute(input) {
+    const payload = { ...input };
+    const handoffKey = String(payload.handoffKey || '');
+    delete payload.handoffKey;
+    if (handoffKey) {
+      payload.handoffId = createHash('sha256')
+        .update(`${this.nodeId}\n${handoffKey}`)
+        .digest('hex');
+    }
     const response = await this.request('/v1/runtime/execute', {
       method: 'POST',
-      payload: input,
+      payload,
     });
     if (typeof response?.result?.text !== 'string' || !response.result.text.trim()
       || typeof response.result.sessionId !== 'string'
@@ -128,6 +136,12 @@ export class CloudFailoverClient {
       latencyMs: Number(response.result.latencyMs),
       state: String(response.state || ''),
       generation: Number(response.generation || 0),
+      handoff: response.handoff && typeof response.handoff === 'object'
+        ? {
+            status: String(response.handoff.status || ''),
+            replayed: response.handoff.replayed === true,
+          }
+        : null,
     };
   }
 

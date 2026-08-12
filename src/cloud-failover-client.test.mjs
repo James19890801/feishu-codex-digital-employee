@@ -29,19 +29,21 @@ const client = new CloudFailoverClient({
     return new Response(JSON.stringify({
       ok: true,
       result: { text: 'cloud answer', sessionId: 'sess_123', latencyMs: 42 },
+      handoff: { status: 'completed', replayed: true },
       state: 'LOCAL_PRIMARY',
       generation: 0,
     }), { status: 200, headers: { 'content-type': 'application/json' } });
   },
 });
 
-const executed = await client.execute({ level: 'L0', prompt: 'hello' });
+const executed = await client.execute({ level: 'L0', prompt: 'hello', handoffKey: 'message-123' });
 assert.deepEqual(executed, {
   text: 'cloud answer',
   sessionId: 'sess_123',
   latencyMs: 42,
   state: 'LOCAL_PRIMARY',
   generation: 0,
+  handoff: { status: 'completed', replayed: true },
 });
 assert.equal(requests[0].url, 'https://failover.example.com/v1/runtime/execute');
 assert.equal(requests[0].options.method, 'POST');
@@ -50,6 +52,10 @@ assert.equal(requests[0].options.headers['x-aipros-node'], 'node-123');
 assert.equal(requests[0].options.headers['x-aipros-timestamp'], '1786068000000');
 assert.equal(requests[0].options.headers['x-aipros-nonce'], 'nonce-fixed');
 assert.match(requests[0].options.headers['x-aipros-signature'], /^[a-f0-9]{64}$/);
+const executePayload = JSON.parse(requests[0].options.body);
+assert.match(executePayload.handoffId, /^[a-f0-9]{64}$/);
+assert.equal('handoffKey' in executePayload, false);
+assert.equal(requests[0].options.body.includes('message-123'), false);
 
 assert.throws(
   () => new CloudFailoverClient({
