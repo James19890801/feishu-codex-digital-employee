@@ -72,13 +72,13 @@ A Durable Object Alarm is scheduled for the next 30-second evaluation. Alarm exe
 The container is stopped while state is `LOCAL_PRIMARY`. On `TAKING_OVER`, Cloudflare starts it with:
 
 - an encrypted portable DWS auth bundle created from a separate, revocable, minimum-scope device-flow authorization;
-- the dedicated DingTalk AppKey/AppSecret used by that cloud authorization;
+- DWS built-in device OAuth by default, with an optional dedicated AppKey/AppSecret override supplied only as a complete pair;
 - the Cloudflare coordinator internal URL and container credential;
 - the current takeover generation;
 - the allowed DingTalk chat IDs;
 - the Qoder execution endpoint exposed internally by the Worker.
 
-The local DWS Profile and Channel are not accepted as container inputs. DingTalk AppKey/AppSecret alone are not treated as a personal login. At boot, the container writes the base64 bundle to a permission-0600 temporary file, runs `dws auth import --base64 --force`, validates a real `dws auth status`, and deletes the import file. Container disk is treated as ephemeral. Durable state belongs to the coordinator.
+The local DWS Profile and Channel are not accepted as container inputs. The cloud authorization is created once with DWS 1.0.56 device login in an isolated `HOME`; DingTalk AppKey/AppSecret are optional and cannot replace personal login. At boot, the container writes the base64 bundle to a permission-0600 temporary file, runs `dws auth import --base64 --force`, validates a real `dws auth status`, and deletes the import file. Container disk is treated as ephemeral. Durable state belongs to the coordinator.
 
 After DWS authentication and event-stream readiness, the container reports ready for its generation, performs a three-minute authorized-chat backfill, and starts live consumption. A message must pass sender/chat authorization and atomically obtain a `(generation, messageIdDigest)` claim before its body is used.
 
@@ -170,7 +170,7 @@ Public, non-secret local configuration is added to `config.example.json`:
 - `cloudFailoverLocalAttempts`: fixed default 3, allowed 1-3;
 - `cloudFailoverMaxPromptChars`: default 24000, maximum 40000.
 
-The local HMAC secret is read from macOS Keychain using a dedicated service/account and is never placed in JSON. Cloudflare stores the same HMAC secret, Qoder PAT, Qoder Agent/Environment IDs, independent DingTalk AppKey/AppSecret, and the independently authorized `DINGTALK_DWS_AUTH_BUNDLE_B64` through Wrangler secrets. `.dev.vars.example` contains names only. The bundle is produced only through the explicit cloud-credential provisioning flow; the implementation refuses a bundle exported from the configured local profile.
+The local HMAC secret is read from macOS Keychain using a dedicated service/account and is never placed in JSON. Cloudflare stores the same HMAC secret and Qoder PAT/Agent/Environment IDs. Railway stores the independently authorized `DINGTALK_DWS_AUTH_BUNDLE_B64` and, only when explicitly used, a complete AppKey/AppSecret override pair. Secret templates contain names only. The bundle is produced only through the explicit cloud-credential provisioning flow; the implementation refuses a bundle exported from the configured local profile.
 
 ## 7. Observability
 

@@ -10,7 +10,7 @@
 | Railway standby DWS runtime | Implemented and locally tested | Always-warm event stream, independent auth import, 10s coordinator lease, 3-minute backfill, generation fencing and UUID send |
 | Railway image build | Locally verified | Pinned `linux/amd64` Node image and DWS CLI layer build successfully; Cloudflare Container Registry is no longer required |
 | Live Cloudflare/Qoder | Activated and smoke-tested on 2026-08-07 | Signed heartbeat and exact `AIPR0S_CLOUD_OK` response passed; metadata-only console published |
-| Live Railway DingTalk | Not activated | Requires Railway login/deploy plus dedicated cloud OAuth and DWS auth bundle; local Profile/Channel was not copied |
+| Live Railway DingTalk | Not activated | Railway is deployed; activation requires one isolated DWS device authorization and allowlists. The local Profile/Channel is not copied |
 | 7x24 availability | Not yet verified | Requires the controlled stop/reply/recovery acceptance below |
 
 ## Runtime contract
@@ -29,7 +29,7 @@
 - Railway account and service. Use a plan that supports `Always` restart before describing the runtime as verified 7x24.
 - Docker-compatible daemon for local container-image verification.
 - Tool-free Qoder Cloud Agent and Environment. Qoder Cloud Agent is experimental; pin and re-test its API contract on every upgrade.
-- Dedicated, revocable DingTalk OAuth authorization for cloud standby. Do not export the configured local DWS Profile/Channel.
+- Dedicated, revocable DingTalk OAuth authorization for cloud standby. DWS built-in device OAuth is the default; a self-created DingTalk app is optional. Do not export the configured local DWS Profile/Channel.
 
 ## Secret names
 
@@ -49,8 +49,6 @@ QODER_ENVIRONMENT_ID
 Provision these as sealed Railway service variables. Read back names only, never values:
 
 ```text
-DINGTALK_CLIENT_ID
-DINGTALK_CLIENT_SECRET
 DINGTALK_DWS_AUTH_BUNDLE_B64
 AIPROS_DWS_HOME
 AIPROS_COORDINATOR_URL
@@ -59,6 +57,8 @@ AIPROS_ALLOWED_CHAT_IDS
 AIPROS_ALLOWED_SENDER_IDS
 RAILWAY_RUN_UID
 ```
+
+`DINGTALK_CLIENT_ID` and `DINGTALK_CLIENT_SECRET` are optional overrides for a self-created app. Omit both to use DWS built-in device OAuth; supplying only one fails closed.
 
 The same local HMAC value must be stored in macOS Keychain under the configured service/account:
 
@@ -72,18 +72,14 @@ security add-generic-password -U \
 Use a dedicated DWS state on an isolated operator session or machine. AppKey/AppSecret alone cannot log in as a person.
 
 ```zsh
-dws auth login --device \
-  --client-id '<cloud-app-key>' \
-  --client-secret '<cloud-app-secret>'
+dws auth login --device
 
-dws auth status --format json \
-  --client-id '<cloud-app-key>' \
-  --client-secret '<cloud-app-secret>'
+dws auth status --format json
 
 dws auth export --base64 > dws-auth.b64
 ```
 
-Before export, verify that this state contains only the dedicated cloud authorization and is not the local production Profile. Store the base64 output as `DINGTALK_DWS_AUTH_BUNDLE_B64`, then securely delete the export file. The Railway runtime imports it once with mode `0600` into the persistent `AIPROS_DWS_HOME`, verifies a real `dws auth status`, and records a bootstrap marker. Later restarts use the persisted, rotated credential state and fail closed instead of re-importing the original bundle. Mount a Railway Volume at `/data` and set `RAILWAY_RUN_UID=0`, because Railway mounts volumes as root.
+Run these commands with DWS 1.0.56 in an isolated `HOME`; the user completes one device authorization in DingTalk. Before export, verify that this state contains only the dedicated cloud authorization and is not the local production Profile. Store the base64 output as `DINGTALK_DWS_AUTH_BUNDLE_B64`, then securely delete the export file. The Railway runtime imports it once with mode `0600` into the persistent `AIPROS_DWS_HOME`, verifies a real `dws auth status`, and records a bootstrap marker. Later restarts use the persisted, rotated credential state and fail closed instead of re-importing the original bundle. Mount a Railway Volume at `/data` and set `RAILWAY_RUN_UID=0`, because Railway mounts volumes as root.
 
 ## Configure the Mac
 

@@ -11,7 +11,6 @@ const credentialDir = await mkdtemp(join(tmpdir(), 'aipros-dws-worker-test-'));
 const dwsHome = join(credentialDir, 'home');
 const portableBundle = Buffer.from('dws-1.0.56-portable-auth-tarball').toString('base64');
 const env = {
-  DINGTALK_CLIENT_ID: 'cloud-app', DINGTALK_CLIENT_SECRET: 'cloud-secret',
   DINGTALK_DWS_AUTH_BUNDLE_B64: portableBundle, AIPROS_DWS_HOME: dwsHome,
   AIPROS_COORDINATOR_URL: 'https://internal.test',
   AIPROS_CONTAINER_TOKEN: 'token', AIPROS_ALLOWED_CHAT_IDS: 'chat-1',
@@ -57,7 +56,7 @@ await access(join(dwsHome, '.aipros-auth-bootstrap-complete'));
 assert.equal(eventCalls.length, 1);
 assert.equal(calls.filter(args => args[0] === 'auth' && args[1] === 'import').length, 1);
 assert.equal(calls.some(args => args.includes('--profile')), false);
-assert.equal(calls.some(args => args.includes('--client-id') && args.includes('cloud-app')), true);
+assert.equal(calls.some(args => args.includes('--client-id') || args.includes('--client-secret')), false);
 assert.equal(eventCalls[0].includes('--flatten'), true);
 assert.deepEqual(await worker.processMessage({ messageId: 'standby' }), { skipped: 'standby' });
 
@@ -104,4 +103,24 @@ assert.equal(ready.status, 200);
 assert.deepEqual(await ready.json(), { ok: true, active: false });
 await new Promise(resolve => server.close(resolve));
 await rm(credentialDir, { recursive: true, force: true });
+
+const overrideCalls = [];
+const overrideHome = join(await mkdtemp(join(tmpdir(), 'aipros-dws-worker-override-test-')), 'home');
+const overrideWorker = new StandbyDwsWorker({
+  env: {
+    ...env,
+    AIPROS_DWS_HOME: overrideHome,
+    DINGTALK_CLIENT_ID: 'cloud-app',
+    DINGTALK_CLIENT_SECRET: 'cloud-secret',
+  },
+  coordinator,
+  runner: async (_bin, args) => {
+    overrideCalls.push(args);
+    return { stdout: args[0] === 'auth' && args[1] === 'status' ? '{"authenticated":true}' : '{}' };
+  },
+  eventConsumer: async () => new EventEmitter(),
+});
+await overrideWorker.initialize();
+assert.equal(overrideCalls.some(args => args.includes('--client-id') && args.includes('cloud-app')), true);
+await rm(join(overrideHome, '..'), { recursive: true, force: true });
 console.log('FAILOVER_CONTAINER_WORKER_TEST_OK');
