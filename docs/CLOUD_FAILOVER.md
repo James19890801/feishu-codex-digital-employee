@@ -10,7 +10,7 @@
 | Railway standby DWS runtime | Implemented and locally tested | Always-warm event stream, independent auth import, 10s coordinator lease, mention-only 3-minute backfill, generation fencing and UUID send |
 | Railway image build | Locally verified | Pinned `linux/amd64` Node image and DWS CLI layer build successfully; Cloudflare Container Registry is no longer required |
 | Live Cloudflare/Qoder | Activated and smoke-tested on 2026-08-07 | Signed heartbeat and exact `AIPR0S_CLOUD_OK` response passed; metadata-only console published |
-| Live Railway DingTalk | Not activated | Railway is deployed; activation requires one isolated DWS device authorization and allowlists. The local Profile/Channel is not copied |
+| Live Railway DingTalk | Not activated | Railway is deployed; activation requires one isolated DWS device authorization, the registered digital-human Channel code, and allowlists. The local Profile is not copied |
 | 7x24 availability | Not yet verified | Requires the controlled stop/reply/recovery acceptance below |
 
 ## Runtime contract
@@ -29,7 +29,7 @@
 - Railway account and service. Use a plan that supports `Always` restart before describing the runtime as verified 7x24.
 - Docker-compatible daemon for local container-image verification.
 - Tool-free Qoder Cloud Agent and Environment. Qoder Cloud Agent is experimental; pin and re-test its API contract on every upgrade.
-- Dedicated, revocable DingTalk OAuth authorization for cloud standby. DWS built-in device OAuth is the default; a self-created DingTalk app is optional. Do not export the configured local DWS Profile/Channel.
+- Dedicated, revocable DingTalk OAuth authorization for cloud standby. DWS built-in device OAuth is the default; a self-created DingTalk app is optional. Do not export the configured local DWS Profile. Alibaba commands must carry the same registered digital-human Channel code used during device login.
 
 ## Secret names
 
@@ -50,6 +50,7 @@ Provision these as sealed Railway service variables. Read back names only, never
 
 ```text
 DINGTALK_DWS_AUTH_BUNDLE_B64
+AIPROS_CLOUD_DWS_CHANNEL
 AIPROS_DWS_HOME
 AIPROS_COORDINATOR_URL
 AIPROS_CONTAINER_TOKEN
@@ -79,7 +80,7 @@ dws auth status --format json
 dws auth export --base64 > dws-auth.b64
 ```
 
-Run these commands with DWS 1.0.56 in an isolated `HOME`; the user completes one device authorization in DingTalk. Before export, verify that this state contains only the dedicated cloud authorization and is not the local production Profile. Store the base64 output as `DINGTALK_DWS_AUTH_BUNDLE_B64`, then securely delete the export file. The Railway runtime imports it once with mode `0600` into the persistent `AIPROS_DWS_HOME`, verifies a real `dws auth status`, and records a bootstrap marker. Later restarts use the persisted, rotated credential state and fail closed instead of re-importing the original bundle. Mount a Railway Volume at `/data` and set `RAILWAY_RUN_UID=0`, because Railway mounts volumes as root.
+Run these commands with DWS 1.0.56, `DWS_DISABLE_KEYCHAIN=1`, the registered digital-human `DWS_CHANNEL`, and an isolated `HOME`; the user completes one device authorization in DingTalk. Before export, verify that this state contains only the dedicated cloud authorization and is not the local production Profile. Store the base64 output as `DINGTALK_DWS_AUTH_BUNDLE_B64`, and place the same public routing code in `AIPROS_CLOUD_DWS_CHANNEL`, then securely delete the export file. The Railway runtime imports the bundle once with mode `0600` into the persistent `AIPROS_DWS_HOME`, injects that Channel only into DWS subprocesses, verifies a real `dws auth status`, and records a bootstrap marker. Later restarts use the persisted, rotated credential state and fail closed instead of re-importing the original bundle. Mount a Railway Volume at `/data` and set `RAILWAY_RUN_UID=0`, because Railway mounts volumes as root.
 
 ## Configure the Mac
 
@@ -142,7 +143,7 @@ Only after all eight checks have current evidence may the deployment be describe
 
 ## Rollback
 
-Set `cloudFailoverEnabled` to `false` and restart the local service. Disable Railway lease activation, stop the Railway service, and revoke the dedicated DingTalk authorization and Railway coordinator token. Delete the Cloudflare Worker only if per-request Qoder fallback is also being retired. Local DWS Profile/Channel and local SQLite are unaffected because neither is copied into the cloud deployment.
+Set `cloudFailoverEnabled` to `false` and restart the local service. Disable Railway lease activation, stop the Railway service, and revoke the dedicated DingTalk authorization and Railway coordinator token. Delete the Cloudflare Worker only if per-request Qoder fallback is also being retired. The local DWS Profile and local SQLite are never copied; the static Channel code is only reused as an Alibaba organization routing header.
 
 ## Retention and cost boundary
 

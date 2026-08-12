@@ -8,7 +8,7 @@ Keep AIPR0S local-first while allowing a dedicated Railway service to receive an
 
 Cloudflare remains the control plane. Its Worker and Durable Object own heartbeat evaluation, generation fencing, claim deduplication, recovery draining, Qoder invocation, and the metadata-only console. Railway replaces only the unavailable Cloudflare Container data plane.
 
-The Railway service runs the existing DWS worker image continuously. It imports a dedicated cloud DWS authorization from sealed environment variables, establishes the DWS event stream, polls the Cloudflare coordinator for a lease, and answers only when the coordinator reports the current generation as active. It never receives the local DWS Profile, local Channel, local files, or local memory.
+The Railway service runs the existing DWS worker image continuously. It imports a dedicated cloud DWS authorization from sealed environment variables, injects the registered digital-human Channel code into DWS subprocesses, establishes the DWS event stream, polls the Cloudflare coordinator for a lease, and answers only when the coordinator reports the current generation as active. It never receives the local DWS Profile, local files, or local memory. The Channel is a static Alibaba routing identifier, not a login credential.
 
 ## Components
 
@@ -47,7 +47,7 @@ The Railway service runs the existing DWS worker image continuously. It imports 
 
 ## Security and Secrets
 
-Railway service variables hold `DINGTALK_DWS_AUTH_BUNDLE_B64`, `AIPROS_DWS_HOME`, `AIPROS_COORDINATOR_URL`, `AIPROS_CONTAINER_TOKEN`, `AIPROS_ALLOWED_CHAT_IDS`, `AIPROS_ALLOWED_SENDER_IDS`, and `RAILWAY_RUN_UID`. Values are never committed or printed. DWS built-in device OAuth is the default; `DINGTALK_CLIENT_ID` and `DINGTALK_CLIENT_SECRET` remain an optional all-or-nothing override for a self-created app. The coordinator token is independently revocable. Cloudflare retains the Qoder PAT and HMAC secret. A Railway Volume mounted at `/data` preserves the DWS 1.0.56 file-DEK and rotated refresh token. The original auth bundle is imported only when the persistent home is empty; later authentication failures fail closed and never overwrite rotated state.
+Railway service variables hold `DINGTALK_DWS_AUTH_BUNDLE_B64`, `AIPROS_CLOUD_DWS_CHANNEL`, `AIPROS_DWS_HOME`, `AIPROS_COORDINATOR_URL`, `AIPROS_CONTAINER_TOKEN`, `AIPROS_ALLOWED_CHAT_IDS`, `AIPROS_ALLOWED_SENDER_IDS`, and `RAILWAY_RUN_UID`. Values are never committed or printed. DWS built-in device OAuth is the default; `DINGTALK_CLIENT_ID` and `DINGTALK_CLIENT_SECRET` remain an optional all-or-nothing override for a self-created app. The coordinator token is independently revocable. Cloudflare retains the Qoder PAT and HMAC secret. A Railway Volume mounted at `/data` preserves the DWS 1.0.56 file-DEK and rotated refresh token. The original auth bundle is imported only when the persistent home is empty; later authentication failures fail closed and never overwrite rotated state.
 
 The runtime fails closed if required values are absent, the DWS account is not authenticated, the lease is stale, the generation changes, the message is outside the allowlist, or Cloudflare cannot issue a claim. No local identity material is copied to Railway.
 

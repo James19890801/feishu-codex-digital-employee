@@ -124,7 +124,13 @@ export class StandbyDwsWorker {
   }
 
   dwsOptions() {
-    return { env: { ...process.env, HOME: this.dwsHome } };
+    return {
+      env: {
+        ...process.env,
+        HOME: this.dwsHome,
+        DWS_CHANNEL: String(this.env.AIPROS_CLOUD_DWS_CHANNEL).trim(),
+      },
+    };
   }
 
   async hasPersistentDwsState() {

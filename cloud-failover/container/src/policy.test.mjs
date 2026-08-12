@@ -6,6 +6,7 @@ import {
 
 const env = {
   DINGTALK_DWS_AUTH_BUNDLE_B64: 'bundle', AIPROS_COORDINATOR_URL: 'https://internal.test',
+  AIPROS_CLOUD_DWS_CHANNEL: 'cloud-channel',
   AIPROS_CONTAINER_TOKEN: 'token', AIPROS_ALLOWED_CHAT_IDS: 'chat-1,chat-2',
   AIPROS_ALLOWED_SENDER_IDS: 'user-1',
 };
@@ -17,6 +18,8 @@ assert.doesNotThrow(() => validateContainerEnvironment({
 }));
 assert.throws(() => validateContainerEnvironment({ ...env, DWS_PROFILE: 'local:user' }), /prohibited/);
 assert.throws(() => validateContainerEnvironment({ ...env, DWS_CHANNEL: 'local-channel' }), /prohibited/);
+assert.throws(() => validateContainerEnvironment({ ...env, AIPROS_CLOUD_DWS_CHANNEL: '' }),
+  /AIPROS_CLOUD_DWS_CHANNEL is required/);
 assert.throws(() => validateContainerEnvironment({ ...env, AIPROS_ALLOWED_SENDER_IDS: '' }),
   /AIPROS_ALLOWED_SENDER_IDS is required/);
 const now = 1_786_060_800_000;
