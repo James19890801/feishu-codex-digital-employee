@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 
 const HIGH_RISK = /(?:付款|转账|支付|签署|代签|录用|辞退|密码|验证码|私钥|删除全部|代表我|替我承诺)/;
 const MUTATION = /(?:发送给|发给|发布|提交|报名|申请|创建|新建|修改|取消).{0,12}(?:待办|任务|日程|会议|群聊|权限|邮件)?/;
-const DINGTALK_IMAGE_PLACEHOLDER = /^\[?图片消息\]?.*?mediaId\s*(?:=|:)\s*([^\s)]+)/i;
+const DINGTALK_IMAGE_PLACEHOLDER = /\[?图片消息\]?\s*\(?\s*mediaId\s*(?:=|:)\s*([^\s)]+)\s*\)?/i;
+const DINGTALK_DOWNLOAD_HINT = /注意：如需下载使用\s*dws chat message download-media\s*命令下载/gi;
 
 export function validateContainerEnvironment(env = {}) {
   for (const prohibited of ['DWS_PROFILE', 'DWS_CHANNEL', 'LOCAL_DWS_PROFILE', 'LOCAL_DWS_CHANNEL']) {
@@ -45,6 +46,9 @@ export function normalizeDwsMessage(input = {}) {
   const media = imageMatch ? {
     kind: 'image', resourceId: imageMatch[1].trim(), messageId, conversationId: chatId,
   } : undefined;
+  const userText = media
+    ? text.replace(DINGTALK_IMAGE_PLACEHOLDER, ' ').replace(DINGTALK_DOWNLOAD_HINT, ' ').replace(/\s+/g, ' ').trim()
+    : text;
   const rawCreatedAt = input.createTime || input.create_time || input.createdAt || input.timestamp || Date.now();
   const numericCreatedAt = Number(rawCreatedAt);
   const parsedCreatedAt = Number.isFinite(numericCreatedAt)
@@ -55,7 +59,7 @@ export function normalizeDwsMessage(input = {}) {
     input.messageType || input.message_type || input.msgType
       || (eventType.startsWith('user_im_message_receive_') ? 'text' : eventType || 'text'),
   ).toLowerCase();
-  return { messageId, chatId, senderId, text, createdAt, messageType, ...(media ? { media } : {}), raw: undefined };
+  return { messageId, chatId, senderId, text: userText, createdAt, messageType, ...(media ? { media } : {}), raw: undefined };
 }
 
 export function evaluateCloudMessage(message, {

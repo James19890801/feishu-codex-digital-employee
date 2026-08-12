@@ -260,6 +260,7 @@ export class StandbyDwsWorker {
         prompt = [
           '用户发送了一张图片。以下是云端视觉模型对该图片的受限识别结果：',
           visionText,
+          `用户随图文字：${message.text || '未提供'}`,
           '请只根据识别结果自然回复；不要声称看到了识别结果之外的内容。',
         ].join('\n');
       }

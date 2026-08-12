@@ -40,13 +40,14 @@ assert.deepEqual(normalizeDwsMessage({
 });
 const imageMessage = normalizeDwsMessage({
   type: 'user_im_message_receive_o2o_all', message_id: 'm-image', conversation_id: 'chat-1',
-  sender_open_dingtalk_id: 'user-1', content: '[图片消息] mediaId=image-resource-1',
+  sender_open_dingtalk_id: 'user-1', content: '@数字人 [图片消息](mediaId=image-resource-1) 这是哪里？',
   create_time: now,
 });
 assert.deepEqual(imageMessage.media, {
   kind: 'image', resourceId: 'image-resource-1', messageId: 'm-image', conversationId: 'chat-1',
 });
 assert.equal(imageMessage.messageType, 'image');
+assert.equal(imageMessage.text, '@数字人 这是哪里？');
 assert.deepEqual(evaluateCloudMessage(imageMessage, {
   ...policy, generation: 2, expectedGeneration: 2, now,
 }), { allowed: true, level: 'L0', handoff: false });
