@@ -15,6 +15,12 @@ const version = spawnSync('docker', [
 assert.equal(version.status, 0, `dws failed to start:\n${version.stderr.slice(-4_000)}`);
 assert.match(version.stdout, /dws version/i);
 
+const caBundle = spawnSync('docker', [
+  'run', '--rm', '--platform', platform, '--entrypoint', 'sh', image,
+  '-c', 'test -s /etc/ssl/certs/ca-certificates.crt',
+], { encoding: 'utf8', timeout: 60_000 });
+assert.equal(caBundle.status, 0, 'container is missing the system CA certificate bundle');
+
 const authImport = spawnSync('docker', [
   'run', '--rm', '--platform', platform, '--entrypoint', 'dws', image,
   'auth', 'import', '--help',
