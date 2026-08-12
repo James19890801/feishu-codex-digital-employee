@@ -268,7 +268,7 @@ export class A1RequirementWorkflow {
       );
     }
     const request = combinedRequest(cleanText, history);
-    const intent = classifyRequirementIntent(request);
+    const intent = classifyRequirementIntent(cleanText);
     if (intent === 'none') return { handled: false, text: '' };
     if (intent === 'requirement_progress') return this.progress(cleanText);
     const id = workitemId(cleanText);

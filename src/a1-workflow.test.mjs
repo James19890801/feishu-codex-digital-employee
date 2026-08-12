@@ -196,4 +196,20 @@ const ownerSelfChat = {
   assert.equal(calls.at(-1).operation, 'get');
 }
 
+{
+  const { workflow, calls } = buildWorkflow();
+  const unrelated = await workflow.handle({
+    ...external,
+    messageId: 'm6',
+    text: '你还好吗？还活着不 我需要你帮忙',
+    history: '助理：你要查 WebAgent 还是 AI协同空间的需求进度？也可以直接发工作项 ID。',
+  });
+  assert.deepEqual(
+    unrelated,
+    { handled: false, text: '' },
+    'stale requirement history must not turn an unrelated current message into a progress query',
+  );
+  assert.equal(calls.length, 0);
+}
+
 console.log('a1-workflow tests passed');
