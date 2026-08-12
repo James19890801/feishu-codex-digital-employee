@@ -14,8 +14,8 @@ const env = {
   DINGTALK_DWS_AUTH_BUNDLE_B64: portableBundle, AIPROS_DWS_HOME: dwsHome,
   AIPROS_CLOUD_DWS_CHANNEL: 'cloud-channel',
   AIPROS_COORDINATOR_URL: 'https://internal.test',
-  AIPROS_CONTAINER_TOKEN: 'token', AIPROS_ALLOWED_CHAT_IDS: 'chat-1',
-  AIPROS_ALLOWED_SENDER_IDS: 'user-1',
+  AIPROS_CONTAINER_TOKEN: 'token', AIPROS_ACCESS_MODE: 'blacklist',
+  AIPROS_BLOCKED_CHAT_IDS: 'blocked-chat', AIPROS_BLOCKED_SENDER_IDS: 'blocked-user',
 };
 let importedPath = '';
 const runner = async (_bin, args, options = {}) => {
@@ -81,7 +81,7 @@ assert.deepEqual(await worker.activate(3), { ready: true, generation: 3 });
 assert.equal(coordinatorCalls.filter(call => call[0] === 'ready').length, 1);
 const backfillCalls = calls.filter(args => args[0] === 'chat' && args[1] === 'message' && args[2] === 'list-mentions');
 assert.equal(backfillCalls.length, 1);
-assert.equal(backfillCalls[0].includes('--group'), true);
+assert.equal(backfillCalls[0].includes('--group'), false);
 assert.equal(backfillCalls[0].includes('--start'), true);
 assert.equal(backfillCalls[0].includes('--end'), true);
 const result = await worker.processMessage({
