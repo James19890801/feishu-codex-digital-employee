@@ -6,11 +6,11 @@
 |---|---|---|
 | Local runtime fallback | Implemented and locally tested | Three bounded local attempts, deny-first policy, signed Cloudflare request |
 | Whole-Mac coordinator | Implemented and locally tested | 30s heartbeat, 90s takeover, generation fencing, claims, three-heartbeat drain |
-| Qoder adapter | Live provisioned and smoke-tested on 2026-08-07 | Tool-free Agent/Environment, Session, content-block event, SSE idle terminal, archive, 429/5xx retry |
-| Railway standby DWS runtime | Implemented and locally tested | Always-warm event stream, independent auth import, 10s coordinator lease, mention-only 3-minute backfill, generation fencing and UUID send |
-| Railway image build | Locally verified | Pinned `linux/amd64` Node image and DWS CLI layer build successfully; Cloudflare Container Registry is no longer required |
-| Live Cloudflare/Qoder | Activated and smoke-tested on 2026-08-07 | Signed heartbeat and exact `AIPR0S_CLOUD_OK` response passed; metadata-only console published |
-| Live Railway DingTalk | Not activated | Railway is deployed; activation requires one isolated DWS device authorization, the registered digital-human Channel code, and allowlists. The local Profile is not copied |
+| Qoder adapter | Live provisioned and smoke-tested on 2026-08-12 | Tool-free Agent/Environment, Session, content-block event, SSE idle terminal, archive, 429/5xx retry |
+| Railway standby DWS runtime | Live, coordinator-confirmed | Independent DWS authorization, always-warm event stream, mention-only 3-minute backfill, generation fencing and UUID send; Cloudflare readback reached `CLOUD_ACTIVE` with runtime `ACTIVE` |
+| Railway image build | Live on Railway | Pinned `linux/amd64` Node image, CA certificates and DWS CLI layer build successfully; Cloudflare Container Registry is no longer required |
+| Live Cloudflare/Qoder | Activated and smoke-tested on 2026-08-12 | Signed heartbeat reached Qoder through the Worker with the configured Agent and Environment; metadata-only console published |
+| Live Railway DingTalk | Activated with restricted allowlists | Isolated DWS device authorization is persisted on the Railway volume; the registered routing Channel is injected into every DWS command; the local Profile is not copied. Full 7x24 acceptance still requires a controlled 30-minute Mac outage and one real late-message reply/readback |
 | 7x24 availability | Not yet verified | Requires the controlled stop/reply/recovery acceptance below |
 
 ## Runtime contract
@@ -126,7 +126,7 @@ pnpm exec wrangler deploy
 railway up --path-as-root cloud-failover/container --ci
 ```
 
-`cloud-failover:dry` validates the Worker bundle without any Container Registry access. Railway detects `cloud-failover/container/Dockerfile` when that directory is deployed as the service root. The committed Railway configuration uses `/live`, 30-second draining and the portable `ON_FAILURE` ten-retry policy. Change it to `ALWAYS` only after the Railway account confirms that policy is available.
+`cloud-failover:dry` validates the Worker bundle without any Container Registry access. Railway detects `cloud-failover/container/Dockerfile` when that directory is deployed as the service root. The committed Railway configuration uses `/live`, 30-second draining and the `ALWAYS` restart policy. Deployment acceptance must read that policy back from Railway; if the account rejects it, retain `ON_FAILURE` and do not claim verified 7x24 operation.
 
 ## Acceptance before claiming 7x24
 
