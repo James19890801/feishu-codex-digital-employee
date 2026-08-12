@@ -219,10 +219,10 @@ const activityApplied = applyOwnerActivityHistory([
   parseTime: value => Date.parse(String(value).replace(' ', 'T') + '+08:00'),
   isAssistantMessage: message => message.openMessageId === 'assistant-echo-1',
 });
-assert.equal(activityApplied.changed, false);
-assert.equal(activityApplied.activities.length, 0);
-assert.equal(activityApplied.state, null);
-assert.equal(activityApplied.active, false);
+assert.equal(activityApplied.changed, true);
+assert.equal(activityApplied.activities.length, 1);
+assert.equal(activityApplied.state.reason, 'owner_manual_activity');
+assert.equal(activityApplied.state.pausedUntilMs, Date.parse('2026-08-01T16:15:00+08:00'));
 
 const generatedCalendarCardIgnored = applyOwnerActivityHistory([
   {
@@ -267,9 +267,9 @@ const manuallySharedCalendarLinkStillPauses = applyOwnerActivityHistory([
   nowMs: Date.parse('2026-08-03T16:38:00+08:00'),
   parseTime: value => Date.parse(String(value).replace(' ', 'T') + '+08:00'),
 });
-assert.equal(manuallySharedCalendarLinkStillPauses.changed, false);
-assert.equal(manuallySharedCalendarLinkStillPauses.activities.length, 0);
-assert.equal(manuallySharedCalendarLinkStillPauses.active, false);
+assert.equal(manuallySharedCalendarLinkStillPauses.changed, true);
+assert.equal(manuallySharedCalendarLinkStillPauses.activities.length, 1);
+assert.equal(manuallySharedCalendarLinkStillPauses.state.reason, 'owner_manual_activity');
 
 const activityNoReplay = applyOwnerActivityHistory([
   {

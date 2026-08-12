@@ -12,15 +12,3 @@ export function markSelfChatOutbound(text) {
 export function stripSelfChatOutboundMarker(text) {
   return String(text || '').split(SELF_CHAT_OUTBOUND_MARKER).join('');
 }
-
-export function shouldSuppressSelfChatConversation({
-  selfChat = false,
-  intent = '',
-  operatorCommand = null,
-  pendingAction = false,
-} = {}) {
-  return selfChat === true
-    && String(intent || '') === 'conversation'
-    && !operatorCommand
-    && pendingAction !== true;
-}

@@ -37,7 +37,6 @@ import { AgentState } from './state.mjs';
 import {
   hasSelfChatOutboundMarker,
   markSelfChatOutbound,
-  shouldSuppressSelfChatConversation,
 } from './self-chat-guard.mjs';
 import {
   AUTOMATION_PEER_TERMINATION_TEXT,
@@ -1875,23 +1874,6 @@ async function processIncoming(client, message, sender, metadata = {}) {
     hasFile: message.message_type === 'file',
   });
   audit('workflow_decision', message, senderOpenId, decision);
-
-  const hasPendingSelfChatAction = metadata.selfChat === true && [
-    'task', 'calendar', 'task_batch', 'multica', 'multica_feedback',
-    'a1_requirement', 'mail_write',
-  ].some(kind => pendingActions.get(kind, message.chat_id, senderOpenId));
-
-  if (shouldSuppressSelfChatConversation({
-    selfChat: metadata.selfChat === true,
-    intent: decision.intent,
-    operatorCommand,
-    pendingAction: hasPendingSelfChatAction,
-  })) {
-    audit('self_chat_conversation_ignored', message, senderOpenId, {
-      reason: 'self_chat_is_action_intake_only',
-    });
-    return;
-  }
 
   if (decision.action === 'refuse') {
     await sendText(

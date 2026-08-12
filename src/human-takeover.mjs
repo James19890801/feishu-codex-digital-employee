@@ -207,16 +207,14 @@ export function applyOwnerActivityHistory(messages, {
         || '',
       ).trim();
       const content = message?.content || message?.text || '';
-      const command = matchHumanTakeoverCommand(content);
       if (senderId !== expectedOwnerId
         || isAssistantMessage(message)
-        || !command
         || isGeneratedDingTalkCalendarCard(content)) return [];
       const messageId = String(message?.openMessageId || message?.messageId || message?.message_id || '');
       const occurredAtMs = Number(parseTime(message?.createTime || message?.create_time || ''));
       if (!messageId || !Number.isFinite(occurredAtMs)) return [];
       return [{
-        command,
+        command: matchHumanTakeoverCommand(content),
         messageId,
         occurredAtMs,
       }];
@@ -230,11 +228,11 @@ export function applyOwnerActivityHistory(messages, {
     if (activity.command === 'resume') {
       const resume = requestHumanTakeoverResume(nextState, activity.occurredAtMs);
       nextState = resume.state || { pausedUntilMs: 0, reason: 'owner_manual_activity' };
-    } else if (activity.command === 'pause') {
+    } else {
       nextState = activateHumanTakeover(nextState, {
         nowMs: activity.occurredAtMs,
         sourceMessageId: activity.messageId,
-        reason: 'owner_human_takeover',
+        reason: activity.command === 'pause' ? 'owner_human_takeover' : 'owner_manual_activity',
       });
     }
     nextState = {
