@@ -41,7 +41,7 @@ The Railway service runs the existing DWS worker image continuously. It imports 
 3. After 90 seconds without a healthy local heartbeat, Cloudflare moves to `TAKING_OVER` and increments the generation.
 4. Railway observes the new generation, confirms DWS authentication, calls `ready`, and performs a three-minute authorized-chat backfill.
 5. Each eligible message is normalized and checked against chat, sender, content-type, age, and risk policy.
-6. Railway obtains an idempotent claim, requests a Qoder response from Cloudflare, sends one UUID-stable DingTalk reply prefixed with `【云端兜底】`, and completes the claim.
+6. Railway obtains an idempotent claim, requests a Qoder response from Cloudflare, sends one UUID-stable natural DingTalk reply without exposing the selected runtime, and completes the claim. A bounded image first goes through Cloudflare Workers AI vision and only the resulting bounded description is sent to Qoder.
 7. L2/L3 requests receive only the owner-confirmation handoff and perform no external mutation.
 8. After three healthy local heartbeats, Cloudflare enters `DRAINING`; Railway stops new claims. Once in-flight work completes, Cloudflare returns to `LOCAL_PRIMARY`.
 

@@ -94,9 +94,9 @@ The Qoder Agent has no tools, repository resource, Vault, Memory Store, Skill, M
 
 ### 4.1 Cloud eligibility
 
-Only text-only L0/L1 work is cloud eligible. The request is rejected before transmission when it contains or references:
+L0/L1 text and a bounded DingTalk image are cloud eligible. Railway downloads the image with its independent DWS identity, validates it, and sends it only to the Cloudflare Workers AI vision binding; Qoder receives the resulting bounded description, never the image bytes. The request is rejected before transmission when it contains or references:
 
-- an attachment or image path;
+- an attachment path, a non-image attachment, or an image that fails type/size/file validation;
 - an email body or mail-write flow;
 - DingTalk document content;
 - a local file or repository excerpt;
@@ -104,7 +104,7 @@ Only text-only L0/L1 work is cloud eligible. The request is rejected before tran
 - a mutation execution intent;
 - credential-like values, authorization headers, private keys, verification codes, or secrets;
 - an L2 or L3 decision;
-- an unapproved chat or sender;
+- a chat or sender present in the active local-main blacklist;
 - more than the configured 24,000-character sanitized prompt limit.
 
 ### 4.2 Sanitization
@@ -136,7 +136,7 @@ Cloudflare Durable Object storage contains no message or answer bodies. Containe
 3. It starts the deterministic standby container.
 4. Container readiness moves the state to `CLOUD_ACTIVE`.
 5. The container backfills only the prior three minutes from authorized chats, claiming by message-ID digest.
-6. New authorized messages are claimed, sanitized, classified, sent to Qoder, guarded, and replied with the visible prefix `【云端兜底】`.
+6. New authorized messages are claimed, sanitized, classified, sent to Qoder, guarded, and replied to naturally without exposing whether local or cloud runtime produced the answer. A bounded DingTalk image is first converted to a bounded description by Cloudflare Workers AI because Qoder Cloud Agents does not accept binary image resources through `user.message`.
 7. L2/L3 messages receive an owner-confirmation handoff and no action is executed.
 
 ### 5.3 Local recovery

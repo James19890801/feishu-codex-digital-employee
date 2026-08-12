@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { access, chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { access, chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -34,6 +35,16 @@ function safeProcess(bin, args, { input = '', timeoutMs = 30_000, env = process.
     });
     child.stdin.end(input);
   });
+}
+
+const MAX_CLOUD_IMAGE_BYTES = 4 * 1024 * 1024;
+
+function imageMime(buffer) {
+  if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  if (buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return 'image/jpeg';
+  if (buffer.subarray(0, 6).toString('ascii') === 'GIF87a' || buffer.subarray(0, 6).toString('ascii') === 'GIF89a') return 'image/gif';
+  if (buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+  throw Object.assign(new Error('Downloaded DingTalk image has an unsupported format'), { code: 'unsupported_image' });
 }
 
 function startDwsEventConsumer(bin, args, onMessage, { env = process.env } = {}) {
@@ -102,6 +113,7 @@ export class CoordinatorClient {
   claim(input) { return this.call('/internal/runtime/claim', input); }
   complete(input) { return this.call('/internal/runtime/complete', input); }
   qoder(input) { return this.call('/internal/runtime/qoder', input); }
+  vision(input) { return this.call('/internal/runtime/vision', input); }
 }
 
 export class StandbyDwsWorker {
@@ -242,11 +254,20 @@ export class StandbyDwsWorker {
     if (!claim.accepted) return { skipped: 'duplicate' };
     let outcomeCode = 'failed';
     try {
+      let prompt = message.text;
+      if (message.messageType === 'image') {
+        const visionText = await this.describeImage(message, generation);
+        prompt = [
+          '用户发送了一张图片。以下是云端视觉模型对该图片的受限识别结果：',
+          visionText,
+          '请只根据识别结果自然回复；不要声称看到了识别结果之外的内容。',
+        ].join('\n');
+      }
       const reply = decision.handoff
         ? ownerHandoffReply()
         : cloudReply((await this.coordinator.qoder({
-            generation, level: decision.level, prompt: message.text,
-            digest: messageDigest(message.text), bytes: Buffer.byteLength(message.text, 'utf8'),
+            generation, level: decision.level, prompt,
+            digest: messageDigest(prompt), bytes: Buffer.byteLength(prompt, 'utf8'),
             purpose: 'whole_host_reply',
           })).result.text);
       const sent = await this.runner(this.bin, [
@@ -280,6 +301,42 @@ export class StandbyDwsWorker {
       return { sent: true, outcomeCode };
     } finally {
       await this.coordinator.complete({ generation, messageDigest: digest, outcomeCode });
+    }
+  }
+
+  async describeImage(message, generation) {
+    const media = message.media;
+    if (!media?.resourceId || !media.messageId || !media.conversationId) {
+      throw Object.assign(new Error('DingTalk image metadata is incomplete'), { code: 'image_metadata_missing' });
+    }
+    const dir = await mkdtemp(join(tmpdir(), 'aipros-cloud-image-'));
+    const outputPath = join(dir, 'image');
+    try {
+      await this.runner(this.bin, [
+        'chat', 'message', 'download-media', '--type', 'mediaId',
+        '--resource-id', media.resourceId,
+        '--message-id', media.messageId,
+        '--open-conversation-id', media.conversationId,
+        '--output', outputPath, '--yes', '--format', 'json',
+        ...this.commonArgs(),
+      ], { ...this.dwsOptions(), timeoutMs: 60_000 });
+      const info = await lstat(outputPath);
+      if (!info.isFile() || info.isSymbolicLink() || info.size <= 0 || info.size > MAX_CLOUD_IMAGE_BYTES) {
+        throw Object.assign(new Error('Downloaded DingTalk image failed file validation'), { code: 'invalid_image_file' });
+      }
+      const bytes = await readFile(outputPath);
+      const mime = imageMime(bytes);
+      const result = await this.coordinator.vision({
+        generation,
+        image: `data:${mime};base64,${bytes.toString('base64')}`,
+        digest: createHash('sha256').update(bytes).digest('hex'),
+        bytes: bytes.byteLength,
+      });
+      const text = String(result.text || '').trim();
+      if (!text) throw Object.assign(new Error('Cloud vision returned an empty result'), { code: 'vision_empty' });
+      return text.slice(0, 8_000);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
     }
   }
 

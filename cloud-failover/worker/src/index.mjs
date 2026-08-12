@@ -4,6 +4,7 @@ import { QoderCloudClient } from './qoder-client.mjs';
 import { DurableObjectFailoverRepository } from './repository-do.mjs';
 import { createFailoverWorker } from './routes.mjs';
 import { executeCloudHandoff } from './handoff.mjs';
+import { describeCloudImage } from './vision.mjs';
 
 export class FailoverCoordinator extends DurableObject {
   constructor(ctx, env) {
@@ -66,6 +67,14 @@ export class FailoverCoordinator extends DurableObject {
       }),
     });
     return { ...handoff, ...(await this.service.status()) };
+  }
+
+  async executeVision(input) {
+    const status = await this.service.status();
+    if (status.state !== 'CLOUD_ACTIVE' || Number(input?.generation) !== Number(status.generation)) {
+      throw Object.assign(new Error('Cloud vision requires the active failover generation'), { code: 'stale_generation' });
+    }
+    return describeCloudImage({ ai: this.env.AI, input });
   }
 
   async alarm() {

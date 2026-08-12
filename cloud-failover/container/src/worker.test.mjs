@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { EventEmitter, once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -38,12 +38,18 @@ const runner = async (_bin, args, options = {}) => {
   if (args[0] === 'chat' && args[1] === 'message' && args[2] === 'query-send-status') {
     return { stdout: '{"result":{"sendStatus":"SUCCESS"}}' };
   }
+  if (args[0] === 'chat' && args[1] === 'message' && args[2] === 'download-media') {
+    const output = args[args.indexOf('--output') + 1];
+    await writeFile(output, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]));
+    return { stdout: '{"ok":true}' };
+  }
   return { stdout: '{}' };
 };
 const coordinator = {
   async ready(generation) { coordinatorCalls.push(['ready', generation]); return { ok: true }; },
   async claim(input) { coordinatorCalls.push(['claim', input]); return { accepted: true }; },
   async qoder(input) { coordinatorCalls.push(['qoder', input]); return { result: { text: '云端回答' } }; },
+  async vision(input) { coordinatorCalls.push(['vision', input]); return { text: '一张测试截图' }; },
   async complete(input) { coordinatorCalls.push(['complete', input]); return { ok: true }; },
 };
 const eventCalls = [];
@@ -89,12 +95,25 @@ const result = await worker.processMessage({
 });
 assert.equal(result.sent, true);
 const send = calls.find(args => args[0] === 'chat' && args[2] === 'send');
-assert.match(send[send.indexOf('--text') + 1], /^【云端兜底】/);
+assert.equal(send[send.indexOf('--text') + 1], '云端回答');
 assert.match(send[send.indexOf('--uuid') + 1], /^[a-f0-9-]{36}$/);
 assert.equal(send.includes('--format'), true);
 const sendStatus = calls.find(args => args[0] === 'chat' && args[2] === 'query-send-status');
 assert.equal(sendStatus[sendStatus.indexOf('--open-task-id') + 1], 'task-1');
 assert.equal(coordinatorCalls.at(-1)[0], 'complete');
+
+const imageResult = await worker.processMessage({
+  type: 'user_im_message_receive_o2o_all',
+  message_id: 'm-image', conversation_id: 'chat-1', sender_open_dingtalk_id: 'user-1',
+  content: '[图片消息] mediaId=image-resource-1', create_time: 1_786_060_800_000,
+});
+assert.equal(imageResult.sent, true);
+assert.equal(calls.some(args => args[0] === 'chat' && args[2] === 'download-media'), true);
+const visionCall = coordinatorCalls.find(call => call[0] === 'vision');
+assert.equal(visionCall[1].image.startsWith('data:image/png;base64,'), true);
+const imageQoderCall = coordinatorCalls.filter(call => call[0] === 'qoder').at(-1)[1];
+assert.match(imageQoderCall.prompt, /视觉模型.*识别结果/s);
+assert.match(imageQoderCall.prompt, /测试截图/);
 worker.deactivate();
 assert.deepEqual(await worker.processMessage({ messageId: 'after-drain' }), { skipped: 'standby' });
 eventChildren[0].emit('exit', 1);

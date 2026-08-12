@@ -6,6 +6,7 @@
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "workers_dev": true,
   "preview_urls": false,
+  "ai": { "binding": "AI" },
   "vars": {
     "HEARTBEAT_MS": "30000",
     "MISS_THRESHOLD": "3",

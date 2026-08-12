@@ -10,7 +10,7 @@
 | Railway standby DWS runtime | Live, coordinator-confirmed | Independent DWS authorization, always-warm event stream, mention-only 3-minute backfill, generation fencing and UUID send; Cloudflare readback reached `CLOUD_ACTIVE` with runtime `ACTIVE` |
 | Railway image build | Live on Railway | Pinned `linux/amd64` Node image, CA certificates and DWS CLI layer build successfully; Cloudflare Container Registry is no longer required |
 | Live Cloudflare/Qoder | Activated and smoke-tested on 2026-08-12 | Signed heartbeat reached Qoder through the Worker with the configured Agent and Environment; metadata-only console published |
-| Live Railway DingTalk | Activated with restricted allowlists | Isolated DWS device authorization is persisted on the Railway volume; the registered routing Channel is injected into every DWS command; the local Profile is not copied. Full 7x24 acceptance still requires a controlled 30-minute Mac outage and one real late-message reply/readback |
+| Live Railway DingTalk | Activated with the local-main blacklist | Isolated DWS device authorization is persisted on the Railway volume; the registered routing Channel is injected into every DWS command; the local Profile is not copied. Full 7x24 acceptance still requires a controlled 30-minute Mac outage and one real late-message reply/readback |
 | 7x24 availability | Not yet verified | Requires the controlled stop/reply/recovery acceptance below |
 
 ## Runtime contract
@@ -29,10 +29,10 @@ For a bounded cloud-only acceptance window, run `./scripts/start-cloud-runtime-w
 - Local remains primary for every request. A later request always starts local-first again.
 - Only timeout, process exit, network transport failure, or empty output consumes a local retry.
 - Three attempts share the original model-call timeout. Permission, confirmation, business validation, quality dissatisfaction and malformed business output do not fail over.
-- Cloud accepts text-only L0/L1. Files, images, mail, documents, repository content, local memory, credentials, L2 and L3 fail closed.
+- Cloud accepts L0/L1 text and bounded DingTalk images. Images are downloaded by the independently authorized Railway DWS identity, validated as a regular PNG/JPEG/GIF/WebP file of at most 4 MiB, described through the Cloudflare Workers AI binding, and passed to Qoder only as bounded text. Audio, video, ordinary files, mail, documents, repository content, local memory, credentials, L2 and L3 fail closed.
 - Whole-host takeover starts after three missed 30-second heartbeats. It remains active without a time limit while the Mac is offline.
 - Three consecutive healthy heartbeats enter `DRAINING`; new cloud claims stop and in-flight replies finish before local primary resumes.
-- Every cloud reply starts with `【云端兜底】`. L2/L3 receives a本人确认 handoff and performs no action.
+- Cloud replies use the same natural user-facing style as local replies and expose no runtime prefix. L2/L3 receives a本人确认 handoff and performs no action.
 
 ## Prerequisites
 
@@ -148,7 +148,7 @@ railway up --path-as-root cloud-failover/container --ci
 2. Run `npm run cloud-failover:smoke`; require exactly `AIPR0S_CLOUD_OK`.
 3. Send a harmless authorized DingTalk message and confirm the local reply has no cloud label.
 4. Perform a controlled stop of the local service. After at least 90 seconds, confirm state `CLOUD_ACTIVE`.
-5. Thirty minutes later, send a new harmless group message that @mentions the digital human. It must receive one reply with `【云端兜底】`; this proves the cloud path is not limited to the outage instant. Ordinary group messages without an @mention must receive no cloud reply.
+5. Thirty minutes later, send a new harmless group message that @mentions the digital human. It must receive one natural reply without an operational prefix; this proves the cloud path is not limited to the outage instant. Ordinary group messages without an @mention must receive no cloud reply.
 6. Send an L2 request. It must return a本人确认 handoff and make no change.
 7. Restart the Mac service. After three healthy heartbeats, confirm `DRAINING` then `LOCAL_PRIMARY`.
 8. Confirm no duplicate cloud/local reply and verify the stable DWS UUID plus claim ledger.

@@ -38,6 +38,18 @@ assert.deepEqual(normalizeDwsMessage({
   messageId: 'm-event', chatId: 'chat-1', senderId: 'user-1', text: '云端测试',
   createdAt: new Date('2026-08-12 15:39:33').getTime(), messageType: 'text', raw: undefined,
 });
+const imageMessage = normalizeDwsMessage({
+  type: 'user_im_message_receive_o2o_all', message_id: 'm-image', conversation_id: 'chat-1',
+  sender_open_dingtalk_id: 'user-1', content: '[图片消息] mediaId=image-resource-1',
+  create_time: now,
+});
+assert.deepEqual(imageMessage.media, {
+  kind: 'image', resourceId: 'image-resource-1', messageId: 'm-image', conversationId: 'chat-1',
+});
+assert.equal(imageMessage.messageType, 'image');
+assert.deepEqual(evaluateCloudMessage(imageMessage, {
+  ...policy, generation: 2, expectedGeneration: 2, now,
+}), { allowed: true, level: 'L0', handoff: false });
 assert.deepEqual(evaluateCloudMessage(message, { ...policy, generation: 2, expectedGeneration: 2, now }),
   { allowed: true, level: 'L0', handoff: false });
 assert.equal(evaluateCloudMessage({ ...message, chatId: 'blocked-chat' }, { ...policy, generation: 2, expectedGeneration: 2, now }).reason,
@@ -51,6 +63,7 @@ assert.equal(evaluateCloudMessage({ ...message, text: '帮我转账100元' }, { 
 assert.match(stableMessageUuid('dingtalk', 'm1'), /^[a-f0-9-]{36}$/);
 assert.equal(stableMessageUuid('dingtalk', 'm1'), stableMessageUuid('dingtalk', 'm1'));
 assert.match(messageDigest('m1'), /^[a-f0-9]{64}$/);
-assert.equal(cloudReply('好'), '【云端兜底】好');
+assert.equal(cloudReply('好'), '好');
 assert.match(ownerHandoffReply(), /本人确认/);
+assert.doesNotMatch(ownerHandoffReply(), /云端兜底/);
 console.log('FAILOVER_CONTAINER_POLICY_TEST_OK');
