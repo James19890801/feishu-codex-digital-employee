@@ -37,6 +37,7 @@ import { AgentState } from './state.mjs';
 import {
   hasSelfChatOutboundMarker,
   markSelfChatOutbound,
+  shouldSuppressSelfChatConversation,
 } from './self-chat-guard.mjs';
 import {
   AUTOMATION_PEER_TERMINATION_TEXT,
@@ -93,6 +94,7 @@ import {
   assertCompleteSearchResult,
   canPerformMutation,
   effectiveTask,
+  InboundDrainController,
   initializeOptionalPoller,
   isBareMention,
   planPollWindow,
@@ -147,6 +149,7 @@ import {
   evaluateHumanTakeover,
   humanTakeoverStatus,
   takeoverSyncFailurePolicy,
+  takeoverSyncFailureTerminalEvent,
 } from './human-takeover.mjs';
 import {
   buildFirstTakeoverGreeting,
@@ -197,6 +200,7 @@ import {
 } from './communication-blocklist.mjs';
 import { assessResponseObligation } from './response-obligation.mjs';
 import {
+  applyOwnerCommitmentGuard,
   evaluateStableResponseInbound,
   generateStableResponse,
   sendStableGeneratedReply,
@@ -430,7 +434,6 @@ let stopping = false;
 let activeEventChild = null;
 let activeDingTalkChild = null;
 let activeSdkWsClient = null;
-let drainPromise = null;
 let aiRuntimeRecycleScheduled = false;
 let multicaSyncPromise = null;
 let a1SyncPromise = null;
@@ -444,6 +447,10 @@ let weComChannel = null;
 let geWeChannel = null;
 let geWeWebhookServer = null;
 const shutdownDelay = new InterruptibleDelay();
+const inboundDrainController = new InboundDrainController({
+  drain: (client = businessClient) => drainReadyInbound(client),
+  nextAvailableAt: () => state.nextInboundAvailableAt(),
+});
 
 function remember(chatId, senderOpenId, role, content) {
   state.remember(chatId, senderOpenId, role, content);
@@ -1707,7 +1714,15 @@ async function processIncoming(client, message, sender, metadata = {}) {
         error: processFailureSummary(error),
       });
       console.error(`[takeover-control-check-error] ${message.message_id}:`, error);
-      if (failurePolicy === 'suppress') return;
+      const terminalEvent = takeoverSyncFailureTerminalEvent(failurePolicy);
+      if (terminalEvent) {
+        audit(terminalEvent, message, senderOpenId, {
+          channel: 'dingtalk',
+          failurePolicy,
+          reason: 'active_human_takeover_state_preserved',
+        });
+        return;
+      }
       if (failurePolicy === 'retry') throw error;
     }
   }
@@ -1860,6 +1875,23 @@ async function processIncoming(client, message, sender, metadata = {}) {
     hasFile: message.message_type === 'file',
   });
   audit('workflow_decision', message, senderOpenId, decision);
+
+  const hasPendingSelfChatAction = metadata.selfChat === true && [
+    'task', 'calendar', 'task_batch', 'multica', 'multica_feedback',
+    'a1_requirement', 'mail_write',
+  ].some(kind => pendingActions.get(kind, message.chat_id, senderOpenId));
+
+  if (shouldSuppressSelfChatConversation({
+    selfChat: metadata.selfChat === true,
+    intent: decision.intent,
+    operatorCommand,
+    pendingAction: hasPendingSelfChatAction,
+  })) {
+    audit('self_chat_conversation_ignored', message, senderOpenId, {
+      reason: 'self_chat_is_action_intake_only',
+    });
+    return;
+  }
 
   if (decision.action === 'refuse') {
     await sendText(
@@ -2550,7 +2582,17 @@ async function processIncoming(client, message, sender, metadata = {}) {
         : runCodex(task, history, imagePaths, decision),
       audit: (event, detail) => audit(event, message, senderOpenId, detail),
     });
-    const answer = generated.text;
+    const commitmentGuard = applyOwnerCommitmentGuard({
+      request: cleanText,
+      response: generated.text,
+      ownerLabel: OPERATOR_PROFILE.ownerLabel,
+    });
+    if (commitmentGuard.guarded) {
+      audit('owner_commitment_guarded', message, senderOpenId, {
+        reason: 'social_invitation_acceptance',
+      });
+    }
+    const answer = commitmentGuard.text;
     const sendResult = await sendStableGeneratedReply({
       state,
       message,
@@ -2802,11 +2844,7 @@ async function drainReadyInbound(client = null) {
 }
 
 function triggerDrain(client = businessClient) {
-  if (drainPromise) return drainPromise;
-  drainPromise = drainReadyInbound(client)
-    .catch(error => console.error('[inbound-drain-error]', error))
-    .finally(() => { drainPromise = null; });
-  return drainPromise;
+  return inboundDrainController.trigger(client);
 }
 
 async function fetchUserInboundMessages(startMs, endMs) {
@@ -3673,6 +3711,7 @@ async function runMaintenance() {
 function stopGracefully(signal) {
   if (stopping) return;
   stopping = true;
+  inboundDrainController.stop();
   shutdownDelay.stop();
   console.log(`[bridge] stopping on ${signal}`);
   if (activeEventChild && !activeEventChild.killed) activeEventChild.kill('SIGTERM');
@@ -3792,7 +3831,7 @@ async function main() {
       console.log(`[channel] Feishu disabled; primary=${RUNTIME_MODE.primaryChannel}`);
       while (!stopping) await wait(1000);
     }
-    if (drainPromise) await drainPromise.catch(() => {});
+    if (inboundDrainController.pending) await inboundDrainController.pending.catch(() => {});
     if (multicaSyncPromise) await multicaSyncPromise.catch(() => {});
     if (a1SyncPromise) await a1SyncPromise.catch(() => {});
     if (dingTalkSupervisorPromise) await dingTalkSupervisorPromise.catch(() => {});
