@@ -201,31 +201,9 @@ function historyContext({
   };
 }
 
-function historySuccessPayload({
-  messageId = 'cross-org-current',
-  conversationId = 'provider-cross-org-conversation',
-  senderId = 'cross-org-user',
-  content = '跨组织问题',
-} = {}) {
-  return {
-    success: true,
-    result: {
-      messages: [{
-        openMessageId: messageId,
-        openConversationId: conversationId,
-        senderOpenDingTalkId: senderId,
-        sender: '外部同事',
-        content,
-        createTime: '2026-08-11 17:00:00',
-      }],
-    },
-  };
-}
-
 {
   const calls = [];
   const channelEnv = { DWS_CHANNEL: 'digital-human-channel', LANG: 'zh_CN.UTF-8' };
-  let historyReads = 0;
   const crossOrgClient = new ConversationContextClient({
     bin: PORTABLE_DWS_BIN,
     profile: 'corp:user',
@@ -235,31 +213,20 @@ function historySuccessPayload({
     ownerIds: ['owner-open'],
     runner: async (bin, args, options) => {
       calls.push({ bin, args, options });
-      if (args[0] === 'chat' && args[1] === 'data-auth') {
-        return { stdout: JSON.stringify({ success: true, result: { granted: true } }) };
-      }
-      historyReads += 1;
-      return {
-        stdout: JSON.stringify(historyReads === 1
-          ? crossOrgDeniedPayload()
-          : historySuccessPayload()),
-      };
+      return { stdout: JSON.stringify(crossOrgDeniedPayload()) };
     },
   });
 
-  const result = await crossOrgClient.fetch(historyContext());
-  assert.equal(result.latestCounterpartyMessage.content, '跨组织问题');
-  assert.deepEqual(calls.map(call => call.args.slice(0, 4)), [
-    ['chat', 'message', 'list', '--open-dingtalk-id'],
-    ['chat', 'data-auth', 'cross-org', '--all'],
-    ['chat', 'message', 'list', '--open-dingtalk-id'],
+  await assert.rejects(
+    crossOrgClient.fetch(historyContext()),
+    error => error?.code === 'CONVERSATION_HISTORY_UNAVAILABLE'
+      && /Cross-organization chat data permission is required/.test(error.message),
+  );
+  assert.equal(calls.length, 1, 'history denial must never trigger a data authorization write');
+  assert.deepEqual(calls[0].args.slice(0, 4), [
+    'chat', 'message', 'list', '--open-dingtalk-id',
   ]);
-  assert.deepEqual(calls[1].args, [
-    'chat', 'data-auth', 'cross-org', '--all',
-    '--grant-type', 'timed', '--ttl', '24h',
-    '--format', 'json', '--profile', 'corp:user', '-y',
-  ]);
-  for (const call of calls) assert.deepEqual(call.options.env, channelEnv);
+  assert.deepEqual(calls[0].options.env, channelEnv);
 }
 
 {
@@ -284,86 +251,6 @@ function historySuccessPayload({
 
   await assert.rejects(unrelatedErrorClient.fetch(historyContext()), /auth expired/i);
   assert.equal(calls.length, 1);
-}
-
-{
-  const calls = [];
-  const failedGrantClient = new ConversationContextClient({
-    bin: PORTABLE_DWS_BIN,
-    profile: 'corp:user',
-    transport: 'event-stream',
-    env: { DWS_CHANNEL: 'digital-human-channel' },
-    cwd: '/srv/james',
-    ownerIds: ['owner-open'],
-    runner: async (bin, args) => {
-      calls.push({ bin, args });
-      return {
-        stdout: JSON.stringify(args[1] === 'data-auth'
-          ? { success: false, error: { code: 'GrantDenied', message: 'grant rejected' } }
-          : crossOrgDeniedPayload()),
-      };
-    },
-  });
-
-  await assert.rejects(failedGrantClient.fetch(historyContext()), /grant rejected/i);
-  assert.deepEqual(calls.map(call => call.args[1]), ['message', 'data-auth']);
-}
-
-{
-  const readsByTarget = new Map();
-  let grantCalls = 0;
-  let releaseGrant;
-  const grantBarrier = new Promise(resolve => { releaseGrant = resolve; });
-  const concurrentClient = new ConversationContextClient({
-    bin: PORTABLE_DWS_BIN,
-    profile: 'corp:user',
-    transport: 'event-stream',
-    env: { DWS_CHANNEL: 'digital-human-channel' },
-    cwd: '/srv/james',
-    ownerIds: ['owner-open'],
-    runner: async (bin, args) => {
-      if (args[1] === 'data-auth') {
-        grantCalls += 1;
-        await grantBarrier;
-        return { stdout: JSON.stringify({ success: true }) };
-      }
-      const targetId = args[4];
-      const reads = (readsByTarget.get(targetId) || 0) + 1;
-      readsByTarget.set(targetId, reads);
-      return {
-        stdout: JSON.stringify(reads === 1
-          ? crossOrgDeniedPayload()
-          : historySuccessPayload({
-              messageId: `${targetId}-message`,
-              senderId: targetId,
-              content: `来自 ${targetId} 的问题`,
-            })),
-      };
-    },
-  });
-
-  const first = concurrentClient.fetch(historyContext({
-    messageId: 'external-a-message',
-    conversationId: 'dingtalk:user:external-a',
-    senderId: 'external-a',
-    content: '来自 external-a 的问题',
-  }));
-  const second = concurrentClient.fetch(historyContext({
-    messageId: 'external-b-message',
-    conversationId: 'dingtalk:user:external-b',
-    senderId: 'external-b',
-    content: '来自 external-b 的问题',
-  }));
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(grantCalls, 1);
-  releaseGrant();
-  const results = await Promise.all([first, second]);
-  assert.deepEqual(
-    results.map(result => result.latestCounterpartyMessage.content),
-    ['来自 external-a 的问题', '来自 external-b 的问题'],
-  );
-  assert.equal(grantCalls, 1);
-  assert.deepEqual([...readsByTarget.values()], [2, 2]);
 }
 
 console.log('CONVERSATION_CONTEXT_CLIENT_TEST_OK');
