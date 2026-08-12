@@ -1,24 +1,35 @@
 import assert from 'node:assert/strict';
-import { access, stat } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { EventEmitter, once } from 'node:events';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { CoordinatorClient, StandbyDwsWorker, createHealthServer } from './worker.mjs';
 
 const calls = [];
 const coordinatorCalls = [];
+const credentialDir = await mkdtemp(join(tmpdir(), 'aipros-dws-worker-test-'));
+const dwsHome = join(credentialDir, 'home');
+const portableBundle = Buffer.from('dws-1.0.56-portable-auth-tarball').toString('base64');
 const env = {
   DINGTALK_CLIENT_ID: 'cloud-app', DINGTALK_CLIENT_SECRET: 'cloud-secret',
-  DINGTALK_DWS_AUTH_BUNDLE_B64: 'portable-bundle', AIPROS_COORDINATOR_URL: 'https://internal.test',
+  DINGTALK_DWS_AUTH_BUNDLE_B64: portableBundle, AIPROS_DWS_HOME: dwsHome,
+  AIPROS_COORDINATOR_URL: 'https://internal.test',
   AIPROS_CONTAINER_TOKEN: 'token', AIPROS_ALLOWED_CHAT_IDS: 'chat-1',
   AIPROS_ALLOWED_SENDER_IDS: 'user-1',
 };
 let importedPath = '';
-const runner = async (_bin, args) => {
+const runner = async (_bin, args, options = {}) => {
   calls.push(args);
   if (args[0] === 'auth' && args[1] === 'import') {
     importedPath = args[args.indexOf('-i') + 1];
+    assert.equal(options.env?.HOME, dwsHome);
     assert.equal((await stat(importedPath)).mode & 0o777, 0o600);
+    assert.equal(await readFile(importedPath, 'utf8'), portableBundle);
   }
-  if (args[0] === 'auth' && args[1] === 'status') return { stdout: '{"authenticated":true}' };
+  if (args[0] === 'auth' && args[1] === 'status') {
+    assert.equal(options.env?.HOME, dwsHome);
+    return { stdout: '{"authenticated":true}' };
+  }
   return { stdout: '{}' };
 };
 const coordinator = {
@@ -31,8 +42,9 @@ const eventCalls = [];
 const eventChildren = [];
 const worker = new StandbyDwsWorker({
   env, runner, coordinator, now: () => 1_786_060_800_000,
-  eventConsumer: async (_bin, args) => {
+  eventConsumer: async (_bin, args, _onMessage, options = {}) => {
     eventCalls.push(args);
+    assert.equal(options.env?.HOME, dwsHome);
     const child = new EventEmitter();
     eventChildren.push(child);
     return child;
@@ -41,7 +53,9 @@ const worker = new StandbyDwsWorker({
 await worker.initialize();
 await worker.initialize();
 await assert.rejects(() => access(importedPath));
+await access(join(dwsHome, '.aipros-auth-bootstrap-complete'));
 assert.equal(eventCalls.length, 1);
+assert.equal(calls.filter(args => args[0] === 'auth' && args[1] === 'import').length, 1);
 assert.equal(calls.some(args => args.includes('--profile')), false);
 assert.equal(calls.some(args => args.includes('--client-id') && args.includes('cloud-app')), true);
 assert.equal(eventCalls[0].includes('--flatten'), true);
@@ -66,6 +80,7 @@ assert.equal(worker.authenticated, false);
 assert.equal(worker.backfilledGeneration, 0);
 await worker.initialize();
 assert.equal(eventCalls.length, 2);
+assert.equal(calls.filter(args => args[0] === 'auth' && args[1] === 'import').length, 1);
 
 const clientPaths = [];
 const client = new CoordinatorClient({
@@ -88,4 +103,5 @@ const ready = await fetch(`http://127.0.0.1:${port}/ready`);
 assert.equal(ready.status, 200);
 assert.deepEqual(await ready.json(), { ok: true, active: false });
 await new Promise(resolve => server.close(resolve));
+await rm(credentialDir, { recursive: true, force: true });
 console.log('FAILOVER_CONTAINER_WORKER_TEST_OK');

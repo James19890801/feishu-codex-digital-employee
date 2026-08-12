@@ -52,10 +52,12 @@ Provision these as sealed Railway service variables. Read back names only, never
 DINGTALK_CLIENT_ID
 DINGTALK_CLIENT_SECRET
 DINGTALK_DWS_AUTH_BUNDLE_B64
+AIPROS_DWS_HOME
 AIPROS_COORDINATOR_URL
 AIPROS_CONTAINER_TOKEN
 AIPROS_ALLOWED_CHAT_IDS
 AIPROS_ALLOWED_SENDER_IDS
+RAILWAY_RUN_UID
 ```
 
 The same local HMAC value must be stored in macOS Keychain under the configured service/account:
@@ -81,7 +83,7 @@ dws auth status --format json \
 dws auth export --base64 > dws-auth.b64
 ```
 
-Before export, verify that this state contains only the dedicated cloud authorization and is not the local production Profile. Store the base64 output as `DINGTALK_DWS_AUTH_BUNDLE_B64`, then securely delete the export file. The Railway runtime imports it into ephemeral storage with mode `0600`, runs a real `dws auth status`, and removes the import file.
+Before export, verify that this state contains only the dedicated cloud authorization and is not the local production Profile. Store the base64 output as `DINGTALK_DWS_AUTH_BUNDLE_B64`, then securely delete the export file. The Railway runtime imports it once with mode `0600` into the persistent `AIPROS_DWS_HOME`, verifies a real `dws auth status`, and records a bootstrap marker. Later restarts use the persisted, rotated credential state and fail closed instead of re-importing the original bundle. Mount a Railway Volume at `/data` and set `RAILWAY_RUN_UID=0`, because Railway mounts volumes as root.
 
 ## Configure the Mac
 
