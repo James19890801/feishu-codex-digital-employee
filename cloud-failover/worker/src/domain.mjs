@@ -57,7 +57,7 @@ export class FailoverCoordinatorService {
       && healthy;
     const next = {
       ...current,
-      lastHeartbeatAt: at,
+      lastHeartbeatAt: healthy ? at : current.lastHeartbeatAt,
       serviceStartId: String(input.serviceStartId || ''),
       recoveryCount: recovered ? current.recoveryCount + 1 : 0,
     };
