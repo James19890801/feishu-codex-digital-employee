@@ -3,6 +3,7 @@ import { FailoverCoordinatorService } from './domain.mjs';
 import { QoderCloudClient } from './qoder-client.mjs';
 import { DurableObjectFailoverRepository } from './repository-do.mjs';
 import { createFailoverWorker } from './routes.mjs';
+import { executeCloudHandoff } from './handoff.mjs';
 
 export class FailoverCoordinator extends DurableObject {
   constructor(ctx, env) {
@@ -54,15 +55,21 @@ export class FailoverCoordinator extends DurableObject {
       agentVersion: this.env.QODER_AGENT_VERSION,
       environmentId: this.env.QODER_ENVIRONMENT_ID,
     });
-    const result = await client.execute({
-      prompt,
-      digest: input.digest,
-      metadata: { level: input.level, purpose: input.purpose, node: this.env.AIPROS_NODE_ID },
+    const handoff = await executeCloudHandoff({
+      repository: this.repository,
+      handoffId: String(input.handoffId || ''),
+      digest: actualDigest,
+      execute: () => client.execute({
+        prompt,
+        digest: input.digest,
+        metadata: { level: input.level, purpose: input.purpose, node: this.env.AIPROS_NODE_ID },
+      }),
     });
-    return { result, ...(await this.service.status()) };
+    return { ...handoff, ...(await this.service.status()) };
   }
 
   async alarm() {
+    await this.repository.pruneHandoffs(Date.now());
     await this.service.evaluate(Date.now());
     await this.ctx.storage.setAlarm(Date.now() + Number(this.env.HEARTBEAT_MS || 30_000));
   }

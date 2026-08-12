@@ -1194,6 +1194,8 @@ async function runAiRuntime(prompt, options, cloudContext = {}) {
         detail: {
           sessionId: result.cloud?.sessionId || '',
           latencyMs: Number(result.cloud?.latencyMs || 0),
+          handoffStatus: result.cloud?.handoff?.status || '',
+          replayed: result.cloud?.handoff?.replayed === true,
         },
       });
     }
@@ -1210,7 +1212,14 @@ async function runAiRuntime(prompt, options, cloudContext = {}) {
   }
 }
 
-async function runCodex(task, history, imagePaths = [], decision = null, liveReplyContext = '') {
+async function runCodex(
+  task,
+  history,
+  imagePaths = [],
+  decision = null,
+  liveReplyContext = '',
+  handoffKey = '',
+) {
   const lengthPolicy = replyLengthPolicy(task);
   const prompt = `
 ${buildIdentityInstruction(OPERATOR_PROFILE)}
@@ -1274,6 +1283,7 @@ ${task}
     ownerPhone: config.ownerContactPhone,
     forbiddenValues: [config.dingtalkProfile, config.dingtalkChannel],
     maxPromptChars: config.cloudFailoverMaxPromptChars,
+    handoffKey,
   });
   const text = result.runtime?.id === 'qoder-cloud'
     ? `【云端兜底】${result.text}`
@@ -1682,6 +1692,8 @@ async function handleMulticaWorkRequest(message, senderOpenId, request, decision
       history,
       [],
       decision,
+      '',
+      message.message_id,
     ),
     deliver: async answer => {
       remember(message.chat_id, senderOpenId, 'user', `处理 ${request.issue}：${request.task}`);
@@ -2667,9 +2679,10 @@ async function processIncoming(client, message, sender, metadata = {}) {
             imagePaths,
             decision,
             replyContextInstruction,
+            message.message_id,
           ),
         })
-      : await runCodex(task, history, imagePaths, decision);
+      : await runCodex(task, history, imagePaths, decision, '', message.message_id);
     remember(message.chat_id, senderOpenId, 'assistant', answer);
     await sendText(client, message.chat_id, answer, `xiaozhao-${message.message_id}`);
     audit('message_replied', message, senderOpenId, { artifact: false, answerChars: answer.length });

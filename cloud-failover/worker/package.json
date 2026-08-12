@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node src/domain.test.mjs && node src/auth.test.mjs && node src/qoder-client.test.mjs && node src/repository-do.test.mjs && node src/index.test.mjs",
+    "test": "node src/domain.test.mjs && node src/auth.test.mjs && node src/qoder-client.test.mjs && node src/handoff.test.mjs && node src/repository-do.test.mjs && node src/index.test.mjs",
     "deploy:dry": "wrangler deploy --dry-run"
   },
   "devDependencies": {

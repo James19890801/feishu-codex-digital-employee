@@ -81,6 +81,7 @@ export class LocalFirstRuntimeRouter {
       digest: sanitized.digest,
       bytes: sanitized.bytes,
       purpose: String(context.purpose || 'reply').slice(0, 64),
+      ...(context.handoffKey ? { handoffKey: String(context.handoffKey) } : {}),
     });
     return {
       text: cloudResult.text,
@@ -90,6 +91,7 @@ export class LocalFirstRuntimeRouter {
       cloud: {
         sessionId: cloudResult.sessionId,
         latencyMs: cloudResult.latencyMs,
+        handoff: cloudResult.handoff || null,
       },
     };
   }

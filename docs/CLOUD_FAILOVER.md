@@ -15,6 +15,13 @@
 
 ## Runtime contract
 
+Two failover paths are intentionally separate:
+
+1. **Per-message local-first handoff:** every new message starts locally. Only retryable runtime failures consume the maximum three local attempts. After the third failure, the local process sends a signed, sanitized L0/L1 handoff to Cloudflare. The message ID is converted locally into a one-way `handoffId`; Cloudflare atomically claims it, runs Qoder once, and caches only the sanitized result for 15 minutes so a lost HTTP response can be replayed without a second Qoder run. This does not change the global coordinator state, so the next message starts locally again and a recovered local runtime immediately regains priority.
+2. **Whole-host takeover:** if the Mac cannot send heartbeats, three missed 30-second heartbeats move the coordinator to `TAKING_OVER`; Railway confirms its DWS event stream and moves it to `CLOUD_ACTIVE`. Three healthy local heartbeats start draining and return ownership to `LOCAL_PRIMARY`. The controlled 30-minute outage is an acceptance test, not a takeover delay.
+
+If the per-message cloud gateway is unavailable, the local durable inbox leaves the message retryable rather than marking it complete. DingTalk sends use a stable message UUID, while the Cloudflare `handoffId` prevents duplicate Qoder generation across process and network retries.
+
 - Local remains primary for every request. A later request always starts local-first again.
 - Only timeout, process exit, network transport failure, or empty output consumes a local retry.
 - Three attempts share the original model-call timeout. Permission, confirmation, business validation, quality dissatisfaction and malformed business output do not fail over.

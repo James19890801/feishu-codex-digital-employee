@@ -104,7 +104,7 @@ export function createFailoverWorker({ maxBodyBytes = 64 * 1024 } = {}) {
       } catch (error) {
         const code = String(error?.code || 'request_failed').slice(0, 64);
         const status = ['invalid_signature', 'request_expired', 'nonce_replayed', 'unknown_node'].includes(code)
-          ? 401 : code === 'request_too_large' ? 413 : 400;
+          ? 401 : code === 'request_too_large' ? 413 : code === 'handoff_in_progress' ? 409 : 400;
         return json(status, { ok: false, error: { code, message: String(error?.message || error).slice(0, 200) } });
       }
     },

@@ -34,6 +34,7 @@ const result = await router.run(
   { timeoutMs: 120_000 },
   {
     level: 'L0',
+    handoffKey: 'message-123',
     cloudPrompt: '只回答当前问题 /Users/alice/private.txt marker cloud-secret-value',
     forbiddenValues: ['cloud-secret-value'],
   },
@@ -43,13 +44,14 @@ assert.deepEqual(attemptTimeouts, [40_000, 40_000, 40_000]);
 assert.equal(cloudInput.prompt.includes('/Users/alice'), false);
 assert.equal(cloudInput.prompt.includes('请读取'), false, 'the full local prompt must not enter cloud');
 assert.equal(cloudInput.prompt.includes('cloud-secret-value'), false);
+assert.equal(cloudInput.handoffKey, 'message-123');
 assert.match(cloudInput.digest, /^[a-f0-9]{64}$/);
 assert.deepEqual(result, {
   text: 'cloud answer',
   stdout: 'cloud answer',
   stderr: '',
   runtime: { id: 'qoder-cloud', label: 'Qoder Cloud Agent' },
-  cloud: { sessionId: 'sess_123', latencyMs: 42 },
+  cloud: { sessionId: 'sess_123', latencyMs: 42, handoff: null },
 });
 
 let localSuccessCalls = 0;
