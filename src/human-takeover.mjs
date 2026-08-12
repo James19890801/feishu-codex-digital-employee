@@ -47,6 +47,12 @@ export function takeoverSyncFailurePolicy({
   return Number(attemptNumber) < Number(maxAttempts) ? 'retry' : 'proceed_degraded';
 }
 
+export function takeoverSyncFailureTerminalEvent(failurePolicy) {
+  return failurePolicy === 'suppress'
+    ? 'message_skipped_takeover_control_unavailable'
+    : '';
+}
+
 export function activateHumanTakeover(previous, {
   nowMs = Date.now(),
   sourceMessageId = '',
@@ -201,14 +207,16 @@ export function applyOwnerActivityHistory(messages, {
         || '',
       ).trim();
       const content = message?.content || message?.text || '';
+      const command = matchHumanTakeoverCommand(content);
       if (senderId !== expectedOwnerId
         || isAssistantMessage(message)
+        || !command
         || isGeneratedDingTalkCalendarCard(content)) return [];
       const messageId = String(message?.openMessageId || message?.messageId || message?.message_id || '');
       const occurredAtMs = Number(parseTime(message?.createTime || message?.create_time || ''));
       if (!messageId || !Number.isFinite(occurredAtMs)) return [];
       return [{
-        command: matchHumanTakeoverCommand(content),
+        command,
         messageId,
         occurredAtMs,
       }];
@@ -222,11 +230,11 @@ export function applyOwnerActivityHistory(messages, {
     if (activity.command === 'resume') {
       const resume = requestHumanTakeoverResume(nextState, activity.occurredAtMs);
       nextState = resume.state || { pausedUntilMs: 0, reason: 'owner_manual_activity' };
-    } else {
+    } else if (activity.command === 'pause') {
       nextState = activateHumanTakeover(nextState, {
         nowMs: activity.occurredAtMs,
         sourceMessageId: activity.messageId,
-        reason: activity.command === 'pause' ? 'owner_human_takeover' : 'owner_manual_activity',
+        reason: 'owner_human_takeover',
       });
     }
     nextState = {

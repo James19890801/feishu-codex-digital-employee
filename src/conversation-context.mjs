@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isPassiveDingTalkSystemNotice } from './dingtalk-system-notice.mjs';
 
 const MAX_HISTORY_MESSAGES = 30;
 const MAX_STYLE_SAMPLES = 8;
@@ -52,6 +53,7 @@ function messageText(value) {
 
 function usableText(text) {
   if (!text) return false;
+  if (isPassiveDingTalkSystemNotice(text)) return false;
   return !/^\s*(?:\[(?:图片|文件|视频|语音|合并转发)消息\]|\[文件\]|消息已撤回|该消息已撤回)\s*$/u.test(text);
 }
 

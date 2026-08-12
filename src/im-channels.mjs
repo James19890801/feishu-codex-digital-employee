@@ -1,6 +1,7 @@
 import { dirname } from 'node:path';
 import { matchHumanTakeoverCommand } from './human-takeover.mjs';
 import { parseDingTalkMediaPlaceholder } from './multimodal-content.mjs';
+import { isPassiveDingTalkSystemNotice } from './dingtalk-system-notice.mjs';
 
 const CHANNEL_TARGET_PATTERN = /^(dingtalk|wecom|wechat):(group|user):(.+)$/;
 const DINGTALK_SELF_FILE_PLACEHOLDER = /^(?:\[文件\]\s*)+.*\bfileId\s*:/i;
@@ -184,7 +185,10 @@ export function normalizeDingTalkEvent(event) {
   if (!messageId || !targetId || !senderId) return null;
   const conversationId = String(event?.conversation_id || '').trim();
   const rawContent = String(event?.content || '');
-  if (direct && isGeneratedDingTalkCalendarResponseReceipt(rawContent)) return null;
+  if (direct && (
+    isGeneratedDingTalkCalendarResponseReceipt(rawContent)
+    || isPassiveDingTalkSystemNotice(rawContent)
+  )) return null;
   const media = parseDingTalkMediaPlaceholder(rawContent);
   return {
     message: {
@@ -229,6 +233,7 @@ export function normalizeDingTalkSelfMessages(result) {
     ).trim();
     const content = String(item?.content || item?.text || '').trim();
     if (!messageId || !senderId || !content) return [];
+    if (isPassiveDingTalkSystemNotice(content)) return [];
     // DWS represents files in a self-chat as text placeholders and does not
     // expose whether they were sent by the human or by James. James cannot
     // read these placeholders as files, and treating its own delivered file
@@ -292,7 +297,10 @@ export function normalizeDingTalkListAllPage(result, {
       const senderId = String(item?.senderOpenDingTalkId || '').trim();
       const content = String(item?.content || '').trim();
       if (!messageId || !senderId || !content) continue;
-      if (singleChat && isGeneratedDingTalkCalendarResponseReceipt(content)) continue;
+      if (singleChat && (
+        isGeneratedDingTalkCalendarResponseReceipt(content)
+        || isPassiveDingTalkSystemNotice(content)
+      )) continue;
       const media = parseDingTalkMediaPlaceholder(content);
       if (!media && (/^\[(?:图片|文件|视频)消息\]/.test(content) || /^\[文件\]/.test(content))) continue;
 

@@ -257,6 +257,11 @@ assert.deepEqual(buildDingTalkListAllPollingArgs(
           openMessageId: 'calendar-receipt-message-1',
           senderOpenDingTalkId: 'open-mengqi',
         }, {
+          content: '最近通话：对方已取消',
+          createTime: '2026-08-04 16:19:55',
+          openMessageId: 'call-receipt-message-1',
+          senderOpenDingTalkId: 'open-mengqi',
+        }, {
           content: '第二个测试的时候有问题随时说。',
           createTime: '2026-08-04 16:20:00',
           openMessageId: 'human-message-after-calendar-receipt',
@@ -269,7 +274,7 @@ assert.deepEqual(buildDingTalkListAllPollingArgs(
   assert.deepEqual(
     page.payloads.map(item => item.message.message_id),
     ['dingtalk:human-message-after-calendar-receipt'],
-    'polling must keep human messages while discarding generated calendar receipts',
+    'polling must keep human messages while discarding generated calendar and call receipts',
   );
 }
 
@@ -381,6 +386,23 @@ assert.throws(
     null,
     'a generated calendar acceptance receipt must not become a user message',
   );
+}
+
+for (const [index, content] of [
+  '最近通话：对方已取消',
+  '未接来电：小王',
+  '[语音通话] 已取消',
+].entries()) {
+  const payload = normalizeDingTalkEvent({
+    type: 'user_im_message_receive_o2o_all',
+    event_id: `call-notice-event-${index}`,
+    message_id: `call-notice-message-${index}`,
+    conversation_id: 'cid-call-notice',
+    sender_open_dingtalk_id: 'open-caller',
+    content,
+    create_time: '2026-08-11T10:00:00+08:00',
+  });
+  assert.equal(payload, null, `passive call notice must not become a user request: ${content}`);
 }
 
 {

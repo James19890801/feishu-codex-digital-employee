@@ -1,7 +1,22 @@
 import { accessSync, constants } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { homedir } from 'node:os';
-import { processFailureSummary, runBufferedProcess } from './process-runner.mjs';
+import { runBufferedProcess } from './process-runner.mjs';
+
+const SAFE_AI_RUNTIME_FAILURE_CODES = new Set([
+  'PROCESS_EXIT',
+  'PROCESS_TIMEOUT',
+  'PROCESS_OUTPUT_LIMIT',
+  'PROCESS_STDIN_ERROR',
+  'PROCESS_SPAWN_ERROR',
+  'PROCESS_TERMINATED',
+  'AI_RUNTIME_EMPTY_RESPONSE',
+]);
+
+export function safeAiRuntimeFailureCode(error) {
+  const code = String(error?.code || '').trim().toUpperCase();
+  return SAFE_AI_RUNTIME_FAILURE_CODES.has(code) ? code : 'AI_RUNTIME_EXECUTION_FAILED';
+}
 
 const DEFINITIONS = [
   {
@@ -222,12 +237,13 @@ export class AiRuntimeClient {
       });
       const text = String(stdout || '').trim();
       if (!text) {
-        throw new Error(`${this.runtime.label} returned an empty response: ${String(stderr || '').slice(-500)}`);
+        const error = new Error(`${this.runtime.label} returned an empty response`);
+        error.code = 'AI_RUNTIME_EMPTY_RESPONSE';
+        throw error;
       }
       return { text, stdout, stderr, runtime: this.runtime };
     } catch (error) {
-      if (error?.message?.includes('returned an empty response')) throw error;
-      throw new Error(`${this.runtime.label} failed: ${processFailureSummary(error)}`);
+      throw new Error(`${this.runtime.label} failed: ${safeAiRuntimeFailureCode(error)}`);
     }
   }
 }

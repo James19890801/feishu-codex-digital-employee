@@ -37,6 +37,17 @@ assert.equal(humanTakeoverModule.takeoverSyncFailurePolicy({
   attemptNumber: 3,
   maxAttempts: 3,
 }), 'suppress');
+assert.equal(
+  typeof humanTakeoverModule.takeoverSyncFailureTerminalEvent,
+  'function',
+  'suppressed takeover sync failures need an explicit terminal audit event',
+);
+assert.equal(
+  humanTakeoverModule.takeoverSyncFailureTerminalEvent('suppress'),
+  'message_skipped_takeover_control_unavailable',
+);
+assert.equal(humanTakeoverModule.takeoverSyncFailureTerminalEvent('retry'), '');
+assert.equal(humanTakeoverModule.takeoverSyncFailureTerminalEvent('proceed_degraded'), '');
 
 for (const phrase of [
   '数字人请退场',
@@ -208,10 +219,10 @@ const activityApplied = applyOwnerActivityHistory([
   parseTime: value => Date.parse(String(value).replace(' ', 'T') + '+08:00'),
   isAssistantMessage: message => message.openMessageId === 'assistant-echo-1',
 });
-assert.equal(activityApplied.changed, true);
-assert.equal(activityApplied.activities.length, 1);
-assert.equal(activityApplied.state.reason, 'owner_manual_activity');
-assert.equal(activityApplied.state.pausedUntilMs, Date.parse('2026-08-01T16:15:00+08:00'));
+assert.equal(activityApplied.changed, false);
+assert.equal(activityApplied.activities.length, 0);
+assert.equal(activityApplied.state, null);
+assert.equal(activityApplied.active, false);
 
 const generatedCalendarCardIgnored = applyOwnerActivityHistory([
   {
@@ -256,9 +267,9 @@ const manuallySharedCalendarLinkStillPauses = applyOwnerActivityHistory([
   nowMs: Date.parse('2026-08-03T16:38:00+08:00'),
   parseTime: value => Date.parse(String(value).replace(' ', 'T') + '+08:00'),
 });
-assert.equal(manuallySharedCalendarLinkStillPauses.changed, true);
-assert.equal(manuallySharedCalendarLinkStillPauses.activities.length, 1);
-assert.equal(manuallySharedCalendarLinkStillPauses.state.reason, 'owner_manual_activity');
+assert.equal(manuallySharedCalendarLinkStillPauses.changed, false);
+assert.equal(manuallySharedCalendarLinkStillPauses.activities.length, 0);
+assert.equal(manuallySharedCalendarLinkStillPauses.active, false);
 
 const activityNoReplay = applyOwnerActivityHistory([
   {

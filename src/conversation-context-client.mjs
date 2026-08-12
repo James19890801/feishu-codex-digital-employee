@@ -33,6 +33,28 @@ function hasMessageList(result) {
   ].some(Array.isArray);
 }
 
+function providerMessage(root, fallback) {
+  return String(root?.error?.message || root?.message || fallback);
+}
+
+function isCrossOrgPermissionDenied(root) {
+  const marker = [
+    root?.error?.code,
+    root?.code,
+    root?.error?.message,
+    root?.message,
+  ].map(value => String(value || '')).join(' ');
+  return /\bCrossOrgPermissionDenied\b/i.test(marker);
+}
+
+function buildCrossOrgAuthorizationArgs(profile) {
+  return [
+    'chat', 'data-auth', 'cross-org', '--all',
+    '--grant-type', 'timed', '--ttl', '24h',
+    '--format', 'json', '--profile', profile, '-y',
+  ];
+}
+
 function safeErrorCategory(error) {
   if (error instanceof ConversationHistoryError) return error.code;
   const detail = String(error?.message || error || '').toLowerCase();
@@ -41,6 +63,8 @@ function safeErrorCategory(error) {
 }
 
 export class ConversationContextClient {
+  #crossOrgAuthorizationPromise = null;
+
   constructor({
     bin,
     profile,
@@ -63,6 +87,62 @@ export class ConversationContextClient {
     this.runner = runner;
     this.timeoutMs = timeoutMs;
     this.audit = typeof audit === 'function' ? audit : () => {};
+  }
+
+  async runDws(args) {
+    return this.runner(this.bin, args, {
+      cwd: this.cwd,
+      env: this.env,
+      timeoutMs: this.timeoutMs,
+      maxStdoutBytes: 8 * 1024 * 1024,
+      maxStderrBytes: 1024 * 1024,
+    });
+  }
+
+  async authorizeCrossOrgHistory() {
+    if (this.#crossOrgAuthorizationPromise) return this.#crossOrgAuthorizationPromise;
+    const startedAt = Date.now();
+    this.audit('conversation_cross_org_authorization_requested', {});
+    this.#crossOrgAuthorizationPromise = (async () => {
+      try {
+        const processResult = await this.runDws(buildCrossOrgAuthorizationArgs(this.profile));
+        let root;
+        try {
+          root = JSON.parse(String(processResult?.stdout || ''));
+        } catch (error) {
+          throw new ConversationHistoryError(
+            'DWS cross-organization authorization returned invalid JSON',
+            'CROSS_ORG_AUTHORIZATION_FAILED',
+            { cause: error },
+          );
+        }
+        if (root?.success === false || root?.error) {
+          throw new ConversationHistoryError(
+            `DWS cross-organization authorization failed: ${providerMessage(root, 'provider rejected the request')}`,
+            'CROSS_ORG_AUTHORIZATION_FAILED',
+          );
+        }
+        this.audit('conversation_cross_org_authorization_granted', {
+          durationMs: Date.now() - startedAt,
+        });
+      } catch (error) {
+        const wrapped = error instanceof ConversationHistoryError
+          ? error
+          : new ConversationHistoryError(
+              `DWS cross-organization authorization failed: ${String(error?.message || error)}`,
+              'CROSS_ORG_AUTHORIZATION_FAILED',
+              { cause: error },
+            );
+        this.audit('conversation_cross_org_authorization_failed', {
+          durationMs: Date.now() - startedAt,
+          errorCategory: wrapped.code,
+        });
+        throw wrapped;
+      }
+    })().finally(() => {
+      this.#crossOrgAuthorizationPromise = null;
+    });
+    return this.#crossOrgAuthorizationPromise;
   }
 
   async fetch(context = {}) {
@@ -89,13 +169,7 @@ export class ConversationContextClient {
       );
       let processResult;
       try {
-        processResult = await this.runner(this.bin, args, {
-          cwd: this.cwd,
-          env: this.env,
-          timeoutMs: this.timeoutMs,
-          maxStdoutBytes: 8 * 1024 * 1024,
-          maxStderrBytes: 1024 * 1024,
-        });
+        processResult = await this.runDws(args);
       } catch (error) {
         throw new ConversationHistoryError(
           `DWS history process failed: ${String(error?.message || error)}`,
@@ -109,9 +183,31 @@ export class ConversationContextClient {
       } catch (error) {
         throw new ConversationHistoryError('DWS history returned invalid JSON', undefined, { cause: error });
       }
+      if (isCrossOrgPermissionDenied(root)) {
+        await this.authorizeCrossOrgHistory();
+        try {
+          processResult = await this.runDws(args);
+        } catch (error) {
+          throw new ConversationHistoryError(
+            `DWS history process failed after cross-organization authorization: ${String(error?.message || error)}`,
+            'CONVERSATION_HISTORY_UNAVAILABLE',
+            { cause: error },
+          );
+        }
+        try {
+          root = JSON.parse(String(processResult?.stdout || ''));
+        } catch (error) {
+          throw new ConversationHistoryError(
+            'DWS history returned invalid JSON after cross-organization authorization',
+            undefined,
+            { cause: error },
+          );
+        }
+      }
       if (root?.success === false || root?.error) {
-        const providerMessage = String(root?.error?.message || root?.message || 'provider rejected the request');
-        throw new ConversationHistoryError(`DWS history failed: ${providerMessage}`);
+        throw new ConversationHistoryError(
+          `DWS history failed: ${providerMessage(root, 'provider rejected the request')}`,
+        );
       }
       if (!hasMessageList(root)) {
         throw new ConversationHistoryError('DWS history response has no message list');

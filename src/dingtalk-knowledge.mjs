@@ -10,6 +10,11 @@ const DINGTALK_DOC_HOST = 'alidocs.dingtalk.com';
 const DINGTALK_NODE_PATH = /^\/i\/nodes\/([A-Za-z0-9_-]{8,256})\/?$/u;
 const DOCUMENT_NODE_ID = /^[A-Za-z0-9_-]{8,256}$/u;
 const URL_TRAILING_PUNCTUATION = /[，。！？；：、）】》”’.,!?;:)\]}>'"]+$/u;
+const EXPLICIT_KNOWLEDGE_LOOKUP_ACTION = /(?:查一下|查找|搜索|检索|找一下|帮我找|看一下|看看|读取|打开|总结一下|总结|帮我查)/iu;
+
+function hasExplicitKnowledgeLookupIntent(text) {
+  return looksLikeKnowledgeRequest(text) && EXPLICIT_KNOWLEDGE_LOOKUP_ACTION.test(String(text || ''));
+}
 
 function boundedLimit(value, fallback, maximum) {
   const numeric = Number(value);
@@ -197,7 +202,7 @@ export async function retrieveDingTalkKnowledge({
 } = {}) {
   if (typeof runDws !== 'function') throw new Error('DingTalk knowledge runner is required');
   let references = extractDingTalkDocumentRefs(text).slice(0, 3);
-  if (!references.length && !looksLikeKnowledgeRequest(text)) return null;
+  if (!references.length && !hasExplicitKnowledgeLookupIntent(text)) return null;
   if (!references.length && isOwner(senderId, ownerIds)) {
     const query = extractKnowledgeQuery(text);
     if (!query) return null;

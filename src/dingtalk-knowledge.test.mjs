@@ -180,6 +180,25 @@ assert.deepEqual(ownerCalls[0], buildDingTalkSearchArgs({
 }));
 assert.equal(ownerCalls.length, 4);
 
+const ordinaryKnowledgeMentions = [
+  '我们用知识库做个机器人吧',
+  '这篇文章讲了代码仓库的设计',
+  '钉钉会议今天下午三点开',
+];
+for (const text of ordinaryKnowledgeMentions) {
+  let calls = 0;
+  const result = await retrieveDingTalkKnowledge({
+    text,
+    senderId: 'owner',
+    ownerIds: ['owner'],
+    catalog: { version: 2, sources: [] },
+    profile: 'corp:user',
+    runDws: async () => { calls += 1; },
+  });
+  assert.equal(result, null, `ordinary conversation must not become a document search: ${text}`);
+  assert.equal(calls, 0);
+}
+
 const nonOwnerCalls = [];
 const nonOwnerKnowledge = await retrieveDingTalkKnowledge({
   text: '帮我查一下组织战略文档',

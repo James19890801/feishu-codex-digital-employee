@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentState } from './state.mjs';
 import {
+  applyOwnerCommitmentGuard,
   evaluateStableResponseInbound,
   generateStableResponse,
   sendStableGeneratedReply,
@@ -17,6 +18,23 @@ import { REQUIRED_RESPONSE_FALLBACK_REPLY } from './required-response-fallback.m
 const directory = mkdtempSync(join(tmpdir(), 'james-stable-response-'));
 const state = new AgentState(join(directory, 'state.sqlite'));
 try {
+  assert.deepEqual(applyOwnerCommitmentGuard({
+    request: '走不走？',
+    response: '走走走，1楼见',
+    ownerLabel: '阿充',
+  }), {
+    text: '这个需要阿充本人确认，我不能替他约定见面或行程。',
+    guarded: true,
+  });
+  assert.deepEqual(applyOwnerCommitmentGuard({
+    request: '这个方案怎么走？',
+    response: '建议先做小流量验证。',
+    ownerLabel: '阿充',
+  }), {
+    text: '建议先做小流量验证。',
+    guarded: false,
+  });
+
   const sent = [];
   const audits = [];
   const base = {
