@@ -49,7 +49,18 @@ function startDwsEventConsumer(bin, args, onMessage, { env = process.env } = {})
       const lines = stdoutBuffer.split('\n');
       stdoutBuffer = lines.pop() || '';
       for (const line of lines) {
-        try { onMessage(JSON.parse(line)).catch(() => {}); } catch { /* ignore malformed metadata */ }
+        try {
+          Promise.resolve(onMessage(JSON.parse(line)))
+            .then(result => console.log('dws_event_processed', {
+              sent: result?.sent === true,
+              outcomeCode: String(result?.outcomeCode || ''),
+              skipped: String(result?.skipped || ''),
+            }))
+            .catch(error => console.error('dws_event_processing_failed', {
+              code: String(error?.code || error?.name || 'event_error').slice(0, 64),
+              message: String(error?.message || error).slice(0, 160),
+            }));
+        } catch { /* ignore malformed metadata */ }
       }
     });
     child.stderr.on('data', chunk => {
@@ -97,6 +108,7 @@ export class StandbyDwsWorker {
   constructor({
     env, runner = safeProcess, coordinator, now = () => Date.now(), bin = 'dws',
     eventConsumer = startDwsEventConsumer,
+    delay = ms => new Promise(resolve => setTimeout(resolve, ms)),
   } = {}) {
     this.env = env;
     this.policy = validateContainerEnvironment(env);
@@ -105,6 +117,7 @@ export class StandbyDwsWorker {
     this.now = now;
     this.bin = bin;
     this.eventConsumer = eventConsumer;
+    this.delay = delay;
     this.generation = 0;
     this.activeGeneration = 0;
     this.backfilledGeneration = 0;
@@ -236,10 +249,33 @@ export class StandbyDwsWorker {
             digest: messageDigest(message.text), bytes: Buffer.byteLength(message.text, 'utf8'),
             purpose: 'whole_host_reply',
           })).result.text);
-      await this.runner(this.bin, [
+      const sent = await this.runner(this.bin, [
         'chat', 'message', 'send', '--group', message.chatId, '--text', reply,
-        '--uuid', stableMessageUuid('dingtalk', message.messageId), '--yes', ...this.commonArgs(),
+        '--uuid', stableMessageUuid('dingtalk', message.messageId), '--yes', '--format', 'json',
+        ...this.commonArgs(),
       ], this.dwsOptions());
+      let sendResult = {};
+      try { sendResult = JSON.parse(sent.stdout); } catch { sendResult = {}; }
+      const sendRoot = sendResult.result || sendResult.data || sendResult;
+      const openTaskId = String(sendRoot.openTaskId || sendRoot.open_task_id || '').trim();
+      if (!openTaskId) throw new Error('DWS send did not return openTaskId');
+      let sendStatus = '';
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const status = await this.runner(this.bin, [
+          'chat', 'message', 'query-send-status', '--open-task-id', openTaskId,
+          '--format', 'json', ...this.commonArgs(),
+        ], this.dwsOptions());
+        let parsed = {};
+        try { parsed = JSON.parse(status.stdout); } catch { parsed = {}; }
+        const root = parsed.result || parsed.data || parsed;
+        sendStatus = String(root.sendStatus || root.send_status || root.status || '').toUpperCase();
+        if (sendStatus === 'SUCCESS') break;
+        if (['FAILED', 'FAIL', 'ERROR'].includes(sendStatus)) {
+          throw new Error(`DWS send failed with terminal status ${sendStatus}`);
+        }
+        if (attempt < 4) await this.delay(500 * (attempt + 1));
+      }
+      if (sendStatus !== 'SUCCESS') throw new Error('DWS send did not reach SUCCESS');
       outcomeCode = decision.handoff ? 'owner_handoff_sent' : 'reply_sent';
       return { sent: true, outcomeCode };
     } finally {
