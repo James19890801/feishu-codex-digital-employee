@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -17,9 +17,9 @@ function isDwsAuthenticated(value) {
     || ['authenticated', 'logged_in', '已登录'].includes(String(candidate?.status || ''));
 }
 
-function safeProcess(bin, args, { input = '', timeoutMs = 30_000 } = {}) {
+function safeProcess(bin, args, { input = '', timeoutMs = 30_000, env = process.env } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'], env: process.env });
+    const child = spawn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'], env });
     const stdout = [];
     const stderr = [];
     const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs);
@@ -36,9 +36,9 @@ function safeProcess(bin, args, { input = '', timeoutMs = 30_000 } = {}) {
   });
 }
 
-function startDwsEventConsumer(bin, args, onMessage) {
+function startDwsEventConsumer(bin, args, onMessage, { env = process.env } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'], env: process.env });
+    const child = spawn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'], env });
     let stdoutBuffer = '';
     let stderrBuffer = '';
     let ready = false;
@@ -111,26 +111,70 @@ export class StandbyDwsWorker {
     this.authenticated = false;
     this.eventChild = null;
     this.initializationPromise = null;
+    this.dwsHome = String(env.AIPROS_DWS_HOME || '/data/dws-home');
+    this.authBootstrapMarker = join(this.dwsHome, '.aipros-auth-bootstrap-complete');
   }
 
   commonArgs() {
     return ['--client-id', this.env.DINGTALK_CLIENT_ID, '--client-secret', this.env.DINGTALK_CLIENT_SECRET];
   }
 
-  async authenticate() {
-    const dir = await mkdtemp(join(tmpdir(), 'aipros-dws-auth-'));
-    const bundlePath = join(dir, 'auth.b64');
-    try {
-      await writeFile(bundlePath, this.env.DINGTALK_DWS_AUTH_BUNDLE_B64, { mode: 0o600 });
-      await chmod(bundlePath, 0o600);
-      await this.runner(this.bin, ['auth', 'import', '-i', bundlePath, '--base64', '--force', ...this.commonArgs()]);
-      const status = await this.runner(this.bin, ['auth', 'status', '--format', 'json', ...this.commonArgs()]);
-      const parsed = JSON.parse(status.stdout);
-      if (!isDwsAuthenticated(parsed)) throw new Error('DWS auth status is not authenticated');
-      this.authenticated = true;
-    } finally {
-      await rm(dir, { recursive: true, force: true });
+  dwsOptions() {
+    return { env: { ...process.env, HOME: this.dwsHome } };
+  }
+
+  async hasPersistentDwsState() {
+    for (const path of [join(this.dwsHome, '.dws'), join(this.dwsHome, '.local', 'share', 'dws-cli')]) {
+      try { await access(path); return true; } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
     }
+    return false;
+  }
+
+  async hasAuthBootstrapMarker() {
+    try {
+      await access(this.authBootstrapMarker);
+      return true;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      return false;
+    }
+  }
+
+  async readAuthStatus() {
+    const status = await this.runner(this.bin, [
+      'auth', 'status', '--format', 'json', ...this.commonArgs(),
+    ], this.dwsOptions());
+    const parsed = JSON.parse(status.stdout);
+    if (!isDwsAuthenticated(parsed)) throw new Error('DWS auth status is not authenticated');
+    return parsed;
+  }
+
+  async authenticate() {
+    await mkdir(this.dwsHome, { recursive: true, mode: 0o700 });
+    if (!await this.hasAuthBootstrapMarker()) {
+      if (await this.hasPersistentDwsState()) {
+        await this.readAuthStatus();
+      } else {
+        const dir = await mkdtemp(join(tmpdir(), 'aipros-dws-auth-'));
+        const bundlePath = join(dir, 'auth.b64');
+        try {
+          await writeFile(bundlePath, this.env.DINGTALK_DWS_AUTH_BUNDLE_B64, { mode: 0o600 });
+          await chmod(bundlePath, 0o600);
+          await this.runner(this.bin, [
+            'auth', 'import', '-i', bundlePath, '--base64', '--force', ...this.commonArgs(),
+          ], this.dwsOptions());
+          await this.readAuthStatus();
+        } finally {
+          await rm(dir, { recursive: true, force: true });
+        }
+      }
+      await writeFile(this.authBootstrapMarker, 'dws-1.0.56\n', { mode: 0o600, flag: 'wx' });
+    } else {
+      await this.readAuthStatus();
+    }
+    this.authenticated = true;
   }
 
   async initialize() {
@@ -142,7 +186,7 @@ export class StandbyDwsWorker {
         const child = await this.eventConsumer(this.bin, [
           'event', 'consume', '--flatten', '--ephemeral', '--format', 'ndjson',
           ...this.commonArgs(),
-        ], message => this.processMessage(message));
+        ], message => this.processMessage(message), this.dwsOptions());
         this.eventChild = child;
         child?.once?.('exit', () => {
           if (this.eventChild === child) this.eventChild = null;
@@ -183,7 +227,7 @@ export class StandbyDwsWorker {
       await this.runner(this.bin, [
         'chat', 'message', 'send', '--group', message.chatId, '--text', reply,
         '--uuid', stableMessageUuid('dingtalk', message.messageId), '--yes', ...this.commonArgs(),
-      ]);
+      ], this.dwsOptions());
       outcomeCode = decision.handoff ? 'owner_handoff_sent' : 'reply_sent';
       return { sent: true, outcomeCode };
     } finally {
@@ -197,7 +241,7 @@ export class StandbyDwsWorker {
       const result = await this.runner(this.bin, [
         'chat', 'message', 'list', '--group', chatId, '--time', cutoff,
         '--direction', 'newer', '--limit', '100', '--format', 'json', ...this.commonArgs(),
-      ]);
+      ], this.dwsOptions());
       let parsed = {};
       try { parsed = JSON.parse(result.stdout); } catch { parsed = {}; }
       const items = parsed.items || parsed.messages || parsed.data?.items || [];
