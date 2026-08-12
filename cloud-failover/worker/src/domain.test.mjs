@@ -13,6 +13,17 @@ await service.heartbeat({ at: 0, serviceStartId: 'start-1', dwsConnected: true, 
 assert.equal((await service.evaluate(89_999)).state, 'LOCAL_PRIMARY');
 assert.equal((await service.evaluate(90_000)).state, 'TAKING_OVER');
 assert.equal((await service.evaluate(90_000)).generation, 1, 'alarm replay must be idempotent');
+
+const unhealthyRepository = new InMemoryFailoverRepository();
+const unhealthyService = new FailoverCoordinatorService({ repository: unhealthyRepository });
+await unhealthyService.heartbeat({
+  at: 0, serviceStartId: 'unhealthy-local', dwsConnected: true, runtimeHealthy: true,
+});
+await unhealthyService.heartbeat({
+  at: 60_000, serviceStartId: 'unhealthy-local', dwsConnected: false, runtimeHealthy: true,
+});
+assert.equal((await unhealthyService.evaluate(90_000)).state, 'TAKING_OVER',
+  'an unhealthy heartbeat must not postpone takeover from the last healthy heartbeat');
 await assert.rejects(() => service.containerReady(0), error => error instanceof DomainError
   && error.code === 'stale_generation');
 assert.equal((await service.containerReady(1)).state, 'CLOUD_ACTIVE');

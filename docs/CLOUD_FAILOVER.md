@@ -22,6 +22,8 @@ Two failover paths are intentionally separate:
 
 If the per-message cloud gateway is unavailable, the local durable inbox leaves the message retryable rather than marking it complete. DingTalk sends use a stable message UUID, while the Cloudflare `handoffId` prevents duplicate Qoder generation across process and network retries.
 
+When the active local service cannot yet be switched to this isolated branch, install the independent macOS heartbeat sidecar with `./scripts/install-cloud-failover-heartbeat-sidecar.sh`. It reads only the metadata-only local `/api/status`, stores no local content, and signs a healthy heartbeat only when the process, AI runtime and DWS channel are all healthy. An unhealthy heartbeat does not move the coordinator's last-healthy boundary, so three intervals still trigger Railway. Remove the sidecar after the integrated heartbeat is deployed to the active local service; never run both as separate authorities long term.
+
 - Local remains primary for every request. A later request always starts local-first again.
 - Only timeout, process exit, network transport failure, or empty output consumes a local retry.
 - Three attempts share the original model-call timeout. Permission, confirmation, business validation, quality dissatisfaction and malformed business output do not fail over.
