@@ -68,6 +68,7 @@ export function createFailoverWorker({ maxBodyBytes = 64 * 1024 } = {}) {
           else if (action === 'claim') result = await stub.claim(payload);
           else if (action === 'complete') result = await stub.complete(payload);
           else if (action === 'qoder') result = await stub.executeQoder(payload);
+          else if (action === 'vision') result = await stub.executeVision(payload);
           else return json(404, { ok: false, error: { code: 'not_found', message: 'Not found' } });
           return json(200, { ok: true, ...result });
         } catch (error) {
