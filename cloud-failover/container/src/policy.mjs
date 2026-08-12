@@ -7,8 +7,13 @@ export function validateContainerEnvironment(env = {}) {
   for (const prohibited of ['DWS_PROFILE', 'DWS_CHANNEL', 'LOCAL_DWS_PROFILE', 'LOCAL_DWS_CHANNEL']) {
     if (String(env[prohibited] || '').trim()) throw new Error(`${prohibited} is prohibited in cloud failover`);
   }
+  const clientId = String(env.DINGTALK_CLIENT_ID || '').trim();
+  const clientSecret = String(env.DINGTALK_CLIENT_SECRET || '').trim();
+  if (Boolean(clientId) !== Boolean(clientSecret)) {
+    throw new Error('DINGTALK_CLIENT_ID and DINGTALK_CLIENT_SECRET must be provided together');
+  }
   const required = [
-    'DINGTALK_CLIENT_ID', 'DINGTALK_CLIENT_SECRET', 'DINGTALK_DWS_AUTH_BUNDLE_B64',
+    'DINGTALK_DWS_AUTH_BUNDLE_B64',
     'AIPROS_COORDINATOR_URL', 'AIPROS_CONTAINER_TOKEN', 'AIPROS_ALLOWED_CHAT_IDS',
     'AIPROS_ALLOWED_SENDER_IDS',
   ];

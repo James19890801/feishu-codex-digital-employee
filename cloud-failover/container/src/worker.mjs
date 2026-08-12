@@ -116,7 +116,11 @@ export class StandbyDwsWorker {
   }
 
   commonArgs() {
-    return ['--client-id', this.env.DINGTALK_CLIENT_ID, '--client-secret', this.env.DINGTALK_CLIENT_SECRET];
+    const clientId = String(this.env.DINGTALK_CLIENT_ID || '').trim();
+    const clientSecret = String(this.env.DINGTALK_CLIENT_SECRET || '').trim();
+    return clientId && clientSecret
+      ? ['--client-id', clientId, '--client-secret', clientSecret]
+      : [];
   }
 
   dwsOptions() {

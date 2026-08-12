@@ -5,12 +5,16 @@ import {
 } from './policy.mjs';
 
 const env = {
-  DINGTALK_CLIENT_ID: 'cloud-app', DINGTALK_CLIENT_SECRET: 'secret',
   DINGTALK_DWS_AUTH_BUNDLE_B64: 'bundle', AIPROS_COORDINATOR_URL: 'https://internal.test',
   AIPROS_CONTAINER_TOKEN: 'token', AIPROS_ALLOWED_CHAT_IDS: 'chat-1,chat-2',
   AIPROS_ALLOWED_SENDER_IDS: 'user-1',
 };
 const policy = validateContainerEnvironment(env);
+assert.throws(() => validateContainerEnvironment({ ...env, DINGTALK_CLIENT_ID: 'cloud-app' }),
+  /DINGTALK_CLIENT_ID and DINGTALK_CLIENT_SECRET must be provided together/);
+assert.doesNotThrow(() => validateContainerEnvironment({
+  ...env, DINGTALK_CLIENT_ID: 'cloud-app', DINGTALK_CLIENT_SECRET: 'secret',
+}));
 assert.throws(() => validateContainerEnvironment({ ...env, DWS_PROFILE: 'local:user' }), /prohibited/);
 assert.throws(() => validateContainerEnvironment({ ...env, DWS_CHANNEL: 'local-channel' }), /prohibited/);
 assert.throws(() => validateContainerEnvironment({ ...env, AIPROS_ALLOWED_SENDER_IDS: '' }),
