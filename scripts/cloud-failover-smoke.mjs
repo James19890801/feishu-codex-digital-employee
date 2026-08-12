@@ -15,15 +15,23 @@ export async function runCloudFailoverSmoke(client, now = () => new Date()) {
     appVersion: '1.0.0',
     protocolVersion: '1',
   });
-  const runtime = await client.execute({
+  const input = {
     level: 'L0',
     prompt: '只回复 AIPR0S_CLOUD_OK',
     digest: '03869515a53e51803a38037c587845db2c6fe0e8b3c6820137475b9967213f4c',
     bytes: 25,
     purpose: 'manual_smoke',
-  });
+    handoffKey: `manual-smoke:${at}`,
+  };
+  const runtime = await client.execute(input);
   if (runtime.text.trim() !== 'AIPR0S_CLOUD_OK') {
     throw new Error('Cloud failover smoke response did not match AIPR0S_CLOUD_OK');
+  }
+  const replay = await client.execute(input);
+  if (replay.text.trim() !== runtime.text.trim()
+    || replay.sessionId !== runtime.sessionId
+    || replay.handoff?.replayed !== true) {
+    throw new Error('Cloud failover handoff replay was not idempotent');
   }
   return {
     ok: true,
@@ -31,6 +39,7 @@ export async function runCloudFailoverSmoke(client, now = () => new Date()) {
     generation: heartbeat.generation,
     sessionId: runtime.sessionId,
     latencyMs: runtime.latencyMs,
+    handoffReplayed: true,
   };
 }
 
