@@ -21,6 +21,13 @@ assert.throws(() => validateContainerEnvironment({ ...env, AIPROS_ALLOWED_SENDER
   /AIPROS_ALLOWED_SENDER_IDS is required/);
 const now = 1_786_060_800_000;
 const message = normalizeDwsMessage({ messageId: 'm1', chatId: 'chat-1', senderId: 'user-1', text: '你好', createdAt: now });
+assert.deepEqual(normalizeDwsMessage({
+  openMessageId: 'm-mention', openConversationId: 'chat-1',
+  senderOpenDingTalkId: 'user-1', content: '@我 你好', createTime: now,
+}), {
+  messageId: 'm-mention', chatId: 'chat-1', senderId: 'user-1', text: '@我 你好',
+  createdAt: now, messageType: 'text', raw: undefined,
+});
 assert.deepEqual(evaluateCloudMessage(message, { ...policy, generation: 2, expectedGeneration: 2, now }),
   { allowed: true, level: 'L0', handoff: false });
 assert.equal(evaluateCloudMessage({ ...message, chatId: 'other' }, { ...policy, generation: 2, expectedGeneration: 2, now }).reason,

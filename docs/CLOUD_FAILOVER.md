@@ -7,7 +7,7 @@
 | Local runtime fallback | Implemented and locally tested | Three bounded local attempts, deny-first policy, signed Cloudflare request |
 | Whole-Mac coordinator | Implemented and locally tested | 30s heartbeat, 90s takeover, generation fencing, claims, three-heartbeat drain |
 | Qoder adapter | Live provisioned and smoke-tested on 2026-08-07 | Tool-free Agent/Environment, Session, content-block event, SSE idle terminal, archive, 429/5xx retry |
-| Railway standby DWS runtime | Implemented and locally tested | Always-warm event stream, independent auth import, 10s coordinator lease, 3-minute backfill, generation fencing and UUID send |
+| Railway standby DWS runtime | Implemented and locally tested | Always-warm event stream, independent auth import, 10s coordinator lease, mention-only 3-minute backfill, generation fencing and UUID send |
 | Railway image build | Locally verified | Pinned `linux/amd64` Node image and DWS CLI layer build successfully; Cloudflare Container Registry is no longer required |
 | Live Cloudflare/Qoder | Activated and smoke-tested on 2026-08-07 | Signed heartbeat and exact `AIPR0S_CLOUD_OK` response passed; metadata-only console published |
 | Live Railway DingTalk | Not activated | Railway is deployed; activation requires one isolated DWS device authorization and allowlists. The local Profile/Channel is not copied |
@@ -133,7 +133,7 @@ railway up --path-as-root cloud-failover/container --ci
 2. Run `npm run cloud-failover:smoke`; require exactly `AIPR0S_CLOUD_OK`.
 3. Send a harmless authorized DingTalk message and confirm the local reply has no cloud label.
 4. Perform a controlled stop of the local service. After at least 90 seconds, confirm state `CLOUD_ACTIVE`.
-5. Thirty minutes later, send a new harmless message. It must receive one reply with `【云端兜底】`; this proves the cloud path is not limited to the outage instant.
+5. Thirty minutes later, send a new harmless group message that @mentions the digital human. It must receive one reply with `【云端兜底】`; this proves the cloud path is not limited to the outage instant. Ordinary group messages without an @mention must receive no cloud reply.
 6. Send an L2 request. It must return a本人确认 handoff and make no change.
 7. Restart the Mac service. After three healthy heartbeats, confirm `DRAINING` then `LOCAL_PRIMARY`.
 8. Confirm no duplicate cloud/local reply and verify the stable DWS UUID plus claim ledger.
