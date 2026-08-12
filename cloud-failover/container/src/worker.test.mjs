@@ -105,7 +105,7 @@ assert.equal(coordinatorCalls.at(-1)[0], 'complete');
 const imageResult = await worker.processMessage({
   type: 'user_im_message_receive_o2o_all',
   message_id: 'm-image', conversation_id: 'chat-1', sender_open_dingtalk_id: 'user-1',
-  content: '[图片消息] mediaId=image-resource-1', create_time: 1_786_060_800_000,
+  content: '[图片消息](mediaId=image-resource-1) 这是什么？', create_time: 1_786_060_800_000,
 });
 assert.equal(imageResult.sent, true);
 assert.equal(calls.some(args => args[0] === 'chat' && args[2] === 'download-media'), true);
@@ -114,6 +114,8 @@ assert.equal(visionCall[1].image.startsWith('data:image/png;base64,'), true);
 const imageQoderCall = coordinatorCalls.filter(call => call[0] === 'qoder').at(-1)[1];
 assert.match(imageQoderCall.prompt, /视觉模型.*识别结果/s);
 assert.match(imageQoderCall.prompt, /测试截图/);
+assert.match(imageQoderCall.prompt, /这是什么/);
+assert.doesNotMatch(imageQoderCall.prompt, /image-resource-1/);
 worker.deactivate();
 assert.deepEqual(await worker.processMessage({ messageId: 'after-drain' }), { skipped: 'standby' });
 eventChildren[0].emit('exit', 1);
