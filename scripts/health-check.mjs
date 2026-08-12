@@ -104,6 +104,12 @@ const cloudFailover = setting('health', 'cloud_failover', {
   configured: false,
   state: config.cloudFailoverEnabled === true ? 'UNKNOWN' : 'DISABLED',
 });
+const lastDingTalkReconciliationSuccessAt = setting(
+  'health', 'last_dingtalk_reconciliation_success_at', '',
+);
+const lastDingTalkReconciliationError = setting(
+  'health', 'last_dingtalk_reconciliation_error', null,
+);
 const dingtalkChannel = setting('channel', 'dingtalk', {});
 const wecomChannel = setting('channel', 'wecom', {});
 const geweChannel = setting('channel', 'wechat', {});
@@ -128,6 +134,27 @@ if (cloudFailover.enabled === true && cloudFailover.state === 'DEGRADED') {
 }
 if (config.dingtalkEnabled === true && !dingtalkChannel.connected) {
   result.issues.push('dingtalk_channel_unavailable');
+}
+let dingtalkReconciliationAgeMs = null;
+if (config.dingtalkEnabled === true
+  && String(config.dingtalkTransport || 'event-stream') === 'event-stream') {
+  dingtalkReconciliationAgeMs = lastDingTalkReconciliationSuccessAt
+    ? nowMs - new Date(lastDingTalkReconciliationSuccessAt).getTime()
+    : null;
+  const maxReconciliationAgeMs = Math.max(
+    120_000,
+    Number(config.pollIntervalMs || 5000) * 12,
+  );
+  if (dingtalkReconciliationAgeMs === null
+    || !Number.isFinite(dingtalkReconciliationAgeMs)
+    || dingtalkReconciliationAgeMs > maxReconciliationAgeMs) {
+    result.issues.push('dingtalk_reconciliation_stale');
+  }
+  if (lastDingTalkReconciliationError?.at
+    && (!lastDingTalkReconciliationSuccessAt
+      || lastDingTalkReconciliationError.at > lastDingTalkReconciliationSuccessAt)) {
+    result.issues.push('dingtalk_reconciliation_error');
+  }
 }
 if (config.wecomEnabled === true && !wecomChannel.connected) {
   result.issues.push('wecom_channel_unavailable');
@@ -180,6 +207,8 @@ result.metrics = {
   selfChatCircuitOpen,
   selfChatCircuitLast,
   cloudFailover,
+  lastDingTalkReconciliationSuccessAt,
+  dingtalkReconciliationAgeMs,
   channels: {
     feishu: {
       enabled: config.feishuEnabled !== false,

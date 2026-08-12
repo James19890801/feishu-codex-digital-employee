@@ -13,6 +13,7 @@ import {
   const channel = new DingTalkChannel({
     bin: '/opt/dws',
     profile: 'corp:user',
+    ownerIds: ['owner-1'],
     run: async (bin, args) => {
       calls.push({ bin, args });
       return {
@@ -39,6 +40,14 @@ import {
     content: '测试',
   }), payload => messages.push(payload)), true);
   assert.equal(messages[0].message.chat_id, 'dingtalk:user:user-1');
+  assert.equal(channel.handleLine(JSON.stringify({
+    type: 'user_im_message_receive_o2o_all',
+    event_id: 'event-owner-outbound',
+    message_id: 'message-owner-outbound',
+    sender_open_dingtalk_id: 'owner-1',
+    content: '数字人的发送回声',
+  }), payload => messages.push(payload)), false);
+  assert.equal(messages.length, 1);
   assert.equal(channel.handleLine('not-json', () => {}), false);
 
   await channel.send(

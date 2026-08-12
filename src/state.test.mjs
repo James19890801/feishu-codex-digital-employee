@@ -37,6 +37,16 @@ try {
   assert.equal(migrated.getA1WorkitemSnapshot('90000002').title, '迁移测试');
   migrated.close();
 
+  const identityMigrationPath = join(dir, 'identity-migration.sqlite');
+  const identityMigrationState = new AgentState(identityMigrationPath);
+  identityMigrationState.seedInbound('legacy-outbound-message', 'outbound-send', {
+    message: { chat_id: 'dingtalk:user:peer' },
+  }, '2026-07-29T13:00:00.000Z');
+  identityMigrationState.close();
+  const identityMigrated = new AgentState(identityMigrationPath);
+  assert.equal(identityMigrated.hasOutboundMessageId('legacy-outbound-message'), true);
+  identityMigrated.close();
+
   const state = new AgentState(join(dir, 'state.sqlite'));
   assert.equal(state.db.prepare('PRAGMA synchronous').get().synchronous, 2);
   state.remember('chat', 'user', 'user', '第一条');
@@ -63,6 +73,15 @@ try {
   assert.equal(state.nextInboundAvailableAt(), null);
   assert.equal(state.claimInbound('om_1', '2026-07-29T14:05:00.000Z'), false);
   assert.equal(state.latestCompletedInboundMessageId(), 'om_1');
+
+  assert.equal(state.enqueueInbound('om_deferred', 'poll', { delayed: true }, now), true);
+  assert.equal(state.claimInbound('om_deferred', now), true);
+  state.deferInbound('om_deferred', '2026-07-29T14:05:00.000Z', 'owner cooldown');
+  assert.equal(state.getInbound('om_deferred').status, 'pending');
+  assert.equal(state.getInbound('om_deferred').attempts, 0);
+  assert.equal(state.claimInbound('om_deferred', '2026-07-29T14:04:59.000Z'), false);
+  assert.equal(state.claimInbound('om_deferred', '2026-07-29T14:05:00.000Z'), true);
+  state.completeInbound('om_deferred', '2026-07-29T14:05:01.000Z');
 
   assert.equal(state.seedInbound('om_old', 'poll', { old: true }, now), true);
   assert.equal(state.claimInbound('om_old', '2026-07-29T14:10:00.000Z'), false);
@@ -240,6 +259,8 @@ try {
     messageId: 'dingtalk-message-1',
     now: '2026-07-29T14:00:02.000Z',
   }), false);
+  assert.equal(state.hasOutboundMessageId('dingtalk-message-1'), true);
+  assert.equal(state.hasOutboundMessageId('not-outbound'), false);
 
   const cancelledEchoId = state.recordOutboundEcho('oc_self', '发送失败', { now });
   assert.equal(state.cancelOutboundEcho(cancelledEchoId), true);

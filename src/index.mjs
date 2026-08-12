@@ -1,4 +1,5 @@
 import * as lark from '@larksuiteoapi/node-sdk';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -150,6 +151,7 @@ import {
   applyOwnerActivityHistory,
   evaluateHumanTakeover,
   humanTakeoverStatus,
+  takeoverReplyDisposition,
   takeoverSyncFailurePolicy,
   takeoverSyncFailureTerminalEvent,
 } from './human-takeover.mjs';
@@ -166,6 +168,11 @@ import {
   WeComChannel,
 } from './im-channel-runtime.mjs';
 import { fetchDingTalkWukongWindow } from './dingtalk-wukong-poller.mjs';
+import { fetchDingTalkReconciliationWindow } from './dingtalk-reconciliation-poller.mjs';
+import {
+  enforceInboundReplyGate,
+  takeoverDeferralRetryAt,
+} from './inbound-reply-gate.mjs';
 import {
   buildDingTalkMediaDownloadArgs,
   buildFeishuMediaDownloadArgs,
@@ -458,6 +465,7 @@ let multicaSyncPromise = null;
 let a1SyncPromise = null;
 let dingTalkSupervisorPromise = null;
 let dingTalkSelfPollingPromise = null;
+let dingTalkReconciliationPromise = null;
 let geWeMonitorPromise = null;
 let businessClient = null;
 let sdkAppSecret = '';
@@ -466,6 +474,7 @@ let weComChannel = null;
 let geWeChannel = null;
 let geWeWebhookServer = null;
 const shutdownDelay = new InterruptibleDelay();
+const inboundReplyContext = new AsyncLocalStorage();
 const inboundDrainController = new InboundDrainController({
   drain: (client = businessClient) => drainReadyInbound(client),
   nextAvailableAt: () => state.nextInboundAvailableAt(),
@@ -1001,6 +1010,22 @@ async function sendText(client, chatId, text, uuid, {
   outboundText = mention.text;
   const target = parseChannelChatId(chatId);
   if (target?.channel === 'dingtalk') {
+    const inboundContext = inboundReplyContext.getStore();
+    const gate = await enforceInboundReplyGate({
+      context: inboundContext,
+      chatId,
+      sync: syncRecentDingTalkTakeover,
+      readTakeover: readHumanTakeover,
+      audit: (event, context, disposition) => audit(
+        event,
+        context.message,
+        context.sender?.sender_id?.open_id || '',
+        { reason: disposition.reason, pausedUntilMs: disposition.untilMs },
+      ),
+    });
+    if (gate.action === 'resolved') {
+      return { suppressed: true, reason: gate.reason };
+    }
     if (!dingTalkChannel) throw new Error('DingTalk channel is not available');
     return sendWithAutomationPeerTracking({
       guard: automationPeerGuard,
@@ -1813,6 +1838,8 @@ async function syncRecentDingTalkTakeover(message, metadata = {}) {
       message.chat_id,
       String(item?.content || item?.text || ''),
       { messageId: String(item?.openMessageId || item?.messageId || item?.message_id || '') },
+    ) || state.hasOutboundMessageId(
+      String(item?.openMessageId || item?.messageId || item?.message_id || ''),
     ),
   });
   if (!applied.changed) return applied;
@@ -1938,10 +1965,26 @@ async function processIncoming(client, message, sender, metadata = {}) {
     return;
   }
   if (takeover.suppressed) {
-    audit('message_skipped_human_takeover', message, senderOpenId, {
-      pausedUntilMs: humanTakeoverStatus(takeover.state, nowMs).pausedUntilMs,
+    const disposition = takeoverReplyDisposition({
+      current: takeover.state,
+      messageOccurredAtMs: Number(message.create_time || 0),
+      nowMs,
     });
-    return;
+    if (disposition.action === 'resolved') {
+      audit('message_resolved_by_owner', message, senderOpenId, {
+        reason: disposition.reason,
+      });
+      return;
+    }
+    if (disposition.action === 'defer') {
+      audit('message_deferred_human_takeover', message, senderOpenId, {
+        pausedUntilMs: disposition.untilMs,
+      });
+      const error = new Error('message deferred until owner cooldown expires');
+      error.code = 'HUMAN_TAKEOVER_DEFERRED';
+      error.retryAtMs = disposition.untilMs;
+      throw error;
+    }
   }
 
   const responseObligation = assessResponseObligation({
@@ -2911,6 +2954,11 @@ async function processStoredInbound(item, client = null) {
   await chatQueues.run(message.chat_id, async () => {
     const claimedAt = new Date().toISOString();
     if (!state.claimInbound(message.message_id, claimedAt)) return;
+    await inboundReplyContext.run({
+      message,
+      sender,
+      metadata: payload.metadata || {},
+    }, async () => {
     try {
       if (payload.metadata?.rateLimited) {
         if (payload.metadata.notifyRateLimit) {
@@ -2926,6 +2974,17 @@ async function processStoredInbound(item, client = null) {
       });
       state.completeInbound(message.message_id);
     } catch (error) {
+      if (error?.code === 'HUMAN_TAKEOVER_DEFERRED') {
+        const retryAt = takeoverDeferralRetryAt(error);
+        state.deferInbound(message.message_id, retryAt, error.message);
+        state.audit('inbound_deferred_for_human_takeover', {
+          chatId: message.chat_id,
+          senderId: sender?.sender_id?.open_id || '',
+          messageId: message.message_id,
+          detail: { source: item.source, retryAt },
+        });
+        return;
+      }
       const attemptNumber = item.attempts + 1;
       if (shouldRetryMessage(attemptNumber)) {
         const retryAt = new Date(Date.now() + retryDelayMs(attemptNumber)).toISOString();
@@ -2970,6 +3029,17 @@ async function processStoredInbound(item, client = null) {
           detail: { source: item.source, attemptNumber, error: String(error?.message || error).slice(0, 1000) },
         });
       } catch (sendError) {
+        if (sendError?.code === 'HUMAN_TAKEOVER_DEFERRED') {
+          const retryAt = takeoverDeferralRetryAt(sendError);
+          state.deferInbound(message.message_id, retryAt, sendError.message);
+          state.audit('inbound_deferred_for_human_takeover', {
+            chatId: message.chat_id,
+            senderId: sender?.sender_id?.open_id || '',
+            messageId: message.message_id,
+            detail: { source: item.source, retryAt, phase: 'final-error-notice' },
+          });
+          return;
+        }
         state.deadLetterInbound(message.message_id, sendError?.stack || sendError?.message || sendError);
         state.audit('inbound_dead_lettered', {
           chatId: message.chat_id,
@@ -2985,6 +3055,7 @@ async function processStoredInbound(item, client = null) {
         console.error(`[inbound-dead-letter] ${message.message_id}:`, sendError);
       }
     }
+    });
   });
 }
 
@@ -3330,6 +3401,102 @@ async function runDingTalkWukongPollingLoop() {
   }
 }
 
+async function fetchDingTalkReconciliationMessages(startMs, endMs) {
+  if (!config.dingtalkEnabled || config.dingtalkTransport !== 'event-stream') return [];
+  return fetchDingTalkReconciliationWindow({
+    bin: config.dingtalkBin,
+    profile: config.dingtalkProfile,
+    start: dingTalkPollingTime(startMs),
+    end: dingTalkPollingTime(endMs),
+    ownerOpenId: config.dingtalkOwnerOpenId,
+    ownerNames: [OPERATOR_PROFILE.displayName, ...OPERATOR_PROFILE.aliases],
+    mentionNames: [OPERATOR_PROFILE.displayName, ...OPERATOR_PROFILE.aliases],
+    run: runBufferedProcess,
+    runOptions: {
+      cwd: WORKDIR,
+      env: dingtalkProcessEnv(),
+      timeoutMs: config.larkCliTimeoutMs,
+      maxStdoutBytes: 32 * 1024 * 1024,
+      maxStderrBytes: 1024 * 1024,
+    },
+  });
+}
+
+async function initializeDingTalkReconciliation() {
+  if (!config.dingtalkEnabled || config.dingtalkTransport !== 'event-stream') return false;
+  const nowMs = Date.now();
+  if (!state.get('dingtalk_reconciliation', 'initialized_v1', false)) {
+    const snapshot = await fetchDingTalkReconciliationMessages(
+      nowMs - POLL_INITIAL_LOOKBACK_MS,
+      nowMs,
+    );
+    const seededAt = new Date().toISOString();
+    let seeded = 0;
+    for (const payload of snapshot) {
+      if (state.seedInbound(payload.message.message_id, 'dingtalk-reconciliation-baseline', payload, seededAt)) {
+        seeded += 1;
+      }
+    }
+    state.set('dingtalk_reconciliation', 'initialized_v1', true);
+    state.set('dingtalk_reconciliation', 'cursor_ms', nowMs);
+    state.audit('dingtalk_reconciliation_baseline_seeded', { detail: { seeded } });
+  } else if (!state.get('dingtalk_reconciliation', 'cursor_ms', 0)) {
+    state.set('dingtalk_reconciliation', 'cursor_ms', nowMs);
+  }
+  state.set('health', 'last_dingtalk_reconciliation_success_at', new Date().toISOString());
+  state.unset('health', 'last_dingtalk_reconciliation_error');
+  return true;
+}
+
+async function pollDingTalkReconciliationOnce() {
+  const nowMs = Date.now();
+  const cursorMs = Number(state.get('dingtalk_reconciliation', 'cursor_ms', nowMs));
+  const { startMs, endMs } = planPollWindow(cursorMs, nowMs, {
+    overlapMs: POLL_OVERLAP_MS,
+    maxCatchupMs: POLL_MAX_CATCHUP_MS,
+    maxWindowMs: POLL_WINDOW_MS,
+  });
+  const payloads = await fetchDingTalkReconciliationMessages(startMs, endMs);
+  let enqueued = 0;
+  for (const payload of payloads) {
+    if (enqueueInbound(payload, 'dingtalk-event-reconciliation')) enqueued += 1;
+  }
+  state.set('dingtalk_reconciliation', 'cursor_ms', endMs);
+  state.set('health', 'last_dingtalk_reconciliation_success_at', new Date().toISOString());
+  state.unset('health', 'last_dingtalk_reconciliation_error');
+  if (enqueued) {
+    console.log(`[dingtalk-reconciliation] enqueued ${enqueued} missed message(s)`);
+    triggerDrain();
+  }
+  return enqueued;
+}
+
+async function runDingTalkReconciliationLoop() {
+  let failures = 0;
+  while (!stopping) {
+    const startedAt = Date.now();
+    try {
+      await pollDingTalkReconciliationOnce();
+      failures = 0;
+    } catch (error) {
+      if (stopping) break;
+      failures += 1;
+      const delayMs = pollFailureDelayMs(error, failures, { baseIntervalMs: POLL_INTERVAL_MS });
+      const summary = processFailureSummary(error);
+      state.set('health', 'last_dingtalk_reconciliation_error', {
+        at: new Date().toISOString(), error: summary,
+      });
+      state.audit('dingtalk_reconciliation_error', {
+        detail: { failures, delayMs, error: summary },
+      });
+      console.error(`[dingtalk-reconciliation-error] retry in ${delayMs}ms:`, error);
+      await wait(delayMs);
+      continue;
+    }
+    await wait(Math.max(250, POLL_INTERVAL_MS - (Date.now() - startedAt)));
+  }
+}
+
 async function runMulticaSyncLoop() {
   if (!MULTICA_SYNCHRONIZER) return;
   let failures = 0;
@@ -3451,6 +3618,7 @@ function createDingTalkChannel() {
     bin: config.dingtalkBin,
     profile: config.dingtalkProfile,
     transport: config.dingtalkTransport,
+    ownerIds: [config.dingtalkOwnerOpenId, DINGTALK_PROFILE_USER_ID].filter(Boolean),
     run: (bin, args) => runBufferedProcess(bin, args, {
       cwd: WORKDIR,
       env: dingtalkProcessEnv(),
@@ -3965,6 +4133,21 @@ async function main() {
       dingTalkSelfPollingPromise = runPollingLoop()
         .catch(error => console.error('[dingtalk-poll-fatal]', error));
     }
+    if (config.dingtalkTransport === 'event-stream') {
+      const reconciliation = await initializeOptionalPoller(initializeDingTalkReconciliation);
+      if (reconciliation.error) {
+        const summary = processFailureSummary(reconciliation.error);
+        state.set('health', 'last_dingtalk_reconciliation_error', {
+          at: new Date().toISOString(), error: summary,
+        });
+        state.audit('dingtalk_reconciliation_unavailable', { detail: { error: summary } });
+        console.error('[dingtalk-reconciliation-unavailable]', reconciliation.error);
+      }
+      if (reconciliation.active) {
+        dingTalkReconciliationPromise = runDingTalkReconciliationLoop()
+          .catch(error => console.error('[dingtalk-reconciliation-fatal]', error));
+      }
+    }
     if (MULTICA_SYNCHRONIZER) {
       multicaSyncPromise = runMulticaSyncLoop()
         .catch(error => console.error('[multica-sync-fatal]', error));
@@ -3996,6 +4179,7 @@ async function main() {
     if (a1SyncPromise) await a1SyncPromise.catch(() => {});
     if (dingTalkSupervisorPromise) await dingTalkSupervisorPromise.catch(() => {});
     if (dingTalkSelfPollingPromise) await dingTalkSelfPollingPromise.catch(() => {});
+    if (dingTalkReconciliationPromise) await dingTalkReconciliationPromise.catch(() => {});
     if (geWeMonitorPromise) await geWeMonitorPromise.catch(() => {});
   } finally {
     try {

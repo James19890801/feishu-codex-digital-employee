@@ -172,12 +172,18 @@ function normalizedTimestamp(value) {
   return Number.isFinite(parsed) ? String(parsed) : String(Date.now());
 }
 
-export function normalizeDingTalkEvent(event) {
+export function normalizeDingTalkEvent(event, { ownerIds = [] } = {}) {
   const type = String(event?.type || '');
   const group = type === 'user_im_message_receive_at';
   const direct = type === 'user_im_message_receive_o2o_all';
   if (!group && !direct) return null;
   const senderId = String(event?.sender_open_dingtalk_id || '').trim();
+  const normalizedOwnerIds = new Set(
+    (Array.isArray(ownerIds) ? ownerIds : [ownerIds])
+      .map(value => String(value || '').replace(/^dingtalk:/, '').trim())
+      .filter(Boolean),
+  );
+  if (direct && normalizedOwnerIds.has(senderId)) return null;
   const targetId = group
     ? String(event?.conversation_id || '').trim()
     : senderId;
@@ -270,6 +276,7 @@ export function normalizeDingTalkListAllPage(result, {
   ownerOpenId = '',
   ownerNames = [],
   mentionNames = [],
+  source = 'wukong-poll',
 } = {}) {
   const root = result?.result || result?.data || result || {};
   const conversations = Array.isArray(root?.conversationMessagesList)
@@ -339,7 +346,7 @@ export function normalizeDingTalkListAllPage(result, {
         },
         metadata: {
           channel: 'dingtalk',
-          source: 'wukong-poll',
+          source: String(source || 'wukong-poll'),
           selfChat,
           conversationId,
           conversationTitle,

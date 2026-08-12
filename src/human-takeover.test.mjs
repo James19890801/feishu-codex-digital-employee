@@ -7,6 +7,7 @@ import {
   applyOwnerControlHistory,
   evaluateHumanTakeover,
   humanTakeoverStatus,
+  takeoverReplyDisposition,
   latestOwnerControl,
   matchHumanTakeoverCommand,
   requestHumanTakeoverResume,
@@ -127,6 +128,34 @@ assert.equal(first.pausedUntilMs, nowMs + MINIMUM_TAKEOVER_MS);
 assert.equal(first.sourceMessageId, 'pause-1');
 assert.equal(humanTakeoverStatus(first, nowMs + 1).active, true);
 assert.equal(humanTakeoverStatus(first, nowMs + MINIMUM_TAKEOVER_MS).active, false);
+
+assert.deepEqual(takeoverReplyDisposition({
+  current: {
+    pausedUntilMs: 10_000,
+    lastActivityOccurredAtMs: 1_000,
+    reason: 'owner_manual_activity',
+  },
+  messageOccurredAtMs: 2_000,
+  nowMs: 3_000,
+}), { action: 'defer', untilMs: 10_000, reason: 'owner_cooldown' });
+assert.deepEqual(takeoverReplyDisposition({
+  current: {
+    pausedUntilMs: 10_000,
+    lastActivityOccurredAtMs: 4_000,
+    reason: 'owner_manual_activity',
+  },
+  messageOccurredAtMs: 2_000,
+  nowMs: 5_000,
+}), { action: 'resolved', untilMs: 0, reason: 'owner_replied_after_message' });
+assert.deepEqual(takeoverReplyDisposition({
+  current: {
+    pausedUntilMs: 10_000,
+    lastActivityOccurredAtMs: 1_000,
+    reason: 'owner_manual_activity',
+  },
+  messageOccurredAtMs: 2_000,
+  nowMs: 10_000,
+}), { action: 'allow', untilMs: 0, reason: 'cooldown_elapsed' });
 
 const extended = activateHumanTakeover(first, {
   nowMs: nowMs + 60_000,
