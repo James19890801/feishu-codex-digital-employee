@@ -63,7 +63,11 @@ assert.deepEqual(await worker.processMessage({ messageId: 'standby' }), { skippe
 assert.deepEqual(await worker.activate(3), { ready: true, generation: 3 });
 assert.deepEqual(await worker.activate(3), { ready: true, generation: 3 });
 assert.equal(coordinatorCalls.filter(call => call[0] === 'ready').length, 1);
-assert.equal(calls.filter(args => args[0] === 'chat' && args[2] === 'list').length, 1);
+const backfillCalls = calls.filter(args => args[0] === 'chat' && args[1] === 'message' && args[2] === 'list-mentions');
+assert.equal(backfillCalls.length, 1);
+assert.equal(backfillCalls[0].includes('--group'), true);
+assert.equal(backfillCalls[0].includes('--start'), true);
+assert.equal(backfillCalls[0].includes('--end'), true);
 const result = await worker.processMessage({
   messageId: 'm1', chatId: 'chat-1', senderId: 'user-1', text: '你好', createdAt: 1_786_060_800_000,
 });

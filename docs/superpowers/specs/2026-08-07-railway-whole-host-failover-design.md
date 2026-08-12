@@ -25,7 +25,7 @@ The Railway service runs the existing DWS worker image continuously. It imports 
 - Start an HTTP liveness server on Railway's injected `PORT`.
 - Authenticate the dedicated DWS account at startup and keep the DWS event consumer connected while on standby.
 - Poll the coordinator every 10 seconds with bounded exponential backoff and jitter.
-- On a new `TAKING_OVER` generation, call `ready`, run the existing three-minute backfill, then accept current events.
+- On a new `TAKING_OVER` generation, call `ready`, run a three-minute DWS `list-mentions` backfill for authorized groups, then accept current events.
 - On `LOCAL_PRIMARY` or `DRAINING`, keep the process warm but do not create claims or send replies.
 - Reconnect the DWS event stream after unexpected exit without terminating the whole service.
 

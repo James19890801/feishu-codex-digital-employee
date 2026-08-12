@@ -32,9 +32,9 @@ export function stableMessageUuid(channel, messageId) {
 }
 
 export function normalizeDwsMessage(input = {}) {
-  const messageId = String(input.messageId || input.message_id || input.msgId || input.id || '').trim();
+  const messageId = String(input.messageId || input.openMessageId || input.message_id || input.msgId || input.id || '').trim();
   const chatId = String(input.openConversationId || input.conversationId || input.chatId || input.chat_id || '').trim();
-  const senderId = String(input.senderId || input.senderStaffId || input.sender_id || '').trim();
+  const senderId = String(input.senderId || input.senderOpenDingTalkId || input.senderStaffId || input.sender_id || '').trim();
   const text = String(input.text?.content || input.content?.text || input.content || input.text || '').trim();
   const createdAt = Number(input.createTime || input.createdAt || input.timestamp || Date.now());
   const messageType = String(input.messageType || input.msgType || input.type || 'text').toLowerCase();
