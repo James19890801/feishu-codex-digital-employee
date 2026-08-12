@@ -194,7 +194,9 @@ export class StandbyDwsWorker {
       if (!this.authenticated) await this.authenticate();
       if (!this.eventChild) {
         const child = await this.eventConsumer(this.bin, [
-          'event', 'consume', '--flatten', '--ephemeral', '--format', 'ndjson',
+          'event', 'consume',
+          'user_im_message_receive_at', 'user_im_message_receive_o2o_all',
+          '--flatten', '--ephemeral', '--format', 'ndjson',
           ...this.commonArgs(),
         ], message => this.processMessage(message), this.dwsOptions());
         this.eventChild = child;

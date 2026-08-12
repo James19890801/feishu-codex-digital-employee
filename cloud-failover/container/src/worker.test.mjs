@@ -62,6 +62,12 @@ assert.equal(calls.filter(args => args[0] === 'auth' && args[1] === 'import').le
 assert.equal(calls.some(args => args.includes('--profile')), false);
 assert.equal(calls.some(args => args.includes('--client-id') || args.includes('--client-secret')), false);
 assert.equal(eventCalls[0].includes('--flatten'), true);
+assert.deepEqual(eventCalls[0].slice(0, 5), [
+  'event', 'consume',
+  'user_im_message_receive_at',
+  'user_im_message_receive_o2o_all',
+  '--flatten',
+]);
 assert.deepEqual(await worker.processMessage({ messageId: 'standby' }), { skipped: 'standby' });
 
 assert.deepEqual(await worker.activate(3), { ready: true, generation: 3 });
