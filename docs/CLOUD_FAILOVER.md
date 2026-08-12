@@ -126,7 +126,7 @@ pnpm exec wrangler deploy
 railway up --path-as-root cloud-failover/container --ci
 ```
 
-`cloud-failover:dry` validates the Worker bundle without any Container Registry access. Railway detects `cloud-failover/container/Dockerfile` when that directory is deployed as the service root. The committed Railway configuration uses `/live`, 30-second draining and the `ALWAYS` restart policy. Deployment acceptance must read that policy back from Railway; if the account rejects it, retain `ON_FAILURE` and do not claim verified 7x24 operation.
+`cloud-failover:dry` validates the Worker bundle without any Container Registry access. Railway detects `cloud-failover/container/Dockerfile` when that directory is deployed as the service root. The committed Railway configuration uses `/live`, zero deployment overlap, 30-second draining and the `ALWAYS` restart policy. Zero overlap is required because one dedicated DWS identity supports one active event consumer; generation fencing and the mention-only backfill cover the short replacement window. Deployment acceptance must read the policy back from Railway; if the account rejects it, retain `ON_FAILURE` and do not claim verified 7x24 operation.
 
 ## Acceptance before claiming 7x24
 
