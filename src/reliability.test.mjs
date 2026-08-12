@@ -134,4 +134,44 @@ import {
   ), false);
 }
 
+{
+  let dueRuns = 0;
+  const scheduler = new reliability.EarliestDueScheduler({
+    onDue: async () => { dueRuns += 1; },
+  });
+  scheduler.schedule(new Date(Date.now() + 250).toISOString());
+  await new Promise(resolve => setTimeout(resolve, 10));
+  scheduler.schedule(new Date(Date.now() + 30).toISOString());
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(dueRuns, 1, 'an earlier retry must wake without another inbound event');
+  await new Promise(resolve => setTimeout(resolve, 220));
+  assert.equal(dueRuns, 1, 'rescheduling must cancel the superseded timer');
+  scheduler.stop();
+}
+
+{
+  let dueRuns = 0;
+  const scheduler = new reliability.EarliestDueScheduler({
+    onDue: async () => { dueRuns += 1; },
+  });
+  scheduler.schedule(new Date(Date.now() + 30).toISOString());
+  scheduler.stop();
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(dueRuns, 0, 'shutdown must cancel a pending retry wake-up');
+}
+
+{
+  let drainRuns = 0;
+  const retryAt = new Date(Date.now() + 30).toISOString();
+  const controller = new reliability.InboundDrainController({
+    drain: async () => { drainRuns += 1; },
+    nextAvailableAt: () => (drainRuns === 1 ? retryAt : null),
+  });
+  await controller.trigger();
+  assert.equal(drainRuns, 1);
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(drainRuns, 2, 'a due retry must drain without a new inbound event');
+  controller.stop();
+}
+
 console.log('RELIABILITY_TEST_OK');

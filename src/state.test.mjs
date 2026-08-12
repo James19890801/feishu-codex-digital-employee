@@ -47,16 +47,20 @@ try {
   state.audit('test', { chatId: 'chat', detail: { ok: true } });
 
   const now = '2026-07-29T14:00:00.000Z';
+  assert.equal(state.nextInboundAvailableAt(), null);
   assert.equal(state.enqueueInbound('om_1', 'poll', { hello: 'world' }, now), true);
+  assert.equal(state.nextInboundAvailableAt(), now);
   assert.equal(state.hasInbound('om_1'), true);
   assert.equal(state.hasInbound('om_missing'), false);
   assert.equal(state.enqueueInbound('om_1', 'websocket', { ignored: true }, now), false);
   assert.equal(state.claimInbound('om_1', now), true);
   assert.equal(state.claimInbound('om_1', now), false);
   state.failInbound('om_1', 'temporary failure', '2026-07-29T14:00:01.000Z');
+  assert.equal(state.nextInboundAvailableAt(), '2026-07-29T14:00:01.000Z');
   assert.equal(state.claimInbound('om_1', '2026-07-29T14:00:00.500Z'), false);
   assert.equal(state.claimInbound('om_1', '2026-07-29T14:00:01.000Z'), true);
   state.completeInbound('om_1', '2026-07-29T14:00:02.000Z');
+  assert.equal(state.nextInboundAvailableAt(), null);
   assert.equal(state.claimInbound('om_1', '2026-07-29T14:05:00.000Z'), false);
 
   assert.equal(state.seedInbound('om_old', 'poll', { old: true }, now), true);

@@ -658,6 +658,12 @@ export class AgentState {
     return Number(result.changes);
   }
 
+  nextInboundAvailableAt() {
+    return this.db.prepare(`SELECT MIN(available_at) AS available_at
+      FROM inbound_message WHERE status IN ('pending', 'failed')`)
+      .get()?.available_at || null;
+  }
+
   listReadyInbound(now = new Date().toISOString(), limit = 20) {
     return this.db.prepare(`SELECT message_id, source, payload, attempts
       FROM inbound_message
