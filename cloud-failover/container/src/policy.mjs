@@ -32,12 +32,21 @@ export function stableMessageUuid(channel, messageId) {
 }
 
 export function normalizeDwsMessage(input = {}) {
+  const eventType = String(input.type || '');
   const messageId = String(input.messageId || input.openMessageId || input.message_id || input.msgId || input.id || '').trim();
-  const chatId = String(input.openConversationId || input.conversationId || input.chatId || input.chat_id || '').trim();
-  const senderId = String(input.senderId || input.senderOpenDingTalkId || input.senderStaffId || input.sender_id || '').trim();
+  const chatId = String(input.openConversationId || input.conversationId || input.conversation_id || input.chatId || input.chat_id || '').trim();
+  const senderId = String(input.senderId || input.senderOpenDingTalkId || input.sender_open_dingtalk_id || input.senderStaffId || input.sender_id || '').trim();
   const text = String(input.text?.content || input.content?.text || input.content || input.text || '').trim();
-  const createdAt = Number(input.createTime || input.createdAt || input.timestamp || Date.now());
-  const messageType = String(input.messageType || input.msgType || input.type || 'text').toLowerCase();
+  const rawCreatedAt = input.createTime || input.create_time || input.createdAt || input.timestamp || Date.now();
+  const numericCreatedAt = Number(rawCreatedAt);
+  const parsedCreatedAt = Number.isFinite(numericCreatedAt)
+    ? (numericCreatedAt < 10_000_000_000 ? numericCreatedAt * 1_000 : numericCreatedAt)
+    : new Date(rawCreatedAt).getTime();
+  const createdAt = Number.isFinite(parsedCreatedAt) ? parsedCreatedAt : Date.now();
+  const messageType = String(
+    input.messageType || input.message_type || input.msgType
+      || (eventType.startsWith('user_im_message_receive_') ? 'text' : eventType || 'text'),
+  ).toLowerCase();
   return { messageId, chatId, senderId, text, createdAt, messageType, raw: undefined };
 }
 

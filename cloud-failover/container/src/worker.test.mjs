@@ -32,6 +32,12 @@ const runner = async (_bin, args, options = {}) => {
     assert.equal(options.env?.DWS_CHANNEL, 'cloud-channel');
     return { stdout: '{"authenticated":true}' };
   }
+  if (args[0] === 'chat' && args[1] === 'message' && args[2] === 'send') {
+    return { stdout: '{"result":{"openTaskId":"task-1"}}' };
+  }
+  if (args[0] === 'chat' && args[1] === 'message' && args[2] === 'query-send-status') {
+    return { stdout: '{"result":{"sendStatus":"SUCCESS"}}' };
+  }
   return { stdout: '{}' };
 };
 const coordinator = {
@@ -85,6 +91,9 @@ assert.equal(result.sent, true);
 const send = calls.find(args => args[0] === 'chat' && args[2] === 'send');
 assert.match(send[send.indexOf('--text') + 1], /^【云端兜底】/);
 assert.match(send[send.indexOf('--uuid') + 1], /^[a-f0-9-]{36}$/);
+assert.equal(send.includes('--format'), true);
+const sendStatus = calls.find(args => args[0] === 'chat' && args[2] === 'query-send-status');
+assert.equal(sendStatus[sendStatus.indexOf('--open-task-id') + 1], 'task-1');
 assert.equal(coordinatorCalls.at(-1)[0], 'complete');
 worker.deactivate();
 assert.deepEqual(await worker.processMessage({ messageId: 'after-drain' }), { skipped: 'standby' });

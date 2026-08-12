@@ -31,6 +31,13 @@ assert.deepEqual(normalizeDwsMessage({
   messageId: 'm-mention', chatId: 'chat-1', senderId: 'user-1', text: '@我 你好',
   createdAt: now, messageType: 'text', raw: undefined,
 });
+assert.deepEqual(normalizeDwsMessage({
+  type: 'user_im_message_receive_at', message_id: 'm-event', conversation_id: 'chat-1',
+  sender_open_dingtalk_id: 'user-1', content: '云端测试', create_time: '2026-08-12 15:39:33',
+}), {
+  messageId: 'm-event', chatId: 'chat-1', senderId: 'user-1', text: '云端测试',
+  createdAt: new Date('2026-08-12 15:39:33').getTime(), messageType: 'text', raw: undefined,
+});
 assert.deepEqual(evaluateCloudMessage(message, { ...policy, generation: 2, expectedGeneration: 2, now }),
   { allowed: true, level: 'L0', handoff: false });
 assert.equal(evaluateCloudMessage({ ...message, chatId: 'other' }, { ...policy, generation: 2, expectedGeneration: 2, now }).reason,
