@@ -47,6 +47,7 @@ export class DingTalkChannel {
     sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
     sendStatusAttempts = 8,
     sendStatusDelayMs = 500,
+    ownerIds = [],
   }) {
     this.bin = bin;
     this.profile = profile;
@@ -56,6 +57,7 @@ export class DingTalkChannel {
     this.sleep = sleep;
     this.sendStatusAttempts = Math.max(1, Number(sendStatusAttempts) || 1);
     this.sendStatusDelayMs = Math.max(0, Number(sendStatusDelayMs) || 0);
+    this.ownerIds = Array.isArray(ownerIds) ? ownerIds : [ownerIds];
   }
 
   consumerArgs() {
@@ -80,7 +82,7 @@ export class DingTalkChannel {
     } catch {
       return false;
     }
-    const payload = normalizeDingTalkEvent(event);
+    const payload = normalizeDingTalkEvent(event, { ownerIds: this.ownerIds });
     if (!payload) return false;
     onMessage(payload);
     return true;

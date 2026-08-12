@@ -37,6 +37,23 @@ export function humanTakeoverStatus(value, nowMs = Date.now()) {
   };
 }
 
+export function takeoverReplyDisposition({
+  current = null,
+  messageOccurredAtMs = 0,
+  nowMs = Date.now(),
+} = {}) {
+  const activityAtMs = Number(current?.lastActivityOccurredAtMs || 0);
+  const inboundAtMs = Number(messageOccurredAtMs || 0);
+  if (activityAtMs > 0 && inboundAtMs > 0 && activityAtMs > inboundAtMs) {
+    return { action: 'resolved', untilMs: 0, reason: 'owner_replied_after_message' };
+  }
+  const status = humanTakeoverStatus(current, nowMs);
+  if (status.active) {
+    return { action: 'defer', untilMs: status.pausedUntilMs, reason: 'owner_cooldown' };
+  }
+  return { action: 'allow', untilMs: 0, reason: 'cooldown_elapsed' };
+}
+
 export function takeoverSyncFailurePolicy({
   current = null,
   nowMs = Date.now(),

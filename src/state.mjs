@@ -142,6 +142,13 @@ export class AgentState {
         ON outbound_echo(chat_id, content_hash, expires_at);
       CREATE INDEX IF NOT EXISTS outbound_echo_message
         ON outbound_echo(message_id, expires_at);
+      CREATE TABLE IF NOT EXISTS outbound_message_identity (
+        message_id TEXT PRIMARY KEY,
+        chat_id TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS outbound_message_identity_created
+        ON outbound_message_identity(created_at);
       CREATE TABLE IF NOT EXISTS a1_workitem_cache (
         workitem_id TEXT PRIMARY KEY,
         snapshot TEXT NOT NULL,
@@ -252,6 +259,13 @@ export class AgentState {
       CREATE INDEX IF NOT EXISTS mutation_execution_status
         ON mutation_execution(status, updated_at);
     `);
+    this.db.exec(`INSERT OR IGNORE INTO outbound_message_identity
+      (message_id, chat_id, created_at)
+      SELECT message_id,
+        COALESCE(json_extract(payload, '$.message.chat_id'), ''),
+        updated_at
+      FROM inbound_message
+      WHERE source = 'outbound-send' AND message_id <> ''`);
     const notificationColumns = new Set(
       this.db.prepare('PRAGMA table_info(multica_notification_outbox)')
         .all()
@@ -632,6 +646,14 @@ export class AgentState {
       .run(retryAt, now, String(error || '').slice(0, 2000), messageId);
   }
 
+  deferInbound(messageId, availableAt, reason = '', now = new Date().toISOString()) {
+    this.db.prepare(`UPDATE inbound_message
+      SET status = 'pending', attempts = MAX(0, attempts - 1), available_at = ?,
+          updated_at = ?, last_error = ?
+      WHERE message_id = ?`)
+      .run(availableAt, now, String(reason || '').slice(0, 2000), messageId);
+  }
+
   deadLetterInbound(messageId, error, now = new Date().toISOString()) {
     this.db.prepare(`UPDATE inbound_message
       SET status = 'dead', updated_at = ?, last_error = ?
@@ -966,8 +988,25 @@ export class AgentState {
 
   attachOutboundMessageId(id, messageId) {
     if (!messageId) return false;
-    return this.db.prepare('UPDATE outbound_echo SET message_id = ? WHERE id = ?')
-      .run(String(messageId), Number(id)).changes === 1;
+    const normalizedMessageId = String(messageId);
+    const row = this.db.prepare('SELECT chat_id, created_at FROM outbound_echo WHERE id = ?')
+      .get(Number(id));
+    if (!row) return false;
+    const updated = this.db.prepare('UPDATE outbound_echo SET message_id = ? WHERE id = ?')
+      .run(normalizedMessageId, Number(id)).changes === 1;
+    if (updated) {
+      this.db.prepare(`INSERT OR IGNORE INTO outbound_message_identity
+        (message_id, chat_id, created_at) VALUES (?, ?, ?)`)
+        .run(normalizedMessageId, row.chat_id, row.created_at);
+    }
+    return updated;
+  }
+
+  hasOutboundMessageId(messageId) {
+    if (!messageId) return false;
+    return Boolean(this.db.prepare(
+      'SELECT 1 FROM outbound_message_identity WHERE message_id = ?',
+    ).get(String(messageId)));
   }
 
   cancelOutboundEcho(id) {
@@ -1421,6 +1460,8 @@ export class AgentState {
         AND CAST(json_extract(value, '$.expiresAt') AS INTEGER) <= ?`).run(nowMs).changes;
     const rateLimit = this.db.prepare('DELETE FROM rate_limit WHERE updated_at < ?').run(auditBefore).changes;
     const outboundEcho = this.db.prepare('DELETE FROM outbound_echo WHERE expires_at < ?').run(now).changes;
+    this.db.prepare('DELETE FROM outbound_message_identity WHERE created_at < ?')
+      .run(conversationBefore);
     const semanticRepeat = this.db.prepare(`DELETE FROM semantic_repeat_guard
       WHERE expires_at_ms < ? AND last_seen_ms < ?`)
       .run(nowMs, nowMs - auditRetentionMs).changes;

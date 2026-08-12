@@ -353,6 +353,23 @@ assert.throws(
 
 {
   const payload = normalizeDingTalkEvent({
+    type: 'user_im_message_receive_o2o_all',
+    event_id: 'event-owner-outbound',
+    message_id: 'msg-owner-outbound',
+    conversation_id: 'cid-recipient',
+    sender_open_dingtalk_id: 'owner-id',
+    content: '数字人发给对方的回复',
+    create_time: '2026-08-12T16:20:32+08:00',
+  }, { ownerIds: ['owner-id'] });
+  assert.equal(
+    payload,
+    null,
+    'owner-authored direct-message events must never re-enter as self-chat inbound',
+  );
+}
+
+{
+  const payload = normalizeDingTalkEvent({
     type: 'user_im_message_receive_at',
     event_id: 'event-1',
     message_id: 'msg-1',

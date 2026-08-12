@@ -17,7 +17,7 @@
     "test:multimodal": "node src/multimodal-content.test.mjs && node src/web-reader.test.mjs && node src/multimodal-pipeline.test.mjs",
     "test:operator-profile": "node src/operator-profile.test.mjs",
     "test:communication-blocklist": "node src/communication-blocklist.test.mjs",
-    "test:dws-deployment-policy": "node scripts/dws-deployment-policy.test.mjs",
+    "test:dws-deployment-policy": "node scripts/dws-deployment-policy.test.mjs && node src/dingtalk-reconciliation-poller.test.mjs && node src/inbound-reply-gate.test.mjs",
     "test:distribution-defaults": "node scripts/distribution-defaults.test.mjs",
     "test:distribution-package": "node scripts/distribution-package.test.mjs",
     "test:install-aicoding": "node scripts/install-aicoding.test.mjs",
