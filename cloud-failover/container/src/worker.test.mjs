@@ -12,6 +12,7 @@ const dwsHome = join(credentialDir, 'home');
 const portableBundle = Buffer.from('dws-1.0.56-portable-auth-tarball').toString('base64');
 const env = {
   DINGTALK_DWS_AUTH_BUNDLE_B64: portableBundle, AIPROS_DWS_HOME: dwsHome,
+  AIPROS_CLOUD_DWS_CHANNEL: 'cloud-channel',
   AIPROS_COORDINATOR_URL: 'https://internal.test',
   AIPROS_CONTAINER_TOKEN: 'token', AIPROS_ALLOWED_CHAT_IDS: 'chat-1',
   AIPROS_ALLOWED_SENDER_IDS: 'user-1',
@@ -22,11 +23,13 @@ const runner = async (_bin, args, options = {}) => {
   if (args[0] === 'auth' && args[1] === 'import') {
     importedPath = args[args.indexOf('-i') + 1];
     assert.equal(options.env?.HOME, dwsHome);
+    assert.equal(options.env?.DWS_CHANNEL, 'cloud-channel');
     assert.equal((await stat(importedPath)).mode & 0o777, 0o600);
     assert.equal(await readFile(importedPath, 'utf8'), portableBundle);
   }
   if (args[0] === 'auth' && args[1] === 'status') {
     assert.equal(options.env?.HOME, dwsHome);
+    assert.equal(options.env?.DWS_CHANNEL, 'cloud-channel');
     return { stdout: '{"authenticated":true}' };
   }
   return { stdout: '{}' };
@@ -44,6 +47,7 @@ const worker = new StandbyDwsWorker({
   eventConsumer: async (_bin, args, _onMessage, options = {}) => {
     eventCalls.push(args);
     assert.equal(options.env?.HOME, dwsHome);
+    assert.equal(options.env?.DWS_CHANNEL, 'cloud-channel');
     const child = new EventEmitter();
     eventChildren.push(child);
     return child;

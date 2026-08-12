@@ -14,7 +14,7 @@ export function validateContainerEnvironment(env = {}) {
   }
   const required = [
     'DINGTALK_DWS_AUTH_BUNDLE_B64',
-    'AIPROS_COORDINATOR_URL', 'AIPROS_CONTAINER_TOKEN', 'AIPROS_ALLOWED_CHAT_IDS',
+    'AIPROS_CLOUD_DWS_CHANNEL', 'AIPROS_COORDINATOR_URL', 'AIPROS_CONTAINER_TOKEN', 'AIPROS_ALLOWED_CHAT_IDS',
     'AIPROS_ALLOWED_SENDER_IDS',
   ];
   for (const key of required) if (!String(env[key] || '').trim()) throw new Error(`${key} is required`);
