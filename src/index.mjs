@@ -831,7 +831,11 @@ async function sendTextUnchecked(client, chatId, text, uuid, {
   }
   if (target?.channel === 'wechat') {
     if (!geWeChannel) throw new Error('Personal WeChat channel is not available');
-    return geWeChannel.send(target, outboundText);
+    return sendWithEchoGuard(
+      chatId,
+      outboundText,
+      () => geWeChannel.send(target, outboundText),
+    );
   }
   const labeledText = labelDigitalTwin(outboundText);
   const userArgs = [
