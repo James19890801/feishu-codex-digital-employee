@@ -10,6 +10,9 @@ import {
 assert.deepEqual(extractHttpUrls('官网是 https://example.com/docs?a=1，看看。'), [
   'https://example.com/docs?a=1',
 ]);
+assert.deepEqual(extractHttpUrls(
+  '群链接：https://github.com/deepseek-ai/deepseek-harness?utm_source=wechat&amp;tab=readme',
+), ['https://github.com/deepseek-ai/deepseek-harness?utm_source=wechat&tab=readme']);
 assert.equal(isPublicAddress('127.0.0.1'), false);
 assert.equal(isPublicAddress('169.254.169.254'), false);
 assert.equal(isPublicAddress('10.0.0.8'), false);
@@ -59,6 +62,28 @@ assert.equal(page.title, 'Guide');
 assert.match(page.text, /Hello AIPRO/);
 assert.equal(calls.length, 1);
 assert.equal(calls[0].options.redirect, 'manual');
+
+const githubCalls = [];
+const githubPage = await readPublicWebPage('https://github.com/deepseek-ai/deepseek-harness', {
+  lookup: async hostname => {
+    assert.equal(hostname, 'raw.githubusercontent.com');
+    return [{ address: '185.199.108.133', family: 4 }];
+  },
+  fetchImpl: async url => {
+    githubCalls.push(String(url));
+    return new Response('# DeepSeek Harness\nEverything is a plugin.', {
+      status: 200,
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+    });
+  },
+  dispatcherFactory: () => ({ close: async () => {} }),
+});
+assert.equal(
+  githubCalls[0],
+  'https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/HEAD/README.md',
+);
+assert.equal(githubPage.url, 'https://github.com/deepseek-ai/deepseek-harness');
+assert.match(githubPage.text, /Everything is a plugin/);
 
 await assert.rejects(
   readPublicWebPage('http://localhost/private', {

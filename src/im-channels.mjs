@@ -572,6 +572,34 @@ function geWeV2Mentioned(event, selfWxid, mentionNames) {
   });
 }
 
+function decodeGeWeXmlText(value) {
+  return String(value || '')
+    .replace(/^<!\[CDATA\[([\s\S]*)\]\]>$/, '$1')
+    .replace(/&#(\d+);/g, (_match, code) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_match, code) => String.fromCodePoint(parseInt(code, 16)))
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .trim();
+}
+
+function geWeXmlTag(xml, tag) {
+  const match = String(xml || '').match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+  return match ? decodeGeWeXmlText(match[1]) : '';
+}
+
+function geWeAppMessageText(content) {
+  const appType = Number(geWeXmlTag(content, 'type'));
+  if (appType !== 5) return '';
+  const url = geWeXmlTag(content, 'url');
+  if (!/^https?:\/\//i.test(url)) return '';
+  return [geWeXmlTag(content, 'title'), geWeXmlTag(content, 'des'), url]
+    .filter(Boolean)
+    .join('\n');
+}
+
 export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
   const v1 = Boolean(event?.Data);
   const data = v1 ? event.Data : event;
@@ -579,8 +607,8 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
   const selfWxid = String(v1 ? event?.Wxid : event?.wxid || '').trim();
   const messageType = v1 ? Number(data?.MsgType) : String(data?.msgType || '').toUpperCase();
   const isText = v1
-    ? String(event?.TypeName || '') === 'AddMsg' && messageType === 1
-    : messageType === 'TEXT';
+    ? String(event?.TypeName || '') === 'AddMsg' && [1, 49].includes(messageType)
+    : ['TEXT', 'APPMSG', 'LINK'].includes(messageType);
   if (!isText || !appId || !selfWxid) return null;
   const fromUser = nestedString(v1 ? data?.FromUserName : data?.fromUser).trim();
   const toUser = nestedString(v1 ? data?.ToUserName : data?.toUser).trim();
@@ -605,12 +633,16 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
       ).trim()
     : fromUser;
   if (!senderId || (!isSelf && senderId === selfWxid)) return null;
-  const mentioned = isSelf || !group
+  const appMessageText = (v1 ? messageType === 49 : ['APPMSG', 'LINK'].includes(messageType))
+    ? geWeAppMessageText(group ? parsedGroup.text : rawContent)
+    : '';
+  const mentioned = isSelf || !group || Boolean(appMessageText)
     || (v1
       ? geWeV1Mentioned(data?.MsgSource, selfWxid)
       : geWeV2Mentioned(data, selfWxid, mentionNames));
   if (!mentioned) return null;
-  const text = isSelf ? rawContent : group ? parsedGroup.text : rawContent;
+  const messageContent = isSelf ? rawContent : group ? parsedGroup.text : rawContent;
+  const text = appMessageText || messageContent;
   if (!String(text).trim()) return null;
   const targetId = group ? groupId : isSelf ? toUser : senderId;
   if (!targetId) return null;

@@ -4901,8 +4901,8 @@ async function main() {
       businessClient = await createBusinessClient();
       await initializeUserPolling();
     }
-    triggerDrain();
     await initializeAdditionalImChannels();
+    triggerDrain();
     groupHostPromise = runGroupHostLoop()
       .catch(error => console.error('[group-host-fatal]', error));
     if (config.groupHostModeEnabled && GROUP_HOST_CHAT_IDS.size > 0) {

@@ -870,6 +870,16 @@ contract('group-host-mode', 'Can the allowlisted DingTalk group recover messages
   assert.match(runtimeSource, /enqueueInbound\(payload, 'dingtalk-group-host-recovery'\)/);
 });
 
+contract('durable-inbox', 'Does startup initialize IM senders before draining recovered messages?', () => {
+  const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
+  const startupAt = runtimeSource.indexOf('async function main()');
+  const startupSection = runtimeSource.slice(startupAt, startupAt + 2_000);
+  const initializeAt = startupSection.indexOf('await initializeAdditionalImChannels()');
+  const drainAt = startupSection.indexOf('triggerDrain()');
+  assert.equal(initializeAt >= 0, true);
+  assert.equal(drainAt > initializeAt, true);
+});
+
 for (const [attempt, expected] of [[1, true], [2, true], [3, false], [4, false]]) {
   contract('retry-boundary', `Should inbound attempt ${attempt} retry?`, () => {
     assert.equal(shouldRetryMessage(attempt), expected);

@@ -705,6 +705,48 @@ assert.equal(normalizeWeComFrame({
   assert.equal(payload.message.mentions[0].id, 'wechat-current-user');
 }
 
+{
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
+      MsgType: 49,
+      NewMsgId: 'group-link-1',
+      FromUserName: { string: 'room-1@chatroom' },
+      ToUserName: { string: 'wxid_owner' },
+      Content: { string: `wxid_member:\n<msg><appmsg><title>DeepSeek Harness</title><des>开源代理底座</des><type>5</type><url>https://github.com/deepseek-ai/deepseek-harness?utm_source=wechat&amp;tab=readme</url></appmsg></msg>` },
+      CreateTime: 1785463200,
+      MsgSource: '<msgsource><atuserlist><![CDATA[wxid_owner]]></atuserlist></msgsource>',
+    },
+  });
+  assert.equal(payload.message.message_type, 'text');
+  assert.equal(payload.message.chat_id, 'wechat:group:room-1@chatroom');
+  assert.equal(payload.sender.sender_id.open_id, 'wechat:wxid_member');
+  assert.equal(
+    JSON.parse(payload.message.content).text,
+    'DeepSeek Harness\n开源代理底座\nhttps://github.com/deepseek-ai/deepseek-harness?utm_source=wechat&tab=readme',
+  );
+}
+
+{
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
+      MsgType: 49,
+      NewMsgId: 'group-link-without-at',
+      FromUserName: { string: 'room-1@chatroom' },
+      ToUserName: { string: 'wxid_owner' },
+      Content: { string: 'wxid_member:\n<msg><appmsg><title>项目链接</title><type>5</type><url>https://github.com/deepseek-ai/deepseek-harness</url></appmsg></msg>' },
+      MsgSource: '<msgsource></msgsource>',
+    },
+  });
+  assert.equal(JSON.parse(payload.message.content).text.includes('https://github.com/'), true);
+  assert.equal(payload.message.mentions.length, 1);
+}
+
 assert.equal(normalizeGeWeWebhook({
   TypeName: 'AddMsg',
   Appid: 'device-a',

@@ -47,7 +47,9 @@ export function isPublicAddress(address) {
 
 export function extractHttpUrls(text = '', limit = 3) {
   const matches = String(text || '').match(/https?:\/\/[^\s<>，。！？；：、（）【】《》“”‘’]+/gi) || [];
-  return [...new Set(matches.map(value => value.replace(TRAILING_PUNCTUATION, '')))]
+  return [...new Set(matches.map(value => value
+    .replace(TRAILING_PUNCTUATION, '')
+    .replace(/&amp;/gi, '&')))]
     .filter(Boolean)
     .slice(0, Math.max(0, Number(limit) || 0));
 }
@@ -83,6 +85,13 @@ export function extractReadableWebText(html = '', maxChars = 40_000) {
 function pageTitle(html) {
   const match = String(html || '').match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
   return match ? extractReadableWebText(match[1], 300) : '';
+}
+
+function githubRepositoryReadmeUrl(url) {
+  if (url.hostname.toLowerCase() !== 'github.com') return null;
+  const parts = url.pathname.split('/').filter(Boolean);
+  if (parts.length !== 2 || !/^[\w.-]+$/.test(parts[0]) || !/^[\w.-]+$/.test(parts[1])) return null;
+  return new URL(`https://raw.githubusercontent.com/${parts[0]}/${parts[1]}/HEAD/README.md`);
 }
 
 export async function validatedAddresses(url, lookup) {
@@ -169,7 +178,8 @@ export async function readPublicWebPage(sourceUrl, {
   maxChars = 40_000,
   maxRedirects = 3,
 } = {}) {
-  let current = new URL(String(sourceUrl || ''));
+  const requested = new URL(String(sourceUrl || ''));
+  let current = githubRepositoryReadmeUrl(requested) || requested;
   for (let redirect = 0; redirect <= maxRedirects; redirect += 1) {
     if (!['http:', 'https:'].includes(current.protocol)
       || current.username || current.password || current.port) {
@@ -205,7 +215,7 @@ export async function readPublicWebPage(sourceUrl, {
       const text = html ? extractReadableWebText(raw, maxChars) : raw.trim().slice(0, maxChars);
       if (!text) throw new Error('Web page has no readable text');
       return {
-        url: current.href,
+        url: requested.href,
         title: html ? pageTitle(raw) : '',
         contentType,
         text,
