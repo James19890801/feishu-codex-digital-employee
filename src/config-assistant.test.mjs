@@ -184,6 +184,10 @@ const wechatPlan = assistant.createChangePlan({
     value: true,
   }, {
     target: 'config',
+    key: 'geweCallbackPort',
+    value: 17656,
+  }, {
+    target: 'config',
     key: 'geweMentionNames',
     value: ['James'],
   }],
@@ -193,6 +197,7 @@ assert.deepEqual(wechatPlan.changes.map(change => change.key), [
   'geweAppId',
   'gewePublicCallbackBaseUrl',
   'geweEnabled',
+  'geweCallbackPort',
   'geweMentionNames',
 ]);
 assert.throws(() => assistant.createChangePlan({
