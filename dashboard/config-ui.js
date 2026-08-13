@@ -34,13 +34,6 @@ export function channelRequestHeaders(sessionToken) {
   return assistantRequestHeaders('channel-config', sessionToken);
 }
 
-export function wechatPocRequestHeaders(action, sessionToken) {
-  if (!['wechat-poc-control', 'wechat-poc-stop', 'wechat-poc-open'].includes(action)) {
-    throw new Error('Unsupported personal WeChat action');
-  }
-  return assistantRequestHeaders(action, sessionToken);
-}
-
 export function dailyLearningRequestHeaders(sessionToken) {
   return assistantRequestHeaders('learning-run', sessionToken);
 }

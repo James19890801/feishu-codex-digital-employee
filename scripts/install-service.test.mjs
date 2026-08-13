@@ -34,9 +34,32 @@ try {
 
   const calls = (await readFile(logPath, 'utf8')).trim().split('\n');
   assert.equal(calls.some(call => call.startsWith('bootout ')), true);
+  assert.equal(
+    calls.some(call => call.includes('com.local.aipro-wechat-poc')),
+    true,
+    'upgrades must unload the retired macOS WeChat UI automation service',
+  );
   assert.equal(calls.some(call => call.startsWith('print ')), true);
   assert.equal(calls.filter(call => call.startsWith('bootstrap ')).length, 1);
   assert.equal(calls.some(call => call.startsWith('kickstart ')), false);
+
+  await writeFile(logPath, '', 'utf8');
+  const retired = spawnSync('/bin/zsh', ['scripts/install-wechat-poc-service.sh'], {
+    cwd: fileURLToPath(new URL('..', import.meta.url)),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOME: directory,
+      PATH: `${binDirectory}:/usr/local/bin:/usr/bin:/bin`,
+      LAUNCHCTL_LOG: logPath,
+    },
+  });
+  assert.equal(retired.status, 0, retired.stderr || retired.stdout);
+  assert.match(retired.stdout, /RETIRED/);
+  const retiredCalls = (await readFile(logPath, 'utf8')).trim().split('\n').filter(Boolean);
+  assert.equal(retiredCalls.some(call => call.startsWith('bootout ')), true);
+  assert.equal(retiredCalls.some(call => call.startsWith('bootstrap ')), false);
+  assert.equal(retiredCalls.some(call => call.startsWith('kickstart ')), false);
 } finally {
   await rm(directory, { recursive: true, force: true });
 }

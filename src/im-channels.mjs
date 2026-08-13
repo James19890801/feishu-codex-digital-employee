@@ -594,7 +594,7 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
   const group = fromUser.endsWith('@chatroom') || toUser.endsWith('@chatroom');
   const groupId = fromUser.endsWith('@chatroom') ? fromUser : toUser;
   const parsedGroup = group ? splitGeWeGroupContent(rawContent) : null;
-  if (isSelf && !matchHumanTakeoverCommand(rawContent)) return null;
+  const ownerControl = isSelf && Boolean(matchHumanTakeoverCommand(rawContent));
   const senderId = isSelf
     ? selfWxid
     : group
@@ -632,7 +632,8 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
     metadata: {
       channel: 'wechat',
       appId,
-      ...(isSelf ? { ownerControlAuthenticated: true, operatorControl: true } : {}),
+      ...(isSelf ? { ownerActivity: true, ownerControlAuthenticated: true } : {}),
+      ...(ownerControl ? { operatorControl: true } : {}),
       callbackVersion: v1 ? 'v1' : 'v2',
     },
   };

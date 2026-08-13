@@ -61,6 +61,14 @@ function mentionNames(value) {
   return normalized;
 }
 
+function callbackPort(value) {
+  const port = Number(value ?? 17656);
+  if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) {
+    throw new Error('GeWe callback port must be an integer from 1024 to 65535');
+  }
+  return port;
+}
+
 export function channelConfigurationView(configuration, credentialStates = {}) {
   return {
     feishu: {
@@ -92,6 +100,7 @@ export function channelConfigurationView(configuration, credentialStates = {}) {
       enabled: configuration.geweEnabled === true,
       appId: String(configuration.geweAppId || ''),
       publicCallbackBaseUrl: String(configuration.gewePublicCallbackBaseUrl || ''),
+      callbackPort: Number(configuration.geweCallbackPort || 17656),
       mentionNames: Array.isArray(configuration.geweMentionNames)
         ? [...configuration.geweMentionNames]
         : [],
@@ -136,6 +145,7 @@ export function normalizeChannelConfigurationRequest(channel, payload = {}) {
       geweEnabled: enabled,
       geweAppId: appId,
       gewePublicCallbackBaseUrl: callbackUrl(payload.publicCallbackBaseUrl, { required: enabled }),
+      geweCallbackPort: callbackPort(payload.callbackPort),
       geweMentionNames: mentionNames(payload.mentionNames),
     },
     credential: optionalCredential(payload.credential),

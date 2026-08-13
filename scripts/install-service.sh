@@ -7,8 +7,18 @@ test -x "$NODE" || NODE="$(command -v node)"
 LABEL="com.local.feishu-codex-digital-employee"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 SERVICE="gui/$(id -u)/$LABEL"
+RETIRED_WECHAT_SERVICE="gui/$(id -u)/com.local.aipro-wechat-poc"
+RETIRED_WECHAT_PLIST="$HOME/Library/LaunchAgents/com.local.aipro-wechat-poc.plist"
 LOCK_PATH="${AIPRO_SERVICE_LOCK_PATH:-$ROOT/data/service.lock}"
 mkdir -p "$HOME/Library/LaunchAgents"
+
+# GeWe REST + Webhook replaces the retired macOS UI automation bridge.
+# Always unload the old service during install/upgrade so it cannot keep
+# reading or sending personal WeChat messages in parallel.
+launchctl bootout "$RETIRED_WECHAT_SERVICE" 2>/dev/null || true
+if test -f "$RETIRED_WECHAT_PLIST"; then
+  mv "$RETIRED_WECHAT_PLIST" "$RETIRED_WECHAT_PLIST.retired" 2>/dev/null || true
+fi
 
 /usr/bin/python3 - "$PLIST" "$ROOT" "$NODE" "$HOME" <<'PY'
 import plistlib, sys

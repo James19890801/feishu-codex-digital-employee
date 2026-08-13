@@ -19,7 +19,7 @@ const installer = await readFile(installerPath, 'utf8');
 assert.match(source, /http:\/\/127\.0\.0\.1:17655\//);
 assert.match(source, /com\.local\.feishu-codex-dashboard/);
 assert.match(source, /com\.local\.feishu-codex-digital-employee/);
-assert.match(source, /com\.local\.aipro-wechat-poc/);
+assert.doesNotMatch(source, /com\.local\.aipro-wechat-poc/);
 assert.match(source, /WKWebView/);
 assert.match(
   source,

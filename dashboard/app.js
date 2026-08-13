@@ -9,7 +9,6 @@ import {
   rollbackConfirmation,
   runtimeCanSelect,
   runtimeStatusLabel,
-  wechatPocRequestHeaders,
 } from './config-ui.js';
 import { normalizeLocale, translate } from './i18n.js';
 import {
@@ -117,7 +116,6 @@ let latestChannelConfigurations = {};
 let latestChannelReport = null;
 let selectedChannel = '';
 let channelBusy = false;
-let wechatPocBusy = false;
 let locale = normalizeLocale(localStorage.getItem('aipro.locale'));
 let latestStatusData = null;
 let latestConfigPayload = null;
@@ -264,39 +262,6 @@ function renderChannel(prefix, channel, fallbackMeta) {
   dot.className = channel.authenticated ? 'warn' : 'bad';
 }
 
-function renderWeChatPoc(channel) {
-  if (!channel) return;
-  const labels = {
-    not_installed: tr('serviceNotInstalled'),
-    offline: tr('serviceOffline'),
-    disabled: tr('disabled'),
-    starting: tr('starting'),
-    online: tr('running'),
-    degraded: tr('pendingWork'),
-    uncertain: tr('deliveryUncertain'),
-  };
-  $('wechatPocStatus').textContent = labels[channel.state] || tr('checking');
-  $('wechatPocToggle').checked = channel.control?.enabled === true;
-  $('wechatPocToggle').disabled = wechatPocBusy || !channel.processAlive;
-  $('wechatPocOpenClient').disabled = wechatPocBusy;
-  $('wechatPocEmergencyStop').disabled = wechatPocBusy || !channel.processAlive;
-  const dot = $('wechatPocDot');
-  dot.className = channel.state === 'online'
-    ? 'good'
-    : ['degraded', 'starting', 'uncertain'].includes(channel.state) ? 'warn' : channel.state === 'offline' ? 'bad' : '';
-  const permission = channel.permissionState === 'granted'
-    ? tr('accessibilityGranted')
-    : channel.permissionState === 'missing' ? tr('accessibilityRequired') : tr('permissionPending');
-  $('wechatPocMeta').textContent = `${channel.clientRunning ? tr('wechatOpen') : tr('wechatClosed')} · ${permission} · ${tr('pendingCount', { count: channel.pending || 0 })}`;
-  $('wechatPocDetail').textContent = channel.lastError?.error
-    ? tr('recentError', { value: String(channel.lastError.error).slice(0, 130) })
-    : tr('recentActions', {
-      action: channel.lastAction || tr('waiting'),
-      received: formatDate(channel.lastReceiveAt, true),
-      replied: formatDate(channel.lastReplyAt, true),
-    });
-}
-
 function renderEvents(events) {
   if (!events?.length) {
     $('timeline').innerHTML = `<p class="empty">${escapeHtml(tr('noAuditEvents'))}</p>`;
@@ -439,9 +404,8 @@ function render(data) {
   renderChannel(
     'Wechat',
     data.channels?.wechat,
-    tr('wechatLegacyMeta'),
+    tr('wechatMeta'),
   );
-  renderWeChatPoc(data.wechatPoc || data.channels?.wechatPoc);
   const semanticGroup = data.maintenance?.semanticGroupEngagement || {};
   $('semanticGroupToggle').checked = semanticGroup.enabled === true;
   $('semanticGroupToggle').disabled = semanticGroupBusy;
@@ -746,41 +710,6 @@ async function requestDailyLearning() {
   }
 }
 
-async function postWeChatPoc(path, action, body = {}) {
-  await ensureDashboardSession();
-  wechatPocBusy = true;
-  for (const id of ['wechatPocToggle', 'wechatPocOpenClient', 'wechatPocEmergencyStop']) $(id).disabled = true;
-  try {
-    const response = await fetch(path, {
-      method: 'POST',
-      headers: wechatPocRequestHeaders(action, configSessionToken),
-      body: JSON.stringify(body),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload.ok === false) throw new Error(payload.error || `HTTP ${response.status}`);
-    showToast(payload.message || (locale === 'zh' ? '个人微信操作已完成' : 'Personal WeChat action completed.'));
-  } finally {
-    wechatPocBusy = false;
-    await refresh();
-  }
-}
-
-async function toggleWeChatPoc(event) {
-  const enabled = event.target.checked;
-  if (enabled && !window.confirm(locale === 'zh'
-    ? '确认恢复个人微信自动回复？单聊全部回复，群聊仅明确 @，仅处理文本。启用状态会跨重启保留，可随时紧急停止。'
-    : 'Enable personal WeChat auto-reply? Direct chats are answered; group chats require an explicit @ mention; text only. The switch persists across restarts and can be stopped at any time.')) {
-    event.target.checked = false;
-    return;
-  }
-  try {
-    await postWeChatPoc('/api/wechat-poc/control', 'wechat-poc-control', { enabled, confirmed: true });
-  } catch (error) {
-    showToast(`${locale === 'zh' ? '个人微信切换失败' : 'Personal WeChat switch failed'}: ${error.message}`);
-    event.target.checked = !enabled;
-  }
-}
-
 async function toggleSemanticGroupEngagement(event) {
   const requested = event.target.checked;
   const previous = latestStatusData?.maintenance?.semanticGroupEngagement?.enabled === true;
@@ -807,25 +736,6 @@ async function toggleSemanticGroupEngagement(event) {
   } finally {
     semanticGroupBusy = false;
     event.target.disabled = false;
-  }
-}
-
-async function emergencyStopWeChatPoc() {
-  if (!window.confirm(locale === 'zh'
-    ? '立即关闭个人微信自动回复并取消待发送任务？'
-    : 'Stop personal WeChat auto-reply and cancel pending sends now?')) return;
-  try {
-    await postWeChatPoc('/api/wechat-poc/emergency-stop', 'wechat-poc-stop');
-  } catch (error) {
-    showToast(`${locale === 'zh' ? '紧急停止失败' : 'Emergency stop failed'}: ${error.message}`);
-  }
-}
-
-async function openWeChatClient() {
-  try {
-    await postWeChatPoc('/api/wechat-poc/open-client', 'wechat-poc-open');
-  } catch (error) {
-    showToast(`${locale === 'zh' ? '微信打开失败' : 'Could not open WeChat'}: ${error.message}`);
   }
 }
 
@@ -1018,6 +928,7 @@ function renderChannelForm(channel, configuration) {
   $('channelWechatAppId').value = configuration.appId || '';
   $('channelWechatCredential').value = '';
   $('channelWechatCallback').value = configuration.publicCallbackBaseUrl || '';
+  $('channelWechatPort').value = configuration.callbackPort || 17656;
   $('channelWechatMentions').value = (configuration.mentionNames || []).join(', ');
   for (const section of document.querySelectorAll('[data-channel-fields]')) {
     section.classList.toggle('hidden', section.dataset.channelFields !== channel);
@@ -1056,6 +967,7 @@ function channelRequestBody() {
     base.appId = $('channelWechatAppId').value.trim();
     base.credential = $('channelWechatCredential').value;
     base.publicCallbackBaseUrl = $('channelWechatCallback').value.trim();
+    base.callbackPort = Number($('channelWechatPort').value);
     base.mentionNames = $('channelWechatMentions').value;
   }
   return base;
@@ -1377,10 +1289,7 @@ $('downloadInvitesButton').addEventListener('click', downloadInvitations);
 $('refreshButton').addEventListener('click', refresh);
 $('restartButton').addEventListener('click', restart);
 $('learningRunButton').addEventListener('click', requestDailyLearning);
-$('wechatPocToggle').addEventListener('change', toggleWeChatPoc);
 $('semanticGroupToggle').addEventListener('change', toggleSemanticGroupEngagement);
-$('wechatPocEmergencyStop').addEventListener('click', emergencyStopWeChatPoc);
-$('wechatPocOpenClient').addEventListener('click', openWeChatClient);
 $('configForm').addEventListener('submit', submitConfigRequest);
 $('applyPlanButton').addEventListener('click', applyConfigPlan);
 $('cancelPlanButton').addEventListener('click', cancelConfigPlan);

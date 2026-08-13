@@ -129,11 +129,16 @@ assert.deepEqual(parseChannelChatId('wechat:user:wxid_friend'), {
   assert.equal(ownerControl.message.chat_id, 'wechat:user:wxid_friend');
   assert.equal(ownerControl.sender.sender_id.open_id, 'wechat:wxid_owner');
   assert.equal(ownerControl.metadata.ownerControlAuthenticated, true);
-  assert.equal(normalizeGeWeWebhook({
+  assert.equal(ownerControl.metadata.ownerActivity, true);
+  assert.equal(ownerControl.metadata.operatorControl, true);
+  const ownerActivity = normalizeGeWeWebhook({
     appid: 'app-1', wxid: 'wxid_owner', msgType: 'TEXT', isSelf: true,
     fromUser: 'wxid_owner', toUser: 'wxid_friend', content: '普通人工消息',
     newMsgId: 'self-normal-1',
-  }), null);
+  });
+  assert.equal(ownerActivity.metadata.ownerActivity, true);
+  assert.equal(ownerActivity.metadata.ownerControlAuthenticated, true);
+  assert.equal(ownerActivity.metadata.operatorControl, undefined);
 }
 
 assert.deepEqual(buildDingTalkConsumerArgs(), [
@@ -713,18 +718,26 @@ assert.equal(normalizeGeWeWebhook({
   },
 }), null);
 
-assert.equal(normalizeGeWeWebhook({
-  TypeName: 'AddMsg',
-  Appid: 'device-a',
-  Wxid: 'wxid_owner',
-  Data: {
-    MsgType: 1,
-    NewMsgId: 'self-message',
-    FromUserName: { string: 'wxid_owner' },
-    ToUserName: { string: 'wxid_friend' },
-    Content: { string: '我自己发的' },
-  },
-}), null);
+{
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
+      MsgType: 1,
+      NewMsgId: 'self-message',
+      FromUserName: { string: 'wxid_owner' },
+      ToUserName: { string: 'wxid_friend' },
+      Content: { string: '我自己发的' },
+    },
+  });
+  assert.equal(payload.message.chat_id, 'wechat:user:wxid_friend');
+  assert.equal(payload.sender.sender_id.open_id, 'wechat:wxid_owner');
+  assert.equal(JSON.parse(payload.message.content).text, '我自己发的');
+  assert.equal(payload.metadata.ownerActivity, true);
+  assert.equal(payload.metadata.ownerControlAuthenticated, true);
+  assert.equal(payload.metadata.operatorControl, undefined);
+}
 
 {
   const payload = normalizeGeWeWebhook({
@@ -742,14 +755,32 @@ assert.equal(normalizeGeWeWebhook({
   assert.equal(payload.message.chat_id, 'wechat:user:wxid_friend');
 }
 
+{
+  const payload = normalizeGeWeWebhook({
+    appid: 'device-v2',
+    wxid: 'wxid_owner',
+    msgType: 'TEXT',
+    newMsgId: 'v2-self',
+    fromUser: 'wxid_owner',
+    toUser: 'room-v2@chatroom',
+    content: '我在群里手动回复',
+    isSelf: true,
+  });
+  assert.equal(payload.message.chat_id, 'wechat:group:room-v2@chatroom');
+  assert.equal(payload.message.chat_type, 'group');
+  assert.equal(payload.sender.sender_id.open_id, 'wechat:wxid_owner');
+  assert.equal(payload.metadata.ownerActivity, true);
+  assert.equal(payload.metadata.ownerControlAuthenticated, true);
+}
+
 assert.equal(normalizeGeWeWebhook({
   appid: 'device-v2',
   wxid: 'wxid_owner',
-  msgType: 'TEXT',
-  newMsgId: 'v2-self',
+  msgType: 'IMAGE',
+  newMsgId: 'v2-self-image',
   fromUser: 'wxid_owner',
   toUser: 'wxid_friend',
-  content: 'self',
+  content: 'image-payload',
   isSelf: true,
 }), null);
 

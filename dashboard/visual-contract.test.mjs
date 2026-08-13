@@ -22,8 +22,7 @@ for (const requiredId of [
   'channelForm',
   'channelTestButton',
   'channelSaveButton',
-  'wechatPocToggle',
-  'wechatPocEmergencyStop',
+  'channelWechatPort',
   'semanticGroupToggle',
   'semanticGroupDetail',
   'languageToggle',
@@ -52,9 +51,6 @@ for (const endpoint of [
   '/api/config/plan',
   '/api/config/apply',
   '/api/config/rollback',
-  '/api/wechat-poc/control',
-  '/api/wechat-poc/emergency-stop',
-  '/api/wechat-poc/open-client',
   '/api/learning/run',
   '/api/config/semantic-group-engagement',
 ]) {
@@ -80,6 +76,9 @@ assert.match(css, /backdrop-filter:\s*blur/);
 assert.match(css, /@media \(max-width: 560px\)/);
 assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
 assert.match(app, /channel\.capabilities/, 'channel cards must expose text, image, audio and link readiness');
+assert.doesNotMatch(html, /wechat-poc|wechatPoc/i, 'retired macOS UI automation must not appear in the dashboard');
+assert.doesNotMatch(app, /wechat-poc|wechatPoc/i, 'retired macOS UI automation must not be wired in the dashboard');
+assert.doesNotMatch(server, /wechat-poc|wechatPoc/i, 'retired macOS UI automation APIs must not remain active');
 
 assert.doesNotMatch(html, /class="runtime-current"/, 'effective runtime should be expressed only by the selected card');
 assert.doesNotMatch(html, /data-card="codex"/, 'runtime must not be repeated in the summary metrics');

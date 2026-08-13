@@ -384,6 +384,21 @@ try {
     now: '2026-07-29T14:00:02.000Z',
   }), false);
 
+  const wechatEchoId = state.recordOutboundEcho('wechat:user:wxid_friend', '微信平台回复', {
+    now,
+    ttlMs: 120_000,
+  });
+  assert.equal(Number.isInteger(wechatEchoId), true);
+  assert.equal(state.consumeOutboundEcho('wechat:user:wxid_other', '微信平台回复', {
+    now: '2026-07-29T14:00:01.000Z',
+  }), false, 'GeWe echoes must be scoped to the original conversation');
+  assert.equal(state.consumeOutboundEcho('wechat:user:wxid_friend', '微信平台回复', {
+    now: '2026-07-29T14:00:02.000Z',
+  }), true);
+  assert.equal(state.consumeOutboundEcho('wechat:user:wxid_friend', '微信平台回复', {
+    now: '2026-07-29T14:00:03.000Z',
+  }), false, 'the same GeWe outbound echo may be consumed only once');
+
   const cancelledEchoId = state.recordOutboundEcho('oc_self', '发送失败', { now });
   assert.equal(state.cancelOutboundEcho(cancelledEchoId), true);
   assert.equal(state.consumeOutboundEcho('oc_self', '发送失败', {

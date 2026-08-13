@@ -130,21 +130,10 @@
           <button type="button" data-channel-open="wecom" data-i18n="configure">Configure</button>
         </article>
         <article class="channel-card" data-channel="wechat">
-          <header><i id="channelWechatDot"></i><strong data-i18n="wechatLegacyName">WeChat API / Legacy</strong><span>LEGACY</span></header>
+          <header><i id="channelWechatDot"></i><strong data-i18n="wechatName">Personal WeChat / GeWe</strong><span>OPTIONAL</span></header>
           <b id="channelWechatStatus" data-i18n="checking">Checking</b>
-          <p id="channelWechatMeta" data-i18n="wechatLegacyMeta">GeWe-compatible configuration (legacy)</p>
-          <button type="button" data-channel-open="wechat" data-i18n="inspectLegacy">Inspect legacy</button>
-        </article>
-        <article class="channel-card wechat-poc-card" data-channel="wechat-poc">
-          <header><i id="wechatPocDot"></i><strong data-i18n="wechatPocName">Personal WeChat POC</strong><span>ISOLATED</span></header>
-          <b id="wechatPocStatus" data-i18n="checking">Checking</b>
-          <p id="wechatPocMeta" data-i18n="wechatPocMeta">Official macOS WeChat · local polling and delivery receipts</p>
-          <div class="wechat-poc-controls">
-            <label class="wechat-poc-toggle"><input id="wechatPocToggle" type="checkbox"><span data-i18n="autoReply">Auto reply</span></label>
-            <button id="wechatPocOpenClient" type="button" data-i18n="openWechat">Open WeChat</button>
-            <button id="wechatPocEmergencyStop" class="danger" type="button" data-i18n="emergencyStop">Emergency stop</button>
-          </div>
-          <small id="wechatPocDetail" data-i18n="wechatPocDetail">Replies to direct chats; group chats require an explicit @ mention; text only.</small>
+          <p id="channelWechatMeta" data-i18n="wechatMeta">Human identity · GeWe REST + HTTPS Webhook</p>
+          <button type="button" data-channel-open="wechat" data-i18n="configure">Configure</button>
         </article>
       </div>
       <div class="semantic-group-control">
@@ -152,12 +141,12 @@
           <strong data-i18n="semanticGroupTitle">Context-aware group engagement</strong>
           <small id="semanticGroupDetail" data-i18n="semanticGroupLoading">Reading semantic engagement state…</small>
         </div>
-        <label class="wechat-poc-toggle">
+        <label class="semantic-group-toggle">
           <input id="semanticGroupToggle" type="checkbox">
           <span data-i18n="semanticGroupSwitch">Reply without an explicit @ when context clearly calls for it</span>
         </label>
       </div>
-      <p class="channel-identity-note" data-i18n="channelIdentityNote">Identity boundary: Lark and DingTalk keep their existing human-identity paths. Personal WeChat controls only the local official client, with its own switch, state database, and process.</p>
+      <p class="channel-identity-note" data-i18n="channelIdentityNote">Personal WeChat uses GeWe only. Messages enter this digital employee through its configured local callback port and reuse the same runtime, memory, and response rules.</p>
     </section>
 
     <section class="metrics-grid">
@@ -439,8 +428,9 @@
           <label>GeWe App ID<input id="channelWechatAppId" maxlength="200" autocomplete="off" placeholder="WeChat node App ID" data-i18n-placeholder="wechatAppPlaceholder"></label>
           <label>GeWe API Token <span id="channelWechatCredentialState"></span><input type="password" id="channelWechatCredential" maxlength="4096" autocomplete="new-password" placeholder="Leave blank to keep the stored secret" data-i18n-placeholder="credentialStoredPlaceholder"></label>
           <label><span data-i18n="publicCallback">Public HTTPS callback</span><input type="url" id="channelWechatCallback" maxlength="500" placeholder="https://example.com/aipro"></label>
+          <label><span data-i18n="localCallbackPort">Local callback port</span><input type="number" id="channelWechatPort" min="1024" max="65535" step="1" value="17656"></label>
           <label><span data-i18n="mentionNames">@ names (comma or newline separated)</span><textarea id="channelWechatMentions" rows="3" maxlength="1000" placeholder="James"></textarea></label>
-          <p class="field-note warning" data-i18n="wechatFieldWarning">This legacy connector uses a third-party GeWe API, not an official Tencent interface, and may create account risk.</p>
+          <p class="field-note warning" data-i18n="wechatFieldWarning">GeWe is a third-party personal-WeChat provider, not an official Tencent Open API, and may create account risk.</p>
         </section>
 
         <div class="channel-validation" id="channelValidation" aria-live="polite">
