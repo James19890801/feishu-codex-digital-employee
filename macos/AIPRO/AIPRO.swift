@@ -6,7 +6,6 @@ private let dashboardURL = URL(string: "http://127.0.0.1:17655/")!
 private let serviceLabels = [
     "com.local.feishu-codex-dashboard",
     "com.local.feishu-codex-digital-employee",
-    "com.local.aipro-wechat-poc",
 ]
 
 @main

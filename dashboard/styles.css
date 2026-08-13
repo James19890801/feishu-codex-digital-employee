@@ -754,7 +754,6 @@ h1 {
 }
 
 .channel-card { display: flex; flex-direction: column; min-height: 194px; padding: 17px; }
-.channel-card.wechat-poc-card { grid-column: span 2; }
 
 .channel-card header,
 .runtime-card header,
@@ -820,7 +819,6 @@ h1 {
 
 .channel-card > button,
 .runtime-card button,
-.wechat-poc-controls button,
 .prompt-chips button,
 .snapshot button {
   border: 0;
@@ -844,11 +842,7 @@ h1 {
 .prompt-chips button:hover,
 .snapshot button:hover { color: var(--accent-strong); background: var(--accent-soft); }
 
-.wechat-poc-controls { display: flex; flex-wrap: wrap; gap: 7px; margin-top: auto; }
-.wechat-poc-controls button { min-height: 32px; padding: 0 10px; }
-.wechat-poc-controls .danger { color: var(--red); background: var(--red-soft); }
-
-.wechat-poc-toggle {
+.semantic-group-toggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -862,10 +856,9 @@ h1 {
   cursor: pointer;
 }
 
-.wechat-poc-toggle input,
+.semantic-group-toggle input,
 .channel-toggle input { accent-color: var(--accent); }
-.wechat-poc-toggle:has(input:disabled) { opacity: .48; cursor: not-allowed; }
-.wechat-poc-card > small { margin-top: 11px; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.semantic-group-toggle:has(input:disabled) { opacity: .48; cursor: not-allowed; }
 
 .semantic-group-control {
   margin-top: 16px;
@@ -1316,7 +1309,7 @@ h1 {
   .channel-heading, .learning-heading, .runtime-heading, .console-heading { display: block; }
   .channel-heading > b, .console-state { display: inline-block; margin-top: 14px; text-align: left; }
   .channel-grid, .metrics-grid, .runtime-grid { grid-template-columns: 1fr; }
-  .channel-card.wechat-poc-card, .metric-card.wide { grid-column: span 1; }
+  .metric-card.wide { grid-column: span 1; }
   .semantic-group-control { align-items: flex-start; flex-direction: column; }
   .queue-row { grid-template-columns: repeat(2, 1fr); }
   .learning-heading > .button { width: 100%; margin-top: 14px; }

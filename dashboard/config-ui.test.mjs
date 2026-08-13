@@ -15,7 +15,6 @@ assert.equal(typeof ui.runtimeStatusLabel, 'function');
 assert.equal(typeof ui.channelRequestHeaders, 'function');
 assert.equal(typeof ui.channelSubmitLabel, 'function');
 assert.equal(typeof ui.channelNeedsCredential, 'function');
-assert.equal(typeof ui.wechatPocRequestHeaders, 'function');
 assert.equal(typeof ui.dailyLearningRequestHeaders, 'function');
 
 assert.equal(ui.formatAssistantValue(3000), '3000');
@@ -47,17 +46,11 @@ assert.deepEqual(ui.channelRequestHeaders('session-token'), {
   'X-Dashboard-Action': 'channel-config',
   'X-Dashboard-Session': 'session-token',
 });
-assert.deepEqual(ui.wechatPocRequestHeaders('wechat-poc-control', 'session-token'), {
-  'Content-Type': 'application/json',
-  'X-Dashboard-Action': 'wechat-poc-control',
-  'X-Dashboard-Session': 'session-token',
-});
 assert.deepEqual(ui.dailyLearningRequestHeaders('session-token'), {
   'Content-Type': 'application/json',
   'X-Dashboard-Action': 'learning-run',
   'X-Dashboard-Session': 'session-token',
 });
-assert.throws(() => ui.wechatPocRequestHeaders('restart', 'session-token'), /unsupported/i);
 assert.equal(ui.channelSubmitLabel({ enabled: true }), 'Save & connect');
 assert.equal(ui.channelSubmitLabel({ enabled: false }), 'Save configuration');
 assert.equal(ui.channelSubmitLabel({ protected: true }), 'PRIMARY PATH PROTECTED');

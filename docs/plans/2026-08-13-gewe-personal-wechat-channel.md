@@ -4,7 +4,7 @@
 
 **Goal:** Make the existing GeWe adapter a production personal-WeChat channel that reuses the unified AIPRO response runtime and treats verified owner messages as five-minute conversation-level human takeover activity.
 
-**Architecture:** Keep GeWe as a thin transport adapter: normalize inbound callbacks, enqueue them in the existing persistent inbox, and send final replies through `postText`. Extend the existing cross-channel human-takeover and outbound-echo mechanisms instead of adding WeChat-specific response logic; clarify in Dashboard that GeWe is the formal channel and the macOS UI bridge remains experimental.
+**Architecture:** Keep GeWe as a thin transport adapter: normalize inbound callbacks, enqueue them in the existing persistent inbox, and send final replies through `postText`. Extend the existing cross-channel human-takeover and outbound-echo mechanisms instead of adding WeChat-specific response logic; retire and replace the macOS UI bridge so GeWe is the only active personal-WeChat channel.
 
 **Tech Stack:** Node.js ESM, built-in `node:test`-style assertion scripts, SQLite-backed `AgentState`, GeWe REST/Webhook, macOS Keychain, vanilla HTML/JavaScript Dashboard.
 
@@ -228,7 +228,7 @@ Use labels equivalent to:
 - `配置连接`
 - `个人微信本机桥接（实验）`
 
-Do not remove the POC implementation in this task. Do not change any configuration API or status schema.
+Remove the POC from active Dashboard and macOS service paths. Keep historical source files only as non-running migration evidence. Extend the formal GeWe configuration API with a validated local callback port.
 
 **Step 4: Run Dashboard tests**
 

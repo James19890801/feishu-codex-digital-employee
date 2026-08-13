@@ -18,6 +18,7 @@ const configuration = {
   geweAppId: 'wxid_example',
   geweKeychainService: 'aipro-gewe',
   gewePublicCallbackBaseUrl: 'https://callback.example.com/aipro',
+  geweCallbackPort: 17656,
   geweMentionNames: ['James', '詹老师'],
 };
 
@@ -32,6 +33,7 @@ assert.match(view.feishu.identity, /^cli_\*+/);
 assert.equal(view.dingtalk.profile, 'desktop-api.dingtalk');
 assert.equal(view.wecom.credentialStored, true);
 assert.equal(view.wechat.credentialStored, false);
+assert.equal(view.wechat.callbackPort, 17656);
 assert.deepEqual(view.wechat.mentionNames, ['James', '詹老师']);
 assert.doesNotMatch(JSON.stringify(view), /secret|token-value|password/i);
 
@@ -70,6 +72,7 @@ assert.deepEqual(
     enabled: true,
     appId: 'wxid_example',
     publicCallbackBaseUrl: 'https://callback.example.com/aipro/',
+    callbackPort: 17657,
     mentionNames: 'James, 詹老师\nJames',
     credential: 'gewe-private-token',
   }),
@@ -79,10 +82,21 @@ assert.deepEqual(
       geweEnabled: true,
       geweAppId: 'wxid_example',
       gewePublicCallbackBaseUrl: 'https://callback.example.com/aipro',
+      geweCallbackPort: 17657,
       geweMentionNames: ['James', '詹老师'],
     },
     credential: 'gewe-private-token',
   },
+);
+
+assert.throws(
+  () => channelConfiguration.normalizeChannelConfigurationRequest('wechat', {
+    enabled: true,
+    appId: 'wxid_example',
+    publicCallbackBaseUrl: 'https://callback.example.com/aipro',
+    callbackPort: 80,
+  }),
+  /port/i,
 );
 
 assert.throws(
