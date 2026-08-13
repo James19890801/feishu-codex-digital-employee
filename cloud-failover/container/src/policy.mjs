@@ -1,9 +1,14 @@
 import { createHash } from 'node:crypto';
+import {
+  conversationReplyDisposition,
+  governGeneratedReply,
+} from './reply-governance.mjs';
 
 const HIGH_RISK = /(?:付款|转账|支付|签署|代签|录用|辞退|密码|验证码|私钥|删除全部|代表我|替我承诺)/;
 const MUTATION = /(?:发送给|发给|发布|提交|报名|申请|创建|新建|修改|取消).{0,12}(?:待办|任务|日程|会议|群聊|权限|邮件)?/;
 const DINGTALK_IMAGE_PLACEHOLDER = /\[?图片消息\]?\s*\(?\s*mediaId\s*(?:=|:)\s*([^\s)]+)\s*\)?/i;
 const DINGTALK_DOWNLOAD_HINT = /注意：如需下载使用\s*dws chat message download-media\s*命令下载/gi;
+export { conversationReplyDisposition } from './reply-governance.mjs';
 
 export function validateContainerEnvironment(env = {}) {
   for (const prohibited of ['DWS_PROFILE', 'DWS_CHANNEL', 'LOCAL_DWS_PROFILE', 'LOCAL_DWS_CHANNEL']) {
@@ -59,7 +64,12 @@ export function normalizeDwsMessage(input = {}) {
     input.messageType || input.message_type || input.msgType
       || (eventType.startsWith('user_im_message_receive_') ? 'text' : eventType || 'text'),
   ).toLowerCase();
-  return { messageId, chatId, senderId, text: userText, createdAt, messageType, ...(media ? { media } : {}), raw: undefined };
+  const chatType = String(input.chatType || input.chat_type || '').trim().toLowerCase()
+    || (eventType === 'user_im_message_receive_at' ? 'group' : 'p2p');
+  return {
+    messageId, chatId, senderId, text: userText, createdAt, messageType, chatType,
+    ...(media ? { media } : {}), raw: undefined,
+  };
 }
 
 export function evaluateCloudMessage(message, {
@@ -71,12 +81,17 @@ export function evaluateCloudMessage(message, {
   if (blockedSenderIds?.has(message.senderId)) return { allowed: false, reason: 'blocked_sender' };
   if (message.createdAt < now - 3 * 60_000) return { allowed: false, reason: 'outside_backfill_window' };
   if (!['text', 'image'].includes(message.messageType)) return { allowed: false, reason: 'non_text' };
+  if (message.messageType === 'text' && !conversationReplyDisposition(message.text).reply) {
+    return { allowed: false, reason: 'conversation_closed' };
+  }
   if (HIGH_RISK.test(message.text)) return { allowed: true, level: 'L3', handoff: true };
   if (MUTATION.test(message.text)) return { allowed: true, level: 'L2', handoff: true };
   return { allowed: true, level: /(?:方案|报告|总结)/.test(message.text) ? 'L1' : 'L0', handoff: false };
 }
 
-export function cloudReply(text) { return String(text || '').trim(); }
+export function cloudReply(text, { requestText = '' } = {}) {
+  return governGeneratedReply(text);
+}
 export function ownerHandoffReply() {
   return cloudReply('这件事需要本人确认，我先不代为操作；已保留请求，等本人在线后处理。');
 }

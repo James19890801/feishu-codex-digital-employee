@@ -47,21 +47,26 @@ export class RailwayFailoverRuntime {
   }
 
   async tick() {
-    await this.worker.initialize();
-    const lease = await this.coordinator.lease();
-    const generation = Number(lease.generation || 0);
-    if (lease.state === 'TAKING_OVER') {
-      if (this.worker.activeGeneration !== generation) {
-        await this.worker.activate(generation, { announceReady: true });
+    try {
+      await this.worker.initialize();
+      const lease = await this.coordinator.lease();
+      const generation = Number(lease.generation || 0);
+      if (lease.state === 'TAKING_OVER') {
+        if (this.worker.activeGeneration !== generation) {
+          await this.worker.activate(generation, { announceReady: true });
+        }
+      } else if (lease.state === 'CLOUD_ACTIVE') {
+        if (this.worker.activeGeneration !== generation) {
+          await this.worker.activate(generation, { announceReady: false });
+        }
+      } else {
+        this.worker.deactivate();
       }
-    } else if (lease.state === 'CLOUD_ACTIVE') {
-      if (this.worker.activeGeneration !== generation) {
-        await this.worker.activate(generation, { announceReady: false });
-      }
-    } else {
+      return lease;
+    } catch (error) {
       this.worker.deactivate();
+      throw error;
     }
-    return lease;
   }
 
   async start({ signal } = {}) {

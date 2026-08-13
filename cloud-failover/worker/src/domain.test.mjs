@@ -38,8 +38,15 @@ assert.equal((await service.heartbeat({ at: 160_000, serviceStartId: 'start-2', 
   'DRAINING');
 await assert.rejects(() => service.claim({ generation: 1, messageDigest: 'c'.repeat(64) }),
   error => error.code === 'claims_closed');
-assert.equal((await service.complete({ generation: 1, messageDigest: digest, at: 170_000 })).state,
+assert.equal((await service.complete({
+  generation: 1,
+  messageDigest: digest,
+  messageId: 'dingtalk-message-1',
+  outcomeCode: 'reply_sent',
+  at: 170_000,
+})).state,
   'LOCAL_PRIMARY');
+assert.equal(repository.claims.get(`1:${digest}`).messageId, 'dingtalk-message-1');
 
 const degradedRepository = new InMemoryFailoverRepository();
 const degradedService = new FailoverCoordinatorService({ repository: degradedRepository });

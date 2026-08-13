@@ -32,6 +32,16 @@ const unhealthy = buildHeartbeatSnapshot({
 assert.equal(unhealthy.dwsConnected, true);
 assert.equal(unhealthy.runtimeHealthy, false);
 
+const historicalDeadLetter = buildHeartbeatSnapshot({
+  ...healthyStatus,
+  healthy: false,
+  issues: ['messages_failed'],
+  messageQueue: { overdueFailed: 1 },
+}, { sequence: 4, at: '2026-08-12T00:01:00.000Z', serviceStartId: 'sidecar-1' });
+assert.equal(historicalDeadLetter.dwsConnected, true);
+assert.equal(historicalDeadLetter.runtimeHealthy, true,
+  'historical dead letters must not transfer live outbound ownership to cloud');
+
 const calls = [];
 const result = await runHeartbeatOnce({
   client: { async heartbeat(payload) { calls.push(payload); return { state: 'LOCAL_PRIMARY', generation: 4 }; } },

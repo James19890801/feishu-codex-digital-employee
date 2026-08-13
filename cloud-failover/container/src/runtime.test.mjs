@@ -33,10 +33,11 @@ await runtime.tick();
 assert.equal(worker.activeGeneration, 0);
 
 const failedWorker = {
-  activeGeneration: 0,
+  activeGeneration: 17,
+  deactivated: 0,
   async initialize() {},
   async activate() { throw new Error('must not activate'); },
-  deactivate() {},
+  deactivate() { this.deactivated += 1; this.activeGeneration = 0; },
 };
 const failedRuntime = new RailwayFailoverRuntime({
   worker: failedWorker,
@@ -44,4 +45,6 @@ const failedRuntime = new RailwayFailoverRuntime({
 });
 await assert.rejects(() => failedRuntime.tick(), /network/);
 assert.equal(failedWorker.activeGeneration, 0);
+assert.equal(failedWorker.deactivated, 1,
+  'losing the coordinator lease must revoke a previously active cloud generation');
 console.log('FAILOVER_RAILWAY_RUNTIME_TEST_OK');

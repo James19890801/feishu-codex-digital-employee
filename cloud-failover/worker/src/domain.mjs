@@ -129,13 +129,23 @@ export class FailoverCoordinatorService {
     return { accepted: true, generation: current.generation };
   }
 
-  async complete({ generation, messageDigest, outcomeCode = 'completed', at = Date.now() }) {
+  async complete({
+    generation,
+    messageDigest,
+    outcomeCode = 'completed',
+    messageId = '',
+    at = Date.now(),
+  }) {
     const current = await this.repository.read();
     if (Number(generation) !== current.generation) {
       throw new DomainError('stale_generation', 'Completion generation is stale');
     }
     const key = `${current.generation}:${messageDigest}`;
-    const completed = await this.repository.complete(key, { completedAt: at, outcomeCode });
+    const completed = await this.repository.complete(key, {
+      completedAt: at,
+      outcomeCode,
+      messageId: String(messageId || '').slice(0, 512),
+    });
     if (completed) current.inFlight = Math.max(0, current.inFlight - 1);
     if (current.state === 'DRAINING' && current.inFlight === 0) {
       current.state = 'LOCAL_PRIMARY';

@@ -17,8 +17,7 @@ export function buildHeartbeatSnapshot(status, {
     at: String(at),
     serviceStartId: String(serviceStartId),
     dwsConnected: dingtalk.authenticated === true && dingtalk.connected === true,
-    runtimeHealthy: status?.healthy === true
-      && status?.process?.alive === true
+    runtimeHealthy: status?.process?.alive === true
       && status?.aiRuntime?.healthy === true,
     lastMessageDigest: '',
     appVersion: '1.0.0-sidecar',

@@ -29,14 +29,14 @@ assert.deepEqual(normalizeDwsMessage({
   senderOpenDingTalkId: 'user-1', content: '@我 你好', createTime: now,
 }), {
   messageId: 'm-mention', chatId: 'chat-1', senderId: 'user-1', text: '@我 你好',
-  createdAt: now, messageType: 'text', raw: undefined,
+  createdAt: now, messageType: 'text', chatType: 'p2p', raw: undefined,
 });
 assert.deepEqual(normalizeDwsMessage({
   type: 'user_im_message_receive_at', message_id: 'm-event', conversation_id: 'chat-1',
   sender_open_dingtalk_id: 'user-1', content: '云端测试', create_time: '2026-08-12 15:39:33',
 }), {
   messageId: 'm-event', chatId: 'chat-1', senderId: 'user-1', text: '云端测试',
-  createdAt: new Date('2026-08-12 15:39:33').getTime(), messageType: 'text', raw: undefined,
+  createdAt: new Date('2026-08-12 15:39:33').getTime(), messageType: 'text', chatType: 'group', raw: undefined,
 });
 const imageMessage = normalizeDwsMessage({
   type: 'user_im_message_receive_o2o_all', message_id: 'm-image', conversation_id: 'chat-1',
@@ -53,6 +53,16 @@ assert.deepEqual(evaluateCloudMessage(imageMessage, {
 }), { allowed: true, level: 'L0', handoff: false });
 assert.deepEqual(evaluateCloudMessage(message, { ...policy, generation: 2, expectedGeneration: 2, now }),
   { allowed: true, level: 'L0', handoff: false });
+for (const text of [
+  '好的，有需要随时说。', '好的，回头联系。', '谢谢，先这样。', '我整理好稍后发你。',
+]) {
+  assert.deepEqual(evaluateCloudMessage({ ...message, text }, {
+    ...policy, generation: 2, expectedGeneration: 2, now,
+  }), { allowed: false, reason: 'conversation_closed' });
+}
+assert.deepEqual(evaluateCloudMessage({ ...message, text: '好的，那请帮我创建明天九点的日程' }, {
+  ...policy, generation: 2, expectedGeneration: 2, now,
+}), { allowed: true, level: 'L2', handoff: true });
 assert.equal(evaluateCloudMessage({ ...message, chatId: 'blocked-chat' }, { ...policy, generation: 2, expectedGeneration: 2, now }).reason,
   'blocked_chat');
 assert.equal(evaluateCloudMessage({ ...message, senderId: 'blocked-user' }, { ...policy, generation: 2, expectedGeneration: 2, now }).reason,
@@ -64,7 +74,13 @@ assert.equal(evaluateCloudMessage({ ...message, text: '帮我转账100元' }, { 
 assert.match(stableMessageUuid('dingtalk', 'm1'), /^[a-f0-9-]{36}$/);
 assert.equal(stableMessageUuid('dingtalk', 'm1'), stableMessageUuid('dingtalk', 'm1'));
 assert.match(messageDigest('m1'), /^[a-f0-9]{64}$/);
-assert.equal(cloudReply('好'), '好');
+assert.equal(cloudReply('好'), '', 'a one-word acknowledgement is not a useful cloud answer');
+assert.equal(cloudReply('好，有需要随时说。', {
+  requestText: '好的，回头联系。',
+}), '', 'generic closing replies must fail the outbound quality gate');
+assert.equal(cloudReply('好的，随时找我。', {
+  requestText: '帮我分析一下这个问题',
+}), '', 'a generated non-answer must not become outbound merely because the request was actionable');
 assert.match(ownerHandoffReply(), /本人确认/);
 assert.doesNotMatch(ownerHandoffReply(), /云端兜底/);
 console.log('FAILOVER_CONTAINER_POLICY_TEST_OK');

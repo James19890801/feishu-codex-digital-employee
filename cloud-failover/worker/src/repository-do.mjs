@@ -10,8 +10,11 @@ export class DurableObjectFailoverRepository {
     this.storage = storage;
     storage.sql?.exec?.(`CREATE TABLE IF NOT EXISTS failover_claims (
       claim_key TEXT PRIMARY KEY, generation INTEGER NOT NULL, digest TEXT NOT NULL,
-      claimed_at INTEGER NOT NULL, completed_at INTEGER, outcome_code TEXT
+      claimed_at INTEGER NOT NULL, completed_at INTEGER, outcome_code TEXT, message_id TEXT
     )`);
+    if (storage.sql?.exec) {
+      try { storage.sql.exec('ALTER TABLE failover_claims ADD COLUMN message_id TEXT'); } catch { /* already migrated */ }
+    }
     storage.sql?.exec?.(`CREATE TABLE IF NOT EXISTS replay_nonces (
       nonce_key TEXT PRIMARY KEY, expires_at INTEGER NOT NULL
     )`);
@@ -46,8 +49,9 @@ export class DurableObjectFailoverRepository {
   async complete(key, outcome) {
     if (this.storage.sql?.exec) {
       const cursor = this.storage.sql.exec(
-        'UPDATE failover_claims SET completed_at = ?, outcome_code = ? WHERE claim_key = ? AND completed_at IS NULL RETURNING claim_key',
-        Number(outcome.completedAt), String(outcome.outcomeCode || '').slice(0, 64), key,
+        'UPDATE failover_claims SET completed_at = ?, outcome_code = ?, message_id = ? WHERE claim_key = ? AND completed_at IS NULL RETURNING claim_key',
+        Number(outcome.completedAt), String(outcome.outcomeCode || '').slice(0, 64),
+        String(outcome.messageId || '').slice(0, 512), key,
       );
       return [...cursor].length === 1;
     }

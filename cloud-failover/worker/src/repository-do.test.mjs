@@ -14,7 +14,10 @@ await repository.write(next);
 assert.equal((await repository.read()).generation, 1);
 assert.equal(await repository.claim(`1:${'a'.repeat(64)}`, { generation: 1, at: 1 }), true);
 assert.equal(await repository.claim(`1:${'a'.repeat(64)}`, { generation: 1, at: 1 }), false);
-assert.equal(await repository.complete(`1:${'a'.repeat(64)}`, { completedAt: 2, outcomeCode: 'sent' }), true);
+assert.equal(await repository.complete(`1:${'a'.repeat(64)}`, {
+  completedAt: 2, outcomeCode: 'sent', messageId: 'dingtalk-message-1',
+}), true);
+assert.equal(repository.storage.map.get(`claim:1:${'a'.repeat(64)}`).messageId, 'dingtalk-message-1');
 assert.equal(await repository.complete(`1:${'a'.repeat(64)}`, { completedAt: 3, outcomeCode: 'sent' }), false);
 assert.equal(await repository.use('node', 'nonce', 100, 1), true);
 assert.equal(await repository.use('node', 'nonce', 100, 1), false);

@@ -35,8 +35,14 @@ const runner = async (_bin, args, options = {}) => {
   if (args[0] === 'chat' && args[1] === 'message' && args[2] === 'send') {
     return { stdout: '{"result":{"openTaskId":"task-1"}}' };
   }
+  if (args[0] === 'chat' && args[1] === 'message' && args[2] === 'list') {
+    const since = args[args.indexOf('--time') + 1];
+    return { stdout: since === '2026-08-12T00:00:01.000Z'
+      ? '{"result":{"hasMore":false,"messages":[{"openMessageId":"owner-1","createTime":"2026-08-12 00:00:02","senderOpenDingTalkId":"owner-id","content":"我来处理"}]}}'
+      : '{"result":{"hasMore":false,"messages":[]}}' };
+  }
   if (args[0] === 'chat' && args[1] === 'message' && args[2] === 'query-send-status') {
-    return { stdout: '{"result":{"sendStatus":"SUCCESS"}}' };
+    return { stdout: '{"result":{"sendStatus":"SUCCESS","messageId":"sent-message-1"}}' };
   }
   if (args[0] === 'chat' && args[1] === 'message' && args[2] === 'download-media') {
     const output = args[args.indexOf('--output') + 1];
@@ -48,7 +54,10 @@ const runner = async (_bin, args, options = {}) => {
 const coordinator = {
   async ready(generation) { coordinatorCalls.push(['ready', generation]); return { ok: true }; },
   async claim(input) { coordinatorCalls.push(['claim', input]); return { accepted: true }; },
-  async qoder(input) { coordinatorCalls.push(['qoder', input]); return { result: { text: '云端回答' } }; },
+  async qoder(input) {
+    coordinatorCalls.push(['qoder', input]);
+    return { result: { text: input.prompt.includes('质量闸门测试') ? '好的，随时找我。' : '云端回答' } };
+  },
   async vision(input) { coordinatorCalls.push(['vision', input]); return { text: '一张测试截图' }; },
   async complete(input) { coordinatorCalls.push(['complete', input]); return { ok: true }; },
 };
@@ -93,7 +102,7 @@ assert.equal(backfillCalls[0].includes('--end'), true);
 const result = await worker.processMessage({
   messageId: 'm1', chatId: 'chat-1', senderId: 'user-1', text: '你好', createdAt: 1_786_060_800_000,
 });
-assert.equal(result.sent, true);
+assert.deepEqual(result, { sent: true, outcomeCode: 'reply_sent', messageId: 'sent-message-1' });
 const send = calls.find(args => args[0] === 'chat' && args[2] === 'send');
 assert.equal(send[send.indexOf('--text') + 1], '云端回答');
 assert.match(send[send.indexOf('--uuid') + 1], /^[a-f0-9-]{36}$/);
@@ -101,6 +110,34 @@ assert.equal(send.includes('--format'), true);
 const sendStatus = calls.find(args => args[0] === 'chat' && args[2] === 'query-send-status');
 assert.equal(sendStatus[sendStatus.indexOf('--open-task-id') + 1], 'task-1');
 assert.equal(coordinatorCalls.at(-1)[0], 'complete');
+assert.equal(coordinatorCalls.at(-1)[1].messageId, 'sent-message-1');
+
+const sendCountBeforeClosing = calls.filter(args => args[0] === 'chat' && args[2] === 'send').length;
+const qoderCountBeforeClosing = coordinatorCalls.filter(call => call[0] === 'qoder').length;
+assert.deepEqual(await worker.processMessage({
+  messageId: 'm-closing', chatId: 'chat-1', senderId: 'user-1',
+  text: '好的，有需要随时说。', createdAt: 1_786_060_800_000,
+}), { skipped: 'conversation_closed' });
+assert.equal(coordinatorCalls.filter(call => call[0] === 'qoder').length, qoderCountBeforeClosing);
+assert.equal(calls.filter(args => args[0] === 'chat' && args[2] === 'send').length, sendCountBeforeClosing);
+
+const suppressed = await worker.processMessage({
+  messageId: 'm-quality', chatId: 'chat-1', senderId: 'user-1',
+  text: '请帮我做质量闸门测试', createdAt: 1_786_060_800_000,
+});
+assert.deepEqual(suppressed, { sent: false, skipped: 'outbound_quality' });
+assert.equal(calls.filter(args => args[0] === 'chat' && args[2] === 'send').length, sendCountBeforeClosing);
+assert.equal(coordinatorCalls.at(-1)[0], 'complete');
+assert.equal(coordinatorCalls.at(-1)[1].outcomeCode, 'reply_suppressed_quality');
+
+const sendsBeforeTakeover = calls.filter(args => args[0] === 'chat' && args[2] === 'send').length;
+const takenOver = await worker.processMessage({
+  messageId: 'm-owner-takeover', chatId: 'chat-1', senderId: 'user-1',
+  text: '请帮我分析这个问题', createdAt: Date.parse('2026-08-12T00:00:01.000Z'),
+});
+assert.deepEqual(takenOver, { sent: false, skipped: 'human_takeover' });
+assert.equal(calls.filter(args => args[0] === 'chat' && args[2] === 'send').length, sendsBeforeTakeover);
+assert.equal(coordinatorCalls.at(-1)[1].outcomeCode, 'reply_suppressed_human_takeover');
 
 const imageResult = await worker.processMessage({
   type: 'user_im_message_receive_o2o_all',

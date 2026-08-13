@@ -253,6 +253,7 @@ export class StandbyDwsWorker {
     const claim = await this.coordinator.claim({ generation, messageDigest: digest });
     if (!claim.accepted) return { skipped: 'duplicate' };
     let outcomeCode = 'failed';
+    let deliveredMessageId = '';
     try {
       let prompt = message.text;
       if (message.messageType === 'image') {
@@ -271,6 +272,14 @@ export class StandbyDwsWorker {
             digest: messageDigest(prompt), bytes: Buffer.byteLength(prompt, 'utf8'),
             purpose: 'whole_host_reply',
           })).result.text);
+      if (!reply) {
+        outcomeCode = 'reply_suppressed_quality';
+        return { sent: false, skipped: 'outbound_quality' };
+      }
+      if (await this.hasOwnerActivityAfter(message)) {
+        outcomeCode = 'reply_suppressed_human_takeover';
+        return { sent: false, skipped: 'human_takeover' };
+      }
       const sent = await this.runner(this.bin, [
         'chat', 'message', 'send', '--group', message.chatId, '--text', reply,
         '--uuid', stableMessageUuid('dingtalk', message.messageId), '--yes', '--format', 'json',
@@ -291,6 +300,9 @@ export class StandbyDwsWorker {
         try { parsed = JSON.parse(status.stdout); } catch { parsed = {}; }
         const root = parsed.result || parsed.data || parsed;
         sendStatus = String(root.sendStatus || root.send_status || root.status || '').toUpperCase();
+        deliveredMessageId = String(
+          root.messageId || root.openMessageId || root.message_id || '',
+        ).trim();
         if (sendStatus === 'SUCCESS') break;
         if (['FAILED', 'FAIL', 'ERROR'].includes(sendStatus)) {
           throw new Error(`DWS send failed with terminal status ${sendStatus}`);
@@ -298,11 +310,37 @@ export class StandbyDwsWorker {
         if (attempt < 4) await this.delay(500 * (attempt + 1));
       }
       if (sendStatus !== 'SUCCESS') throw new Error('DWS send did not reach SUCCESS');
+      if (!deliveredMessageId) throw new Error('DWS send reached SUCCESS without messageId');
       outcomeCode = decision.handoff ? 'owner_handoff_sent' : 'reply_sent';
-      return { sent: true, outcomeCode };
+      return { sent: true, outcomeCode, messageId: deliveredMessageId };
     } finally {
-      await this.coordinator.complete({ generation, messageDigest: digest, outcomeCode });
+      await this.coordinator.complete({
+        generation,
+        messageDigest: digest,
+        outcomeCode,
+        ...(deliveredMessageId ? { messageId: deliveredMessageId } : {}),
+      });
     }
+  }
+
+  async hasOwnerActivityAfter(message) {
+    if (message.chatType !== 'p2p') return false;
+    const result = await this.runner(this.bin, [
+      'chat', 'message', 'list', '--open-dingtalk-id', message.senderId,
+      '--time', new Date(message.createdAt).toISOString(), '--direction', 'newer',
+      '--limit', '20', '--format', 'json', ...this.commonArgs(),
+    ], this.dwsOptions());
+    let parsed = {};
+    try { parsed = JSON.parse(result.stdout); } catch { throw new Error('DWS takeover readback returned invalid JSON'); }
+    const root = parsed.result || parsed.data || parsed;
+    if (root.hasMore === true) throw new Error('DWS takeover readback exceeded one page');
+    const messages = Array.isArray(root.messages) ? root.messages : [];
+    return messages.some(item => {
+      const senderId = String(
+        item.senderOpenDingTalkId || item.senderId || item.senderStaffId || '',
+      ).trim();
+      return senderId && senderId !== message.senderId;
+    });
   }
 
   async describeImage(message, generation) {
@@ -356,7 +394,11 @@ export class StandbyDwsWorker {
     const conversations = Array.isArray(root.conversationMessagesList) ? root.conversationMessagesList : [];
     const items = conversations.flatMap(conversation => (
       Array.isArray(conversation.messages)
-        ? conversation.messages.map(message => ({ ...message, openConversationId: conversation.openConversationId }))
+        ? conversation.messages.map(message => ({
+            ...message,
+            openConversationId: conversation.openConversationId,
+            chatType: 'group',
+          }))
         : []
     ));
     for (const message of items) await this.processMessage(message);
