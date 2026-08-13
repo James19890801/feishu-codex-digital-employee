@@ -312,6 +312,24 @@ assert.equal(humanTakeoverStatus(
   Date.parse('2026-08-01T16:29:30+08:00'),
 ).active, false, 'the assistant may return only after five full minutes of owner inactivity');
 
+const wechatGroupActivity = applyOwnerActivityHistory([{
+  content: '我在微信群里手动回复',
+  create_time: '2026-08-01T08:40:00.000Z',
+  message_id: 'wechat:app:owner-group-1',
+  sender: { id: 'wechat:wxid_owner' },
+}], {
+  ownerId: 'wechat:wxid_owner',
+  current: null,
+  nowMs: Date.parse('2026-08-01T08:40:01.000Z'),
+});
+assert.equal(wechatGroupActivity.changed, true);
+assert.equal(wechatGroupActivity.state.reason, 'owner_manual_activity');
+assert.equal(
+  wechatGroupActivity.state.pausedUntilMs,
+  Date.parse('2026-08-01T08:45:00.000Z'),
+  'verified GeWe owner activity must use the same five-minute rolling takeover window',
+);
+
 const groupOwnerHistory = applyVerifiedOwnerHistory([{
   content: '我在群里正常说话', createTime: '2026-08-01 16:30:00',
   openMessageId: 'owner-group-normal', senderOpenDingTalkId: 'owner-id',

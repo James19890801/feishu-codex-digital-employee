@@ -2224,17 +2224,18 @@ async function processIncoming(client, message, sender, metadata = {}) {
   const nowMs = Date.now();
   const ownerMentionedBot = senderOpenId === OWNER_OPEN_ID
     && isExplicitBotMention(message, APP_ID);
-  if (message.chat_type === 'p2p'
-    && metadata.ownerActivity === true && senderOpenId === OWNER_OPEN_ID
+  const authenticatedOwnerActivity = metadata.ownerActivity === true
+    && (senderOpenId === OWNER_OPEN_ID || metadata.ownerControlAuthenticated === true);
+  if (authenticatedOwnerActivity
     && metadata.botChat !== true && !ownerMentionedBot) {
     const occurredAtMs = Number(message.create_time || nowMs);
     const applied = applyOwnerActivityHistory([{
       message_id: message.message_id,
       content: cleanText,
       create_time: new Date(Number.isFinite(occurredAtMs) ? occurredAtMs : nowMs).toISOString(),
-      sender: { id: OWNER_OPEN_ID },
+      sender: { id: senderOpenId },
     }], {
-      ownerId: OWNER_OPEN_ID,
+      ownerId: senderOpenId,
       current: readHumanTakeover(message.chat_id, nowMs),
       nowMs,
     });
