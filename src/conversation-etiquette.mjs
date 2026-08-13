@@ -1,4 +1,4 @@
-const DETAILED_REQUEST = /(?:方案|报告|分析|文档|总结|计划|步骤|清单|教程|复盘|对比|长文|完整|详细|深入|系统性|全面)/;
+const DETAILED_REQUEST = /(?:方案|报告|分析|文档|总结|计划|步骤|清单|教程|复盘|对比|长文|完整|详细|深入|系统性|全面|核心看点|创新(?:的)?点|主要亮点|核心价值)/;
 const TERSE_SOCIAL_REQUEST = /^(?:你好|您好|嗨|hi|hello|在吗|嗯|哦|好|好的|收到|谢谢|感谢|辛苦了|可以吗|行吗)[呀啊吗呢哦。！!？? ]*$/i;
 
 export function replyLengthPolicy(request) {
@@ -8,16 +8,8 @@ export function replyLengthPolicy(request) {
   return { detailed: false, maxChars: 90 };
 }
 
-function truncateCharacters(text, maxChars) {
-  const characters = Array.from(String(text || '').trim());
-  if (characters.length <= maxChars) return characters.join('');
-  return `${characters.slice(0, Math.max(1, maxChars - 1)).join('').trimEnd()}…`;
-}
-
-export function enforceReplyLength(answer, request) {
-  const policy = replyLengthPolicy(request);
-  const normalized = String(answer || '').trim().replace(/\n{3,}/g, '\n\n');
-  return policy.detailed ? truncateCharacters(normalized, policy.maxChars) : truncateCharacters(normalized, policy.maxChars);
+export function enforceReplyLength(answer, _request) {
+  return String(answer || '').trim().replace(/\n{3,}/g, '\n\n');
 }
 
 export function buildFirstTakeoverGreeting() {

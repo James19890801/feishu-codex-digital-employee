@@ -485,7 +485,7 @@ for (const [request, detailed, maxChars] of [
 ]) {
   contract('conversation-etiquette', `What reply budget applies to: ${request}`, () => {
     assert.deepEqual(replyLengthPolicy(request), { detailed, maxChars });
-    assert.equal(Array.from(enforceReplyLength('内容'.repeat(3_000), request)).length <= maxChars, true);
+    assert.equal(enforceReplyLength('内容'.repeat(3_000), request), '内容'.repeat(3_000));
   });
 }
 

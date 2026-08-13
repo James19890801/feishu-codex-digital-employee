@@ -9,12 +9,19 @@ import {
 assert.deepEqual(replyLengthPolicy('你好'), { detailed: false, maxChars: 48 });
 assert.deepEqual(replyLengthPolicy('这件事你怎么看？'), { detailed: false, maxChars: 90 });
 assert.deepEqual(replyLengthPolicy('请给我一份完整的实施方案'), { detailed: true, maxChars: 3800 });
+assert.deepEqual(
+  replyLengthPolicy('这个产品的核心看点在哪儿？或者创新的点在哪儿呢'),
+  { detailed: true, maxChars: 3800 },
+);
 
-assert.equal(enforceReplyLength('你好，很高兴认识你。你现在想聊什么？', '你好').length <= 48, true);
+assert.equal(
+  enforceReplyLength('你好，很高兴认识你。你现在想聊什么？', '你好'),
+  '你好，很高兴认识你。你现在想聊什么？',
+);
 assert.equal(enforceReplyLength('第一段。'.repeat(80), '请给我一份详细方案'), '第一段。'.repeat(80));
 assert.equal(
-  enforceReplyLength('这是一段很长的日常回复，没有必要全部发给对方。'.repeat(20), '你觉得呢').length <= 90,
-  true,
+  enforceReplyLength('这是一段很长的日常回复，没有必要全部发给对方。'.repeat(20), '你觉得呢'),
+  '这是一段很长的日常回复，没有必要全部发给对方。'.repeat(20),
 );
 
 const greeting = buildFirstTakeoverGreeting();
