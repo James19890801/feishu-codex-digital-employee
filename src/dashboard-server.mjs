@@ -32,6 +32,7 @@ import {
   channelConfigurationView,
   channelConnectionReport,
   channelCredentialTarget,
+  mainServiceReadyForChannelChange,
   normalizeChannelConfigurationRequest,
 } from './channel-configuration.mjs';
 import {
@@ -864,15 +865,12 @@ function synchronizeDashboardConfiguration(rawConfig) {
   );
 }
 
-async function waitForMainConfigurationHealth({ requireWebsocket = true } = {}) {
+async function waitForMainConfigurationHealth({ verifyChannel = '' } = {}) {
   const deadline = Date.now() + 35_000;
   let latest = null;
   while (Date.now() < deadline) {
     latest = await collectStatus();
-    const coreHealthy = latest.process.alive
-      && latest.polling.healthy
-      && latest.database.integrity === 'ok';
-    if (coreHealthy && (!requireWebsocket || latest.websocket.active)) return latest;
+    if (mainServiceReadyForChannelChange(latest, verifyChannel)) return latest;
     await new Promise(resolve => setTimeout(resolve, 1_000));
   }
   const issues = latest?.issueLabels?.join('; ') || 'main process did not become healthy';
@@ -904,7 +902,7 @@ async function applyConfigurationAssistantPlan(plan, { verifyChannel = '' } = {}
     await validateConfigurationOnDisk({ verifyRuntime });
     synchronizeDashboardConfiguration(updated.config);
     await restartMainService();
-    let status = await waitForMainConfigurationHealth();
+    let status = await waitForMainConfigurationHealth({ verifyChannel });
     if (verifyChannel) {
       const channelReport = await waitForChannelConnection(verifyChannel);
       if (!channelReport.ok) {

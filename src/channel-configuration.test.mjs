@@ -6,6 +6,24 @@ assert.equal(typeof channelConfiguration.channelConfigurationView, 'function');
 assert.equal(typeof channelConfiguration.normalizeChannelConfigurationRequest, 'function');
 assert.equal(typeof channelConfiguration.channelCredentialTarget, 'function');
 assert.equal(typeof channelConfiguration.channelConnectionReport, 'function');
+assert.equal(typeof channelConfiguration.mainServiceReadyForChannelChange, 'function');
+
+const unrelatedFeishuQuotaFailure = {
+  process: { alive: true },
+  database: { integrity: 'ok' },
+  polling: { healthy: false },
+  websocket: { active: false },
+};
+assert.equal(
+  channelConfiguration.mainServiceReadyForChannelChange(unrelatedFeishuQuotaFailure, 'wechat'),
+  true,
+  'an existing Feishu polling failure must not roll back an otherwise healthy WeChat channel change',
+);
+assert.equal(
+  channelConfiguration.mainServiceReadyForChannelChange(unrelatedFeishuQuotaFailure, 'feishu'),
+  false,
+  'Feishu changes must still require Feishu polling and WebSocket health',
+);
 
 const configuration = {
   feishuAppId: 'cli_0123456789abcdef',

@@ -174,6 +174,14 @@ function check(label, passed, detail = '') {
   return { label, passed: Boolean(passed), detail: String(detail || '') };
 }
 
+export function mainServiceReadyForChannelChange(status, channel = '') {
+  const coreReady = Boolean(status?.process?.alive)
+    && status?.database?.integrity === 'ok';
+  if (!coreReady) return false;
+  if (channel && channel !== 'feishu') return true;
+  return Boolean(status?.polling?.healthy) && Boolean(status?.websocket?.active);
+}
+
 export function channelConnectionReport(channel, status) {
   if (!CHANNELS.has(channel)) throw new Error('Unknown IM channel');
   if (channel === 'feishu') {
