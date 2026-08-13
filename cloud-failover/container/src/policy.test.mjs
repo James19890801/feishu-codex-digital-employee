@@ -55,6 +55,7 @@ assert.deepEqual(evaluateCloudMessage(message, { ...policy, generation: 2, expec
   { allowed: true, level: 'L0', handoff: false });
 for (const text of [
   '好的，有需要随时说。', '好的，回头联系。', '谢谢，先这样。', '我整理好稍后发你。',
+  '哈哈没事没事，你也去忙吧，咱别循环了～', '👌',
 ]) {
   assert.deepEqual(evaluateCloudMessage({ ...message, text }, {
     ...policy, generation: 2, expectedGeneration: 2, now,
@@ -81,6 +82,8 @@ assert.equal(cloudReply('好，有需要随时说。', {
 assert.equal(cloudReply('好的，随时找我。', {
   requestText: '帮我分析一下这个问题',
 }), '', 'a generated non-answer must not become outbound merely because the request was actionable');
+assert.equal(cloudReply('哈哈好，收住，不循环了～'), '');
+assert.equal(cloudReply('👌'), '');
 assert.match(ownerHandoffReply(), /本人确认/);
 assert.doesNotMatch(ownerHandoffReply(), /云端兜底/);
 console.log('FAILOVER_CONTAINER_POLICY_TEST_OK');
