@@ -300,15 +300,42 @@ export function parseLearningRuntimeOutput(text) {
 }
 
 export function buildDailyLearningPrompt({
-  previousMemory = '', conversations = [], audits = [], files = [], skills = [],
+  previousMemory = '', conversations = [], conversationGroups = null,
+  audits = [], files = [], skills = [],
 } = {}) {
+  const grouped = Array.isArray(conversationGroups)
+    ? conversationGroups
+    : groupLearningConversations(conversations, { maxMessages: 1_000 });
+  let remainingMessages = 1_000;
   const evidence = {
     previousMemory: redactLearningText(previousMemory).slice(0, 12_000),
-    conversations: conversations.slice(0, 80).map(item => ({
-      role: item.role === 'assistant' ? 'assistant' : 'user',
-      content: redactLearningText(item.content).slice(0, 600),
-      at: item.createdAt || item.created_at || '',
-    })),
+    conversationGroups: grouped.slice(0, 1_000).map(group => {
+      const safeConversation = /^(?:feishu|dingtalk|wecom|wechat)-(?:group|p2p)-[a-f0-9]{10}$/
+        .test(String(group?.conversation || ''))
+        ? group.conversation
+        : learningAlias('conversation', group?.conversation || 'unknown');
+      const available = Math.max(0, remainingMessages);
+      const messages = (Array.isArray(group?.messages) ? group.messages : [])
+        .slice(0, available)
+        .map(item => ({
+          role: item.role === 'assistant' ? 'assistant' : 'user',
+          speaker: item.role === 'assistant'
+            ? 'assistant'
+            : /^speaker-[a-f0-9]{10}$/.test(String(item.speaker || ''))
+              ? item.speaker
+              : learningAlias('speaker', item.speaker || 'unknown'),
+          content: redactLearningText(item.content).slice(0, 400),
+          at: item.at || item.createdAt || item.created_at || '',
+        }));
+      remainingMessages -= messages.length;
+      return {
+        conversation: safeConversation,
+        channel: ['feishu', 'dingtalk', 'wecom', 'wechat'].includes(group?.channel)
+          ? group.channel : 'feishu',
+        chatType: group?.chatType === 'group' ? 'group' : 'p2p',
+        messages,
+      };
+    }).filter(group => group.messages.length > 0),
     audits: audits.slice(0, 120).map(item => ({
       event: String(item.event || '').slice(0, 100),
       detail: redactLearningText(JSON.stringify(item.detail || {})).slice(0, 400),
@@ -343,6 +370,7 @@ export class DailyLearningEngine {
     contentRoots = [],
     scanFiles = scanLearningFiles,
     scanSkills = scanSkillCatalog,
+    conversationLimit = 1_000,
   } = {}) {
     if (!state || typeof state.learningEvidence !== 'function') {
       throw new Error('Daily learning requires a persistent AgentState');
@@ -357,6 +385,10 @@ export class DailyLearningEngine {
     )];
     this.scanFiles = scanFiles;
     this.scanSkills = scanSkills;
+    this.conversationLimit = Math.max(
+      1,
+      Math.min(5_000, Math.trunc(Number(conversationLimit) || 1_000)),
+    );
   }
 
   async execute({ now = new Date(), reason = 'scheduled' } = {}) {
@@ -380,9 +412,16 @@ export class DailyLearningEngine {
         state: 'running', stage: 'history', runId, startedAt: sourceToAt,
       });
       const evidence = this.state.learningEvidence(sourceFromAt, sourceToAt);
+      const conversationGroups = groupLearningConversations(evidence.conversations, {
+        maxMessages: this.conversationLimit,
+      });
+      const selectedMessages = conversationGroups.reduce(
+        (sum, group) => sum + group.messages.length,
+        0,
+      );
       this.state.set('learning', 'status', {
         state: 'running', stage: 'files', runId, startedAt: sourceToAt,
-        chatsReviewed: evidence.conversations.length,
+        chatsReviewed: selectedMessages,
       });
       const learningRoots = this.contentRoots;
       const files = await this.scanFiles({
@@ -391,18 +430,18 @@ export class DailyLearningEngine {
       });
       this.state.set('learning', 'status', {
         state: 'running', stage: 'skills', runId, startedAt: sourceToAt,
-        filesScanned: files.length, chatsReviewed: evidence.conversations.length,
+        filesScanned: files.length, chatsReviewed: selectedMessages,
       });
       const skills = await this.scanSkills({
         roots: [join(this.home, '.codex', 'skills'), join(this.home, '.agents', 'skills')],
       });
       this.state.set('learning', 'status', {
         state: 'running', stage: 'analyzing', runId, startedAt: sourceToAt,
-        filesScanned: files.length, chatsReviewed: evidence.conversations.length,
+        filesScanned: files.length, chatsReviewed: selectedMessages,
       });
       const prompt = buildDailyLearningPrompt({
         previousMemory: this.state.get('learning', 'memory', ''),
-        conversations: evidence.conversations,
+        conversationGroups,
         audits: evidence.audits,
         files,
         skills,
@@ -415,7 +454,7 @@ export class DailyLearningEngine {
         summary: learned.summary,
         memory: learned.memory,
         filesScanned: files.length,
-        chatsReviewed: evidence.conversations.length,
+        chatsReviewed: selectedMessages,
         tasksLearned: learned.counts.tasks,
         skillsLearned: learned.counts.skills,
         errorsLearned: learned.counts.errors,
@@ -427,7 +466,7 @@ export class DailyLearningEngine {
           learningDate,
           reason,
           filesScanned: files.length,
-          chatsReviewed: evidence.conversations.length,
+          chatsReviewed: selectedMessages,
           tasksLearned: learned.counts.tasks,
           skillsLearned: learned.counts.skills,
           errorsLearned: learned.counts.errors,

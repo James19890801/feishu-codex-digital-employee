@@ -157,6 +157,46 @@ assert.match(prompt, /旧规则/);
 assert.match(prompt, /inbound_failed_final/);
 assert.equal(prompt.includes('password='), false);
 
+const groupedPrompt = buildDailyLearningPrompt({
+  previousMemory: '旧规则',
+  conversationGroups: balancedGroups,
+  audits: [],
+  files: [],
+  skills: [],
+});
+const groupedEvidence = JSON.parse(groupedPrompt.split('脱敏学习证据：\n').at(-1));
+assert.equal(groupedEvidence.conversationGroups.length, 3);
+assert.equal(
+  groupedEvidence.conversationGroups.reduce((sum, group) => sum + group.messages.length, 0),
+  18,
+);
+assert.deepEqual(
+  new Set(groupedEvidence.conversationGroups.map(group => group.channel)),
+  new Set(['feishu', 'dingtalk', 'wechat']),
+);
+assert.equal(groupedEvidence.conversationGroups.every(group => (
+  group.messages.every(message => message.speaker)
+)), true, 'grouped prompts must preserve anonymous speaker continuity');
+for (const secretIdentity of [
+  'oc_private_feishu_group',
+  'ou_private_feishu_member',
+  'private-ding-group',
+  'private-wechat-room',
+  'private-member',
+  'AI流程与组织变革交流群',
+]) {
+  assert.equal(groupedPrompt.includes(secretIdentity), false);
+}
+
+const thousandMessagePrompt = buildDailyLearningPrompt({
+  conversationGroups: cappedGroups,
+});
+const thousandMessageEvidence = JSON.parse(
+  thousandMessagePrompt.split('脱敏学习证据：\n').at(-1),
+);
+assert.equal(thousandMessageEvidence.conversationGroups[0].messages.length, 1_000);
+assert.equal(thousandMessagePrompt.length < 500_000, true, '1000-message prompt must stay bounded');
+
 const boundedPrompt = buildDailyLearningPrompt({
   previousMemory: 'm'.repeat(100_000),
   conversations: Array.from({ length: 1000 }, () => ({ role: 'user', content: 'c'.repeat(3000) })),

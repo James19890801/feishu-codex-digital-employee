@@ -16,7 +16,23 @@ const state = {
   unset(scope, key) { values.delete(`${scope}:${key}`); },
   learningEvidence() {
     return {
-      conversations: [{ role: 'user', content: 'password=bad PDF 为什么没交付？' }],
+      conversations: [
+        {
+          channel: 'feishu', chatType: 'group', chatId: 'oc_private_feishu',
+          senderId: 'ou_private_feishu', role: 'user',
+          content: 'password=bad PDF 为什么没交付？', createdAt: '2026-08-06T14:00:00.000Z',
+        },
+        {
+          channel: 'dingtalk', chatType: 'group', chatId: 'dingtalk:group:private-ding',
+          senderId: 'dingtalk:private-sender', role: 'user',
+          content: '钉钉流程复盘', createdAt: '2026-08-06T14:00:01.000Z',
+        },
+        {
+          channel: 'wechat', chatType: 'group', chatId: 'wechat:group:private-room@chatroom',
+          senderId: 'wechat:private-sender', role: 'user',
+          content: '微信组织变革讨论', createdAt: '2026-08-06T14:00:02.000Z',
+        },
+      ],
       audits: [{ event: 'inbound_failed_final', detail: { error: 'timeout' } }],
     };
   },
@@ -37,6 +53,14 @@ const engine = new DailyLearningEngine({
   scanSkills: async () => [{ name: 'pdf', description: 'Create PDFs' }],
   runAi: async prompt => {
     assert.equal(prompt.includes('password=bad'), false);
+    for (const rawIdentity of ['oc_private_feishu', 'private-ding', 'private-room', 'private-sender']) {
+      assert.equal(prompt.includes(rawIdentity), false);
+    }
+    const evidence = JSON.parse(prompt.split('脱敏学习证据：\n').at(-1));
+    assert.deepEqual(
+      new Set(evidence.conversationGroups.map(group => group.channel)),
+      new Set(['feishu', 'dingtalk', 'wechat']),
+    );
     return { text: JSON.stringify({
       summary: '完成今日复盘。',
       memoryRules: ['交付后主动同步状态'],
@@ -58,7 +82,7 @@ assert.deepEqual(result.counts, { tasks: 1, skills: 1, errors: 1 });
 assert.equal(calls[0][0], 'start');
 const completed = calls.find(item => item[0] === 'complete');
 assert.equal(completed[2].filesScanned, 1);
-assert.equal(completed[2].chatsReviewed, 1);
+assert.equal(completed[2].chatsReviewed, 3);
 assert.equal(completed[2].items.length, 3);
 assert.equal(calls.some(item => item[0] === 'audit' && item[1] === 'daily_learning_completed'), true);
 assert.equal(scannedRoots.includes('/Users/example'), false, 'the scanner must not traverse the entire home tree');
