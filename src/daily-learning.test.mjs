@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   buildDailyLearningPrompt,
+  groupLearningConversations,
   isLearningPathAllowed,
   nextDailyLearningAt,
   normalizeLearningResult,
@@ -12,6 +13,74 @@ import {
   scanSkillCatalog,
   shouldRunDailyLearning,
 } from './daily-learning.mjs';
+
+const learningMessages = [];
+for (let index = 0; index < 1_100; index += 1) {
+  learningMessages.push({
+    channel: 'wechat',
+    chatType: 'group',
+    chatId: 'wechat:group:large-room@chatroom',
+    senderId: `wechat:member-${index % 3}`,
+    role: 'user',
+    content: `大群消息-${index}`,
+    createdAt: new Date(1_780_000_000_000 + index).toISOString(),
+    groupName: '普通交流群',
+  });
+}
+const cappedGroups = groupLearningConversations(learningMessages, {
+  maxMessages: 1_000,
+  maxPerConversation: 1_000,
+});
+assert.equal(cappedGroups.reduce((sum, group) => sum + group.messages.length, 0), 1_000);
+assert.equal(cappedGroups[0].messages[0].content, '大群消息-100');
+assert.equal(cappedGroups[0].messages.at(-1).content, '大群消息-1099');
+
+const contested = [];
+for (const [channel, chatId, senderId, groupName] of [
+  ['feishu', 'oc_private_feishu_group', 'ou_private_feishu_member', '普通飞书群'],
+  ['dingtalk', 'dingtalk:group:private-ding-group', 'dingtalk:private-member', '普通钉钉群'],
+  ['wechat', 'wechat:group:private-wechat-room@chatroom', 'wechat:private-member', 'AI流程与组织变革交流群'],
+]) {
+  for (let index = 0; index < 20; index += 1) {
+    contested.push({
+      channel,
+      chatType: 'group',
+      chatId,
+      senderId,
+      role: 'user',
+      content: `${channel}-message-${index}`,
+      createdAt: new Date(1_780_100_000_000 + index).toISOString(),
+      groupName,
+    });
+  }
+}
+const balancedGroups = groupLearningConversations(contested, {
+  maxMessages: 18,
+  maxPerConversation: 20,
+});
+assert.equal(balancedGroups.length, 3, 'every active conversation must retain context');
+assert.equal(balancedGroups.reduce((sum, group) => sum + group.messages.length, 0), 18);
+const balancedByChannel = Object.fromEntries(
+  balancedGroups.map(group => [group.channel, group.messages.length]),
+);
+assert.equal(balancedByChannel.wechat > balancedByChannel.feishu, true);
+assert.equal(balancedByChannel.wechat > balancedByChannel.dingtalk, true);
+for (const group of balancedGroups) {
+  assert.equal(group.messages.every((message, index, messages) => (
+    index === 0 || message.at >= messages[index - 1].at
+  )), true, 'messages must remain chronological inside each conversation');
+}
+const balancedJson = JSON.stringify(balancedGroups);
+for (const secretIdentity of [
+  'oc_private_feishu_group',
+  'ou_private_feishu_member',
+  'private-ding-group',
+  'private-wechat-room',
+  'private-member',
+  'AI流程与组织变革交流群',
+]) {
+  assert.equal(balancedJson.includes(secretIdentity), false, 'raw identities must not leave grouping');
+}
 
 const beforeOne = new Date('2026-08-06T16:30:00.000Z');
 assert.equal(

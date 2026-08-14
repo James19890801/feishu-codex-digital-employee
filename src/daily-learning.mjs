@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { opendir, readFile, stat } from 'node:fs/promises';
 import { basename, extname, join, normalize, relative, resolve, sep } from 'node:path';
 
@@ -68,6 +69,103 @@ export function redactLearningText(value, { home = process.env.HOME || '' } = {}
   text = text.replace(/\b(?:ou|oc|om|cli|subId)_[A-Za-z0-9_-]{8,}\b/g, '[REDACTED_ID]');
   if (home) text = text.replaceAll(resolve(home), '~');
   return text.replace(/\0/g, '').slice(0, 12_000);
+}
+
+function learningAlias(kind, value) {
+  const digest = createHash('sha256')
+    .update(`${kind}\0${String(value || '')}`)
+    .digest('hex')
+    .slice(0, 10);
+  return `${kind}-${digest}`;
+}
+
+function priorityLearningConversation(groupName) {
+  return /(?:AI.{0,8}流程.{0,12}组织.{0,12}变革|流程.{0,12}组织.{0,12}变革)/iu
+    .test(String(groupName || ''));
+}
+
+export function groupLearningConversations(conversations = [], {
+  maxMessages = 1_000,
+  maxPerConversation = 300,
+} = {}) {
+  const totalLimit = Math.max(1, Math.min(5_000, Math.trunc(Number(maxMessages) || 1_000)));
+  const perConversationLimit = Math.max(
+    1,
+    Math.min(totalLimit, Math.trunc(Number(maxPerConversation) || 300)),
+  );
+  const grouped = new Map();
+  for (const item of Array.isArray(conversations) ? conversations : []) {
+    const chatId = String(item?.chatId || '').trim();
+    if (!chatId) continue;
+    const channel = ['feishu', 'dingtalk', 'wecom', 'wechat'].includes(item?.channel)
+      ? item.channel : 'feishu';
+    const chatType = item?.chatType === 'group' ? 'group' : 'p2p';
+    const key = `${channel}\0${chatId}`;
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        key,
+        channel,
+        chatType,
+        chatId,
+        priority: priorityLearningConversation(item?.groupName),
+        messages: [],
+      });
+    }
+    const group = grouped.get(key);
+    group.priority ||= priorityLearningConversation(item?.groupName);
+    group.messages.push(item);
+  }
+
+  const groups = [...grouped.values()]
+    .map(group => ({
+      ...group,
+      messages: group.messages.sort((left, right) => (
+        String(left.createdAt || left.created_at || '')
+          .localeCompare(String(right.createdAt || right.created_at || ''))
+      )),
+    }))
+    .sort((left, right) => {
+      const leftAt = String(left.messages.at(-1)?.createdAt || left.messages.at(-1)?.created_at || '');
+      const rightAt = String(right.messages.at(-1)?.createdAt || right.messages.at(-1)?.created_at || '');
+      return rightAt.localeCompare(leftAt) || left.key.localeCompare(right.key);
+    })
+    .slice(0, totalLimit);
+  const selectedCounts = new Map(groups.map(group => [group.key, 0]));
+  let remaining = totalLimit;
+  while (remaining > 0) {
+    let allocated = 0;
+    for (const group of groups) {
+      const weight = group.priority ? 2 : 1;
+      const available = Math.min(group.messages.length, perConversationLimit);
+      for (let turn = 0; turn < weight && remaining > 0; turn += 1) {
+        const current = selectedCounts.get(group.key) || 0;
+        if (current >= available) break;
+        selectedCounts.set(group.key, current + 1);
+        remaining -= 1;
+        allocated += 1;
+      }
+      if (remaining <= 0) break;
+    }
+    if (!allocated) break;
+  }
+
+  return groups.map(group => {
+    const selectedCount = selectedCounts.get(group.key) || 0;
+    const messages = group.messages.slice(-selectedCount).map(item => ({
+      role: item.role === 'assistant' ? 'assistant' : 'user',
+      speaker: item.role === 'assistant'
+        ? 'assistant'
+        : learningAlias('speaker', `${group.key}\0${String(item.senderId || '')}`),
+      content: String(item.content || ''),
+      at: item.createdAt || item.created_at || '',
+    }));
+    return {
+      conversation: learningAlias(`${group.channel}-${group.chatType}`, group.key),
+      channel: group.channel,
+      chatType: group.chatType,
+      messages,
+    };
+  }).filter(group => group.messages.length > 0);
 }
 
 function displayPath(filePath, root) {
