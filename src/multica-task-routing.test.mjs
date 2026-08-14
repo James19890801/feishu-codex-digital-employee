@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import {
   applyCreateRoute,
+  buildDefaultSquadQuestion,
   buildSquadQuestion,
   buildWorkspaceQuestion,
   parseSquadSelection,
   parseWorkspaceSelection,
   routeSelectionConsumesMessage,
+  selectMyWorkspace,
+  shouldApplyCreateImmediately,
   resolveContextualWorkRequest,
 } from './multica-task-routing.mjs';
 
@@ -17,6 +20,13 @@ const squads = [
   { id: 'squad-1', name: '詹老师的开发团伙', member_count: 4 },
   { id: 'squad-2', name: '公开课增长小队', member_count: 3 },
 ];
+
+assert.equal(selectMyWorkspace([
+  ...workspaces,
+  { id: 'ws-my', name: 'My workspace', slug: 'my-workspace' },
+]).id, 'ws-my');
+assert.equal(selectMyWorkspace(workspaces, 'ws-1').id, 'ws-1');
+assert.throws(() => selectMyWorkspace(workspaces), /My workspace/);
 
 assert.match(buildWorkspaceQuestion(workspaces, 'ws-2'), /1\. 人机协程空间/);
 assert.match(buildWorkspaceQuestion(workspaces, 'ws-2'), /2\. 公开课项目.*建议/s);
@@ -31,11 +41,19 @@ assert.equal(routeSelectionConsumesMessage('我已经给过你了，我只需要
 
 assert.match(buildSquadQuestion(workspaces[0], squads), /0\. 仅创建 Issue，不启动小队/);
 assert.match(buildSquadQuestion(workspaces[0], squads), /1\. 詹老师的开发团伙（4 人）/);
+assert.doesNotMatch(buildDefaultSquadQuestion(squads), /空间|workspace/i);
+assert.match(buildDefaultSquadQuestion(squads), /1\. 詹老师的开发团伙（4 人）/);
 assert.deepEqual(parseSquadSelection('0', squads), { mode: 'create_only', squad: null });
 assert.deepEqual(parseSquadSelection('仅创建', squads), { mode: 'create_only', squad: null });
 assert.equal(parseSquadSelection('2', squads).squad.id, 'squad-2');
 assert.equal(parseSquadSelection('公开课增长小队', squads).squad.id, 'squad-2');
 assert.equal(parseSquadSelection('不存在的小队', squads), null);
+assert.equal(shouldApplyCreateImmediately({ action: 'create' }, {
+  mode: 'squad', squad: squads[0],
+}), true);
+assert.equal(shouldApplyCreateImmediately({ action: 'update' }, {
+  mode: 'squad', squad: squads[0],
+}), false);
 
 const createPlan = {
   action: 'create',

@@ -9,9 +9,9 @@ export function formatConversationHistory(state, {
   currentSenderId = '',
   excludeSourceMessageId = '',
   chatType = '',
-  limit = 30,
+  limit = 50,
 } = {}) {
-  const effectiveLimit = Math.max(1, Math.min(30, Number(limit) || 30));
+  const effectiveLimit = Math.max(1, Math.min(50, Number(limit) || 50));
   const history = state.chatHistory(
     chatId,
     excludeSourceMessageId ? effectiveLimit + 1 : effectiveLimit,

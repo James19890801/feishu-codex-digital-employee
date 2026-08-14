@@ -178,6 +178,45 @@ assert.deepEqual(state.multicaIssueOrigin('issue-new'), {
 assert.equal(conversationIssues.at(-1).issue.identifier, 'MYS-2');
 assert.equal(conversationIssues.at(-1).chatId, 'chat-1');
 
+origins.delete('issue-new');
+const wechatGroupContext = {
+  chatId: 'wechat:group:room-1@chatroom',
+  senderId: 'wechat:wxid_group_member',
+  chatType: 'group',
+  metadata: { channel: 'wechat', explicitBotMention: true },
+};
+const groupCreatePreview = await capability.prepareMutation({
+  summary: 'Create and execute group issue',
+  action: 'create',
+  workspaceId: 'ws-1',
+  confirmationLevel: 'double',
+  fields: {
+    title: 'Group delivery',
+    description: 'Execute with the selected squad and deliver the result.',
+    status: 'todo',
+    priority: 'high',
+    assigneeId: 'squad-1',
+  },
+}, wechatGroupContext);
+const groupCreateResult = await capability.applyMutation(
+  groupCreatePreview.pending,
+  wechatGroupContext,
+);
+assert.equal(groupCreateResult.issue.assigneeId, 'squad-1');
+assert.deepEqual(state.multicaIssueOrigin('issue-new'), {
+  issueId: 'issue-new',
+  chatId: 'wechat:group:room-1@chatroom',
+  senderId: 'wechat:wxid_group_member',
+  chatType: 'group',
+  channel: 'wechat',
+});
+assert.deepEqual(subscriptions.at(-1), {
+  issueId: 'issue-new',
+  chatId: 'wechat:group:room-1@chatroom',
+  senderId: 'wechat:wxid_group_member',
+  options: { chatType: 'group', channel: 'wechat' },
+});
+
 const unauthorizedContext = {
   ...context,
   chatType: 'group',

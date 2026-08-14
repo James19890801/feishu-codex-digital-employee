@@ -8,6 +8,10 @@ export function isVerifiedMulticaOwner(context = {}, identities = {}) {
     return true;
   }
 
+  if (channel === 'wechat' && context.metadata?.ownerControlAuthenticated === true) {
+    return senderId.startsWith('wechat:');
+  }
+
   const dingtalkOwnerOpenId = String(identities.dingtalkOwnerOpenId || '').trim();
   return Boolean(
     dingtalkOwnerOpenId
@@ -18,7 +22,14 @@ export function isVerifiedMulticaOwner(context = {}, identities = {}) {
 
 export function isAuthorizedMulticaOwner(context = {}, identities = {}) {
   const selfChat = context.chatType === 'p2p' && context.metadata?.selfChat === true;
-  return selfChat && isVerifiedMulticaOwner(context, identities);
+  const wechatGroupParticipant = context.chatType === 'group'
+    && context.metadata?.channel === 'wechat'
+    && String(context.senderId || '').startsWith('wechat:')
+    && (context.metadata?.explicitBotMention === true
+      || context.metadata?.pendingMulticaContinuation === true);
+  if (wechatGroupParticipant) return true;
+  return selfChat
+    && isVerifiedMulticaOwner(context, identities);
 }
 
 export function requireAuthorizedMulticaOwner(context, identities) {

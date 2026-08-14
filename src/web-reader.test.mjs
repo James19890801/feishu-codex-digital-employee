@@ -5,6 +5,7 @@ import {
   extractReadableWebText,
   isPublicAddress,
   readPublicWebPage,
+  resolveInboundLinkUrls,
 } from './web-reader.mjs';
 
 assert.deepEqual(extractHttpUrls('官网是 https://example.com/docs?a=1，看看。'), [
@@ -13,6 +14,16 @@ assert.deepEqual(extractHttpUrls('官网是 https://example.com/docs?a=1，看�
 assert.deepEqual(extractHttpUrls(
   '群链接：https://github.com/deepseek-ai/deepseek-harness?utm_source=wechat&amp;tab=readme',
 ), ['https://github.com/deepseek-ai/deepseek-harness?utm_source=wechat&tab=readme']);
+assert.deepEqual(resolveInboundLinkUrls({
+  text: '卡片解析后的标题',
+  linkCandidate: { url: 'https://mp.weixin.qq.com/s/article-id' },
+  limit: 3,
+}), ['https://mp.weixin.qq.com/s/article-id']);
+assert.deepEqual(resolveInboundLinkUrls({
+  text: '另一个链接 https://example.com/two',
+  linkCandidate: { url: 'https://example.com/one' },
+  limit: 2,
+}), ['https://example.com/one', 'https://example.com/two']);
 assert.equal(isPublicAddress('127.0.0.1'), false);
 assert.equal(isPublicAddress('169.254.169.254'), false);
 assert.equal(isPublicAddress('10.0.0.8'), false);
@@ -84,6 +95,47 @@ assert.equal(
 );
 assert.equal(githubPage.url, 'https://github.com/deepseek-ai/deepseek-harness');
 assert.match(githubPage.text, /Everything is a plugin/);
+
+let wechatUserAgent = '';
+const wechatPage = await readPublicWebPage('https://mp.weixin.qq.com/s/example', {
+  lookup: async hostname => {
+    assert.equal(hostname, 'mp.weixin.qq.com');
+    return [{ address: '101.91.37.90', family: 4 }];
+  },
+  fetchImpl: async (_url, options) => {
+    wechatUserAgent = options.headers['user-agent'];
+    return new Response('<html><body><main><p>公众号文章正文内容可正常读取。</p></main></body></html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    });
+  },
+  dispatcherFactory: () => ({ close: async () => {} }),
+});
+assert.match(wechatUserAgent, /^Mozilla\/5\.0/);
+assert.match(wechatPage.text, /公众号文章正文内容/);
+
+const largeWechatHtml = `<html><body><script>${'x'.repeat(3 * 1024 * 1024)}</script><main>大体积公众号正文</main></body></html>`;
+const largeWechatPage = await readPublicWebPage('https://mp.weixin.qq.com/s/large', {
+  lookup: async () => [{ address: '101.91.37.90', family: 4 }],
+  fetchImpl: async () => new Response(largeWechatHtml, {
+    status: 200,
+    headers: { 'content-type': 'text/html; charset=utf-8' },
+  }),
+  dispatcherFactory: () => ({ close: async () => {} }),
+});
+assert.match(largeWechatPage.text, /大体积公众号正文/);
+
+await assert.rejects(
+  readPublicWebPage('https://mp.weixin.qq.com/s/verify', {
+    lookup: async () => [{ address: '101.91.37.90', family: 4 }],
+    fetchImpl: async () => new Response('<html><body>环境异常，请完成验证后继续访问</body></html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    }),
+    dispatcherFactory: () => ({ close: async () => {} }),
+  }),
+  /verification/i,
+);
 
 await assert.rejects(
   readPublicWebPage('http://localhost/private', {

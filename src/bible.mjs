@@ -16,17 +16,21 @@ const L2_PATTERNS = [
   /(?:发给|发送给|转发给|回复给).{0,30}(?:老师|领导|客户|同事|群|邮箱)/,
   /(?:发布|投稿|提交|报名|申请|答复邀约)/,
   /(?:创建|新建|修改|取消).{0,8}(?:待办|任务|日程|会议|群聊|权限)/,
-  /(?:创建|新建).{0,20}(?:multica|issue|问题单)/i,
+  /(?:创建|新建|登记).{0,20}(?:multica|issue|问题单|需求)/i,
   /(?:更新|修改|评论|备注|跟进|取消).{0,12}(?:[A-Z][A-Z0-9]{0,15}-\d+|multica|issue|问题单)/i,
   /(?:[A-Z][A-Z0-9]{0,15}-\d+).{0,12}(?:更新|修改|评论|备注|跟进|取消)/i,
+  /(?:PDF|Word|DOCX?|Excel|PPT|附件|文件).{0,18}(?:生成|制作|输出|导出|交付|给我|发我|回传)|(?:生成|制作|输出|导出|交付|给我|发我|回传).{0,18}(?:PDF|Word|DOCX?|Excel|PPT|附件|文件)/i,
   /(?:代表我|以我的名义|替我承诺)/,
 ];
 
 export function classifyIntent(text = '', context = {}) {
   if (context.hasImages) return 'image_understanding';
   if (context.hasFile) return 'file_understanding';
-  if (/\bmultica\b|\bissue\b|[A-Za-z][A-Za-z0-9]{0,15}-\d+\b|问题单/i.test(text)) {
+  if (/\bmultica\b|\bissue\b|[A-Za-z][A-Za-z0-9]{0,15}-\d+\b|问题单|(?:创建|新建|登记).{0,12}需求|需求.{0,12}(?:创建|新建|登记)/i.test(text)) {
     return 'multica_issue';
+  }
+  if (/(?:PDF|Word|DOCX?|Excel|PPT|附件|文件).{0,18}(?:生成|制作|输出|导出|交付|给我|发我|回传)|(?:生成|制作|输出|导出|交付|给我|发我|回传).{0,18}(?:PDF|Word|DOCX?|Excel|PPT|附件|文件)/i.test(text)) {
+    return 'artifact';
   }
   if (/(待办|任务|提醒)/.test(text)) return 'task';
   if (/(日程|日历|安排|会议时间)/.test(text)) return 'calendar';

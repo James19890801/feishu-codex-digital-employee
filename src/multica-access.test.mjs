@@ -39,6 +39,54 @@ assert.equal(isAuthorizedMulticaOwner({
   metadata: { channel: 'dingtalk', selfChat: true },
 }, identities), true);
 
+assert.equal(isAuthorizedMulticaOwner({
+  senderId: 'wechat:wxid_owner',
+  chatType: 'p2p',
+  metadata: {
+    channel: 'wechat',
+    selfChat: true,
+    ownerControlAuthenticated: true,
+  },
+}, identities), true);
+
+assert.equal(isAuthorizedMulticaOwner({
+  senderId: 'wechat:wxid_owner',
+  chatType: 'group',
+  metadata: {
+    channel: 'wechat',
+    ownerControlAuthenticated: true,
+    explicitBotMention: true,
+  },
+}, identities), true, '本人在微信群明确点名数字人时可以进入 Multica 确认流程');
+
+assert.equal(isAuthorizedMulticaOwner({
+  senderId: 'wechat:wxid_owner',
+  chatType: 'group',
+  metadata: {
+    channel: 'wechat',
+    ownerControlAuthenticated: true,
+    explicitBotMention: false,
+  },
+}, identities), false, '本人普通群聊不能触发 Multica 写入');
+
+assert.equal(isAuthorizedMulticaOwner({
+  senderId: 'wechat:wxid_group_member',
+  chatType: 'group',
+  metadata: {
+    channel: 'wechat',
+    explicitBotMention: true,
+  },
+}, identities), true, '微信群任何成员明确点名数字人后都可以发起 Multica 写入');
+
+assert.equal(isAuthorizedMulticaOwner({
+  senderId: 'wechat:wxid_group_member',
+  chatType: 'group',
+  metadata: {
+    channel: 'wechat',
+    explicitBotMention: false,
+  },
+}, identities), false, '没有点名且没有本人待确认操作的普通群聊不能写入 Multica');
+
 for (const context of [
   { senderId: 'ou_other', metadata: {} },
   {
@@ -50,6 +98,16 @@ for (const context of [
   { senderId: 'dingtalk:dt_other', metadata: { channel: 'dingtalk', selfChat: true } },
   { senderId: 'dingtalk:dt_owner', metadata: { channel: 'feishu', selfChat: true } },
   { senderId: '', metadata: { channel: 'dingtalk', selfChat: true } },
+  {
+    senderId: 'wechat:wxid_owner',
+    chatType: 'p2p',
+    metadata: { channel: 'wechat', ownerControlAuthenticated: true },
+  },
+  {
+    senderId: 'wechat:wxid_owner',
+    chatType: 'p2p',
+    metadata: { channel: 'wechat', selfChat: true },
+  },
 ]) {
   assert.equal(isAuthorizedMulticaOwner(context, identities), false);
 }

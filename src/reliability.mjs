@@ -12,8 +12,18 @@ export function validateInboundPayload(payload) {
 }
 
 export function interactiveInboundRateLimitPolicy(metadata = {}) {
-  if (metadata?.semanticCandidate === true) return { apply: false, notify: false };
+  if (metadata?.semanticCandidate === true || metadata?.contextOnly === true) {
+    return { apply: false, notify: false };
+  }
   return { apply: true, notify: true };
+}
+
+export function shouldObserveWithoutReply(metadata = {}) {
+  return metadata?.contextOnly === true;
+}
+
+export function finalInboundFailurePolicy() {
+  return { disposition: 'dead_letter', notifyUser: false };
 }
 
 export function effectiveTask(cleanText, { messageType = 'text' } = {}) {

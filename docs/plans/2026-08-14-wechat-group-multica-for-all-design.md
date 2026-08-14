@@ -13,10 +13,13 @@ existing direct-chat flow rather than stopping after Issue creation.
 
 - Any group participant may start a Multica request by explicitly mentioning a
   configured assistant alias.
-- Read operations execute immediately. Mutating operations still produce a
-  preview and require confirmation.
-- Workspace and squad selection, confirmation, execution, progress, and delivery
-  are bound to the originating group and originating sender.
+- Read operations execute immediately. For new Issue creation, selecting the
+  execution squad is the confirmation and the Issue is created immediately;
+  destructive or overwrite-style mutations retain explicit confirmation.
+- The configured default workspace is treated internally as `My workspace` and
+  is never presented as a choice to group participants. Squad selection,
+  confirmation, execution, progress, and delivery are bound to the originating
+  group and originating sender.
 - Follow-up selections and confirmations from that same sender do not require a
   repeated mention while a bounded pending action exists.
 - Another participant cannot select, confirm, cancel, or hijack someone else's
@@ -42,9 +45,11 @@ idempotency, and ambiguous-result protections remain unchanged.
 The group uses the same Multica pipeline as direct chat:
 
 1. Parse the request into a constrained Multica plan.
-2. Select workspace and execution squad.
-3. Preview the exact mutation and confirm it.
-4. Create the Issue with the selected squad as assignee.
+2. Resolve the configured `My workspace` internally and ask only for the
+   execution squad.
+3. Treat the originating sender's squad selection as authorization to create.
+4. Create the Issue immediately with the selected squad as assignee, without a
+   second six-digit confirmation.
 5. Bind the Issue origin and subscribe the original group/sender to updates.
 6. Let Multica run the assigned work automatically.
 7. Synchronize run progress and significant Issue changes to the original group.
@@ -55,15 +60,17 @@ The group uses the same Multica pipeline as direct chat:
    are the final delivery.
 
 Selecting “create only” remains available only when the requester explicitly
-chooses it. The normal squad path continues automatically after confirmation and
+chooses it. The normal squad path continues automatically after squad selection and
 does not require a second “start execution” command.
 
 ### Group follow-up routing
 
 Before silently observing an unmentioned group message, check for a live pending
 Multica route or confirmation owned by the same sender. Only recognized bounded
-selection, confirmation, or cancellation text is consumed. Unrelated messages
-remain group context and do not disturb the pending action.
+squad selection, artifact-format supplements, confirmation, or cancellation text
+is consumed. Unrelated messages remain group context and do not disturb the
+pending action. Artifact-format supplements update the same pending Issue and
+its delivery contract rather than starting a separate request.
 
 ### Progress and delivery isolation
 
@@ -80,7 +87,8 @@ another participant's pending request.
 - Execution and artifact notification retries use the existing durable outbox.
 - Missing artifacts remain in waiting state; the system does not claim delivery.
 - Deployment occurs only with zero pending, failed-due, or processing inbound
-  messages, and never backfills historical group events.
+  messages. Historical group events are replayed only with explicit user
+  authorization and an exact bounded message set.
 
 ## Verification
 
@@ -89,7 +97,9 @@ Add tests proving:
 - any explicitly mentioning WeChat group participant can prepare a Multica
   mutation;
 - an unmentioned new request cannot mutate;
-- same-sender unmentioned workspace, squad, confirmation, and cancellation
+- new creates use the configured `My workspace` without exposing a workspace
+  selector;
+- same-sender unmentioned squad, artifact-format, confirmation, and cancellation
   follow-ups reach the pending workflow;
 - another sender cannot consume or confirm that pending workflow;
 - group Issue creation binds origin and subscription to the group/sender;

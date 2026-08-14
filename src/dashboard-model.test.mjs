@@ -72,6 +72,20 @@ const base = {
 {
   const view = buildOperatorView({
     ...base,
+    geweChannel: {
+      enabled: true,
+      installed: true,
+      configured: true,
+      authenticated: true,
+      connected: true,
+    },
+  });
+  assert.equal(view.channels.wechat.capabilities.image, true);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
     semanticGroupEngagementEnabled: true,
     semanticGroupReplyThreshold: 0.86,
     semanticGroupEntryCooldownMs: 120_000,

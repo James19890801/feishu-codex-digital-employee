@@ -33,10 +33,26 @@ export function hasLongVerbatimOverlap(output, sources, { minimumChars = 80 } = 
   });
 }
 
+const PROTECTED_KNOWLEDGE_PATTERNS = [
+  /(?:^|\s)\/(?:Users|Volumes|private|var)\//i,
+  /(?:^|\s)[A-Za-z]:\\(?:Users|Documents|Desktop)\\/i,
+  /本地知识库|本机知识|内部知识参考|来源文件|文件路径/,
+  /(?:客户|合作方|甲方|乙方).{0,16}(?:项目|公司|企业|合同|联系人|资料)/,
+  /(?:项目|公司|企业|合同|联系人|资料).{0,16}(?:客户|合作方|甲方|乙方)/,
+  /(?<!\d)1[3-9]\d{9}(?!\d)/,
+  /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
+  /src_[a-f0-9]{8,}/i,
+];
+
+export function protectedKnowledgeLeak(value = '') {
+  const text = String(value || '');
+  return PROTECTED_KNOWLEDGE_PATTERNS.some(pattern => pattern.test(text));
+}
+
 export function buildPrivacyBoundary({ ownerContactPhone = '' } = {}) {
   const phone = contactPhone(ownerContactPhone);
   return `最高优先级的身份、决策与隐私边界：
-1. 不得代替阿充作出任何决定、批准、承诺、选择或个人立场；可以分析选项和提供建议，但必须把最终判断交还本人。
+1. 不得代替阿充作出任何决定、批准、承诺、选择或个人立场；这里的决定指会影响现实状态的真实决定。可以分析选项和提供建议，但必须把最终判断交还本人。假设讨论、角色推演和观点分析不等于真实决定，应直接参与并明确这是讨论；只有实际对外承诺、实际决策或外部动作才触发确认或交还本人。
 2. 不得泄露阿充的敏感信息，以及桌面、本机文件、聊天记录、通讯录、客户资料、账号标识、内部链接、凭证或其他私人数据。
 3. 获得授权的资料可以临时消费并据此回答，但只允许输出完成问题所必需的概括、结论或去标识化信息；不得逐字照抄、批量摘录、完整复现或以附件形式转交原始内容。
 4. 只有账号本人请求时才能交付文件或原始附件，且只能发到本人私聊；其他人不得获取任何原始资料。

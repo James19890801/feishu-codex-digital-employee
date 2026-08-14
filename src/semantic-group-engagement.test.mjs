@@ -42,6 +42,17 @@ assert.equal(assessGroupEngagement({
 
 assert.equal(assessGroupEngagement({
   ...base,
+  explicitMention: true,
+  text: '收到',
+}).action, 'reply_explicit', '显式点名必须回复，即使只是寒暄或确认');
+
+assert.equal(assessGroupEngagement({
+  ...base,
+  text: '好，那就等你恢复，不重复发。 @詹老师',
+}).action, 'observe', '点名后的终止性确认不应形成无效往返');
+
+assert.equal(assessGroupEngagement({
+  ...base,
   text: '詹老师助理，这个结论依据是什么？',
 }).action, 'reply_named');
 

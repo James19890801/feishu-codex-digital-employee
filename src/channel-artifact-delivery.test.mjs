@@ -29,4 +29,22 @@ assert.deepEqual(dingtalk.attachmentArgs.slice(0, 7), [
 ]);
 assert.equal(dingtalk.caption, '视频已生成');
 
+const wechat = buildChannelArtifactDeliveryPlan({
+  channel: 'wechat',
+  chatId: 'wechat:group:room@chatroom',
+  target: { channel: 'wechat', kind: 'group', id: 'room@chatroom' },
+  path: '/workspace/outputs/report.pdf',
+  fileUrl: 'https://callback.example.com/webhooks/gewe/secret/artifacts/token/report.pdf',
+  fileName: 'report.pdf',
+  caption: '报告已生成',
+  idempotencyKey: 'artifact-3',
+});
+assert.equal(wechat.channel, 'wechat');
+assert.deepEqual(wechat.file, {
+  fileUrl: 'https://callback.example.com/webhooks/gewe/secret/artifacts/token/report.pdf',
+  fileName: 'report.pdf',
+});
+assert.equal(wechat.caption, '报告已生成');
+assert.equal(wechat.captionIdempotencyKey, 'artifact-3-caption');
+
 console.log('CHANNEL_ARTIFACT_DELIVERY_TEST_OK');

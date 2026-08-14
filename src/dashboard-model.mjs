@@ -248,7 +248,7 @@ export function buildOperatorView(input) {
         risk: 'third-party-unofficial-wechat-api',
         capabilities: {
           text: Boolean(geweChannel.enabled && geweChannel.connected),
-          image: false,
+          image: Boolean(geweChannel.enabled && geweChannel.connected),
           audio: false,
           link: Boolean(geweChannel.enabled && geweChannel.connected
             && webReaderAvailable),

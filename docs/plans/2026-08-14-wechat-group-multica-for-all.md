@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Let any explicitly mentioning WeChat group participant create and manage Multica work, continue sender-scoped confirmation without repeated mentions, and automatically execute and deliver through the original group.
+**Goal:** Let any explicitly mentioning WeChat group participant create and manage Multica work, use squad selection as the create authorization, continue sender-scoped high-risk confirmation without repeated mentions, and automatically execute and deliver through the original group.
 
-**Architecture:** Expand the narrow WeChat group authorization predicate to authenticated normalized participants, while leaving ingress invocation gating and sender-scoped pending actions intact. Bypass context-only observation only for a same-sender pending Multica interaction, then reuse the existing direct-chat workspace, squad, confirmation, origin subscription, synchronization, and artifact-delivery pipeline.
+**Architecture:** Expand the narrow WeChat group authorization predicate to authenticated normalized participants, while leaving ingress invocation gating and sender-scoped pending actions intact. Resolve the configured default workspace internally as `My workspace`, expose only squad selection, and bypass context-only observation only for a same-sender pending Multica interaction before reusing the existing confirmation, origin subscription, synchronization, and artifact-delivery pipeline.
 
 **Tech Stack:** Node.js ESM, `node:test`, GeWe webhook normalization, SQLite-backed pending actions and Multica state, existing Multica client/synchronizer/artifact delivery.
 
@@ -52,7 +52,8 @@ Expected: PASS.
 
 Test a pure helper that returns true only for a WeChat group context-only message
 whose same `chatId + senderId` owns a pending `multica_create_route` or `multica`
-action and whose text is a valid selection, confirmation, or cancellation.
+action and whose text is a valid squad selection, artifact-format supplement,
+confirmation, or cancellation.
 Different senders and unrelated prose must return false.
 
 **Step 2: Run and verify failure**
@@ -67,6 +68,11 @@ Check the sender-scoped pending store before `shouldObserveWithoutReply`. For a
 valid continuation, clear only the context-only suppression for processing; do
 not synthesize a new explicit mention. Pass a pending-continuation authorization
 flag into the Multica context so the existing confirmation workflow can execute.
+When a pending create receives a PDF or other explicit artifact format, merge it
+into the same request, plan description, and origin-bound delivery contract.
+Resolve the configured default workspace internally and expose only squad
+selection. Apply a create immediately after that selection; do not issue a
+second six-digit confirmation for the create path.
 
 **Step 4: Rerun routing, access, and mechanism tests**
 

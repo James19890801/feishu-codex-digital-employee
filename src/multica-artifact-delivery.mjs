@@ -22,7 +22,7 @@ function normalizedFormats(formats) {
 
 export function looksLikeArtifactProgressRequest(value) {
   const text = String(value || '').trim();
-  return Boolean(text) && /(?:PDF|Word|Excel|PPT|文件|附件|产物).{0,18}(?:做出来|生成了|完成了|交付了|发了|下载|好了没|出来了不)|(?:到底|现在|还没).{0,18}(?:生成|交付|下载)/i.test(text);
+  return Boolean(text) && /(?:PDF|Word|Excel|PPT|文件|附件|产物).{0,18}(?:做出来|做好了|做好了吗|生成了|完成了|交付了|发了|下载|好了没|出来了不)|(?:到底|现在|还没).{0,18}(?:生成|交付|下载)/i.test(text);
 }
 
 export function looksLikeArtifactExecutionRequest(value) {

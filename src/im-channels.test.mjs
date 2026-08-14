@@ -745,9 +745,195 @@ assert.equal(normalizeWeComFrame({
   });
   assert.equal(JSON.parse(payload.message.content).text.includes('https://github.com/'), true);
   assert.equal(payload.message.mentions.length, 1);
+  assert.deepEqual(payload.metadata.linkCandidate, {
+    url: 'https://github.com/deepseek-ai/deepseek-harness',
+    title: '项目链接',
+    description: '',
+  });
 }
 
-assert.equal(normalizeGeWeWebhook({
+{
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
+      MsgType: 1,
+      NewMsgId: 'group-plain-link-without-at',
+      FromUserName: { string: 'room-1@chatroom' },
+      ToUserName: { string: 'wxid_owner' },
+      Content: { string: 'wxid_member:\n这个方法值得看看 https://example.com/research?q=agent' },
+      MsgSource: '<msgsource></msgsource>',
+    },
+  });
+  assert.equal(payload.message.mentions.length, 1, '群里的普通 URL 也必须主动读取并回复');
+  assert.deepEqual(payload.metadata.linkCandidate, {
+    url: 'https://example.com/research?q=agent',
+    title: '',
+    description: '',
+  });
+  assert.equal(payload.metadata.contextOnly, undefined);
+}
+
+{
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
+      MsgType: 49,
+      NewMsgId: 'group-quote-text-1',
+      FromUserName: { string: 'room-1@chatroom' },
+      ToUserName: { string: 'wxid_owner' },
+      Content: { string: 'wxid_member:\n<msg><appmsg><title>@小詹 这个观点成立吗？</title><type>57</type><refermsg><type>1</type><svrid>quoted-100</svrid><chatusr>wxid_author</chatusr><displayname>原发言人</displayname><content>AI &amp; 人应该如何协同</content></refermsg></appmsg></msg>' },
+      MsgSource: '<msgsource></msgsource>',
+    },
+  }, { mentionNames: ['小詹'] });
+  assert.equal(payload.message.mentions.length, 1, '引用卡片标题里的点名必须触发回复');
+  assert.equal(payload.metadata.contextOnly, undefined);
+  assert.equal(
+    JSON.parse(payload.message.content).text,
+    '@小詹 这个观点成立吗？\n\n引用消息（原发言人）：AI & 人应该如何协同',
+  );
+  assert.deepEqual(payload.metadata.quotedMessage, {
+    type: 1,
+    messageId: 'quoted-100',
+    senderId: 'wxid_author',
+    displayName: '原发言人',
+    content: 'AI & 人应该如何协同',
+  });
+}
+
+{
+  const quotedImageXml = '<msg><img aeskey="quote-key" cdnmidimgurl="quote-image" /></msg>';
+  const escapedImageXml = quotedImageXml
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
+      MsgType: 49,
+      NewMsgId: 'group-quote-image-1',
+      FromUserName: { string: 'room-1@chatroom' },
+      ToUserName: { string: 'wxid_owner' },
+      Content: { string: `wxid_member:\n<msg><appmsg><title>@小詹 看看这张图</title><type>57</type><refermsg><type>3</type><svrid>quoted-image-100</svrid><chatusr>wxid_author</chatusr><displayname>图片作者</displayname><content>${escapedImageXml}</content></refermsg></appmsg></msg>` },
+      MsgSource: '<msgsource></msgsource>',
+    },
+  }, { mentionNames: ['小詹'] });
+  assert.equal(payload.message.mentions.length, 1);
+  assert.equal(payload.metadata.quotedMessage.type, 3);
+  assert.equal(payload.metadata.quotedMessage.content, quotedImageXml);
+  assert.deepEqual(payload.metadata.image, { xml: quotedImageXml, quoted: true });
+  assert.equal(JSON.parse(payload.message.content).text, '@小詹 看看这张图\n\n引用消息（图片作者）：[图片]');
+}
+
+{
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
+      MsgType: 49,
+      NewMsgId: 'group-malformed-quote-1',
+      FromUserName: { string: 'room-1@chatroom' },
+      ToUserName: { string: 'wxid_owner' },
+      Content: { string: 'wxid_member:\n<msg><appmsg><title>@小詹 这条坏了</title><type>57</type><refermsg>' },
+      MsgSource: '<msgsource></msgsource>',
+    },
+  }, { mentionNames: ['小詹'] });
+  assert.equal(JSON.parse(payload.message.content).text, '@小詹 这条坏了');
+  assert.equal(payload.metadata.quotedMessage, undefined);
+  assert.equal(payload.message.mentions.length, 1);
+}
+
+{
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
+      MsgType: 1,
+      NewMsgId: 'owner-filehelper-1',
+      FromUserName: { string: 'wxid_owner' },
+      ToUserName: { string: 'filehelper' },
+      Content: { string: '创建一个 Multica Issue' },
+      CreateTime: 1785463200,
+    },
+  });
+  assert.equal(payload.message.chat_id, 'wechat:user:filehelper');
+  assert.equal(payload.message.chat_type, 'p2p');
+  assert.equal(payload.sender.sender_id.open_id, 'wechat:wxid_owner');
+  assert.equal(payload.metadata.selfChat, true);
+  assert.equal(payload.metadata.ownerControlAuthenticated, true);
+}
+
+{
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
+      MsgType: 1,
+      NewMsgId: 'owner-contact-1',
+      FromUserName: { string: 'wxid_owner' },
+      ToUserName: { string: 'wxid_contact' },
+      Content: { string: '普通人工消息' },
+      CreateTime: 1785463200,
+    },
+  });
+  assert.equal(payload.message.chat_id, 'wechat:user:wxid_contact');
+  assert.equal(payload.metadata.selfChat, undefined);
+  assert.equal(payload.metadata.ownerControlAuthenticated, true);
+}
+
+{
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
+      MsgType: 3,
+      NewMsgId: 'group-image-1',
+      FromUserName: { string: 'room-1@chatroom' },
+      ToUserName: { string: 'wxid_owner' },
+      Content: { string: 'wxid_member:\n<msg><img aeskey="abc" cdnmidimgurl="file-id" /></msg>' },
+      ImgBuf: { buffer: 'aGVsbG8=' },
+      CreateTime: 1785463200,
+      MsgSource: '<msgsource></msgsource>',
+    },
+  });
+  assert.equal(payload.message.message_type, 'image');
+  assert.equal(payload.message.chat_id, 'wechat:group:room-1@chatroom');
+  assert.equal(payload.sender.sender_id.open_id, 'wechat:wxid_member');
+  assert.equal(JSON.parse(payload.message.content).text, '');
+  assert.deepEqual(payload.metadata.image, {
+    xml: '<msg><img aeskey="abc" cdnmidimgurl="file-id" /></msg>',
+    thumbnailBase64: 'aGVsbG8=',
+  });
+}
+
+{
+  const payload = normalizeGeWeWebhook({
+    appid: 'device-v2',
+    wxid: 'wxid_owner',
+    msgType: 'IMAGE',
+    newMsgId: 'v2-image-1',
+    fromUser: 'wxid_friend',
+    toUser: 'wxid_owner',
+    content: '<msg><img aeskey="def" cdnmidimgurl="file-v2" /></msg>',
+    isSelf: false,
+  });
+  assert.equal(payload.message.message_type, 'image');
+  assert.equal(payload.message.chat_id, 'wechat:user:wxid_friend');
+  assert.equal(payload.metadata.image.xml.includes('file-v2'), true);
+}
+
+{
+  const payload = normalizeGeWeWebhook({
   TypeName: 'AddMsg',
   Appid: 'device-a',
   Wxid: 'wxid_owner',
@@ -758,7 +944,55 @@ assert.equal(normalizeGeWeWebhook({
     Content: { string: 'wxid_member:\n这是普通群消息' },
     MsgSource: '<msgsource></msgsource>',
   },
-}), null);
+  });
+  assert.equal(payload.message.chat_id, 'wechat:group:room-1@chatroom');
+  assert.equal(payload.sender.sender_id.open_id, 'wechat:wxid_member');
+  assert.equal(JSON.parse(payload.message.content).text, '这是普通群消息');
+  assert.deepEqual(payload.message.mentions, []);
+  assert.equal(payload.metadata.contextOnly, true);
+}
+
+{
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
+      MsgType: 1,
+      NewMsgId: 'owner-v1-group-command',
+      FromUserName: { string: 'room-1@chatroom' },
+      ToUserName: { string: 'wxid_owner' },
+      Content: { string: 'wxid_owner:\n@小詹 创建一个 Multica Issue' },
+      MsgSource: '<msgsource><atuserlist><![CDATA[wxid_owner]]></atuserlist></msgsource>',
+    },
+  }, { mentionNames: ['小詹'] });
+  assert.ok(payload, 'V1 群消息必须先解析真实群成员，再判断是不是本人');
+  assert.equal(payload.sender.sender_id.open_id, 'wechat:wxid_owner');
+  assert.equal(payload.metadata.ownerActivity, true);
+  assert.equal(payload.metadata.ownerControlAuthenticated, true);
+  assert.equal(payload.metadata.explicitBotMention, true);
+  assert.equal(payload.metadata.contextOnly, undefined);
+}
+
+{
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
+      MsgType: 1,
+      NewMsgId: 'member-v1-group-command',
+      FromUserName: { string: 'room-1@chatroom' },
+      ToUserName: { string: 'wxid_owner' },
+      Content: { string: 'wxid_member:\n@小詹 创建一个 Multica Issue' },
+      MsgSource: '<msgsource><atuserlist><![CDATA[wxid_owner]]></atuserlist></msgsource>',
+    },
+  }, { mentionNames: ['小詹'] });
+  assert.equal(payload.sender.sender_id.open_id, 'wechat:wxid_member');
+  assert.equal(payload.metadata.ownerActivity, undefined);
+  assert.equal(payload.metadata.ownerControlAuthenticated, undefined);
+  assert.equal(payload.metadata.explicitBotMention, true);
+}
 
 {
   const payload = normalizeGeWeWebhook({

@@ -47,7 +47,7 @@ const UPDATE_FIELDS = new Set([
 const CREDENTIAL_PATTERN = /(?:sk-[A-Za-z0-9_-]{20,}|mul_[A-Za-z0-9_-]{12,}|(?:access|refresh)[_-]?token\s*[:=]|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|password\s*[:=])/i;
 
 export function looksLikeMulticaRequest(value) {
-  return /\bmultica\b|\bissue\b|[A-Za-z][A-Za-z0-9]{0,15}-\d+\b|(?:问题单|任务系统|业务系统).{0,12}(?:查|创建|新建|更新|跟进|同步)/i
+  return /\bmultica\b|\bissue\b|[A-Za-z][A-Za-z0-9]{0,15}-\d+\b|(?:问题单|任务系统|业务系统|需求).{0,12}(?:查|创建|新建|登记|更新|跟进|同步)|(?:创建|新建|登记).{0,12}(?:需求|问题单|任务系统|业务系统)/i
     .test(String(value || ''));
 }
 

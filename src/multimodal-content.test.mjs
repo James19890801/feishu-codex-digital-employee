@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import {
   buildDingTalkDriveDownloadArgs,
+  buildImageUnderstandingTask,
   buildDingTalkMediaDownloadArgs,
   buildFeishuMediaDownloadArgs,
   buildTranscriptionInvocation,
   parseDingTalkFilePlaceholder,
   parseDingTalkMediaPlaceholder,
+  sniffMediaFileExtension,
 } from './multimodal-content.mjs';
 
 assert.deepEqual(
@@ -21,6 +23,11 @@ assert.deepEqual(
   { kind: 'video', resourceId: '@video_789', displayName: '视频消息' },
 );
 assert.equal(parseDingTalkMediaPlaceholder('普通文字消息'), null);
+
+assert.equal(sniffMediaFileExtension(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), '.png');
+assert.equal(sniffMediaFileExtension(Buffer.from([0xff, 0xd8, 0xff, 0xe0])), '.jpg');
+assert.match(buildImageUnderstandingTask('请打开图里的链接'), /逐字识别清晰可见的链接/);
+assert.match(buildImageUnderstandingTask('请打开图里的链接'), /看不清时明确说明/);
 
 assert.deepEqual(
   parseDingTalkFilePlaceholder('[文件] 周报.pdf fileId: 54d69c1f-3f4e 注意：如需下载使用dws drive download命令下载'),

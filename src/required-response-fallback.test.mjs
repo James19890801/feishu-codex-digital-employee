@@ -1,20 +1,13 @@
 import assert from 'node:assert/strict';
-import {
-  REQUIRED_RESPONSE_FALLBACK_REPLY,
-  resolveRequiredResponse,
-} from './required-response-fallback.mjs';
+import { resolveRequiredResponse } from './required-response-fallback.mjs';
 
-{
-  const reply = await resolveRequiredResponse({
+await assert.rejects(
+  () => resolveRequiredResponse({
     responseRequired: true,
     generate: async () => { throw new Error('AI returned an empty response'); },
-  });
-  assert.deepEqual(reply, {
-    text: REQUIRED_RESPONSE_FALLBACK_REPLY,
-    fallback: true,
-    error: 'AI returned an empty response',
-  });
-}
+  }),
+  /AI returned an empty response/,
+);
 
 await assert.rejects(
   () => resolveRequiredResponse({

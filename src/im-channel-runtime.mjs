@@ -1,6 +1,9 @@
 import { WSClient } from '@wecom/aibot-node-sdk';
-import { timingSafeEqual } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { lstat, realpath } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { basename, extname } from 'node:path';
 import {
   buildDingTalkConsumerArgs,
   buildDingTalkSendArgs,
@@ -274,6 +277,21 @@ export class GeWeChannel {
     });
   }
 
+  async downloadImage(xml, { type = 2 } = {}) {
+    const imageXml = String(xml || '').trim();
+    if (!imageXml) throw new Error('GeWe image XML is required');
+    const result = await this.request('/gewe/v2/api/message/downloadImage', {
+      appId: this.appId,
+      xml: imageXml,
+      type: Number(type),
+    });
+    const fileUrl = String(result?.data?.fileUrl || '').trim();
+    if (!/^https?:\/\//i.test(fileUrl)) {
+      throw new Error('GeWe image download returned no valid file URL');
+    }
+    return fileUrl;
+  }
+
   normalizeWebhook(event) {
     return normalizeGeWeWebhook(event, { mentionNames: this.mentionNames });
   }
@@ -296,6 +314,38 @@ export class GeWeChannel {
 
   send(target, text) {
     const operation = this.sendTail.then(() => this.sendNow(target, text));
+    this.sendTail = operation.catch(() => {});
+    return operation.catch(error => {
+      this.onStatus({ lastError: errorState(error) });
+      throw error;
+    });
+  }
+
+  async sendFileNow(target, { fileUrl, fileName } = {}) {
+    if (target?.channel !== 'wechat') {
+      throw new Error('GeWe sender received a non-WeChat target');
+    }
+    const parsedUrl = new URL(String(fileUrl || ''));
+    if (parsedUrl.protocol !== 'https:' || parsedUrl.username || parsedUrl.password) {
+      throw new Error('GeWe file URL must use HTTPS without embedded credentials');
+    }
+    const safeFileName = String(fileName || '').split(/[\\/]/).at(-1)?.trim().slice(0, 180);
+    if (!safeFileName) throw new Error('GeWe file name is required');
+    const waitMs = Math.max(0, this.lastSentAt + this.minSendIntervalMs - this.now());
+    if (waitMs) await this.sleep(waitMs);
+    const result = await this.request('/gewe/v2/api/message/postFile', {
+      appId: this.appId,
+      toWxid: target.id,
+      fileUrl: parsedUrl.href,
+      fileName: safeFileName,
+    });
+    this.lastSentAt = this.now();
+    this.onStatus({ lastError: null, lastSendAt: new Date().toISOString() });
+    return result;
+  }
+
+  sendFile(target, file) {
+    const operation = this.sendTail.then(() => this.sendFileNow(target, file));
     this.sendTail = operation.catch(() => {});
     return operation.catch(error => {
       this.onStatus({ lastError: errorState(error) });
@@ -331,6 +381,8 @@ export class GeWeWebhookServer {
     onMessage = () => {},
     onStatus = () => {},
     maxBodyBytes = 1024 * 1024,
+    maxArtifactBytes = 100 * 1024 * 1024,
+    now = Date.now,
   }) {
     if (!/^[A-Za-z0-9_-]{24,128}$/.test(String(callbackSecret || ''))) {
       throw new Error('GeWe callback secret must contain 24 to 128 URL-safe characters');
@@ -342,6 +394,9 @@ export class GeWeWebhookServer {
     this.onMessage = onMessage;
     this.onStatus = onStatus;
     this.maxBodyBytes = maxBodyBytes;
+    this.maxArtifactBytes = maxArtifactBytes;
+    this.now = now;
+    this.artifacts = new Map();
     this.server = null;
   }
 
@@ -353,8 +408,76 @@ export class GeWeWebhookServer {
     return this.server?.address() || null;
   }
 
+  pruneArtifacts() {
+    const nowMs = this.now();
+    for (const [token, artifact] of this.artifacts) {
+      if (artifact.expiresAt <= nowMs) this.artifacts.delete(token);
+    }
+  }
+
+  async registerArtifact({ path, fileName, ttlMs = 5 * 60_000 } = {}) {
+    const sourcePath = String(path || '');
+    const sourceInfo = await lstat(sourcePath);
+    if (sourceInfo.isSymbolicLink()) {
+      throw new Error('GeWe artifact must be a regular file');
+    }
+    const resolvedPath = await realpath(sourcePath);
+    const info = await lstat(resolvedPath);
+    if (!info.isFile() || info.isSymbolicLink()) {
+      throw new Error('GeWe artifact must be a regular file');
+    }
+    if (info.size <= 0 || info.size > this.maxArtifactBytes) {
+      throw new Error('GeWe artifact size is invalid');
+    }
+    const safeName = basename(String(fileName || '')).trim().slice(0, 180);
+    if (!safeName) throw new Error('GeWe artifact file name is required');
+    this.pruneArtifacts();
+    const token = randomBytes(32).toString('base64url');
+    this.artifacts.set(token, {
+      path: resolvedPath,
+      fileName: safeName,
+      size: info.size,
+      expiresAt: this.now() + Math.max(1_000, Math.min(Number(ttlMs) || 0, 15 * 60_000)),
+    });
+    return `${this.path()}/artifacts/${token}/${encodeURIComponent(safeName)}`;
+  }
+
+  handleArtifact(request, response, pathname) {
+    const prefix = `${this.path()}/artifacts/`;
+    if (!pathname.startsWith(prefix)) return false;
+    if (!['GET', 'HEAD'].includes(request.method || '')) {
+      response.setHeader('Allow', 'GET, HEAD');
+      writeJson(response, 405, { ok: false });
+      return true;
+    }
+    this.pruneArtifacts();
+    const token = pathname.slice(prefix.length).split('/')[0];
+    const artifact = this.artifacts.get(token);
+    if (!artifact) {
+      writeJson(response, 404, { ok: false });
+      return true;
+    }
+    const extension = extname(artifact.fileName).replace(/[^.A-Za-z0-9]/g, '').slice(0, 12);
+    response.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': artifact.size,
+      'Content-Disposition': `attachment; filename="artifact${extension}"; filename*=UTF-8''${encodeURIComponent(artifact.fileName)}`,
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    if (request.method === 'HEAD') {
+      response.end();
+      return true;
+    }
+    const stream = createReadStream(artifact.path);
+    stream.once('error', () => response.destroy());
+    stream.pipe(response);
+    return true;
+  }
+
   handle(request, response) {
     const pathname = new URL(request.url || '/', 'http://127.0.0.1').pathname;
+    if (this.handleArtifact(request, response, pathname)) return;
     if (!callbackPathMatches(pathname, this.path())) {
       writeJson(response, 404, { ok: false });
       return;
@@ -443,6 +566,7 @@ export class GeWeWebhookServer {
   }
 
   stop() {
+    this.artifacts.clear();
     if (!this.server) return Promise.resolve();
     const server = this.server;
     this.server = null;

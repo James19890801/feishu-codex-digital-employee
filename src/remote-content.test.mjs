@@ -21,6 +21,14 @@ assert.equal(responseFileName({
   sourceUrl: 'https://example.test/download',
   mimeType: 'application/pdf',
 }), '周报.pdf');
+assert.equal(responseFileName({
+  sourceUrl: 'https://example.test/download',
+  mimeType: 'image/gif',
+}), 'download.gif');
+assert.equal(responseFileName({
+  sourceUrl: 'https://example.test/download',
+  mimeType: 'image/webp',
+}), 'download.webp');
 
 const outputDir = await mkdtemp(join(tmpdir(), 'aipro-remote-content-'));
 const downloaded = await downloadPublicContent('https://docs.example.test/start', outputDir, {
@@ -43,6 +51,20 @@ const downloaded = await downloadPublicContent('https://docs.example.test/start'
 assert.equal(downloaded.kind, 'document');
 assert.equal(downloaded.fileName, 'report.pdf');
 assert.deepEqual([...await readFile(downloaded.path)], [37, 80, 68, 70]);
+
+const genericMimeImage = await downloadPublicContent('https://media.example.test/wechat-image', outputDir, {
+  lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+  fetchImpl: async () => new Response(new Uint8Array([
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46,
+  ]), {
+    status: 200,
+    headers: { 'content-type': 'application/octst-stream' },
+  }),
+  dispatcherFactory: () => ({ close: async () => {} }),
+});
+assert.equal(genericMimeImage.kind, 'image', 'valid image bytes must override GeWe generic MIME');
+assert.equal(genericMimeImage.mimeType, 'image/jpeg');
+assert.match(genericMimeImage.fileName, /\.jpg$/);
 
 await assert.rejects(
   downloadPublicContent('http://localhost/private.pdf', outputDir, {

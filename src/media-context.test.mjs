@@ -3,6 +3,7 @@ import {
   refersToRecentFiles,
   refersToRecentImages,
   requestedImageLimit,
+  selectRecentDingTalkMediaRefs,
   selectRecentFileRef,
   selectRecentFileRefs,
   selectRecentImageRefs,
@@ -13,6 +14,45 @@ assert.equal(refersToRecentImages('今天开会吗'), false);
 assert.equal(refersToRecentFiles('帮我总结一下上面的 PDF'), true);
 assert.equal(refersToRecentFiles('帮我写一个项目文档'), false);
 assert.equal(requestedImageLimit('分析这两张图片'), 2);
+assert.equal(refersToRecentImages('刚才那张图我这边没加载出来'), true);
+assert.equal(refersToRecentImages('我才发了两张，你看看群里聊天信息'), true);
+assert.equal(refersToRecentImages('我发的图是别人 dsh 截图，这是怎么实现'), true);
+
+assert.deepEqual(selectRecentDingTalkMediaRefs([
+  {
+    openMessageId: 'image-current',
+    openConversationId: 'conversation-a',
+    createTime: '2026-08-09 23:40:30',
+    content: '[图片消息](mediaId=@image-current)',
+  },
+  {
+    openMessageId: 'image-old',
+    openConversationId: 'conversation-a',
+    createTime: '2026-08-09 23:35:00',
+    content: '[图片消息](mediaId=@image-old)',
+  },
+  {
+    openMessageId: 'expired',
+    openConversationId: 'conversation-a',
+    createTime: '2026-08-09 22:30:00',
+    content: '[图片消息](mediaId=@expired)',
+  },
+], {
+  currentTime: Date.parse('2026-08-09T23:41:00+08:00'),
+  parseTime: value => Date.parse(String(value).replace(' ', 'T') + '+08:00'),
+  conversationId: 'conversation-a',
+  limit: 2,
+}), [{
+  kind: 'image',
+  resourceId: '@image-old',
+  messageId: 'image-old',
+  conversationId: 'conversation-a',
+}, {
+  kind: 'image',
+  resourceId: '@image-current',
+  messageId: 'image-current',
+  conversationId: 'conversation-a',
+}]);
 
 const currentTime = 2_000_000;
 const items = [

@@ -32,6 +32,33 @@ export function parseDingTalkFilePlaceholder(content = '') {
   };
 }
 
+export function sniffMediaFileExtension(bytes) {
+  const value = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes || []);
+  if (value.length >= 8
+    && value.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return '.png';
+  }
+  if (value.length >= 3 && value[0] === 0xff && value[1] === 0xd8 && value[2] === 0xff) {
+    return '.jpg';
+  }
+  if (value.length >= 6 && ['GIF87a', 'GIF89a'].includes(value.subarray(0, 6).toString('ascii'))) {
+    return '.gif';
+  }
+  if (value.length >= 12
+    && value.subarray(0, 4).toString('ascii') === 'RIFF'
+    && value.subarray(8, 12).toString('ascii') === 'WEBP') {
+    return '.webp';
+  }
+  return '';
+}
+
+export function buildImageUnderstandingTask(requestText = '') {
+  const request = String(requestText || '').trim();
+  return `${request ? `对方的问题是：${request}\n` : ''}`
+    + '看一下图片里的内容，然后结合图片直接回复对方。如果是聊天截图，先理解对话语境，再给出最自然的回应或建议。'
+    + '如果图片里有网址或链接文字，要逐字识别清晰可见的链接；看不清时明确说明，不得猜测或补全。';
+}
+
 export function buildDingTalkDriveDownloadArgs({
   profile = '',
   fileId,

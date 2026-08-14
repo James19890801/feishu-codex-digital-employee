@@ -9,7 +9,9 @@ import {
   evaluateHealth,
   isBareMention,
   interactiveInboundRateLimitPolicy,
+  finalInboundFailurePolicy,
   planPollWindow,
+  shouldObserveWithoutReply,
   validateInboundPayload,
 } from './reliability.mjs';
 
@@ -17,9 +19,19 @@ assert.deepEqual(interactiveInboundRateLimitPolicy({ semanticCandidate: true }),
   apply: false,
   notify: false,
 });
+assert.deepEqual(interactiveInboundRateLimitPolicy({ contextOnly: true }), {
+  apply: false,
+  notify: false,
+});
 assert.deepEqual(interactiveInboundRateLimitPolicy({}), {
   apply: true,
   notify: true,
+});
+assert.equal(shouldObserveWithoutReply({ contextOnly: true }), true);
+assert.equal(shouldObserveWithoutReply({}), false);
+assert.deepEqual(finalInboundFailurePolicy(), {
+  disposition: 'dead_letter',
+  notifyUser: false,
 });
 
 {

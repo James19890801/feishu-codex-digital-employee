@@ -41,10 +41,10 @@ try {
   state.upsertMulticaDeliveryContract({
     issueId: 'issue-8',
     workspaceId: 'ws-1',
-    channel: 'feishu',
-    chatId: 'oc_owner',
-    senderId: 'ou_owner',
-    chatType: 'p2p',
+    channel: 'wechat',
+    chatId: 'wechat:group:room-1@chatroom',
+    senderId: 'wechat:wxid_group_member',
+    chatType: 'group',
     formats: ['pdf'],
     request: '最终交付 PDF',
   });
@@ -78,8 +78,10 @@ try {
   });
   assert.equal(first.delivered, 1);
   assert.equal(delivered.length, 1);
-  assert.equal(delivered[0].channel, 'feishu');
-  assert.equal(delivered[0].chatId, 'oc_owner');
+  assert.equal(delivered[0].channel, 'wechat');
+  assert.equal(delivered[0].chatId, 'wechat:group:room-1@chatroom');
+  assert.equal(delivered[0].senderId, 'wechat:wxid_group_member');
+  assert.equal(delivered[0].chatType, 'group');
   assert.equal(delivered[0].format, 'pdf');
   assert.match(delivered[0].path, /\.pdf$/);
   assert.equal(state.multicaDeliveryContract('issue-8').status, 'delivered');

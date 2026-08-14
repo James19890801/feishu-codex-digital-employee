@@ -31,6 +31,8 @@ const MIME_EXTENSIONS = new Map([
   ['application/json', '.json'],
   ['image/png', '.png'],
   ['image/jpeg', '.jpg'],
+  ['image/gif', '.gif'],
+  ['image/webp', '.webp'],
   ['audio/mpeg', '.mp3'],
   ['video/mp4', '.mp4'],
 ]);
@@ -43,6 +45,24 @@ export function classifyContentType(value = '') {
   if (type.startsWith('audio/')) return 'audio';
   if (type.startsWith('video/')) return 'video';
   return 'file';
+}
+
+export function sniffImageMimeType(bytes) {
+  const value = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  if (value.length >= 3 && value[0] === 0xff && value[1] === 0xd8 && value[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (value.length >= 8
+    && [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+      .every((byte, index) => value[index] === byte)) {
+    return 'image/png';
+  }
+  const ascii = (start, end) => String.fromCharCode(...value.subarray(start, end));
+  if (value.length >= 6 && ['GIF87a', 'GIF89a'].includes(ascii(0, 6))) return 'image/gif';
+  if (value.length >= 12 && ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') {
+    return 'image/webp';
+  }
+  return '';
 }
 
 function decodedDispositionFileName(value = '') {
@@ -134,18 +154,20 @@ export async function downloadPublicContent(sourceUrl, outputDir, {
         continue;
       }
       if (!response.ok) throw new Error(`Remote content returned HTTP ${response.status}`);
-      const mimeType = String(response.headers.get('content-type') || 'application/octet-stream')
+      const declaredMimeType = String(response.headers.get('content-type') || 'application/octet-stream')
         .split(';')[0].trim().toLowerCase();
-      const fileName = responseFileName({
-        contentDisposition: response.headers.get('content-disposition') || '',
-        sourceUrl: current.href,
-        mimeType,
-      });
       const prefix = randomUUID();
-      const finalPath = join(outputDir, `${prefix}-${fileName}`);
-      const partialPath = `${finalPath}.part`;
+      let partialPath = '';
       try {
         const bytes = await limitedBytes(response, maxBytes);
+        const mimeType = sniffImageMimeType(bytes) || declaredMimeType;
+        const fileName = responseFileName({
+          contentDisposition: response.headers.get('content-disposition') || '',
+          sourceUrl: current.href,
+          mimeType,
+        });
+        const finalPath = join(outputDir, `${prefix}-${fileName}`);
+        partialPath = `${finalPath}.part`;
         await writeFile(partialPath, bytes, { mode: 0o600 });
         await rename(partialPath, finalPath);
         return {

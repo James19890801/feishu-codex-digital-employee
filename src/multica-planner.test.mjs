@@ -166,6 +166,10 @@ assert.doesNotMatch(prompt, /mul_[A-Za-z0-9]+/);
 
 assert.equal(looksLikeMulticaRequest('帮我查一下MYS-2'), true);
 assert.equal(looksLikeMulticaRequest('在 Multica 创建一个 issue'), true);
+assert.equal(
+  looksLikeMulticaRequest('帮忙创建需求，我们一起来搞定群聊场景下，数字人如何适当响应，这个做了一个探索需求'),
+  true,
+);
 assert.equal(looksLikeMulticaRequest('帮我总结一下今天的普通任务'), false);
 
 console.log('MULTICA_PLANNER_TEST_OK');

@@ -176,7 +176,13 @@ import {
       return {
         ok: true,
         status: 200,
-        json: async () => ({ ret: 200, msg: '操作成功', data: true }),
+        json: async () => ({
+          ret: 200,
+          msg: '操作成功',
+          data: String(url).endsWith('/message/downloadImage')
+            ? { fileUrl: 'https://media.example.com/image.jpg' }
+            : true,
+        }),
       };
     },
     now: () => now,
@@ -201,6 +207,16 @@ import {
   );
 
   calls.length = 0;
+  const imageUrl = await channel.downloadImage('<msg><img /></msg>');
+  assert.equal(imageUrl, 'https://media.example.com/image.jpg');
+  assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/message/downloadImage');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    appId: 'device-a',
+    xml: '<msg><img /></msg>',
+    type: 2,
+  });
+
+  calls.length = 0;
   await Promise.all([
     channel.send({ channel: 'wechat', kind: 'user', id: 'wxid_a' }, '第一条'),
     channel.send({ channel: 'wechat', kind: 'group', id: 'room@chatroom' }, '第二条'),
@@ -214,6 +230,29 @@ import {
   assert.equal(JSON.parse(calls[1].options.body).toWxid, 'room@chatroom');
   assert.ok(now >= 2_000, 'GeWe sends must be serialized with at least a one-second gap');
   assert.equal(statuses.at(-1).lastError, null);
+
+  calls.length = 0;
+  await channel.sendFile(
+    { channel: 'wechat', kind: 'group', id: 'room@chatroom' },
+    {
+      fileUrl: 'https://callback.example.com/webhooks/gewe/secret/artifacts/token',
+      fileName: 'report.pdf',
+    },
+  );
+  assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/message/postFile');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    appId: 'device-a',
+    toWxid: 'room@chatroom',
+    fileUrl: 'https://callback.example.com/webhooks/gewe/secret/artifacts/token',
+    fileName: 'report.pdf',
+  });
+  await assert.rejects(
+    channel.sendFile(
+      { channel: 'wechat', kind: 'user', id: 'wxid_a' },
+      { fileUrl: 'http://callback.example.com/report.pdf', fileName: 'report.pdf' },
+    ),
+    /https/i,
+  );
 
   await assert.rejects(
     () => new GeWeChannel({

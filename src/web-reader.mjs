@@ -9,6 +9,13 @@ const ALLOWED_CONTENT_TYPES = new Set([
   'application/json',
 ]);
 const TRAILING_PUNCTUATION = /[，。！？；：、）】》”’.,!?;:)\]}>'"]+$/;
+const BROWSER_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+  + 'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15';
+const WECHAT_ARTICLE_MAX_BYTES = 6 * 1024 * 1024;
+
+function isWechatArticleUrl(url) {
+  return url.hostname.toLowerCase() === 'mp.weixin.qq.com';
+}
 
 function ipv4Parts(address) {
   const parts = String(address).split('.').map(Number);
@@ -52,6 +59,21 @@ export function extractHttpUrls(text = '', limit = 3) {
     .replace(/&amp;/gi, '&')))]
     .filter(Boolean)
     .slice(0, Math.max(0, Number(limit) || 0));
+}
+
+export function resolveInboundLinkUrls({ text = '', linkCandidate = null, limit = 3 } = {}) {
+  const maximum = Math.max(0, Number(limit) || 0);
+  if (!maximum) return [];
+  const candidates = [];
+  const candidateUrl = String(linkCandidate?.url || '').trim();
+  if (candidateUrl) {
+    try {
+      const parsed = new URL(candidateUrl);
+      if (['http:', 'https:'].includes(parsed.protocol)) candidates.push(parsed.href);
+    } catch { /* ignore malformed card URL */ }
+  }
+  candidates.push(...extractHttpUrls(text, maximum));
+  return [...new Set(candidates)].slice(0, maximum);
 }
 
 function decodeEntities(value) {
@@ -187,12 +209,13 @@ export async function readPublicWebPage(sourceUrl, {
     }
     const records = await validatedAddresses(current, lookup);
     const dispatcher = dispatcherFactory(records, current);
+    const wechatArticle = isWechatArticleUrl(current);
     try {
       const response = await fetchImpl(current, {
         method: 'GET',
         headers: {
           accept: 'text/html,application/xhtml+xml,text/plain,application/json;q=0.8',
-          'user-agent': 'AIPRO-WebReader/1.0',
+          'user-agent': wechatArticle ? BROWSER_USER_AGENT : 'AIPRO-WebReader/1.0',
         },
         redirect: 'manual',
         signal: AbortSignal.timeout(timeoutMs),
@@ -210,10 +233,16 @@ export async function readPublicWebPage(sourceUrl, {
       if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
         throw new Error(`Unsupported web content type: ${contentType || 'unknown'}`);
       }
-      const raw = await limitedText(response, maxBytes);
+      const raw = await limitedText(
+        response,
+        wechatArticle ? Math.max(maxBytes, WECHAT_ARTICLE_MAX_BYTES) : maxBytes,
+      );
       const html = ['text/html', 'application/xhtml+xml'].includes(contentType);
       const text = html ? extractReadableWebText(raw, maxChars) : raw.trim().slice(0, maxChars);
       if (!text) throw new Error('Web page has no readable text');
+      if (wechatArticle && /(?:环境异常[\s\S]{0,80}(?:完成验证|验证)|完成验证后继续访问|访问过于频繁)/i.test(text)) {
+        throw new Error('WeChat article requires browser verification');
+      }
       return {
         url: requested.href,
         title: html ? pageTitle(raw) : '',

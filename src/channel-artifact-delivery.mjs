@@ -10,11 +10,14 @@ export function buildChannelArtifactDeliveryPlan({
   path,
   relativePath,
   videoCoverRelativePath = '',
+  fileUrl = '',
+  fileName = '',
   caption = '',
   idempotencyKey = '',
 } = {}) {
   const provider = String(channel || '').trim().toLowerCase();
   let attachmentArgs;
+  let file;
   if (provider === 'feishu') {
     attachmentArgs = buildFeishuArtifactSendArgs({
       chatId,
@@ -28,12 +31,18 @@ export function buildChannelArtifactDeliveryPlan({
       path,
       uuid: idempotencyKey,
     });
+  } else if (provider === 'wechat') {
+    file = {
+      fileUrl: String(fileUrl || ''),
+      fileName: String(fileName || ''),
+    };
   } else {
     throw new Error(`Artifact delivery is not implemented for ${provider || 'unknown channel'}`);
   }
   return {
     channel: provider,
-    attachmentArgs,
+    ...(attachmentArgs ? { attachmentArgs } : {}),
+    ...(file ? { file } : {}),
     caption: String(caption || ''),
     captionIdempotencyKey: idempotencyKey ? `${idempotencyKey}-caption`.slice(0, 50) : '',
   };

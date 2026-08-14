@@ -32,6 +32,22 @@ export function parseWorkspaceSelection(value, workspaces) {
   return numberedSelection(value, workspaces || []);
 }
 
+export function selectMyWorkspace(workspaces, configuredWorkspaceId = '') {
+  const configured = normalized(configuredWorkspaceId);
+  if (configured) {
+    const configuredMatches = (workspaces || [])
+      .filter(workspace => normalized(workspace?.id) === configured);
+    if (configuredMatches.length === 1) return configuredMatches[0];
+    throw new Error('Configured Multica My workspace is missing or ambiguous');
+  }
+  const matches = (workspaces || []).filter(workspace => [workspace?.name, workspace?.slug]
+    .some(value => normalized(value).toLowerCase().replace(/[\s_-]+/g, '') === 'myworkspace'));
+  if (matches.length !== 1) {
+    throw new Error('Multica My workspace is missing or ambiguous');
+  }
+  return matches[0];
+}
+
 export function routeSelectionConsumesMessage(value, items) {
   const text = normalized(value).replace(/[。！!]+$/, '').trim();
   if (!text) return false;
@@ -53,6 +69,19 @@ export function buildSquadQuestion(workspace, squads) {
     lines.push(`${index + 1}. ${squad.name}（${count} 人）`);
   });
   if (!(squads || []).length) lines.push('当前空间没有可用小队，只能回复 0 仅创建。');
+  return lines.join('\n');
+}
+
+export function buildDefaultSquadQuestion(squads) {
+  const lines = [
+    '请选择执行方式（回复序号或小队名称）：',
+    '0. 仅创建 Issue，不启动小队',
+  ];
+  (squads || []).forEach((squad, index) => {
+    const count = Number(squad.member_count || 0);
+    lines.push(`${index + 1}. ${squad.name}（${count} 人）`);
+  });
+  if (!(squads || []).length) lines.push('当前没有可用小队，只能回复 0 仅创建。');
   return lines.join('\n');
 }
 
@@ -84,6 +113,12 @@ export function applyCreateRoute(plan, { workspace, selection }) {
     confirmationLevel: selection.mode === 'squad' ? 'double' : plan.confirmationLevel,
     fields,
   };
+}
+
+export function shouldApplyCreateImmediately(plan, selection) {
+  return plan?.action === 'create'
+    && Boolean(selection)
+    && ['create_only', 'squad'].includes(selection.mode);
 }
 
 const CONTEXTUAL_EXECUTION = /(?:继续|直接|开始|安排|让|叫|去)?\s*(?:那个|这个|刚才的|上面的)?[^。！？!?]{0,20}(?:专家团|小队|任务|issue)?[^。！？!?]{0,12}(?:执行|处理|解决|推进|完成|交付)/i;

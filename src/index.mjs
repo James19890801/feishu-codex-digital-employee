@@ -3,15 +3,18 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { spawn } from 'node:child_process';
 import { randomBytes, randomInt } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import {
   lstat,
   mkdir,
   mkdtemp,
   readdir,
   readFile,
+  rename,
   rm,
   stat,
   symlink,
+  writeFile,
 } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative } from 'node:path';
 import { config, validateCoreConfiguration } from './config.mjs';
@@ -73,6 +76,7 @@ import {
   refersToRecentFiles,
   refersToRecentImages,
   requestedImageLimit,
+  selectRecentDingTalkMediaRefs,
   selectRecentFileRef,
   selectRecentFileRefs,
   selectRecentImageRefs,
@@ -81,10 +85,12 @@ import {
   assertCompleteSearchResult,
   canPerformMutation,
   effectiveTask,
+  finalInboundFailurePolicy,
   initializeOptionalPoller,
   interactiveInboundRateLimitPolicy,
   isBareMention,
   planPollWindow,
+  shouldObserveWithoutReply,
   validateInboundPayload,
 } from './reliability.mjs';
 import { MulticaClient } from './multica-client.mjs';
@@ -96,6 +102,11 @@ import {
 } from './multica-planner.mjs';
 import { MulticaCapability } from './multica-capability.mjs';
 import { isAuthorizedMulticaOwner } from './multica-access.mjs';
+import {
+  extendPendingCreateDelivery,
+  isPendingWeChatMulticaContinuation,
+} from './multica-group-routing.mjs';
+import { multicaRequestRoute } from './multica-request-routing.mjs';
 import {
   isFeedbackCancellation,
   looksLikeMulticaFeedback,
@@ -114,6 +125,7 @@ import {
   buildDingTalkArtifactSendArgs,
   buildFeishuArtifactSendArgs,
 } from './artifact-channel-delivery.mjs';
+import { buildChannelArtifactDeliveryPlan } from './channel-artifact-delivery.mjs';
 import { resolveWorkspaceArtifact } from './workspace-artifact.mjs';
 import {
   MulticaWorkLifecycle,
@@ -121,11 +133,14 @@ import {
 } from './multica-work-lifecycle.mjs';
 import {
   applyCreateRoute,
+  buildDefaultSquadQuestion,
   buildSquadQuestion,
   buildWorkspaceQuestion,
   parseSquadSelection,
   parseWorkspaceSelection,
   routeSelectionConsumesMessage,
+  selectMyWorkspace,
+  shouldApplyCreateImmediately,
   resolveContextualWorkRequest,
 } from './multica-task-routing.mjs';
 import { multicaIssueUrl } from './multica-links.mjs';
@@ -137,7 +152,9 @@ import {
   buildPrivacyBoundary,
   knowledgeMemoryLabel,
   ownerHandoffReply,
+  protectedKnowledgeLeak,
 } from './privacy-boundary.mjs';
+import { LocalWikiRetriever } from './local-wiki-retrieval.mjs';
 import {
   MutationOutcomeAmbiguousError,
   executeMutationOnce,
@@ -212,13 +229,23 @@ import {
 } from './dingtalk-wukong-poller.mjs';
 import {
   buildDingTalkDriveDownloadArgs,
+  buildImageUnderstandingTask,
   buildDingTalkMediaDownloadArgs,
   buildFeishuMediaDownloadArgs,
   buildTranscriptionInvocation,
   mediaFileExtension,
+  sniffMediaFileExtension,
 } from './multimodal-content.mjs';
-import { extractHttpUrls, readPublicWebPage } from './web-reader.mjs';
+import { readPublicWebPage, resolveInboundLinkUrls } from './web-reader.mjs';
 import { downloadPublicContent } from './remote-content.mjs';
+import {
+  downloadWeChatImage,
+  recentWeChatImages,
+  recentWeChatImageSources,
+  rememberWeChatImage,
+  rememberWeChatImageSource,
+  weChatImageFailurePolicy,
+} from './wechat-media-context.mjs';
 import {
   discoverBotP2pChats,
   isExpectedLarkCliResult,
@@ -269,6 +296,7 @@ const BUNDLED_PYTHON = config.pythonBin;
 const FILE_EXTRACTOR = join(WORKDIR, 'src', 'extract_file_text.py');
 const DATABASE_BACKUP_DIR = join(WORKDIR, 'data', 'database-backups');
 const MULTICA_ARTIFACT_ROOT = join(WORKDIR, 'data', 'multica-artifacts');
+const WECHAT_MEDIA_ROOT = join(WORKDIR, 'data', 'wechat-media');
 const LARK_CLI = config.larkCli;
 const BUNDLED_NODE_BIN = config.nodeBin;
 const BIBLE_TEXT = await readFile(join(WORKDIR, 'BIBLE.md'), 'utf8');
@@ -280,6 +308,7 @@ const STATE_PATH = join(WORKDIR, 'data', 'agent-state.sqlite');
 const CODEX_RUNTIME_DIR = join(WORKDIR, 'data', 'codex-runtime');
 const CODEX_HOME_DIR = join(WORKDIR, 'data', 'codex-home');
 const DAILY_LEARNING_RUNTIME_DIR = join(WORKDIR, 'data', 'daily-learning-runtime');
+const LOCAL_WIKI_INDEX_PATH = join(homedir(), 'Library', 'Application Support', 'AIPRO', 'local-wiki', 'index.json');
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_DOC_CHARS = 40_000;
 const KNOWLEDGE_CATALOG_PATH = join(WORKDIR, 'knowledge-catalog.json');
@@ -288,6 +317,10 @@ await mkdir(CODEX_RUNTIME_DIR, { recursive: true });
 await mkdir(CODEX_HOME_DIR, { recursive: true, mode: 0o700 });
 await mkdir(DAILY_LEARNING_RUNTIME_DIR, { recursive: true, mode: 0o700 });
 await mkdir(MULTICA_ARTIFACT_ROOT, { recursive: true, mode: 0o700 });
+await mkdir(WECHAT_MEDIA_ROOT, { recursive: true, mode: 0o700 });
+const LOCAL_WIKI_RETRIEVER = new LocalWikiRetriever({
+  loadIndex: async () => JSON.parse(await readFile(LOCAL_WIKI_INDEX_PATH, 'utf8')),
+});
 const isolatedAuthPath = join(CODEX_HOME_DIR, 'auth.json');
 try {
   await lstat(isolatedAuthPath);
@@ -414,6 +447,7 @@ let dingTalkGroupHostRecoveryPromise = null;
 let geWeMonitorPromise = null;
 let dailyLearningPromise = null;
 let groupHostPromise = null;
+let localWikiRefreshPromise = null;
 let businessClient = null;
 let sdkAppSecret = '';
 let dingTalkChannel = null;
@@ -637,6 +671,38 @@ async function findRecentFileRefs(client, message, senderOpenId, { includeCurren
     currentTime: currentTime + (includeCurrent ? 1 : 0),
     limit,
   });
+}
+
+async function persistIncomingWeChatImage(message, senderOpenId, metadata) {
+  if (metadata?.channel !== 'wechat' || !metadata?.image?.xml || !geWeChannel) return null;
+  const downloaded = await downloadWeChatImage({
+    channel: geWeChannel,
+    image: metadata.image,
+    outputDir: WECHAT_MEDIA_ROOT,
+    maxBytes: MAX_FILE_BYTES,
+    downloadContent: downloadPublicContent,
+    saveThumbnail: async ({ bytes, extension, outputDir }) => {
+      const thumbnailPath = join(
+        outputDir,
+        `${randomBytes(16).toString('hex')}-wechat-thumbnail${extension}`,
+      );
+      await writeFile(thumbnailPath, bytes, { mode: 0o600, flag: 'wx' });
+      return thumbnailPath;
+    },
+  });
+  const evicted = rememberWeChatImage(state, message.chat_id, {
+    path: downloaded.path,
+    messageId: message.message_id,
+    senderId: senderOpenId,
+    createdAtMs: Number(message.create_time || Date.now()),
+  });
+  await Promise.all(evicted.map(item => rm(item.path, { force: true }).catch(() => {})));
+  audit('media_downloaded', message, senderOpenId, {
+    channel: 'wechat',
+    kind: 'image',
+    bytes: downloaded.bytes,
+  });
+  return downloaded.path;
 }
 
 async function extractFileText(filePath) {
@@ -955,6 +1021,37 @@ async function deliverMulticaArtifact(payload) {
     }
     return result;
   }
+  if (effectiveChannel === 'wechat') {
+    if (!geWeChannel || !geWeWebhookServer) {
+      throw new Error('Personal WeChat file delivery is not available');
+    }
+    const fileName = basename(String(payload.name || artifactPath));
+    const route = await geWeWebhookServer.registerArtifact({
+      path: artifactPath,
+      fileName,
+      ttlMs: 5 * 60_000,
+    });
+    const fileUrl = `${config.gewePublicCallbackBaseUrl.replace(/\/$/, '')}${route}`;
+    const plan = buildChannelArtifactDeliveryPlan({
+      channel: effectiveChannel,
+      chatId,
+      target,
+      path: artifactPath,
+      fileUrl,
+      fileName,
+      caption: payload.name ? `文件已生成：${payload.name}` : '',
+      idempotencyKey: payload.idempotencyKey,
+    });
+    const result = await sendWithEchoGuard(
+      chatId,
+      payload.name || fileName,
+      () => geWeChannel.sendFile(target, plan.file),
+    );
+    if (plan.caption) {
+      await sendText(null, chatId, plan.caption, plan.captionIdempotencyKey);
+    }
+    return result;
+  }
   throw new Error(`Artifact delivery is not implemented for ${effectiveChannel}`);
 }
 
@@ -1180,9 +1277,30 @@ async function runAiRuntime(prompt, options) {
   }
 }
 
-async function runCodex(task, history, imagePaths = [], decision = null) {
+async function runCodex(task, history, imagePaths = [], decision = null, options = {}) {
   const lengthPolicy = replyLengthPolicy(task);
   const learnedMemory = state.get('learning', 'memory', '');
+  const localKnowledgeContext = options.skipLocalKnowledge
+    ? ''
+    : await LOCAL_WIKI_RETRIEVER.contextFor({ query: task, channel: options.channel || 'shared' });
+  if (!options.skipLocalKnowledge) {
+    const localWikiHealth = LOCAL_WIKI_RETRIEVER.health();
+    state.set('health', 'local_wiki', {
+      state: localWikiHealth.state,
+      builtAt: localWikiHealth.builtAt || '',
+      sourceCount: localWikiHealth.sourceCount || 0,
+      chunkCount: localWikiHealth.chunkCount || 0,
+      lastDecision: localWikiHealth.lastDecision || 'unknown',
+      lastUsed: Boolean(localWikiHealth.lastUsed),
+    });
+    state.audit('local_wiki_retrieval_decision', {
+      detail: {
+        channel: options.channel || 'shared',
+        decision: localWikiHealth.lastDecision || 'unknown',
+        used: Boolean(localWikiHealth.lastUsed),
+      },
+    });
+  }
   const prompt = `
 ${PERSONA_TEXT}
 
@@ -1211,6 +1329,8 @@ ${PRIVACY_BOUNDARY_TEXT}
 每日自体学习形成的长期记忆（仅作行为改进，不得向对方披露记忆来源或私人数据）：
 ${learnedMemory || '（尚未完成首次每日学习）'}
 
+${localKnowledgeContext}
+
 本次工作流决策：
 ${decision ? workflowInstruction(decision) : '未指定，按 Bible 判断。'}
 
@@ -1229,7 +1349,17 @@ ${task}
     maxStdoutBytes: 512 * 1024,
     maxStderrBytes: 1024 * 1024,
   });
-  return enforceReplyLength(text, task);
+  const answer = enforceReplyLength(text, task);
+  if (localKnowledgeContext && protectedKnowledgeLeak(answer)) {
+    state.audit('local_wiki_output_blocked', {
+      detail: { channel: options.channel || 'shared', reason: 'protected_entity_or_provenance' },
+    });
+    return runCodex(task, history, imagePaths, decision, {
+      ...options,
+      skipLocalKnowledge: true,
+    });
+  }
+  return answer;
 }
 
 const DAILY_LEARNING_ENGINE = new DailyLearningEngine({
@@ -1356,10 +1486,10 @@ async function runCodexMulticaPlan(request, history) {
 
 function multicaConfirmationMatches(text, pending) {
   if (pending.pending.plan.confirmationLevel === 'double') {
-    const match = String(text).match(/^确认\s+(\d{6})[。！! ]*$/);
+    const match = String(text).match(/^确认\s*(\d{6})[。！! ]*$/);
     return Boolean(match && match[1] === pending.confirmationCode);
   }
-  return /^(确认|确认执行|可以|好|好哦)[。！! ]*$/.test(text);
+  return /^(确认|确认执行|确定|可以|行|没问题|好|好哦)(?:[，,。！! ]|$)/.test(text);
 }
 
 async function applyPendingFeedback(message, senderOpenId, cleanText, metadata = {}) {
@@ -1483,7 +1613,7 @@ async function applyPendingMultica(message, senderOpenId, cleanText, metadata = 
     });
     return true;
   }
-  const looksLikeConfirmation = /^(确认|确认执行|可以|好|好哦)(?:\s+\d{6})?[。！! ]*$/.test(cleanText);
+  const looksLikeConfirmation = /^(确认|确认执行|确定|可以|行|没问题|好|好哦)(?:\s*\d{6})?(?:[，,。！! ]|$)/.test(cleanText);
   if (!looksLikeConfirmation) return false;
   if (!multicaConfirmationMatches(cleanText, pending)) {
     const answer = pending.pending.plan.confirmationLevel === 'double'
@@ -1498,7 +1628,7 @@ async function applyPendingMultica(message, senderOpenId, cleanText, metadata = 
     await sendText(
       null,
       message.chat_id,
-      '只有经过验证的 Owner 在飞书或钉钉 self-chat 中才能确认 Multica 写入；本次操作未执行。',
+      '只有经过验证的 Owner 在飞书、钉钉 self-chat 或微信文件传输助手中才能确认 Multica 写入；本次操作未执行。',
       `multica-owner-required-${message.message_id}`,
     );
     audit('multica_write_denied', message, senderOpenId, {
@@ -1614,20 +1744,79 @@ async function startMulticaCreateRouting(
   plan,
   deliveryContract = null,
 ) {
+  pendingActions.delete('multica', message.chat_id, senderOpenId);
   const workspaces = await MULTICA_CLIENT.listWorkspaces();
-  const answer = buildWorkspaceQuestion(workspaces, plan.workspaceId);
+  const workspace = selectMyWorkspace(workspaces, config.multicaDefaultWorkspaceId);
+  const squads = await MULTICA_CLIENT.listSquads(workspace.id);
+  const answer = buildDefaultSquadQuestion(squads);
   pendingActions.set('multica_create_route', message.chat_id, senderOpenId, {
-    stage: 'workspace',
+    stage: 'squad',
     originalRequest: cleanText,
     plan: structuredClone(plan),
-    workspaces,
+    workspace,
+    squads,
+    defaultWorkspace: true,
     deliveryContract,
   });
   remember(message.chat_id, senderOpenId, 'assistant', answer);
-  await sendText(null, message.chat_id, answer, `multica-workspace-select-${message.message_id}`);
-  audit('multica_create_workspace_requested', message, senderOpenId, {
-    workspaceCount: workspaces.length,
-    suggestedWorkspaceId: plan.workspaceId || '',
+  await sendText(null, message.chat_id, answer, `multica-squad-select-${message.message_id}`);
+  audit('multica_create_default_workspace_selected', message, senderOpenId, {
+    squadCount: squads.length,
+  });
+  return true;
+}
+
+async function applyRoutedMulticaCreate(
+  message,
+  senderOpenId,
+  routedPlan,
+  context,
+  createRoute,
+  deliveryContract,
+) {
+  if (!shouldApplyCreateImmediately(routedPlan, createRoute.selection)) return false;
+  let execution;
+  try {
+    const prepared = await MULTICA_CAPABILITY.prepareMutation(routedPlan, context);
+    execution = await executeMutationOnce({
+      state,
+      executionKey: `multica:auto-create:${message.message_id}`,
+      kind: 'multica_create',
+      operation: () => MULTICA_CAPABILITY.applyMutation(prepared.pending, context),
+    });
+  } catch (error) {
+    const answer = error instanceof MutationOutcomeAmbiguousError
+      ? '这次 Issue 创建结果不确定。为防止重复创建，我已停止自动重试，请先在 Multica 中核对。'
+      : `Multica 创建没有完成：${processFailureSummary(error)}`;
+    await sendText(null, message.chat_id, answer, `multica-auto-create-error-${message.message_id}`);
+    audit('multica_auto_create_failed', message, senderOpenId, {
+      error: String(error?.message || error).slice(0, 1000),
+    });
+    return true;
+  }
+  const result = execution.result;
+  if (deliveryContract && result.issue?.id) {
+    state.upsertMulticaDeliveryContract({
+      issueId: result.issue.id,
+      workspaceId: result.issue.workspace_id,
+      ...deliveryContract,
+    });
+  }
+  const receipt = String(result.text || '')
+    .split('\n').filter(line => !/^空间：/.test(line)).join('\n');
+  const executionMode = createRoute.selection.mode === 'squad'
+    ? `已启动小队 ${createRoute.selection.squad.name}，我会持续执行并把进度发回本群。`
+    : '已按你的选择仅创建 Issue，未启动小队。';
+  const deliveryLine = deliveryContract
+    ? '\n最终文件会按交付契约回传本群。' : '';
+  const answer = `${receipt}\n${executionMode}${deliveryLine}`;
+  remember(message.chat_id, senderOpenId, 'assistant', answer);
+  await sendText(null, message.chat_id, answer, `multica-auto-created-${message.message_id}`);
+  audit('multica_auto_created_after_route', message, senderOpenId, {
+    issueId: result.issue?.id || '',
+    identifier: result.issue?.identifier || '',
+    squadSelected: createRoute.selection.mode === 'squad',
+    replayed: execution.replayed,
   });
   return true;
 }
@@ -1667,13 +1856,126 @@ function messageChannel(message, metadata = {}) {
     || 'feishu';
 }
 
+function recentAssistantArtifactSource(chatId, { limit = 30, minChars = 500 } = {}) {
+  return state.chatHistory(chatId, limit)
+    .slice()
+    .reverse()
+    .find(item => item?.role === 'assistant'
+      && String(item?.content || '').trim().length >= minChars);
+}
+
+async function ownerSquadId(workspaceId) {
+  const squads = await MULTICA_CLIENT.listSquads(workspaceId);
+  return squads.find(item => item.name === config.multicaOwnerSquad)?.id || '';
+}
+
+async function startArtifactDeliveryIssueFromRecentReply(
+  message,
+  senderOpenId,
+  cleanText,
+  deliveryPlan,
+  metadata = {},
+) {
+  const source = recentAssistantArtifactSource(message.chat_id);
+  if (!source) return null;
+  const workspaceId = config.multicaDefaultWorkspaceId;
+  const formats = deliveryPlan.formats || [];
+  const title = `文件交付：${formats.map(item => item.toUpperCase()).join('、')} 转换 ${new Date().toISOString().slice(0, 10)}`;
+  const description = appendDeliveryRequirement([
+    '来源：AIPRO 群聊后续文件交付请求。',
+    `原会话：${message.chat_id}`,
+    `来源发送者：${senderOpenId}`,
+    `来源消息：${message.message_id}`,
+    '',
+    `用户要求：${cleanText}`,
+    '',
+    '待转换源内容：',
+    String(source.content || '').trim().slice(0, 12000),
+  ].join('\n'), {
+    formats,
+    request: cleanText,
+  });
+  const issue = await MULTICA_CLIENT.createIssue({
+    workspaceId,
+    title,
+    description,
+    status: 'todo',
+    priority: 'high',
+    assigneeId: await ownerSquadId(workspaceId),
+  });
+  const workspaces = await MULTICA_CLIENT.listWorkspaces();
+  const workspace = workspaces.find(item => item.id === issue.workspace_id) || {};
+  const decoratedIssue = {
+    ...issue,
+    workspace_name: workspace.name || '',
+    workspace_slug: workspace.slug || '',
+  };
+  const channel = messageChannel(message, metadata);
+  state.upsertMulticaIssue(decoratedIssue);
+  state.bindConversationIssue(message.chat_id, senderOpenId, decoratedIssue);
+  state.bindMulticaIssueOrigin(decoratedIssue.id, {
+    channel,
+    chatId: message.chat_id,
+    senderId: senderOpenId,
+    chatType: message.chat_type,
+  });
+  state.upsertMulticaDeliveryContract({
+    issueId: decoratedIssue.id,
+    workspaceId: decoratedIssue.workspace_id,
+    channel,
+    chatId: message.chat_id,
+    senderId: senderOpenId,
+    chatType: message.chat_type,
+    formats,
+    request: cleanText,
+  });
+  return decoratedIssue;
+}
+
 async function handleMulticaArtifactFollowup(message, senderOpenId, cleanText, metadata = {}) {
   if (!MULTICA_CLIENT || !MULTICA_ARTIFACT_DELIVERY) return false;
   const asksStatus = looksLikeArtifactProgressRequest(cleanText);
   const asksExecution = looksLikeArtifactExecutionRequest(cleanText);
   if (!asksStatus && !asksExecution) return false;
   const activeIssue = state.conversationIssue(message.chat_id, senderOpenId);
-  if (!activeIssue) return false;
+  if (!activeIssue) {
+    const deliveryPlan = buildDeliveryPlan({ chatId: message.chat_id, request: cleanText });
+    if (asksExecution && deliveryPlan.kind === 'artifact') {
+      const created = await startArtifactDeliveryIssueFromRecentReply(
+        message,
+        senderOpenId,
+        cleanText,
+        deliveryPlan,
+        metadata,
+      );
+      if (created) {
+        const link = multicaIssueUrl(created, config.multicaAppUrl);
+        const answer = `已把这条后续文件交付登记成可监控待办：${created.identifier}。${deliveryPlan.formats.map(item => item.toUpperCase()).join('、')} 生成后会自动校验并作为附件回传到本群。${link ? `\n查看：${link}` : ''}`;
+        remember(message.chat_id, senderOpenId, 'assistant', answer);
+        await sendText(null, message.chat_id, answer, `artifact-delivery-issue-${message.message_id}`);
+        audit('artifact_delivery_issue_created', message, senderOpenId, {
+          issueId: created.id,
+          identifier: created.identifier,
+          formats: deliveryPlan.formats,
+        });
+        return true;
+      }
+    }
+    const formats = deliveryPlan.kind === 'artifact'
+      ? deliveryPlan.formats.map(item => item.toUpperCase()).join('、')
+      : '文件';
+    const answer = asksExecution
+      ? `这条是 ${formats} 文件交付请求，但当前对话没有关联到可执行的 Multica Issue 或交付契约。我不能只回一句“可以”，需要先把要转换的内容建立为交付任务，或基于最近一条长文生成本地文件后再作为附件回传。`
+      : '当前对话没有关联到文件交付任务，所以查不到“生成好了但没回传”的产物。请给我 Issue 编号，或重新点名要求把哪段内容转成 PDF/Word。';
+    remember(message.chat_id, senderOpenId, 'assistant', answer);
+    await sendText(null, message.chat_id, answer, `multica-artifact-no-context-${message.message_id}`);
+    audit('multica_artifact_no_context', message, senderOpenId, {
+      asksStatus,
+      asksExecution,
+      formats: deliveryPlan.formats || [],
+    });
+    return true;
+  }
   const issue = await MULTICA_CLIENT.getIssue(activeIssue.identifier, activeIssue.workspace_id);
   const runs = await MULTICA_CLIENT.listIssueRuns(issue.id, issue.workspace_id);
   const summary = summarizeMulticaRuns(issue, runs, { appUrl: config.multicaAppUrl });
@@ -1746,7 +2048,8 @@ async function handleMulticaArtifactFollowup(message, senderOpenId, cleanText, m
   state.upsertMulticaIssue(updated);
   pendingActions.delete('multica_create_route', message.chat_id, senderOpenId);
   const run = await MULTICA_CLIENT.rerunIssue(updated.id, updated.workspace_id);
-  const answer = `已经在 ${updated.identifier} 补上真实文件交付契约并重新启动。${deliveryPlan.formats.map(item => item.toUpperCase()).join('、')} 生成后会自动上传、下载校验，再回传到这个${channel === 'dingtalk' ? '钉钉' : '飞书'}对话。`;
+  const channelLabel = channel === 'dingtalk' ? '钉钉' : channel === 'wechat' ? '微信' : '飞书';
+  const answer = `已经在 ${updated.identifier} 补上真实文件交付契约并重新启动。${deliveryPlan.formats.map(item => item.toUpperCase()).join('、')} 生成后会自动上传、下载校验，再回传到这个${channelLabel}对话。`;
   remember(message.chat_id, senderOpenId, 'assistant', answer);
   await sendText(null, message.chat_id, answer, `multica-artifact-rerun-${message.message_id}`);
   audit('multica_artifact_rerun_started', message, senderOpenId, {
@@ -1802,6 +2105,34 @@ async function applyPendingMulticaCreateRoute(message, senderOpenId, cleanText, 
     await sendText(null, message.chat_id, answer, `multica-route-cancel-${message.message_id}`);
     return true;
   }
+  const extended = extendPendingCreateDelivery(pending, {
+    request: cleanText,
+    channel: messageChannel(message, metadata),
+    chatId: message.chat_id,
+    senderId: senderOpenId,
+    chatType: message.chat_type,
+  });
+  if (extended.matched) {
+    pendingActions.set(
+      'multica_create_route',
+      message.chat_id,
+      senderOpenId,
+      extended.pending,
+    );
+    const routeQuestion = extended.pending.stage === 'workspace'
+      ? buildWorkspaceQuestion(extended.pending.workspaces, extended.pending.plan.workspaceId)
+      : extended.pending.defaultWorkspace
+      ? buildDefaultSquadQuestion(extended.pending.squads)
+      : buildSquadQuestion(extended.pending.workspace, extended.pending.squads);
+    const answer = `已把这条交付格式补充到同一个 Issue，后续会生成真实文件并回传原群。\n${routeQuestion}`;
+    remember(message.chat_id, senderOpenId, 'assistant', answer);
+    await sendText(null, message.chat_id, answer, `multica-create-delivery-extended-${message.message_id}`);
+    audit('multica_create_delivery_extended', message, senderOpenId, {
+      formats: extended.pending.deliveryContract.formats,
+      stage: extended.pending.stage,
+    });
+    return true;
+  }
   const routeItems = pending.stage === 'workspace' ? pending.workspaces : pending.squads;
   if (!routeSelectionConsumesMessage(cleanText, routeItems)) return false;
   const context = multicaContext(message, senderOpenId, metadata);
@@ -1837,7 +2168,10 @@ async function applyPendingMulticaCreateRoute(message, senderOpenId, cleanText, 
   if (pending.stage === 'squad') {
     const selection = parseSquadSelection(cleanText, pending.squads);
     if (!selection) {
-      const answer = `没有匹配到唯一小队。\n${buildSquadQuestion(pending.workspace, pending.squads)}`;
+      const squadQuestion = pending.defaultWorkspace
+        ? buildDefaultSquadQuestion(pending.squads)
+        : buildSquadQuestion(pending.workspace, pending.squads);
+      const answer = `没有匹配到唯一小队。\n${squadQuestion}`;
       remember(message.chat_id, senderOpenId, 'assistant', answer);
       await sendText(null, message.chat_id, answer, `multica-squad-invalid-${message.message_id}`);
       return true;
@@ -1846,8 +2180,21 @@ async function applyPendingMulticaCreateRoute(message, senderOpenId, cleanText, 
       workspace: pending.workspace,
       selection,
     });
+    const createRoute = { workspace: pending.workspace, selection };
+    const applied = await applyRoutedMulticaCreate(
+      message,
+      senderOpenId,
+      routedPlan,
+      context,
+      createRoute,
+      pending.deliveryContract || null,
+    );
+    if (applied) {
+      pendingActions.delete('multica_create_route', message.chat_id, senderOpenId);
+      return true;
+    }
     const handled = await prepareMulticaConfirmation(message, senderOpenId, routedPlan, context, {
-      createRoute: { workspace: pending.workspace, selection },
+      createRoute,
       deliveryContract: pending.deliveryContract || null,
     });
     pendingActions.delete('multica_create_route', message.chat_id, senderOpenId);
@@ -1942,7 +2289,7 @@ async function handleMulticaRequest(message, senderOpenId, cleanText, metadata =
     await sendText(
       null,
       message.chat_id,
-      '只有经过验证的 Owner 在飞书或钉钉 self-chat 中才能创建、更新、评论或派发 Multica Issue。当前会话仍可查询，或反馈 AIPRO 的 Bug、整改意见和功能需求；反馈会先追问并仅登记为未指派 backlog。',
+      '只有经过验证的 Owner 在飞书、钉钉 self-chat 或微信文件传输助手中才能创建、更新、评论或派发 Multica Issue。当前会话仍可查询，或反馈 AIPRO 的 Bug、整改意见和功能需求；反馈会先追问并仅登记为未指派 backlog。',
       `multica-owner-required-${message.message_id}`,
     );
     audit('multica_write_denied', message, senderOpenId, {
@@ -1978,7 +2325,7 @@ async function handleMulticaWorkRequest(message, senderOpenId, request, decision
     await sendText(
       null,
       message.chat_id,
-      '只有经过验证的 Owner 在飞书或钉钉 self-chat 中才能执行 Multica Issue；本次没有修改状态或启动任务。',
+      '只有经过验证的 Owner 在飞书、钉钉 self-chat 或微信文件传输助手中才能执行 Multica Issue；本次没有修改状态或启动任务。',
       `multica-work-owner-required-${message.message_id}`,
     );
     audit('multica_work_denied', message, senderOpenId, { issue: request.issue });
@@ -2111,6 +2458,12 @@ async function syncRecentDingTalkTakeover(message, metadata = {}) {
   }
   const root = result?.result || result?.data || result || {};
   const messages = Array.isArray(root) ? root : (root.messages || root.items || []);
+  const recentMedia = selectRecentDingTalkMediaRefs(messages, {
+    currentTime: Number(message.create_time || nowMs),
+    parseTime: dingTalkMessageTime,
+    conversationId: target.id,
+    limit: 4,
+  });
   const rememberedContext = rememberDingTalkConversationContext(messages, {
     state,
     chatId: message.chat_id,
@@ -2141,7 +2494,7 @@ async function syncRecentDingTalkTakeover(message, metadata = {}) {
       { messageId: String(item?.openMessageId || item?.messageId || item?.message_id || '') },
     ),
   });
-  if (!applied.changed) return applied;
+  if (!applied.changed) return { ...applied, recentMedia };
   writeHumanTakeover(message.chat_id, applied.state);
   const latest = (applied.activities || applied.controls || []).at(-1);
   state.audit(latest?.command === 'pause'
@@ -2156,7 +2509,7 @@ async function syncRecentDingTalkTakeover(message, metadata = {}) {
       pausedUntilMs: Number(applied.state?.pausedUntilMs || 0),
     },
   });
-  return applied;
+  return { ...applied, recentMedia };
 }
 
 async function processIncoming(client, message, sender, metadata = {}) {
@@ -2170,6 +2523,10 @@ async function processIncoming(client, message, sender, metadata = {}) {
   let text = '';
   let imageKeys = [];
   let imageRefs = [];
+  let dingTalkImageRefs = [];
+  let weChatImagePaths = [];
+  let weChatImageResolutionFailed = false;
+  let recentDingTalkMediaRefs = [];
   let fileKey = '';
   let fileName = '';
   let fileRef = null;
@@ -2205,9 +2562,76 @@ async function processIncoming(client, message, sender, metadata = {}) {
   }
   audit('message_received', message, senderOpenId, { type: message.message_type, text: cleanText.slice(0, 300) });
 
+  if (metadata.channel === 'wechat' && metadata.image?.xml) {
+    rememberWeChatImageSource(state, message.chat_id, {
+      xml: metadata.image.xml,
+      thumbnailBase64: metadata.image.thumbnailBase64,
+      messageId: message.message_id,
+      senderId: senderOpenId,
+      createdAtMs: Number(message.create_time || Date.now()),
+    });
+    try {
+      const path = await persistIncomingWeChatImage(message, senderOpenId, metadata);
+      if (path) weChatImagePaths = [path];
+    } catch (error) {
+      audit('media_download_failed', message, senderOpenId, {
+        channel: 'wechat',
+        kind: 'image',
+        error: processFailureSummary(error),
+      });
+      console.error(`[wechat-image-download-error] ${message.message_id}:`, error);
+      weChatImageResolutionFailed = true;
+    }
+  }
+
+  const pendingWeChatMulticaContinuation = isPendingWeChatMulticaContinuation({
+    channel: metadata.channel,
+    chatType: message.chat_type,
+    contextOnly: metadata.contextOnly === true,
+    text: cleanText,
+    pendingCreateRoute: pendingActions.get(
+      'multica_create_route',
+      message.chat_id,
+      senderOpenId,
+    ),
+    pendingMutation: pendingActions.get('multica', message.chat_id, senderOpenId),
+  });
+  if (pendingWeChatMulticaContinuation) {
+    metadata = { ...metadata, pendingMulticaContinuation: true };
+  }
+
+  if (shouldObserveWithoutReply(metadata) && !pendingWeChatMulticaContinuation) {
+    remember(
+      message.chat_id,
+      senderOpenId,
+      'user',
+      cleanText || `发送了${message.message_type}`,
+      {
+        sourceMessageId: message.message_id,
+        createdAt: new Date(Number(message.create_time) || Date.now()).toISOString(),
+      },
+    );
+    audit('group_context_observed', message, senderOpenId, {
+      channel: metadata.channel || parseChannelChatId(message.chat_id)?.channel || '',
+      silent: true,
+    });
+    return;
+  }
+
+  if (weChatImageResolutionFailed
+    && weChatImageFailurePolicy({ contextOnly: metadata.contextOnly === true }) === 'reply_unavailable') {
+    const answer = '这张图当前没有拿到可读取的原图，暂时不能可靠判断图中内容。';
+    remember(message.chat_id, senderOpenId, 'assistant', answer);
+    await sendText(client, message.chat_id, answer, `wechat-image-unavailable-${message.message_id}`);
+    audit('capability_unavailable', message, senderOpenId, { capability: 'wechat_image' });
+    return;
+  }
+
   if (parseChannelChatId(message.chat_id)?.channel === 'dingtalk') {
     try {
-      await syncRecentDingTalkTakeover(message, metadata);
+      const synchronized = await syncRecentDingTalkTakeover(message, metadata);
+      recentDingTalkMediaRefs = Array.isArray(synchronized?.recentMedia)
+        ? synchronized.recentMedia : [];
     } catch (error) {
       const failurePolicy = takeoverSyncFailurePolicy({
         current: readHumanTakeover(message.chat_id),
@@ -2226,12 +2650,12 @@ async function processIncoming(client, message, sender, metadata = {}) {
   }
 
   const nowMs = Date.now();
-  const ownerMentionedBot = senderOpenId === OWNER_OPEN_ID
-    && isExplicitBotMention(message, APP_ID);
+  const ownerMentionedBot = metadata.explicitBotMention === true
+    || (senderOpenId === OWNER_OPEN_ID && isExplicitBotMention(message, APP_ID));
   const authenticatedOwnerActivity = metadata.ownerActivity === true
     && (senderOpenId === OWNER_OPEN_ID || metadata.ownerControlAuthenticated === true);
   if (authenticatedOwnerActivity
-    && metadata.botChat !== true && !ownerMentionedBot) {
+    && metadata.botChat !== true && !ownerMentionedBot && metadata.selfChat !== true) {
     const occurredAtMs = Number(message.create_time || nowMs);
     const applied = applyOwnerActivityHistory([{
       message_id: message.message_id,
@@ -2292,7 +2716,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
     return;
   }
 
-  const existingHistory = state.chatHistory(message.chat_id, 30);
+  const existingHistory = state.chatHistory(message.chat_id, 50);
   remember(
     message.chat_id,
     senderOpenId,
@@ -2303,6 +2727,10 @@ async function processIncoming(client, message, sender, metadata = {}) {
       createdAt: new Date(Number(message.create_time) || nowMs).toISOString(),
     },
   );
+
+  if (await applyPendingMulticaCreateRoute(message, senderOpenId, cleanText, metadata)) return;
+  if (await applyPendingFeedback(message, senderOpenId, cleanText, metadata)) return;
+  if (await applyPendingMultica(message, senderOpenId, cleanText, metadata)) return;
 
   const hasGroupMention = message.chat_type === 'group'
     && metadata.semanticCandidate !== true
@@ -2415,7 +2843,8 @@ async function processIncoming(client, message, sender, metadata = {}) {
 
   const operatorCommand = matchOperatorCommand(cleanText);
   const decision = decideWorkflow(cleanText, {
-    hasImages: imageKeys.length > 0 || metadata.media?.kind === 'image',
+    hasImages: imageKeys.length > 0 || metadata.media?.kind === 'image'
+      || weChatImagePaths.length > 0,
     hasFile: message.message_type === 'file',
   });
   audit('workflow_decision', message, senderOpenId, decision);
@@ -2426,6 +2855,23 @@ async function processIncoming(client, message, sender, metadata = {}) {
     || (discussionChannel === 'dingtalk'
       && senderOpenId === `dingtalk:${config.dingtalkOwnerOpenId}`)
     || metadata.ownerControlAuthenticated === true;
+  if (multicaRequestRoute(cleanText) === 'artifact_followup') {
+    try {
+      if (await handleMulticaArtifactFollowup(message, senderOpenId, cleanText, metadata)) return;
+    } catch (error) {
+      console.error(`[multica-artifact-followup-error] ${message.message_id}:`, error);
+      await sendText(
+        null,
+        message.chat_id,
+        `文件交付链路刚才没有完成：${processFailureSummary(error)}`,
+        `multica-artifact-followup-error-${message.message_id}`,
+      );
+      audit('multica_artifact_followup_failed', message, senderOpenId, {
+        error: String(error?.message || error).slice(0, 1000),
+      });
+      return;
+    }
+  }
   const discussionResult = await applyDiscussionBudgetGate({
     state,
     enabled: config.adaptiveDiscussionEnabled
@@ -2474,25 +2920,6 @@ async function processIncoming(client, message, sender, metadata = {}) {
   });
   if (semanticRepeatResult.handled) return;
 
-  if (looksLikeArtifactProgressRequest(cleanText)
-    || looksLikeArtifactExecutionRequest(cleanText)) {
-    try {
-      if (await handleMulticaArtifactFollowup(message, senderOpenId, cleanText, metadata)) return;
-    } catch (error) {
-      console.error(`[multica-artifact-followup-error] ${message.message_id}:`, error);
-      await sendText(
-        null,
-        message.chat_id,
-        `文件交付链路刚才没有完成：${processFailureSummary(error)}`,
-        `multica-artifact-followup-error-${message.message_id}`,
-      );
-      audit('multica_artifact_followup_failed', message, senderOpenId, {
-        error: String(error?.message || error).slice(0, 1000),
-      });
-      return;
-    }
-  }
-
   if (looksLikeMulticaProgressRequest(cleanText)) {
     try {
       await handleMulticaProgressRequest(message, senderOpenId);
@@ -2511,8 +2938,6 @@ async function processIncoming(client, message, sender, metadata = {}) {
     return;
   }
 
-  if (await applyPendingMulticaCreateRoute(message, senderOpenId, cleanText, metadata)) return;
-  if (await applyPendingFeedback(message, senderOpenId, cleanText, metadata)) return;
   if (looksLikeMulticaFeedback(cleanText)) {
     await startMulticaFeedback(message, senderOpenId, cleanText, metadata);
     return;
@@ -2600,10 +3025,51 @@ async function processIncoming(client, message, sender, metadata = {}) {
     return;
   }
   if (!imageRefs.length && ['text', 'post'].includes(message.message_type) && refersToRecentImages(cleanText)) {
-    try {
-      imageRefs = await findRecentImageRefs(client, message, senderOpenId, cleanText);
-    } catch (error) {
-      console.error(`[image-context-error] ${message.message_id}:`, error);
+    const dingtalkTarget = parseChannelChatId(message.chat_id);
+    if (dingtalkTarget?.channel === 'dingtalk') {
+      dingTalkImageRefs = recentDingTalkMediaRefs
+        .filter(ref => ref.kind === 'image')
+        .slice(-requestedImageLimit(cleanText));
+    } else if (dingtalkTarget?.channel === 'wechat') {
+      weChatImagePaths = recentWeChatImages(state, message.chat_id, {
+        nowMs: Number(message.create_time || Date.now()),
+        limit: requestedImageLimit(cleanText),
+      }).map(item => item.path).filter(existsSync);
+      if (!weChatImagePaths.length) {
+        const allowedMessageIds = new Set(
+          state.chatHistory(message.chat_id, 50)
+            .map(item => String(item.sourceMessageId || '').trim())
+            .filter(Boolean),
+        );
+        const sources = recentWeChatImageSources(state, message.chat_id, {
+          limit: requestedImageLimit(cleanText),
+          allowedMessageIds,
+        });
+        for (const source of sources) {
+          try {
+            const path = await persistIncomingWeChatImage({
+              ...message,
+              message_id: source.messageId,
+              create_time: source.createdAtMs,
+            }, source.senderId, {
+              channel: 'wechat',
+              image: {
+                xml: source.xml,
+                ...(source.thumbnailBase64 ? { thumbnailBase64: source.thumbnailBase64 } : {}),
+              },
+            });
+            if (path) weChatImagePaths.push(path);
+          } catch (error) {
+            console.error(`[wechat-image-recovery-error] ${source.messageId}:`, error);
+          }
+        }
+      }
+    } else {
+      try {
+        imageRefs = await findRecentImageRefs(client, message, senderOpenId, cleanText);
+      } catch (error) {
+        console.error(`[image-context-error] ${message.message_id}:`, error);
+      }
     }
   }
   if (!fileRef && ['text', 'post'].includes(message.message_type) && refersToRecentFiles(cleanText)) {
@@ -2614,7 +3080,6 @@ async function processIncoming(client, message, sender, metadata = {}) {
       console.error(`[file-context-error] ${message.message_id}:`, error);
     }
   }
-  if (await applyPendingMultica(message, senderOpenId, cleanText, metadata)) return;
   const contextualWorkRequest = resolveContextualWorkRequest(
     cleanText,
     state.conversationIssue(message.chat_id, senderOpenId),
@@ -2910,12 +3375,14 @@ async function processIncoming(client, message, sender, metadata = {}) {
     }
     return;
   }
-  const knowledgeResult = !imageRefs.length && !fileRefs.length && !fileRef && ['text', 'post'].includes(message.message_type)
+  const knowledgeResult = !imageRefs.length && !weChatImagePaths.length
+    && !fileRefs.length && !fileRef && ['text', 'post'].includes(message.message_type)
     ? await searchFeishuKnowledge(client, cleanText, senderOpenId)
     : null;
   const inboundMediaKind = metadata.media?.kind || message.message_type;
-  let task = imageRefs.length || inboundMediaKind === 'image'
-    ? `${cleanText ? `对方的问题是：${cleanText}\n` : ''}看一下图片里的内容，然后结合图片直接回复对方。如果是聊天截图，先理解对话语境，再给出最自然的回应或建议。`
+  let task = imageRefs.length || dingTalkImageRefs.length || weChatImagePaths.length
+    || inboundMediaKind === 'image'
+    ? buildImageUnderstandingTask(cleanText)
     : cleanText;
   if (fileRefs.length || fileRef || metadata.file?.resourceId) {
     const names = (fileRefs.length ? fileRefs : [fileRef]).filter(Boolean)
@@ -2941,13 +3408,13 @@ async function processIncoming(client, message, sender, metadata = {}) {
   console.log(
     `[receive] ${message.message_id}: ${message.message_type}`
       + ` request=${cleanText.slice(0, 100)}`
-      + ` files=${fileRefs.length || (fileRef ? 1 : 0)} images=${imageRefs.length}`
+      + ` files=${fileRefs.length || (fileRef ? 1 : 0)} images=${imageRefs.length + dingTalkImageRefs.length + weChatImagePaths.length}`
       + ` documents=${knowledgeResult?.documents?.length || 0}`,
   );
 
   let tempDir = '';
   try {
-    const imagePaths = [];
+    const imagePaths = [...weChatImagePaths];
     const ensureTempDir = async () => {
       if (tempDir) return tempDir;
       const mediaRoot = join(WORKDIR, 'data');
@@ -3143,15 +3610,24 @@ async function processIncoming(client, message, sender, metadata = {}) {
         });
       }
     }
-    if (metadata.media?.resourceId) {
+    const dingTalkMediaRefs = [
+      ...(metadata.media?.resourceId ? [metadata.media] : []),
+      ...dingTalkImageRefs,
+    ].filter((ref, index, refs) => refs.findIndex(candidate => (
+      candidate.resourceId === ref.resourceId && candidate.messageId === ref.messageId
+    )) === index);
+    for (const [mediaIndex, media] of dingTalkMediaRefs.entries()) {
       await ensureTempDir();
-      const kind = metadata.media.kind;
-      const mediaPath = join(tempDir, `dingtalk-${kind}${mediaFileExtension(kind)}`);
+      const kind = media.kind;
+      let mediaPath = join(
+        tempDir,
+        `dingtalk-${kind}-${mediaIndex + 1}${kind === 'image' ? '.bin' : mediaFileExtension(kind)}`,
+      );
       await runBufferedProcess(config.dingtalkBin, buildDingTalkMediaDownloadArgs({
         profile: config.dingtalkProfile,
-        resourceId: metadata.media.resourceId,
-        messageId: metadata.media.messageId,
-        conversationId: metadata.media.conversationId,
+        resourceId: media.resourceId,
+        messageId: media.messageId,
+        conversationId: media.conversationId,
         outputPath: mediaPath,
       }), {
         cwd: WORKDIR,
@@ -3162,6 +3638,11 @@ async function processIncoming(client, message, sender, metadata = {}) {
       });
       await assertMediaFile(mediaPath);
       if (kind === 'image') {
+        const detectedExtension = sniffMediaFileExtension((await readFile(mediaPath)).subarray(0, 16));
+        if (!detectedExtension) throw new Error('DingTalk image format is unsupported');
+        const typedMediaPath = join(tempDir, `dingtalk-image-${mediaIndex + 1}${detectedExtension}`);
+        await rename(mediaPath, typedMediaPath);
+        mediaPath = typedMediaPath;
         imagePaths.push(mediaPath);
       } else if (kind === 'audio') {
         try {
@@ -3203,8 +3684,15 @@ async function processIncoming(client, message, sender, metadata = {}) {
       }
       audit('media_downloaded', message, senderOpenId, { channel: 'dingtalk', kind });
     }
-    if (config.webReaderEnabled && ['text', 'post'].includes(message.message_type)) {
-      const urls = extractHttpUrls(cleanText, config.webReaderMaxUrls);
+    const inboundLinkUrls = resolveInboundLinkUrls({
+      text: cleanText,
+      linkCandidate: metadata.linkCandidate,
+      limit: config.webReaderMaxUrls,
+    });
+    if ((config.webReaderEnabled || metadata.linkCandidate)
+      && ['text', 'post'].includes(message.message_type)
+      && inboundLinkUrls.length) {
+      const urls = inboundLinkUrls;
       const pages = [];
       const failures = [];
       for (const url of urls) {
@@ -3281,10 +3769,13 @@ async function processIncoming(client, message, sender, metadata = {}) {
       ? knowledgeMemoryLabel({ request: cleanText, documents: knowledgeResult.documents })
       : fileRef
         ? `${cleanText || '请求读取文件'}：${fileRef.fileName || '未命名文件'}`
-        : imageRefs.length ? `${cleanText || '发送了图片'}（含图片）` : task;
+        : imageRefs.length || dingTalkImageRefs.length || weChatImagePaths.length
+          ? `${cleanText || '发送了图片'}（含图片）` : task;
     const requiredResponse = await resolveRequiredResponse({
       responseRequired,
-      generate: () => runCodex(task, history, imagePaths, decision),
+      generate: () => runCodex(task, history, imagePaths, decision, {
+        channel: messageChannel(message, metadata),
+      }),
     });
     const answer = requiredResponse.text;
     if (requiredResponse.fallback) {
@@ -3484,30 +3975,21 @@ async function processStoredInbound(item, client = null) {
         return;
       }
 
-      try {
-        await sendText(client, message.chat_id, '刚刚连续几次没处理成功，你稍后再发我一次哦。', `xiaozhao-error-${message.message_id}`);
-        state.completeInbound(message.message_id);
-        state.audit('inbound_failed_final', {
-          chatId: message.chat_id,
-          senderId: sender?.sender_id?.open_id || '',
-          messageId: message.message_id,
-          detail: { source: item.source, attemptNumber, error: String(error?.message || error).slice(0, 1000) },
-        });
-      } catch (sendError) {
-        state.deadLetterInbound(message.message_id, sendError?.stack || sendError?.message || sendError);
-        state.audit('inbound_dead_lettered', {
-          chatId: message.chat_id,
-          senderId: sender?.sender_id?.open_id || '',
-          messageId: message.message_id,
-          detail: {
-            source: item.source,
-            attemptNumber,
-            processingError: String(error?.message || error).slice(0, 1000),
-            noticeError: String(sendError?.message || sendError).slice(0, 1000),
-          },
-        });
-        console.error(`[inbound-dead-letter] ${message.message_id}:`, sendError);
-      }
+      const failurePolicy = finalInboundFailurePolicy();
+      state.deadLetterInbound(message.message_id, error?.stack || error?.message || error);
+      state.audit('inbound_failed_final', {
+        chatId: message.chat_id,
+        senderId: sender?.sender_id?.open_id || '',
+        messageId: message.message_id,
+        detail: {
+          source: item.source,
+          attemptNumber,
+          disposition: failurePolicy.disposition,
+          userNotified: failurePolicy.notifyUser,
+          error: String(error?.message || error).slice(0, 1000),
+        },
+      });
+      console.error(`[inbound-final-failure] ${message.message_id}:`, error);
     }
   }));
 }
@@ -3640,7 +4122,7 @@ async function handleClaimedGroupHostCandidate(candidate) {
     const lastReply = state.get('group_host_reply', candidate.chatId, {});
     const cooldownActive = Number(lastReply.lastReplyAtMs || 0) > 0
       && nowMs - Number(lastReply.lastReplyAtMs) < Number(config.groupHostReplyCooldownMs || 180_000);
-    const recentMessages = state.chatHistory(candidate.chatId, 30);
+    const recentMessages = state.chatHistory(candidate.chatId, 50);
     const result = await processGroupHostCandidate({
       candidate,
       recentMessages,
@@ -4848,6 +5330,45 @@ async function runMaintenance() {
   }
 }
 
+async function refreshLocalWiki() {
+  if (localWikiRefreshPromise) return localWikiRefreshPromise;
+  localWikiRefreshPromise = runBufferedProcess(
+    BUNDLED_NODE_BIN,
+    [join(WORKDIR, 'scripts', 'refresh-local-wiki.mjs')],
+    {
+      cwd: WORKDIR,
+      timeoutMs: 20 * 60_000,
+      maxStdoutBytes: 128 * 1024,
+      maxStderrBytes: 128 * 1024,
+    },
+  ).then(({ stdout }) => {
+    const result = JSON.parse(stdout);
+    LOCAL_WIKI_RETRIEVER.invalidate();
+    state.set('health', 'local_wiki_refresh', {
+      state: 'ready',
+      at: new Date().toISOString(),
+      sourceCount: Number(result.sourceCount || 0),
+      chunkCount: Number(result.chunkCount || 0),
+      skippedSensitiveCount: Number(result.skippedSensitiveCount || 0),
+    });
+    state.audit('local_wiki_refreshed', {
+      detail: {
+        sourceCount: Number(result.sourceCount || 0),
+        chunkCount: Number(result.chunkCount || 0),
+        skippedSensitiveCount: Number(result.skippedSensitiveCount || 0),
+      },
+    });
+  }).catch(error => {
+    const summary = processFailureSummary(error);
+    state.set('health', 'local_wiki_refresh', {
+      state: 'unavailable', at: new Date().toISOString(), error: summary,
+    });
+    state.audit('local_wiki_refresh_failed', { detail: { error: summary } });
+    console.error('[local-wiki-refresh-error]', error);
+  }).finally(() => { localWikiRefreshPromise = null; });
+  return localWikiRefreshPromise;
+}
+
 function stopGracefully(signal) {
   if (stopping) return;
   stopping = true;
@@ -4897,6 +5418,10 @@ async function main() {
       .catch(error => console.error('[daily-learning-fatal]', error));
     const maintenanceTimer = setInterval(() => { runMaintenance(); }, 6 * 60 * 60_000);
     maintenanceTimer.unref();
+    const initialWikiRefreshTimer = setTimeout(() => { refreshLocalWiki(); }, 5 * 60_000);
+    initialWikiRefreshTimer.unref();
+    const wikiRefreshTimer = setInterval(() => { refreshLocalWiki(); }, 6 * 60 * 60_000);
+    wikiRefreshTimer.unref();
     if (RUNTIME_MODE.feishuEnabled) {
       businessClient = await createBusinessClient();
       await initializeUserPolling();

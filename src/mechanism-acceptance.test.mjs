@@ -69,6 +69,10 @@ import {
   shouldUseSemanticRepeatFallback,
 } from './discussion-budget-controller.mjs';
 import { resolveRequiredResponse } from './required-response-fallback.mjs';
+import {
+  buildLocalKnowledgeContext,
+  LocalWikiRetriever,
+} from './local-wiki-retrieval.mjs';
 
 const cases = [];
 
@@ -102,6 +106,36 @@ const identities = {
   ownerOpenId: 'ou_owner',
   dingtalkOwnerOpenId: 'dt_owner',
 };
+
+contract('local-wiki', 'Do all IM channels share one evidence-gated local knowledge context?', async () => {
+  const retriever = new LocalWikiRetriever({
+    minimumScore: 0.1,
+    loadIndex: async () => ({
+      version: 1,
+      sources: [{ handle: 'src_opaque' }],
+      chunks: [{
+        id: 'chunk-1', sourceHandle: 'src_opaque', title: '内部标题', safe: true,
+        text: 'AI进入流程后，人的职责是确定目标、处理例外并承担最终责任。',
+        terms: ['ai', '流程', '职责', '目标', '例外', '责任'],
+      }],
+    }),
+  });
+  const contexts = await Promise.all(['feishu', 'dingtalk', 'wechat'].map(channel => (
+    retriever.contextFor({ channel, query: 'AI进入流程后人的职责是什么？' })
+  )));
+  assert.equal(new Set(contexts).size, 1);
+  assert.match(contexts[0], /最终责任/);
+  assert.doesNotMatch(contexts[0], /src_opaque|内部标题|本地知识库|来源/);
+  assert.match(buildLocalKnowledgeContext({ used: true, evidence: [{ text: '安全结论' }] }), /安全结论/);
+});
+
+contract('multimodal-pipeline', 'Can a WeChat-origin Multica artifact return through the original WeChat chat?', () => {
+  const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
+  assert.match(runtimeSource, /effectiveChannel === 'wechat'/);
+  assert.match(runtimeSource, /geWeWebhookServer\.registerArtifact/);
+  assert.match(runtimeSource, /geWeChannel\.sendFile/);
+  assert.match(runtimeSource, /buildChannelArtifactDeliveryPlan/);
+});
 
 contract('multimodal-pipeline', 'Can a DingTalk group file placeholder become a downloadable drive reference?', () => {
   const file = parseDingTalkFilePlaceholder('[文件] 复盘.pptx fileId: drive-node-1 注意：如需下载使用dws drive download命令下载');
@@ -676,13 +710,11 @@ contract('explicit-mention-priority', 'Does discussion cooldown acknowledge a re
   });
 });
 
-contract('explicit-mention-priority', 'Does an AI runtime failure immediately fall back for a required response?', async () => {
-  const result = await resolveRequiredResponse({
+contract('explicit-mention-priority', 'Does an AI runtime failure retry without sending a fake acknowledgement?', async () => {
+  await assert.rejects(() => resolveRequiredResponse({
     responseRequired: true,
     generate: async () => { throw new Error('empty response'); },
-  });
-  assert.equal(result.fallback, true);
-  assert.match(result.text, /收到/);
+  }), /empty response/);
 });
 
 contract('semantic-group-engagement', 'Is semantic classification limited to the preceding 30 group messages?', () => {
@@ -695,6 +727,12 @@ contract('semantic-group-engagement', 'Is semantic classification limited to the
   assert.equal(prompt.includes('context-1\n'), false);
   assert.equal(prompt.includes('context-2'), true);
   assert.equal(prompt.includes('context-31'), true);
+});
+
+contract('group-attribution', 'Does personal WeChat retain unmentioned group messages as context without replying?', () => {
+  const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
+  assert.match(runtimeSource, /shouldObserveWithoutReply\(metadata\)/);
+  assert.equal(runtimeSource.includes('刚刚连续几次没处理成功，你稍后再发我一次哦。'), false);
 });
 
 contract('group-host-mode', 'Does an allowlisted public topic wait for the full grace period?', () => {

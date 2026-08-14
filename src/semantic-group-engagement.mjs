@@ -1,4 +1,5 @@
 const LOW_INFORMATION_PATTERN = /^(?:好(?:的|呀|啊|哦)?|嗯+|收到|知道了|可以|行|没问题|谢谢|感谢|赞|哈哈+|呵呵+|ok|okay)[。！!,.，\s]*$/iu;
+const TERMINAL_ACKNOWLEDGEMENT_PATTERN = /^(?:好(?:的|呀|啊|哦)?|嗯+|收到|知道了|明白|可以|行|没问题)[，,。！!\s]+.*(?:等你|等.{0,10}(?:恢复|消息|回复|发来)|不重复(?:发|说)?|先这样|就这样|发来我)/iu;
 const QUESTION_OR_REQUEST_PATTERN = /[?？]|(?:怎么|如何|为什么|为何|能不能|是否|请问|谁能|有没有|应该|需要|可以|帮忙|帮我|看一下|分析|解释|给个建议)/u;
 const DEFAULT_CONTINUATION_WINDOW_MS = 10 * 60_000;
 
@@ -28,6 +29,24 @@ function explicitlyMentionsAlias(content, alias) {
   const target = escapedPattern(alias);
   if (!target) return false;
   return new RegExp(`[@＠]\\s*${target}(?=$|[\\s，,。！？!?：:])`, 'iu').test(content);
+}
+
+function withoutAssistantAddressing(content, aliases) {
+  let value = content;
+  for (const alias of aliases) {
+    const target = escapedPattern(alias);
+    value = value
+      .replace(new RegExp(`[@＠]\\s*${target}(?=$|[\\s，,。！？!?：:])`, 'giu'), ' ')
+      .replace(new RegExp(`^\\s*${target}(?=$|[\\s，,。！？!?：:])`, 'iu'), ' ');
+  }
+  return normalizedText(value.replace(/^[，,。！？!?：:\s]+|[，,。！？!?：:\s]+$/gu, ''));
+}
+
+function isNonSubstantiveAddress(content, aliases = []) {
+  const addressedContent = withoutAssistantAddressing(content, aliases);
+  if (!addressedContent || QUESTION_OR_REQUEST_PATTERN.test(addressedContent)) return false;
+  return LOW_INFORMATION_PATTERN.test(addressedContent)
+    || TERMINAL_ACKNOWLEDGEMENT_PATTERN.test(addressedContent);
 }
 
 function result(action, reasonCode, extra = {}) {
@@ -78,13 +97,16 @@ export function assessGroupEngagement({
     return result('observe', 'unsupported_or_empty');
   }
   if (humanTakeover) return result('suppress', 'human_takeover');
-  if (explicitMention) {
-    return result('reply_explicit', 'explicit_mention', { responseRequired: true });
-  }
-
   const normalizedAliases = (Array.isArray(aliases) ? aliases : [])
     .map(normalizedText)
     .filter(Boolean);
+  if (explicitMention) {
+    return result('reply_explicit', 'explicit_mention', { responseRequired: true });
+  }
+  if (isNonSubstantiveAddress(content, normalizedAliases)) {
+    return result('observe', 'low_information');
+  }
+
   const explicitAlias = normalizedAliases
     .some(alias => explicitlyMentionsAlias(content, alias));
   const named = explicitAlias || normalizedAliases

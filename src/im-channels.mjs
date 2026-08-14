@@ -7,6 +7,7 @@ import {
 
 const CHANNEL_TARGET_PATTERN = /^(dingtalk|wecom|wechat):(group|user):(.+)$/;
 const DINGTALK_SELF_FILE_PLACEHOLDER = /^(?:\[文件\]\s*)+.*\bfileId\s*:/i;
+const DINGTALK_ASSISTANT_MENTION_NAMES = ['詹老师', '阿充', '阿充James', 'AIPRO', '数字人', '詹老师助理'];
 
 export function buildDingTalkProcessEnv({
   dingtalkBin,
@@ -247,7 +248,7 @@ export function normalizeDingTalkEvent(event) {
       eventType: type,
       ...(semanticGroup ? {
         semanticCandidate: true,
-        mentionedOther: /@\S+/.test(rawContent),
+        mentionedOther: hasNonAssistantDingTalkMention(rawContent),
       } : {}),
       ...(media ? {
         media: {
@@ -267,6 +268,15 @@ export function normalizeDingTalkEvent(event) {
       } : {}),
     },
   };
+}
+
+function hasNonAssistantDingTalkMention(content) {
+  const mentions = String(content || '').match(/[@＠]\s*([^\s，,。！？!?：:]+)/gu) || [];
+  if (!mentions.length) return false;
+  return mentions.some(raw => {
+    const name = raw.replace(/^[@＠]\s*/u, '').trim();
+    return !DINGTALK_ASSISTANT_MENTION_NAMES.includes(name);
+  });
 }
 
 export function normalizeDingTalkSelfMessages(result) {
@@ -590,14 +600,62 @@ function geWeXmlTag(xml, tag) {
   return match ? decodeGeWeXmlText(match[1]) : '';
 }
 
-function geWeAppMessageText(content) {
+function boundedGeWeText(value, limit = 8_000) {
+  return String(value || '').trim().slice(0, limit);
+}
+
+function geWePlainLinkCandidate(content) {
+  const match = boundedGeWeText(content).match(/https?:\/\/[^\s<>"']+/i);
+  if (!match) return null;
+  const url = match[0].replace(/[),，。；;！？!?]+$/u, '');
+  return /^https?:\/\//i.test(url)
+    ? { url, title: '', description: '' }
+    : null;
+}
+
+function geWeAppMessage(content) {
   const appType = Number(geWeXmlTag(content, 'type'));
-  if (appType !== 5) return '';
-  const url = geWeXmlTag(content, 'url');
-  if (!/^https?:\/\//i.test(url)) return '';
-  return [geWeXmlTag(content, 'title'), geWeXmlTag(content, 'des'), url]
-    .filter(Boolean)
-    .join('\n');
+  const title = boundedGeWeText(geWeXmlTag(content, 'title'), 2_000);
+  if (appType === 5) {
+    const url = boundedGeWeText(geWeXmlTag(content, 'url'), 4_000);
+    if (!/^https?:\/\//i.test(url)) return { appType, text: title };
+    const description = boundedGeWeText(geWeXmlTag(content, 'des'), 4_000);
+    return {
+      appType,
+      text: [title, description, url].filter(Boolean).join('\n'),
+      linkCandidate: { url, title, description },
+    };
+  }
+  if (appType !== 57) return { appType, text: '' };
+
+  const referMatch = String(content || '').match(/<refermsg(?:\s[^>]*)?>([\s\S]*?)<\/refermsg>/i);
+  if (!referMatch) return { appType, text: title };
+  const referXml = referMatch[1];
+  const quotedMessage = {
+    type: Number(geWeXmlTag(referXml, 'type')) || 0,
+    messageId: boundedGeWeText(geWeXmlTag(referXml, 'svrid'), 256),
+    senderId: boundedGeWeText(geWeXmlTag(referXml, 'chatusr'), 256),
+    displayName: boundedGeWeText(geWeXmlTag(referXml, 'displayname'), 512),
+    content: boundedGeWeText(geWeXmlTag(referXml, 'content')),
+  };
+  const quoteLabel = quotedMessage.type === 3 ? '[图片]' : quotedMessage.content;
+  const quotedBy = quotedMessage.displayName || quotedMessage.senderId || '上文';
+  return {
+    appType,
+    text: [title, quoteLabel ? `引用消息（${quotedBy}）：${quoteLabel}` : ''].filter(Boolean).join('\n\n'),
+    quotedMessage,
+    ...(quotedMessage.type === 3 && /^<msg[\s>]/i.test(quotedMessage.content)
+      ? { image: { xml: quotedMessage.content, quoted: true } }
+      : {}),
+  };
+}
+
+function geWeTextMentionsAssistant(content, mentionNames = []) {
+  const text = String(content || '');
+  return (mentionNames || []).some(name => {
+    const normalized = String(name || '').trim();
+    return normalized && (text.includes(`@${normalized}`) || text.includes(`＠${normalized}`));
+  });
 }
 
 export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
@@ -609,19 +667,24 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
   const isText = v1
     ? String(event?.TypeName || '') === 'AddMsg' && [1, 49].includes(messageType)
     : ['TEXT', 'APPMSG', 'LINK'].includes(messageType);
-  if (!isText || !appId || !selfWxid) return null;
+  const isImage = v1
+    ? String(event?.TypeName || '') === 'AddMsg' && messageType === 3
+    : messageType === 'IMAGE';
+  if ((!isText && !isImage) || !appId || !selfWxid) return null;
   const fromUser = nestedString(v1 ? data?.FromUserName : data?.fromUser).trim();
   const toUser = nestedString(v1 ? data?.ToUserName : data?.toUser).trim();
   const rawContent = nestedString(v1 ? data?.Content : data?.content);
   const messageId = nestedString(v1 ? data?.NewMsgId : data?.newMsgId).trim();
-  const isSelf = v1
-    ? fromUser === selfWxid
-    : data?.isSelf === true || fromUser === selfWxid;
-  if (!messageId || !fromUser) return null;
-
   const group = fromUser.endsWith('@chatroom') || toUser.endsWith('@chatroom');
   const groupId = fromUser.endsWith('@chatroom') ? fromUser : toUser;
   const parsedGroup = group ? splitGeWeGroupContent(rawContent) : null;
+  const isSelf = v1
+    ? fromUser === selfWxid || (group && parsedGroup?.senderId === selfWxid)
+    : data?.isSelf === true || fromUser === selfWxid;
+  if (isSelf && isImage) return null;
+  if (!messageId || !fromUser) return null;
+
+  const selfChat = isSelf && !group && toUser === 'filehelper';
   const ownerControl = isSelf && Boolean(matchHumanTakeoverCommand(rawContent));
   const senderId = isSelf
     ? selfWxid
@@ -633,29 +696,41 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
       ).trim()
     : fromUser;
   if (!senderId || (!isSelf && senderId === selfWxid)) return null;
-  const appMessageText = (v1 ? messageType === 49 : ['APPMSG', 'LINK'].includes(messageType))
-    ? geWeAppMessageText(group ? parsedGroup.text : rawContent)
-    : '';
-  const mentioned = isSelf || !group || Boolean(appMessageText)
-    || (v1
+  const messageContent = isSelf ? rawContent : group ? parsedGroup.text : rawContent;
+  const appMessage = (v1 ? messageType === 49 : ['APPMSG', 'LINK'].includes(messageType))
+    ? geWeAppMessage(messageContent)
+    : null;
+  const linkCandidate = appMessage?.linkCandidate || geWePlainLinkCandidate(messageContent);
+  const explicitlyMentioned = group && (v1
       ? geWeV1Mentioned(data?.MsgSource, selfWxid)
       : geWeV2Mentioned(data, selfWxid, mentionNames));
-  if (!mentioned) return null;
-  const messageContent = isSelf ? rawContent : group ? parsedGroup.text : rawContent;
-  const text = appMessageText || messageContent;
-  if (!String(text).trim()) return null;
+  const namedInText = group && geWeTextMentionsAssistant(appMessage?.text || messageContent, mentionNames);
+  const explicitBotMention = Boolean(explicitlyMentioned || namedInText);
+  const mentioned = isSelf || !group || isImage || Boolean(linkCandidate) || explicitlyMentioned || namedInText;
+  const contextOnly = group && !isSelf && (!mentioned || isImage);
+  const text = isImage ? '' : appMessage?.text || messageContent;
+  if (!isImage && !String(text).trim()) return null;
   const targetId = group ? groupId : isSelf ? toUser : senderId;
   if (!targetId) return null;
+  const imageXml = isImage ? String(group ? parsedGroup.text : rawContent).trim() : '';
+  const thumbnailBase64 = isImage
+    ? nestedString(
+        v1
+          ? data?.ImgBuf?.buffer
+          : data?.thumbnailBase64 || data?.thumbBase64 || data?.imgBuf?.buffer,
+      ).trim()
+    : '';
+  if (isImage && !imageXml) return null;
 
   return {
     message: {
       message_id: `wechat:${appId}:${messageId}`,
       chat_id: formatChannelChatId('wechat', group ? 'group' : 'user', targetId),
       chat_type: group ? 'group' : 'p2p',
-      message_type: 'text',
+      message_type: isImage ? 'image' : 'text',
       create_time: normalizedTimestamp(v1 ? data?.CreateTime : data?.createTime),
       content: JSON.stringify({ text: String(text) }),
-      mentions: group ? [{ id: 'wechat-current-user' }] : [],
+      mentions: group && !contextOnly ? [{ id: 'wechat-current-user' }] : [],
     },
     sender: {
       sender_type: 'user',
@@ -664,9 +739,20 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
     metadata: {
       channel: 'wechat',
       appId,
+      ...(selfChat ? { selfChat: true } : {}),
       ...(isSelf ? { ownerActivity: true, ownerControlAuthenticated: true } : {}),
+      ...(explicitBotMention ? { explicitBotMention: true } : {}),
       ...(ownerControl ? { operatorControl: true } : {}),
       callbackVersion: v1 ? 'v1' : 'v2',
+      ...(contextOnly ? { contextOnly: true } : {}),
+      ...(linkCandidate ? { linkCandidate } : {}),
+      ...(appMessage?.quotedMessage ? { quotedMessage: appMessage.quotedMessage } : {}),
+      ...(isImage ? {
+        image: {
+          xml: imageXml,
+          ...(thumbnailBase64 ? { thumbnailBase64 } : {}),
+        },
+      } : appMessage?.image ? { image: appMessage.image } : {}),
     },
   };
 }
