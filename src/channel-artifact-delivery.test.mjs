@@ -47,4 +47,20 @@ assert.deepEqual(wechat.file, {
 assert.equal(wechat.caption, '报告已生成');
 assert.equal(wechat.captionIdempotencyKey, 'artifact-3-caption');
 
+const wechatImage = buildChannelArtifactDeliveryPlan({
+  channel: 'wechat',
+  chatId: 'wechat:group:room@chatroom',
+  target: { channel: 'wechat', kind: 'group', id: 'room@chatroom' },
+  path: '/workspace/outputs/process.png',
+  fileUrl: 'https://callback.example.com/webhooks/gewe/secret/artifacts/token/process.png',
+  fileName: 'process.png',
+  caption: '流程图已生成',
+  idempotencyKey: 'artifact-image-1',
+});
+assert.equal(wechatImage.channel, 'wechat');
+assert.deepEqual(wechatImage.image, {
+  imageUrl: 'https://callback.example.com/webhooks/gewe/secret/artifacts/token/process.png',
+});
+assert.equal(wechatImage.file, undefined);
+
 console.log('CHANNEL_ARTIFACT_DELIVERY_TEST_OK');

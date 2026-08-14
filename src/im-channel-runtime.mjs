@@ -354,6 +354,35 @@ export class GeWeChannel {
     });
   }
 
+  async sendImageNow(target, { imageUrl } = {}) {
+    if (target?.channel !== 'wechat') {
+      throw new Error('GeWe sender received a non-WeChat target');
+    }
+    const parsedUrl = new URL(String(imageUrl || ''));
+    if (parsedUrl.protocol !== 'https:' || parsedUrl.username || parsedUrl.password) {
+      throw new Error('GeWe image URL must use HTTPS without embedded credentials');
+    }
+    const waitMs = Math.max(0, this.lastSentAt + this.minSendIntervalMs - this.now());
+    if (waitMs) await this.sleep(waitMs);
+    const result = await this.request('/gewe/v2/api/message/postImage', {
+      appId: this.appId,
+      toWxid: target.id,
+      imgUrl: parsedUrl.href,
+    });
+    this.lastSentAt = this.now();
+    this.onStatus({ lastError: null, lastSendAt: new Date().toISOString() });
+    return result;
+  }
+
+  sendImage(target, image) {
+    const operation = this.sendTail.then(() => this.sendImageNow(target, image));
+    this.sendTail = operation.catch(() => {});
+    return operation.catch(error => {
+      this.onStatus({ lastError: errorState(error) });
+      throw error;
+    });
+  }
+
   async sendFileNow(target, { fileUrl, fileName } = {}) {
     if (target?.channel !== 'wechat') {
       throw new Error('GeWe sender received a non-WeChat target');

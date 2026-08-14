@@ -1084,7 +1084,9 @@ async function deliverMulticaArtifact(payload) {
     const result = await sendWithEchoGuard(
       chatId,
       payload.name || fileName,
-      () => geWeChannel.sendFile(target, plan.file),
+      () => plan.image
+        ? geWeChannel.sendImage(target, plan.image)
+        : geWeChannel.sendFile(target, plan.file),
     );
     if (plan.caption) {
       await sendText(null, chatId, plan.caption, plan.captionIdempotencyKey);

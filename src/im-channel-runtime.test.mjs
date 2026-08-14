@@ -279,6 +279,25 @@ import {
     /https/i,
   );
 
+  calls.length = 0;
+  await channel.sendImage(
+    { channel: 'wechat', kind: 'group', id: 'room@chatroom' },
+    { imageUrl: 'https://callback.example.com/webhooks/gewe/secret/artifacts/token/process.png' },
+  );
+  assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/message/postImage');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    appId: 'device-a',
+    toWxid: 'room@chatroom',
+    imgUrl: 'https://callback.example.com/webhooks/gewe/secret/artifacts/token/process.png',
+  });
+  await assert.rejects(
+    channel.sendImage(
+      { channel: 'wechat', kind: 'user', id: 'wxid_a' },
+      { imageUrl: 'http://callback.example.com/process.png' },
+    ),
+    /https/i,
+  );
+
   await assert.rejects(
     () => new GeWeChannel({
       appId: 'device-a',
