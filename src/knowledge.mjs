@@ -1,4 +1,6 @@
 const DOCX_URL_RE = /https?:\/\/[^\s/]*feishu\.cn\/docx\/([A-Za-z0-9]+)/i;
+const EXPLICIT_FEISHU_KNOWLEDGE_RE = /(?:飞书.{0,12}(?:文档|资料|知识库|会议|纪要|妙记)|(?:文档|资料|知识库|会议|纪要|妙记).{0,12}飞书|飞书妙记)/i;
+const KNOWLEDGE_ACTION_RE = /(?:查|找|搜|检索|总结|阅读|打开|引用|看看|内容|有没有|哪些|什么|讲了|说了)/i;
 
 export function normalizeKnowledgeText(value = '') {
   return String(value)
@@ -13,6 +15,12 @@ export function looksLikeKnowledgeRequest(text = '') {
   if (DOCX_URL_RE.test(value)) return true;
   return /(查一下|找一下|搜索|检索|总结|阅读|打开|引用|看看|看一下)/.test(value)
     || /(会议|纪要|文档|资料).*(内容|讲了|说了|包含|有哪些|是什么)/.test(value);
+}
+
+export function shouldSearchFeishuKnowledge({ text = '' } = {}) {
+  const value = String(text || '');
+  if (DOCX_URL_RE.test(value)) return true;
+  return EXPLICIT_FEISHU_KNOWLEDGE_RE.test(value) && KNOWLEDGE_ACTION_RE.test(value);
 }
 
 export function extractKnowledgeQuery(text = '') {

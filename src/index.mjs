@@ -25,6 +25,7 @@ import {
   canReadDocument,
   extractKnowledgeQuery,
   looksLikeKnowledgeRequest,
+  shouldSearchFeishuKnowledge,
   resolveCatalogDocument,
   sourceLine,
   stripHighlight,
@@ -769,6 +770,7 @@ async function readAllowedFeishuDoc(client, documentId) {
 }
 
 async function searchFeishuKnowledge(client, text, senderOpenId) {
+  if (!shouldSearchFeishuKnowledge({ text })) return null;
   const catalogMatch = resolveFeishuDocRequest(text);
   if (catalogMatch?.denied) return { denied: true, reason: 'not_allowlisted' };
   if (catalogMatch?.documentId) {

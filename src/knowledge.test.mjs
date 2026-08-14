@@ -5,6 +5,7 @@ import {
   looksLikeKnowledgeRequest,
   normalizeKnowledgeText,
   resolveCatalogDocument,
+  shouldSearchFeishuKnowledge,
   sourceLine,
   stripHighlight,
   tokenFromSearchResult,
@@ -23,6 +24,24 @@ assert.equal(looksLikeKnowledgeRequest('上面两张照片包含什么内容'), 
 assert.equal(looksLikeKnowledgeRequest('帮我查一下飞书里的会议纪要'), true);
 assert.equal(looksLikeKnowledgeRequest('怎么让他学习，喂资料权限'), false);
 assert.equal(looksLikeKnowledgeRequest('怎么配置资料权限'), false);
+for (const channel of ['wechat', 'wecom', 'dingtalk', 'feishu']) {
+  assert.equal(shouldSearchFeishuKnowledge({
+    channel,
+    text: '请你根据这个回答提供端到端流程架构模板\n引用消息：接口责任人对上下游资料、时效和质量负责',
+  }), false, `${channel} 的普通问答不得搜索飞书`);
+  assert.equal(shouldSearchFeishuKnowledge({
+    channel,
+    text: '帮我查一下飞书里的会议纪要',
+  }), true, `${channel} 中明确要求查飞书时才允许`);
+}
+assert.equal(shouldSearchFeishuKnowledge({
+  channel: 'wechat',
+  text: '帮我总结一下7月1日的会议内容',
+}), false);
+assert.equal(shouldSearchFeishuKnowledge({
+  channel: 'wechat',
+  text: '请阅读 https://x.feishu.cn/docx/abc123',
+}), true);
 assert.equal(extractKnowledgeQuery('帮我总结一下7月1日的会议内容'), '7月1日的会议内容');
 assert.equal(resolveCatalogDocument('7月1号会议讲了什么', catalog)?.token, 'abc123');
 assert.equal(resolveCatalogDocument('https://x.feishu.cn/docx/abc123', catalog)?.token, 'abc123');
