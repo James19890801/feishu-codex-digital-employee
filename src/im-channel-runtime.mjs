@@ -204,6 +204,7 @@ export class GeWeChannel {
     now = Date.now,
     sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
     minSendIntervalMs = 1_000,
+    requestTimeoutMs = 120_000,
     mentionNames = [],
   }) {
     this.appId = String(appId || '').trim();
@@ -214,6 +215,7 @@ export class GeWeChannel {
     this.now = now;
     this.sleep = sleep;
     this.minSendIntervalMs = Math.max(1_000, Number(minSendIntervalMs) || 1_000);
+    this.requestTimeoutMs = Math.max(15_000, Math.min(120_000, Number(requestTimeoutMs) || 120_000));
     this.mentionNames = mentionNames;
     this.lastSentAt = 0;
     this.sendTail = Promise.resolve();
@@ -233,7 +235,7 @@ export class GeWeChannel {
         'X-GEWE-TOKEN': this.token,
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
     let payload;
     try {

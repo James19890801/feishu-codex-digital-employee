@@ -193,6 +193,7 @@ import {
     sleep: async ms => { now += ms; },
     onStatus: status => statuses.push(status),
   });
+  assert.equal(channel.requestTimeoutMs, 120_000);
 
   assert.equal(await channel.checkOnline(), true);
   assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/login/checkOnline');
