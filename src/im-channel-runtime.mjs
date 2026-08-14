@@ -292,6 +292,25 @@ export class GeWeChannel {
     return fileUrl;
   }
 
+  async getChatroomInfo(chatroomId) {
+    const normalizedChatroomId = String(chatroomId || '').trim();
+    if (!normalizedChatroomId.endsWith('@chatroom') || normalizedChatroomId.length > 500) {
+      throw new Error('GeWe chatroom ID is invalid');
+    }
+    const result = await this.request('/gewe/v2/api/group/getChatroomInfo', {
+      appId: this.appId,
+      chatroomId: normalizedChatroomId,
+    });
+    const nickName = String(result?.data?.nickName || '')
+      .replace(/[\u0000-\u001f\u007f]/g, '')
+      .trim()
+      .slice(0, 200);
+    return {
+      chatroomId: normalizedChatroomId,
+      nickName,
+    };
+  }
+
   normalizeWebhook(event) {
     return normalizeGeWeWebhook(event, { mentionNames: this.mentionNames });
   }
