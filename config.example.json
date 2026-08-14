@@ -65,6 +65,7 @@
   "multicaMaxIssues": 5000,
   "dailyLearningEnabled": true,
   "dailyLearningHour": 1,
+  "dailyLearningConversationLimit": 1000,
   "dashboardPort": 17655,
   "licensingEnforced": false,
   "licensingServiceUrl": "",

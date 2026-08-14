@@ -181,6 +181,8 @@ import {
           msg: '操作成功',
           data: String(url).endsWith('/message/downloadImage')
             ? { fileUrl: 'https://media.example.com/image.jpg' }
+            : String(url).endsWith('/group/getChatroomInfo')
+              ? { chatroomId: 'room@chatroom', nickName: 'AI流程与组织变革交流群' }
             : true,
         }),
       };
@@ -215,6 +217,18 @@ import {
     xml: '<msg><img /></msg>',
     type: 2,
   });
+
+  calls.length = 0;
+  assert.deepEqual(await channel.getChatroomInfo('room@chatroom'), {
+    chatroomId: 'room@chatroom',
+    nickName: 'AI流程与组织变革交流群',
+  });
+  assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/group/getChatroomInfo');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    appId: 'device-a',
+    chatroomId: 'room@chatroom',
+  });
+  await assert.rejects(channel.getChatroomInfo('not-a-room'), /chatroom/i);
 
   calls.length = 0;
   await Promise.all([

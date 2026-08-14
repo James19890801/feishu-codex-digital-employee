@@ -246,6 +246,7 @@ import {
   rememberWeChatImageSource,
   weChatImageFailurePolicy,
 } from './wechat-media-context.mjs';
+import { enrichWeChatLearningContext } from './wechat-learning-context.mjs';
 import {
   discoverBotP2pChats,
   isExpectedLarkCliResult,
@@ -1366,6 +1367,13 @@ const DAILY_LEARNING_ENGINE = new DailyLearningEngine({
   state,
   home: process.env.HOME || WORKDIR,
   workdir: WORKDIR,
+  conversationLimit: config.dailyLearningConversationLimit,
+  enrichConversations: conversations => enrichWeChatLearningContext(conversations, {
+    state,
+    lookupGroup: geWeChannel
+      ? chatroomId => geWeChannel.getChatroomInfo(chatroomId)
+      : null,
+  }),
   scanFiles: options => runLearningFileScan(options),
   runAi: prompt => runAiRuntime(prompt, {
     cwd: DAILY_LEARNING_RUNTIME_DIR,

@@ -20,6 +20,7 @@ assert.equal(typeof config.groupHostModeEnabled, 'boolean');
 assert.equal(Array.isArray(config.groupHostChatIds), true);
 assert.equal(config.groupHostSilenceMs, 75_000);
 assert.equal(config.groupHostReplyCooldownMs, 180_000);
+assert.equal(config.dailyLearningConversationLimit, 1_000);
 
 const directory = mkdtempSync(join(tmpdir(), 'aipro-config-'));
 try {
@@ -58,6 +59,7 @@ try {
     ['groupHostChatIds', ['']],
     ['groupHostSilenceMs', 20_000],
     ['groupHostReplyCooldownMs', 30_000],
+    ['dailyLearningConversationLimit', 0],
   ]) {
     const invalidPath = join(directory, `${field}.json`);
     writeFileSync(invalidPath, JSON.stringify({ ...example, [field]: value }));

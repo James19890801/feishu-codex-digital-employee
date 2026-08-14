@@ -59,6 +59,16 @@ try {
   state.remember('learning-chat', 'learning-user', 'user', '修复消息重复问题', {
     createdAt: '2026-08-06T14:00:00.000Z',
   });
+  state.set('feishu_chat', 'oc_learning_group', { chatType: 'group' });
+  state.remember('oc_learning_group', 'ou_feishu_member', 'user', '飞书学习上下文', {
+    createdAt: '2026-08-06T14:00:01.000Z',
+  });
+  state.remember('dingtalk:group:cid_learning', 'dingtalk:member', 'user', '钉钉学习上下文', {
+    createdAt: '2026-08-06T14:00:02.000Z',
+  });
+  state.remember('wechat:user:wxid_learning', 'wechat:friend', 'user', '微信学习上下文', {
+    createdAt: '2026-08-06T14:00:03.000Z',
+  });
   state.audit('poller_error', {
     detail: { error: 'too many request' },
     createdAt: '2026-08-06T14:01:00.000Z',
@@ -68,6 +78,41 @@ try {
     '2026-08-07T00:00:00.000Z',
   );
   assert.equal(learningEvidence.conversations.some(item => item.content === '修复消息重复问题'), true);
+  assert.deepEqual(
+    learningEvidence.conversations
+      .filter(item => item.content.endsWith('学习上下文'))
+      .map(item => ({
+        content: item.content,
+        chatId: item.chatId,
+        senderId: item.senderId,
+        channel: item.channel,
+        chatType: item.chatType,
+      })),
+    [
+      {
+        content: '飞书学习上下文',
+        chatId: 'oc_learning_group',
+        senderId: 'ou_feishu_member',
+        channel: 'feishu',
+        chatType: 'group',
+      },
+      {
+        content: '钉钉学习上下文',
+        chatId: 'dingtalk:group:cid_learning',
+        senderId: 'dingtalk:member',
+        channel: 'dingtalk',
+        chatType: 'group',
+      },
+      {
+        content: '微信学习上下文',
+        chatId: 'wechat:user:wxid_learning',
+        senderId: 'wechat:friend',
+        channel: 'wechat',
+        chatType: 'p2p',
+      },
+    ],
+    'daily learning evidence must preserve channel and conversation context in time order',
+  );
   assert.equal(learningEvidence.audits.some(item => item.event === 'poller_error'), true);
   state.startLearningRun({
     id: 'learning-2026-08-07',
