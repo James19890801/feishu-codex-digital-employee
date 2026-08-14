@@ -13,6 +13,12 @@ const ARTICLE_SIGNALS = [
   /一键复制|作者名片|金句|阅读原文|扫码关注|wechat/i,
 ];
 
+const PROFESSIONAL_KNOWLEDGE_EXTENSIONS = new Set([
+  '.pdf', '.ppt', '.pptx', '.doc', '.docx', '.md', '.txt',
+]);
+const PROFESSIONAL_KNOWLEDGE_SIGNAL = /(?:流程(?:管理|治理|架构|设计|优化|绩效|运营|建模|规划|洞察|数字化|变革|思维|型组织|即组织力|穿越)|业务(?:流程|架构)|数字化研发流水线|华为.{0,8}(?:流程|经营管理)|变革之心|(?:AI|人工智能).{0,12}(?:流程|组织|企业|变革|协同)|(?:流程|组织|企业|变革).{0,12}(?:AI|人工智能)|(?:Agent|智能体|数字人).{0,12}(?:流程|组织|企业|协同)|Enterprise[_ -]?AI|AI[_ -]?Process|BPM|SOP)/i;
+const PRIVATE_DOCUMENT_SIGNAL = /(?:客户|甲方|乙方|合作方|诊断报告|合同|报价|账单|简历|对话记录|回复[_\s-]|逐字稿|会议纪要|单据样例|联系人|通讯录)/i;
+
 const COMPANY_SUFFIX = '(?:有限责任公司|股份有限公司|有限公司|集团(?:有限公司)?|公司|研究院|事务所|中心)';
 
 export function isExcludedKnowledgePath(path = '') {
@@ -34,6 +40,15 @@ export function isLikelyKnowledgeHtml({ path = '', html = '' } = {}) {
   const articleStructure = /<article\b|<main\b/i.test(source);
   const publishingFooter = /作者名片|阅读原文|扫码关注/.test(source);
   return pathSignal || (publishingControl && (articleStructure || publishingFooter));
+}
+
+export function isLikelyProfessionalKnowledgeFile(path = '') {
+  const value = String(path || '');
+  const extension = extname(value).toLowerCase();
+  if (!PROFESSIONAL_KNOWLEDGE_EXTENSIONS.has(extension) || isExcludedKnowledgePath(value)) return false;
+  const name = value.split(/[/\\]/).at(-1) || '';
+  if (!name || /^\.~|^~\$/.test(name) || PRIVATE_DOCUMENT_SIGNAL.test(name)) return false;
+  return PROFESSIONAL_KNOWLEDGE_SIGNAL.test(name);
 }
 
 export function opaqueSourceHandle(path = '') {

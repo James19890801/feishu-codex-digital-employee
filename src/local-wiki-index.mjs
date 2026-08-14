@@ -5,12 +5,14 @@ import {
   abstractPrivateKnowledge,
   isExcludedKnowledgePath,
   isLikelyKnowledgeHtml,
+  isLikelyProfessionalKnowledgeFile,
   isSafeKnowledgeEvidence,
   opaqueSourceHandle,
   safeKnowledgeTitle,
 } from './local-wiki-policy.mjs';
 
 const DEFAULT_MAX_FILE_BYTES = 8 * 1024 * 1024;
+const DEFAULT_MAX_DOCUMENT_BYTES = 200 * 1024 * 1024;
 
 function decodeEntities(value) {
   const named = { amp: '&', apos: "'", gt: '>', lt: '<', nbsp: ' ', quot: '"' };
@@ -85,6 +87,23 @@ export function extractKnowledgeFromHtml(html = '') {
   };
 }
 
+export function extractKnowledgeFromText(text = '', { title = '知识条目' } = {}) {
+  const cleanTitle = basename(String(title || '知识条目'), extname(String(title || '')))
+    .replace(/\s+/g, ' ')
+    .trim();
+  const abstracted = abstractPrivateKnowledge(String(text || ''));
+  const chunks = abstracted.safe
+    ? chunkText(abstracted.text).filter(isSafeKnowledgeEvidence)
+    : [];
+  return {
+    title: safeKnowledgeTitle(cleanTitle),
+    text: abstracted.text,
+    safe: abstracted.safe,
+    redactionCount: abstracted.redactionCount,
+    chunks,
+  };
+}
+
 async function walk(root, { outputDir = '', maxFileBytes = DEFAULT_MAX_FILE_BYTES } = {}) {
   const files = [];
   let excludedCount = 0;
@@ -106,7 +125,9 @@ async function walk(root, { outputDir = '', maxFileBytes = DEFAULT_MAX_FILE_BYTE
     if (!info.isFile() || extname(path).toLowerCase() !== '.html' || info.size > maxFileBytes) return;
     let html;
     try { html = await readFile(path, 'utf8'); } catch { return; }
-    if (isLikelyKnowledgeHtml({ path, html })) files.push({ path, html, bytes: info.size, mtimeMs: info.mtimeMs });
+    if (isLikelyKnowledgeHtml({ path, html })) files.push({
+      kind: 'html', path, html, bytes: info.size, mtimeMs: info.mtimeMs,
+    });
   };
   await visit(root);
   return { files, excludedCount };
@@ -123,33 +144,147 @@ export async function inventoryKnowledgeHtml({ roots = [], outputDir = '' } = {}
   return { files, excludedCount };
 }
 
+async function walkDocuments(root, {
+  outputDir = '',
+  maxFileBytes = DEFAULT_MAX_DOCUMENT_BYTES,
+} = {}) {
+  const files = [];
+  let excludedCount = 0;
+  const output = outputDir ? resolve(outputDir) : '';
+  const visit = async path => {
+    if ((output && resolve(path).startsWith(`${output}/`)) || isExcludedKnowledgePath(path)) {
+      excludedCount += 1;
+      return;
+    }
+    let info;
+    try { info = await lstat(path); } catch { return; }
+    if (info.isSymbolicLink()) { excludedCount += 1; return; }
+    if (info.isDirectory()) {
+      let entries;
+      try { entries = await readdir(path); } catch { return; }
+      for (const entry of entries) await visit(join(path, entry));
+      return;
+    }
+    if (!info.isFile() || info.size > maxFileBytes || !isLikelyProfessionalKnowledgeFile(path)) return;
+    files.push({ kind: 'document', path, bytes: info.size, mtimeMs: info.mtimeMs });
+  };
+  await visit(root);
+  return { files, excludedCount };
+}
+
+export async function inventoryKnowledgeSources({
+  htmlRoots = [],
+  documentRoots = [],
+  outputDir = '',
+} = {}) {
+  const html = await inventoryKnowledgeHtml({ roots: htmlRoots, outputDir });
+  const files = [...html.files];
+  let excludedCount = html.excludedCount;
+  for (const root of documentRoots) {
+    const result = await walkDocuments(resolve(root), { outputDir });
+    files.push(...result.files);
+    excludedCount += result.excludedCount;
+  }
+  files.sort((a, b) => a.path.localeCompare(b.path));
+  return { files, excludedCount };
+}
+
 async function atomicJson(path, value) {
   const temp = `${path}.tmp`;
   await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   await rename(temp, path);
 }
 
-export async function buildLocalWiki({ roots = [], outputDir } = {}) {
+export async function buildLocalWiki({
+  roots = [],
+  documentRoots = [],
+  outputDir,
+  extractDocumentText,
+} = {}) {
   if (!outputDir) throw new Error('Local Wiki outputDir is required');
   await mkdir(outputDir, { recursive: true, mode: 0o700 });
   await mkdir(join(outputDir, 'wiki'), { recursive: true, mode: 0o700 });
   let previous = { sources: [] };
   try { previous = JSON.parse(await readFile(join(outputDir, 'index.json'), 'utf8')); } catch { /* first build */ }
-  const previousHashes = new Map((previous.sources || []).map(item => [item.handle, item.hash]));
-  const inventory = await inventoryKnowledgeHtml({ roots, outputDir });
+  const previousSources = new Map((previous.sources || []).map(item => [item.handle, item]));
+  const previousChunks = new Map();
+  for (const chunk of previous.chunks || []) {
+    if (!previousChunks.has(chunk.sourceHandle)) previousChunks.set(chunk.sourceHandle, []);
+    previousChunks.get(chunk.sourceHandle).push(chunk);
+  }
+  const previousAliases = new Map((previous.aliases || []).map(item => [item.handle, item]));
+  const inventory = await inventoryKnowledgeSources({
+    htmlRoots: roots,
+    documentRoots,
+    outputDir,
+  });
   const sources = [];
   const chunks = [];
+  const aliases = [];
+  const contentHashes = new Map();
   let updatedCount = 0;
   let unchangedCount = 0;
   let skippedSensitiveCount = 0;
+  let duplicateCount = 0;
+  let extractionFailureCount = 0;
   for (const file of inventory.files) {
     const handle = opaqueSourceHandle(file.path);
-    const hash = createHash('sha256').update(file.html).digest('hex');
-    const extracted = extractKnowledgeFromHtml(file.html);
+    const fingerprint = createHash('sha256')
+      .update(`${file.kind}:${file.bytes}:${Math.trunc(file.mtimeMs)}`)
+      .digest('hex');
+    const previousSource = previousSources.get(handle);
+    const previousAlias = previousAliases.get(handle);
+    if (previousAlias?.fingerprint === fingerprint) {
+      aliases.push(previousAlias);
+      duplicateCount += 1;
+      continue;
+    }
+    if (previousSource?.fingerprint === fingerprint && previousChunks.has(handle)) {
+      if (contentHashes.has(previousSource.hash)) {
+        aliases.push({ handle, fingerprint, hash: previousSource.hash });
+        duplicateCount += 1;
+        continue;
+      }
+      const reusedChunks = previousChunks.get(handle);
+      sources.push(previousSource);
+      chunks.push(...reusedChunks);
+      contentHashes.set(previousSource.hash, handle);
+      unchangedCount += 1;
+      continue;
+    }
+    let extracted;
+    if (file.kind === 'html') {
+      extracted = extractKnowledgeFromHtml(file.html);
+    } else {
+      if (typeof extractDocumentText !== 'function') {
+        throw new Error('Local Wiki document extractor is required');
+      }
+      try {
+        const result = await extractDocumentText(file.path);
+        const text = typeof result === 'string' ? result : result?.text;
+        extracted = extractKnowledgeFromText(text, { title: basename(file.path) });
+      } catch {
+        extractionFailureCount += 1;
+        continue;
+      }
+    }
     if (!extracted.safe || !extracted.chunks.length) { skippedSensitiveCount += 1; continue; }
-    if (previousHashes.get(handle) === hash) unchangedCount += 1;
-    else updatedCount += 1;
-    sources.push({ handle, hash, modifiedAt: new Date(file.mtimeMs).toISOString(), title: extracted.title });
+    const hash = createHash('sha256').update(extracted.text).digest('hex');
+    if (contentHashes.has(hash)) {
+      aliases.push({ handle, fingerprint, hash });
+      duplicateCount += 1;
+      continue;
+    }
+    updatedCount += 1;
+    sources.push({
+      handle,
+      hash,
+      fingerprint,
+      modifiedAt: new Date(file.mtimeMs).toISOString(),
+      title: extracted.title,
+      kind: file.kind,
+    });
+    contentHashes.set(hash, handle);
     extracted.chunks.forEach((text, index) => chunks.push({
       id: `${handle}_${index + 1}`,
       sourceHandle: handle,
@@ -163,14 +298,18 @@ export async function buildLocalWiki({ roots = [], outputDir } = {}) {
   }
   sources.sort((a, b) => a.handle.localeCompare(b.handle));
   chunks.sort((a, b) => a.id.localeCompare(b.id));
+  aliases.sort((a, b) => a.handle.localeCompare(b.handle));
   const index = {
     version: 1,
     builtAt: new Date().toISOString(),
     roots: roots.length,
     sources,
     chunks,
+    aliases,
     excludedCount: inventory.excludedCount,
     skippedSensitiveCount,
+    duplicateCount,
+    extractionFailureCount,
   };
   await atomicJson(join(outputDir, 'index.json'), index);
   await writeFile(join(outputDir, 'wiki', 'index.md'), [
@@ -184,5 +323,7 @@ export async function buildLocalWiki({ roots = [], outputDir } = {}) {
     unchangedCount,
     excludedCount: inventory.excludedCount,
     skippedSensitiveCount,
+    duplicateCount,
+    extractionFailureCount,
   };
 }

@@ -7,8 +7,17 @@ import sys
 import tempfile
 from pathlib import Path
 
-MAX_CHARS = 40000
-MAX_PDF_PAGES = 60
+def env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        return max(minimum, min(maximum, int(os.environ.get(name, str(default)))))
+    except (TypeError, ValueError):
+        return default
+
+
+MAX_CHARS = env_int("AIPRO_EXTRACT_MAX_CHARS", 40000, 1, 1000000)
+MAX_PDF_PAGES = env_int("AIPRO_EXTRACT_MAX_PDF_PAGES", 60, 1, 2000)
+OCR_SAMPLE_PAGES = env_int("AIPRO_PDF_OCR_SAMPLE_PAGES", 20, 1, 200)
+OCR_FRONTLOAD_PAGES = env_int("AIPRO_PDF_OCR_FRONTLOAD_PAGES", 8, 0, 50)
 
 
 def docx_text(path: Path) -> str:
@@ -24,23 +33,80 @@ def docx_text(path: Path) -> str:
     return "\n".join(chunks)
 
 
-def pdf_ocr(path: Path) -> list[dict]:
-    configured = os.environ.get("AIPRO_PDF_OCR_COMMAND", "").strip()
-    if configured:
-        command = [configured, str(path)]
+def select_pdf_page_indices(
+    page_count: int, sample_count: int, frontload: int = 8,
+) -> list[int]:
+    total = max(0, int(page_count))
+    count = max(0, min(total, int(sample_count)))
+    if not total or not count:
+        return []
+    if count >= total:
+        return list(range(total))
+    first_count = min(count, max(0, int(frontload)))
+    selected = list(range(first_count))
+    remaining = count - first_count
+    if remaining <= 0:
+        return selected
+    start = first_count
+    if remaining == 1:
+        candidates = [total - 1]
     else:
-        helper = Path(__file__).resolve().parent.parent / "scripts" / "extract-pdf-ocr.swift"
-        if not helper.exists():
-            return []
-        command = ["/usr/bin/swift", str(helper), str(path)]
+        candidates = [
+            round(start + index * (total - 1 - start) / (remaining - 1))
+            for index in range(remaining)
+        ]
+    return sorted(set(selected + candidates))
+
+
+def run_pdf_ocr(command: list[str]) -> list[dict]:
     try:
         result = subprocess.run(
-            command, capture_output=True, text=True, timeout=120, check=True,
+            command, capture_output=True, text=True, timeout=300, check=True,
         )
         payload = json.loads(result.stdout)
         return payload.get("pages", []) if isinstance(payload, dict) else []
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
         return []
+
+
+def pdf_ocr(path: Path, page_count: int) -> list[dict]:
+    configured = os.environ.get("AIPRO_PDF_OCR_COMMAND", "").strip()
+    if configured:
+        return run_pdf_ocr([configured, str(path)])
+    helper = Path(__file__).resolve().parent.parent / "scripts" / "extract-pdf-ocr.swift"
+    if not helper.exists():
+        return []
+    if os.environ.get("AIPRO_PDF_OCR_DISTRIBUTED", "").strip() != "1":
+        return run_pdf_ocr(["/usr/bin/swift", str(helper), str(path)])
+
+    from pypdf import PdfReader, PdfWriter
+
+    selected = select_pdf_page_indices(
+        page_count,
+        OCR_SAMPLE_PAGES,
+        frontload=OCR_FRONTLOAD_PAGES,
+    )
+    if not selected:
+        return []
+    reader = PdfReader(path)
+    recognized = []
+    with tempfile.TemporaryDirectory(prefix="aipro-pdf-ocr-") as temporary:
+        for batch_index in range(0, len(selected), 20):
+            batch = selected[batch_index:batch_index + 20]
+            writer = PdfWriter()
+            for page_index in batch:
+                writer.add_page(reader.pages[page_index])
+            sampled_path = Path(temporary) / f"sample-{batch_index // 20 + 1}.pdf"
+            with sampled_path.open("wb") as output:
+                writer.write(output)
+            for item in run_pdf_ocr(["/usr/bin/swift", str(helper), str(sampled_path)]):
+                relative_page = int(item.get("page", 0) or 0) - 1
+                if 0 <= relative_page < len(batch):
+                    recognized.append({
+                        "page": batch[relative_page] + 1,
+                        "text": str(item.get("text", "")),
+                    })
+    return recognized
 
 
 def pdf_text(path: Path) -> tuple[str, bool]:
@@ -59,7 +125,7 @@ def pdf_text(path: Path) -> tuple[str, bool]:
             break
     ocr_used = False
     if needs_ocr and sum(len(item) for item in chunks) < MAX_CHARS:
-        for item in pdf_ocr(path):
+        for item in pdf_ocr(path, len(reader.pages)):
             page = int(item.get("page", 0) or 0)
             text = str(item.get("text", "")).strip()
             if page > 0 and text:

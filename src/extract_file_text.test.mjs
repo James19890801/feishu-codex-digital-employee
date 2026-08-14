@@ -11,6 +11,15 @@ const python = join(
 const extractor = join(process.cwd(), 'src', 'extract_file_text.py');
 const directory = await mkdtemp(join(tmpdir(), 'aipro-extractor-'));
 
+const pageSelection = await runBufferedProcess(python, ['-c', `
+import importlib.util, json
+spec = importlib.util.spec_from_file_location("extractor", ${JSON.stringify(extractor)})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+print(json.dumps(module.select_pdf_page_indices(10, 5, frontload=2)))
+`], { timeoutMs: 30_000 });
+assert.deepEqual(JSON.parse(pageSelection.stdout), [0, 1, 2, 6, 9]);
+
 await runBufferedProcess(python, ['-c', `
 from openpyxl import Workbook
 from pptx import Presentation
@@ -91,5 +100,16 @@ const scanned = await extract('scan.pdf', {
 assert.match(scanned.text, /\[PDF 第 1 页 OCR\]/);
 assert.match(scanned.text, /扫描件识别结果/);
 assert.equal(scanned.ocrUsed, true);
+
+const boundedOcr = join(directory, 'bounded-ocr.py');
+await writeFile(boundedOcr, `#!/usr/bin/env python3
+import json
+print(json.dumps({"pages":[{"page":1,"text":"${'扫描识别长文'.repeat(20)}"}]}, ensure_ascii=False))
+`);
+await chmod(boundedOcr, 0o700);
+const bounded = await extract('scan.pdf', {
+  env: { AIPRO_PDF_OCR_COMMAND: boundedOcr, AIPRO_EXTRACT_MAX_CHARS: '25' },
+});
+assert.equal(bounded.text.length, 25);
 
 console.log('EXTRACT_FILE_TEXT_TEST_OK');

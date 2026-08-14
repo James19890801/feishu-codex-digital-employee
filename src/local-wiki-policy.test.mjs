@@ -3,6 +3,7 @@ import {
   abstractPrivateKnowledge,
   isExcludedKnowledgePath,
   isLikelyKnowledgeHtml,
+  isLikelyProfessionalKnowledgeFile,
   isSafeKnowledgeEvidence,
   opaqueSourceHandle,
 } from './local-wiki-policy.mjs';
@@ -22,6 +23,14 @@ assert.equal(isLikelyKnowledgeHtml({
   path: '/Users/test/project/coverage/index.html',
   html: '<html><body><table><tr><td>coverage</td></tr></table></body></html>',
 }), false);
+
+assert.equal(isLikelyProfessionalKnowledgeFile('/Users/test/Downloads/流程管理实用手册.pdf'), true);
+assert.equal(isLikelyProfessionalKnowledgeFile('/Users/test/Downloads/AI赋能流程管理实战工作坊.pptx'), true);
+assert.equal(isLikelyProfessionalKnowledgeFile('/Users/test/Downloads/业务架构解构与实践.docx'), true);
+assert.equal(isLikelyProfessionalKnowledgeFile('/Users/test/Downloads/客户A流程诊断报告.pdf'), false);
+assert.equal(isLikelyProfessionalKnowledgeFile('/Users/test/Downloads/张三简历.pdf'), false);
+assert.equal(isLikelyProfessionalKnowledgeFile('/Users/test/Downloads/泰国旅游攻略.pdf'), false);
+assert.equal(isLikelyProfessionalKnowledgeFile('/Users/test/Downloads/流程管理实用手册.exe'), false);
 
 const redacted = abstractPrivateKnowledge(`
 客户：星河制造有限公司
