@@ -3,6 +3,7 @@ import { DailyLearningEngine } from './daily-learning.mjs';
 
 const calls = [];
 let scannedRoots = [];
+let conversationsEnriched = false;
 const stages = [];
 const values = new Map([
   ['learning:memory', '旧记忆'],
@@ -51,7 +52,14 @@ const engine = new DailyLearningEngine({
     return [{ path: '~/Documents/plan.md', excerpt: '交付时同步状态' }];
   },
   scanSkills: async () => [{ name: 'pdf', description: 'Create PDFs' }],
+  enrichConversations: async conversations => {
+    conversationsEnriched = true;
+    return conversations.map(conversation => conversation.channel === 'wechat'
+      ? { ...conversation, groupName: '专业流程交流群' }
+      : conversation);
+  },
   runAi: async prompt => {
+    assert.equal(conversationsEnriched, true, 'conversation context must be enriched before grouping');
     assert.equal(prompt.includes('password=bad'), false);
     for (const rawIdentity of ['oc_private_feishu', 'private-ding', 'private-room', 'private-sender']) {
       assert.equal(prompt.includes(rawIdentity), false);
@@ -85,6 +93,9 @@ assert.equal(completed[2].filesScanned, 1);
 assert.equal(completed[2].chatsReviewed, 3);
 assert.equal(completed[2].items.length, 3);
 assert.equal(calls.some(item => item[0] === 'audit' && item[1] === 'daily_learning_completed'), true);
+const completedAudit = calls.find(item => item[0] === 'audit' && item[1] === 'daily_learning_completed');
+assert.equal(completedAudit[2].detail.conversationGroups, 3);
+assert.deepEqual(completedAudit[2].detail.sourceChannels.sort(), ['dingtalk', 'feishu', 'wechat']);
 assert.equal(scannedRoots.includes('/Users/example'), false, 'the scanner must not traverse the entire home tree');
 assert.deepEqual(scannedRoots, ['/Users/example/Applications/AIPRO']);
 assert.deepEqual(stages.filter(Boolean), ['history', 'files', 'skills', 'analyzing']);

@@ -370,6 +370,7 @@ export class DailyLearningEngine {
     contentRoots = [],
     scanFiles = scanLearningFiles,
     scanSkills = scanSkillCatalog,
+    enrichConversations = async conversations => conversations,
     conversationLimit = 1_000,
   } = {}) {
     if (!state || typeof state.learningEvidence !== 'function') {
@@ -385,6 +386,9 @@ export class DailyLearningEngine {
     )];
     this.scanFiles = scanFiles;
     this.scanSkills = scanSkills;
+    this.enrichConversations = typeof enrichConversations === 'function'
+      ? enrichConversations
+      : async conversations => conversations;
     this.conversationLimit = Math.max(
       1,
       Math.min(5_000, Math.trunc(Number(conversationLimit) || 1_000)),
@@ -412,13 +416,15 @@ export class DailyLearningEngine {
         state: 'running', stage: 'history', runId, startedAt: sourceToAt,
       });
       const evidence = this.state.learningEvidence(sourceFromAt, sourceToAt);
-      const conversationGroups = groupLearningConversations(evidence.conversations, {
+      const enrichedConversations = await this.enrichConversations(evidence.conversations);
+      const conversationGroups = groupLearningConversations(enrichedConversations, {
         maxMessages: this.conversationLimit,
       });
       const selectedMessages = conversationGroups.reduce(
         (sum, group) => sum + group.messages.length,
         0,
       );
+      const sourceChannels = [...new Set(conversationGroups.map(group => group.channel))].sort();
       this.state.set('learning', 'status', {
         state: 'running', stage: 'files', runId, startedAt: sourceToAt,
         chatsReviewed: selectedMessages,
@@ -467,6 +473,8 @@ export class DailyLearningEngine {
           reason,
           filesScanned: files.length,
           chatsReviewed: selectedMessages,
+          conversationGroups: conversationGroups.length,
+          sourceChannels,
           tasksLearned: learned.counts.tasks,
           skillsLearned: learned.counts.skills,
           errorsLearned: learned.counts.errors,

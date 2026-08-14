@@ -171,6 +171,9 @@ export const config = {
   dailyLearningHour: boundedInteger(raw.dailyLearningHour, {
     name: 'dailyLearningHour', fallback: 1, min: 0, max: 23,
   }),
+  dailyLearningConversationLimit: boundedInteger(raw.dailyLearningConversationLimit, {
+    name: 'dailyLearningConversationLimit', fallback: 1_000, min: 1, max: 5_000,
+  }),
   dashboardPort: boundedInteger(raw.dashboardPort, {
     name: 'dashboardPort', fallback: 17655, min: 1024, max: 65535,
   }),
