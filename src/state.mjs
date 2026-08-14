@@ -650,9 +650,22 @@ export class AgentState {
   }
 
   learningEvidence(fromAt, toAt, { conversationLimit = 1200, auditLimit = 1600 } = {}) {
-    const conversations = this.db.prepare(`SELECT role, content, created_at AS createdAt
+    const conversations = this.db.prepare(`SELECT chat_id AS chatId, sender_id AS senderId,
+      role, content, created_at AS createdAt
       FROM conversation WHERE created_at >= ? AND created_at < ?
-      ORDER BY created_at ASC LIMIT ?`).all(fromAt, toAt, conversationLimit);
+      ORDER BY created_at ASC LIMIT ?`).all(fromAt, toAt, conversationLimit).map(row => {
+      const target = String(row.chatId || '').match(/^(feishu|dingtalk|wecom|wechat):(group|user):/);
+      const channel = target?.[1] || 'feishu';
+      const remembered = channel === 'feishu'
+        ? this.get('feishu_chat', row.chatId, {})
+        : {};
+      const chatType = target?.[2] === 'group'
+        ? 'group'
+        : target?.[2] === 'user'
+          ? 'p2p'
+          : remembered?.chatType === 'group' ? 'group' : 'p2p';
+      return { ...row, channel, chatType };
+    });
     const audits = this.db.prepare(`SELECT event, detail, created_at AS createdAt
       FROM audit WHERE created_at >= ? AND created_at < ?
       ORDER BY created_at ASC LIMIT ?`).all(fromAt, toAt, auditLimit).map(row => {
