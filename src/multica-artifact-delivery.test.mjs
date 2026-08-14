@@ -118,20 +118,67 @@ try {
     formats: ['pdf'],
     request: '最终交付 PDF',
   });
+  let failedDeliveryAttempts = 0;
   const deliveryFailure = new MulticaArtifactDelivery({
     client,
     state,
     artifactRoot: join(dir, 'artifacts'),
-    deliver: async () => { throw new Error('missing upload scope'); },
+    deliver: async () => {
+      failedDeliveryAttempts += 1;
+      throw new Error('missing upload scope');
+    },
   });
   await assert.rejects(() => deliveryFailure.syncIssue({
     id: 'issue-10', identifier: 'MYS-10', workspace_id: 'ws-1', status: 'done',
   }), /missing upload scope/);
   assert.equal(
     state.multicaDeliveryContract('issue-10').status,
-    'delivery_failed',
-    'an uploaded artifact that failed at IM delivery must not be reported as ungenerated',
+    'delivery_ambiguous',
+    'an attempted IM delivery with an uncertain outcome must be blocked from automatic replay',
   );
+  await deliveryFailure.syncIssue({
+    id: 'issue-10', identifier: 'MYS-10', workspace_id: 'ws-1', status: 'done',
+  });
+  assert.equal(failedDeliveryAttempts, 1, 'ambiguous delivery must not be replayed automatically');
+
+  state.upsertMulticaDeliveryContract({
+    issueId: 'issue-11',
+    workspaceId: 'ws-1',
+    channel: 'wechat',
+    chatId: 'wechat:group:room-1@chatroom',
+    senderId: 'wechat:wxid_group_member',
+    chatType: 'group',
+    formats: ['pdf'],
+    request: '最终交付 PDF',
+  });
+  let releaseFirstDelivery;
+  let markFirstDeliveryStarted;
+  const firstDeliveryStarted = new Promise(resolve => { markFirstDeliveryStarted = resolve; });
+  const releaseDelivery = new Promise(resolve => { releaseFirstDelivery = resolve; });
+  const concurrentDeliveries = [];
+  const concurrentPipeline = new MulticaArtifactDelivery({
+    client,
+    state,
+    artifactRoot: join(dir, 'artifacts'),
+    deliver: async payload => {
+      concurrentDeliveries.push(payload);
+      if (concurrentDeliveries.length === 1) {
+        markFirstDeliveryStarted();
+        await releaseDelivery;
+      }
+    },
+  });
+  const firstConcurrent = concurrentPipeline.syncIssue({
+    id: 'issue-11', identifier: 'MYS-11', workspace_id: 'ws-1', status: 'done',
+  });
+  await firstDeliveryStarted;
+  const secondConcurrent = concurrentPipeline.syncIssue({
+    id: 'issue-11', identifier: 'MYS-11', workspace_id: 'ws-1', status: 'done',
+  });
+  await new Promise(resolve => setTimeout(resolve, 10));
+  releaseFirstDelivery();
+  await Promise.all([firstConcurrent, secondConcurrent]);
+  assert.equal(concurrentDeliveries.length, 1, 'concurrent sync must send one attachment once');
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

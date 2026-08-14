@@ -1735,6 +1735,47 @@ export class AgentState {
     return this.multicaDeliveryContract(issueId);
   }
 
+  claimMulticaArtifactDelivery(issueId, attachmentId, now = new Date().toISOString()) {
+    const normalizedIssueId = String(issueId || '').trim();
+    const normalizedAttachmentId = String(attachmentId || '').trim();
+    if (!normalizedIssueId || !normalizedAttachmentId) {
+      throw new Error('Multica artifact delivery claim requires issue and attachment IDs');
+    }
+
+    let transactionStarted = false;
+    try {
+      this.db.exec('BEGIN IMMEDIATE');
+      transactionStarted = true;
+      const current = this.multicaDeliveryContract(normalizedIssueId);
+      const terminal = !current || ['delivered', 'delivery_ambiguous'].includes(current.status);
+      if (terminal || current.artifactIds.includes(normalizedAttachmentId)) {
+        this.db.exec('COMMIT');
+        transactionStarted = false;
+        return { claimed: false, contract: current };
+      }
+
+      const artifactIds = [...current.artifactIds, normalizedAttachmentId];
+      this.db.prepare(`UPDATE multica_delivery_contract SET
+        status = 'delivering', artifact_ids = ?, last_error = '', updated_at = ?
+        WHERE issue_id = ?`).run(
+        JSON.stringify(artifactIds),
+        now,
+        normalizedIssueId,
+      );
+      this.db.exec('COMMIT');
+      transactionStarted = false;
+      return {
+        claimed: true,
+        contract: this.multicaDeliveryContract(normalizedIssueId),
+      };
+    } catch (error) {
+      if (transactionStarted) {
+        try { this.db.exec('ROLLBACK'); } catch { /* preserve the original error */ }
+      }
+      throw error;
+    }
+  }
+
   multicaRunMessageCursor(taskId) {
     return Number(this.db.prepare(`SELECT last_seq FROM multica_run_message_cursor
       WHERE task_id = ?`).get(String(taskId || ''))?.last_seq || 0);

@@ -1990,6 +1990,8 @@ async function handleMulticaArtifactFollowup(message, senderOpenId, cleanText, m
     let answer;
     if (contract?.status === 'delivered') {
       answer = `${contract.formats.map(item => item.toUpperCase()).join('、')} 已生成，也已经回传到当前对话。`;
+    } else if (contract?.status === 'delivery_ambiguous') {
+      answer = `${contract.formats.map(item => item.toUpperCase()).join('、')} 已尝试回传一次，但通道没有返回确定结果。为避免重复发送，系统已停止自动重试，请先查看当前对话中的文件。`;
     } else if (contract?.status === 'delivery_failed') {
       answer = `${contract.formats.map(item => item.toUpperCase()).join('、')} 已经生成并上传到 Multica，但还没有成功回传到当前对话${contract.lastError ? `：${contract.lastError}` : '。'}`;
     } else if (summary.state === 'failed') {

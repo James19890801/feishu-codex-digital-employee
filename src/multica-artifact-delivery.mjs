@@ -102,7 +102,14 @@ export class MulticaArtifactDelivery {
   async syncIssue(issue, { comments } = {}) {
     const contract = this.state.multicaDeliveryContract(issue?.id);
     if (!contract || contract.status === 'delivered') return { delivered: 0, waiting: 0 };
+    if (contract.status === 'delivery_ambiguous') {
+      return { delivered: 0, waiting: 0, ambiguous: 1 };
+    }
+    if (contract.status === 'delivering') {
+      return { delivered: 0, waiting: 1, inFlight: 1 };
+    }
     let hasMatchingArtifact = false;
+    let deliveryAttempted = false;
     try {
       const availableComments = comments || await this.client.listIssueComments(
         issue.id,
@@ -121,10 +128,13 @@ export class MulticaArtifactDelivery {
       }
       hasMatchingArtifact = true;
 
-      const deliveredIds = new Set(contract.artifactIds);
       let delivered = 0;
       for (const attachment of unique) {
-        if (deliveredIds.has(attachment.id)) continue;
+        const latest = this.state.multicaDeliveryContract(issue.id);
+        if (!latest || ['delivered', 'delivery_ambiguous'].includes(latest.status)) {
+          return { delivered, waiting: 0, ambiguous: latest?.status === 'delivery_ambiguous' ? 1 : 0 };
+        }
+        if (latest.artifactIds.includes(attachment.id)) continue;
         const digest = createHash('sha256').update(attachment.id).digest('hex').slice(0, 16);
         const outputDir = join(this.artifactRoot, String(issue.id), digest);
         await mkdir(outputDir, { recursive: true, mode: 0o700 });
@@ -137,6 +147,16 @@ export class MulticaArtifactDelivery {
           outputDir,
           attachment.format,
         );
+        const claim = this.state.claimMulticaArtifactDelivery(issue.id, attachment.id);
+        if (!claim.claimed) {
+          const status = claim.contract?.status || '';
+          return {
+            delivered,
+            waiting: status === 'delivered' || status === 'delivery_ambiguous' ? 0 : 1,
+            ...(status === 'delivery_ambiguous' ? { ambiguous: 1 } : { inFlight: 1 }),
+          };
+        }
+        deliveryAttempted = true;
         await this.deliver({
           issueId: issue.id,
           identifier: issue.identifier || '',
@@ -151,15 +171,16 @@ export class MulticaArtifactDelivery {
           bytes: checked.bytes,
           idempotencyKey: `multica-artifact-${digest}`,
         });
-        deliveredIds.add(attachment.id);
         delivered += 1;
         this.state.updateMulticaDeliveryContract(issue.id, {
           status: 'delivering',
-          artifactIds: [...deliveredIds],
           lastError: '',
         });
       }
 
+      const deliveredIds = new Set(
+        this.state.multicaDeliveryContract(issue.id)?.artifactIds || [],
+      );
       const deliveredFormats = new Set(unique
         .filter(item => deliveredIds.has(item.id)).map(item => item.format));
       const complete = contract.formats.every(format => deliveredFormats.has(format));
@@ -178,12 +199,15 @@ export class MulticaArtifactDelivery {
       return { delivered, waiting: complete ? 0 : 1 };
     } catch (error) {
       const failure = processFailureSummary(error);
+      const latest = this.state.multicaDeliveryContract(issue.id) || contract;
       this.state.updateMulticaDeliveryContract(issue.id, {
-        status: hasMatchingArtifact ? 'delivery_failed' : 'failed',
-        attempts: contract.attempts + 1,
+        status: deliveryAttempted ? 'delivery_ambiguous' : (hasMatchingArtifact ? 'delivery_failed' : 'failed'),
+        attempts: latest.attempts + 1,
         lastError: failure,
       });
-      this.audit('multica_artifact_delivery_failed', {
+      this.audit(deliveryAttempted
+        ? 'multica_artifact_delivery_ambiguous'
+        : 'multica_artifact_delivery_failed', {
         issueId: issue.id,
         channel: contract.channel,
         error: failure,
