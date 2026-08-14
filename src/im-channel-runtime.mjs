@@ -292,6 +292,20 @@ export class GeWeChannel {
     return fileUrl;
   }
 
+  async downloadFile(xml) {
+    const fileXml = String(xml || '').trim();
+    if (!fileXml) throw new Error('GeWe file XML is required');
+    const result = await this.request('/gewe/v2/api/message/downloadFile', {
+      appId: this.appId,
+      xml: fileXml,
+    });
+    const fileUrl = String(result?.data?.fileUrl || '').trim();
+    if (!/^https?:\/\//i.test(fileUrl)) {
+      throw new Error('GeWe file download returned no valid file URL');
+    }
+    return fileUrl;
+  }
+
   async getChatroomInfo(chatroomId) {
     const normalizedChatroomId = String(chatroomId || '').trim();
     if (!normalizedChatroomId.endsWith('@chatroom') || normalizedChatroomId.length > 500) {

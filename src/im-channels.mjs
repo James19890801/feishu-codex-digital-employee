@@ -604,6 +604,21 @@ function boundedGeWeText(value, limit = 8_000) {
   return String(value || '').trim().slice(0, limit);
 }
 
+function geWeFileAttachment(xml, { quoted = false } = {}) {
+  if (Number(geWeXmlTag(xml, 'type')) !== 6) return null;
+  const rawName = boundedGeWeText(geWeXmlTag(xml, 'title'), 512)
+    || `微信文件.${boundedGeWeText(geWeXmlTag(xml, 'fileext'), 20) || 'bin'}`;
+  const fileName = rawName
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/[\\/]/g, '_')
+    .trim()
+    .slice(0, 180) || '微信文件.bin';
+  const sizeBytes = Math.max(0, Math.trunc(Number(geWeXmlTag(xml, 'totallen')) || 0));
+  const normalizedXml = boundedGeWeText(xml, 40_000);
+  if (!normalizedXml) return null;
+  return { xml: normalizedXml, fileName, sizeBytes, quoted };
+}
+
 function geWePlainLinkCandidate(content) {
   const match = boundedGeWeText(content).match(/https?:\/\/[^\s<>"']+/i);
   if (!match) return null;
@@ -616,6 +631,14 @@ function geWePlainLinkCandidate(content) {
 function geWeAppMessage(content) {
   const appType = Number(geWeXmlTag(content, 'type'));
   const title = boundedGeWeText(geWeXmlTag(content, 'title'), 2_000);
+  if (appType === 6) {
+    const wechatFile = geWeFileAttachment(content);
+    return {
+      appType,
+      text: wechatFile ? `发送了文件：${wechatFile.fileName}` : title,
+      ...(wechatFile ? { wechatFile } : {}),
+    };
+  }
   if (appType === 5) {
     const url = boundedGeWeText(geWeXmlTag(content, 'url'), 4_000);
     if (!/^https?:\/\//i.test(url)) return { appType, text: title };
@@ -631,19 +654,26 @@ function geWeAppMessage(content) {
   const referMatch = String(content || '').match(/<refermsg(?:\s[^>]*)?>([\s\S]*?)<\/refermsg>/i);
   if (!referMatch) return { appType, text: title };
   const referXml = referMatch[1];
-  const quotedMessage = {
+  const rawQuotedMessage = {
     type: Number(geWeXmlTag(referXml, 'type')) || 0,
     messageId: boundedGeWeText(geWeXmlTag(referXml, 'svrid'), 256),
     senderId: boundedGeWeText(geWeXmlTag(referXml, 'chatusr'), 256),
     displayName: boundedGeWeText(geWeXmlTag(referXml, 'displayname'), 512),
     content: boundedGeWeText(geWeXmlTag(referXml, 'content')),
   };
+  const wechatFile = rawQuotedMessage.type === 49
+    ? geWeFileAttachment(rawQuotedMessage.content, { quoted: true })
+    : null;
+  const quotedMessage = wechatFile
+    ? { ...rawQuotedMessage, content: `[文件：${wechatFile.fileName}]` }
+    : rawQuotedMessage;
   const quoteLabel = quotedMessage.type === 3 ? '[图片]' : quotedMessage.content;
   const quotedBy = quotedMessage.displayName || quotedMessage.senderId || '上文';
   return {
     appType,
     text: [title, quoteLabel ? `引用消息（${quotedBy}）：${quoteLabel}` : ''].filter(Boolean).join('\n\n'),
     quotedMessage,
+    ...(wechatFile ? { wechatFile } : {}),
     ...(quotedMessage.type === 3 && /^<msg[\s>]/i.test(quotedMessage.content)
       ? { image: { xml: quotedMessage.content, quoted: true } }
       : {}),
@@ -727,9 +757,15 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
       message_id: `wechat:${appId}:${messageId}`,
       chat_id: formatChannelChatId('wechat', group ? 'group' : 'user', targetId),
       chat_type: group ? 'group' : 'p2p',
-      message_type: isImage ? 'image' : 'text',
+      message_type: isImage ? 'image' : appMessage?.appType === 6 && appMessage?.wechatFile
+        ? 'file' : 'text',
       create_time: normalizedTimestamp(v1 ? data?.CreateTime : data?.createTime),
-      content: JSON.stringify({ text: String(text) }),
+      content: JSON.stringify({
+        text: String(text),
+        ...(appMessage?.appType === 6 && appMessage?.wechatFile
+          ? { file_name: appMessage.wechatFile.fileName }
+          : {}),
+      }),
       mentions: group && !contextOnly ? [{ id: 'wechat-current-user' }] : [],
     },
     sender: {
@@ -747,6 +783,7 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
       ...(contextOnly ? { contextOnly: true } : {}),
       ...(linkCandidate ? { linkCandidate } : {}),
       ...(appMessage?.quotedMessage ? { quotedMessage: appMessage.quotedMessage } : {}),
+      ...(appMessage?.wechatFile ? { wechatFile: appMessage.wechatFile } : {}),
       ...(isImage ? {
         image: {
           xml: imageXml,

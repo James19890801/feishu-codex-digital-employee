@@ -805,6 +805,70 @@ assert.equal(normalizeWeComFrame({
 }
 
 {
+  const fileXml = '<msg><appmsg><title>report.pdf</title><type>6</type><appattach><totallen>14090895</totallen><fileext>pdf</fileext><attachid>private-attach-token</attachid><aeskey>private-aes-key</aeskey></appattach></appmsg></msg>';
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
+      MsgType: 49,
+      NewMsgId: 'group-file-1',
+      FromUserName: { string: 'room-1@chatroom' },
+      ToUserName: { string: 'wxid_owner' },
+      Content: { string: `wxid_member:\n${fileXml}` },
+      MsgSource: '<msgsource></msgsource>',
+    },
+  }, { mentionNames: ['小詹'] });
+  assert.equal(payload.message.message_type, 'file');
+  assert.equal(JSON.parse(payload.message.content).text, '发送了文件：report.pdf');
+  assert.equal(JSON.parse(payload.message.content).file_name, 'report.pdf');
+  assert.equal(payload.metadata.contextOnly, true);
+  assert.deepEqual(payload.metadata.wechatFile, {
+    xml: fileXml,
+    fileName: 'report.pdf',
+    sizeBytes: 14090895,
+    quoted: false,
+  });
+  assert.equal(payload.message.content.includes('private-attach-token'), false);
+  assert.equal(payload.message.content.includes('private-aes-key'), false);
+}
+
+{
+  const fileXml = '<msg><appmsg><title>report.pdf</title><type>6</type><appattach><totallen>14090895</totallen><fileext>pdf</fileext><attachid>private-attach-token</attachid><aeskey>private-aes-key</aeskey></appattach></appmsg></msg>';
+  const escapedFileXml = fileXml
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
+      MsgType: 49,
+      NewMsgId: 'group-quote-file-1',
+      FromUserName: { string: 'room-1@chatroom' },
+      ToUserName: { string: 'wxid_owner' },
+      Content: { string: `wxid_member:\n<msg><appmsg><title>@小詹 太长了，你去读</title><type>57</type><refermsg><type>49</type><svrid>quoted-file-100</svrid><chatusr>wxid_author</chatusr><displayname>文件作者</displayname><content>${escapedFileXml}</content></refermsg></appmsg></msg>` },
+      MsgSource: '<msgsource></msgsource>',
+    },
+  }, { mentionNames: ['小詹'] });
+  assert.equal(payload.message.message_type, 'text');
+  assert.equal(
+    JSON.parse(payload.message.content).text,
+    '@小詹 太长了，你去读\n\n引用消息（文件作者）：[文件：report.pdf]',
+  );
+  assert.deepEqual(payload.metadata.wechatFile, {
+    xml: fileXml,
+    fileName: 'report.pdf',
+    sizeBytes: 14090895,
+    quoted: true,
+  });
+  assert.equal(payload.metadata.quotedMessage.content, '[文件：report.pdf]');
+  assert.equal(payload.message.content.includes('private-attach-token'), false);
+}
+
+{
   const quotedImageXml = '<msg><img aeskey="quote-key" cdnmidimgurl="quote-image" /></msg>';
   const escapedImageXml = quotedImageXml
     .replaceAll('&', '&amp;')

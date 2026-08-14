@@ -246,6 +246,11 @@ import {
   rememberWeChatImageSource,
   weChatImageFailurePolicy,
 } from './wechat-media-context.mjs';
+import {
+  downloadWeChatFile,
+  rememberWeChatFile,
+  resolveWeChatFileContext,
+} from './wechat-file-context.mjs';
 import { enrichWeChatLearningContext } from './wechat-learning-context.mjs';
 import {
   discoverBotP2pChats,
@@ -704,6 +709,37 @@ async function persistIncomingWeChatImage(message, senderOpenId, metadata) {
     bytes: downloaded.bytes,
   });
   return downloaded.path;
+}
+
+async function persistIncomingWeChatFile(message, senderOpenId, source) {
+  if (!source?.xml || !geWeChannel) throw new Error('GeWe file downloader is unavailable');
+  const downloaded = await downloadWeChatFile({
+    channel: geWeChannel,
+    file: source,
+    outputDir: WECHAT_MEDIA_ROOT,
+    maxBytes: MAX_FILE_BYTES,
+    downloadContent: downloadPublicContent,
+  });
+  let filePath = downloaded.path;
+  const expectedExtension = extname(downloaded.fileName || '').toLowerCase();
+  if (expectedExtension && extname(filePath).toLowerCase() !== expectedExtension) {
+    const typedPath = `${filePath}${expectedExtension}`;
+    await rename(filePath, typedPath);
+    filePath = typedPath;
+  }
+  rememberWeChatFile(state, message.chat_id, {
+    path: filePath,
+    fileName: downloaded.fileName,
+    messageId: source.messageId,
+    senderId: source.senderId || senderOpenId,
+    createdAtMs: source.createdAtMs || Number(message.create_time || Date.now()),
+  });
+  audit('media_downloaded', message, senderOpenId, {
+    channel: 'wechat',
+    kind: 'file',
+    bytes: downloaded.bytes,
+  });
+  return { ...source, path: filePath, fileName: downloaded.fileName };
 }
 
 async function extractFileText(filePath) {
@@ -2541,6 +2577,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
   let fileName = '';
   let fileRef = null;
   let fileRefs = [];
+  let weChatFileContext = { files: [], sources: [] };
   let audioRef = null;
   let videoRef = null;
   try {
@@ -2571,6 +2608,30 @@ async function processIncoming(client, message, sender, metadata = {}) {
     });
   }
   audit('message_received', message, senderOpenId, { type: message.message_type, text: cleanText.slice(0, 300) });
+
+  if (metadata.channel === 'wechat') {
+    const allowedMessageIds = new Set(
+      state.chatHistory(message.chat_id, 50)
+        .map(item => String(item.sourceMessageId || '').trim())
+        .filter(Boolean),
+    );
+    const quotedSourceId = String(metadata.quotedMessage?.messageId || '').trim();
+    const sourceMessageId = metadata.wechatFile?.quoted && quotedSourceId
+      ? `wechat:${metadata.appId}:${quotedSourceId}`
+      : message.message_id;
+    weChatFileContext = resolveWeChatFileContext(state, {
+      chatId: message.chat_id,
+      messageId: sourceMessageId,
+      senderId: senderOpenId,
+      createdAtMs: Number(message.create_time || Date.now()),
+      currentFile: metadata.wechatFile,
+      shouldRead: metadata.contextOnly !== true
+        && (Boolean(metadata.wechatFile) || refersToRecentFiles(cleanText)),
+      allowedMessageIds,
+      limit: 4,
+      fileExists: existsSync,
+    });
+  }
 
   if (metadata.channel === 'wechat' && metadata.image?.xml) {
     rememberWeChatImageSource(state, message.chat_id, {
@@ -3021,7 +3082,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
     fileRef = { messageId: message.message_id, fileKey, fileName };
     fileRefs = [fileRef];
   }
-  if (!fileRef && message.message_type === 'file' && client) {
+  if (!fileRef && message.message_type === 'file' && client && metadata.channel !== 'wechat') {
     try {
       fileRef = await findRecentFileRef(client, message, senderOpenId, { includeCurrent: true });
       fileRefs = fileRef ? [fileRef] : [];
@@ -3029,7 +3090,8 @@ async function processIncoming(client, message, sender, metadata = {}) {
       console.error(`[file-resolution-error] ${message.message_id}:`, error);
     }
   }
-  if (message.message_type === 'file' && !fileRef && !metadata.file?.resourceId) {
+  if (message.message_type === 'file' && !fileRef && !metadata.file?.resourceId
+    && !weChatFileContext.files.length && !weChatFileContext.sources.length) {
     await sendText(client, message.chat_id, '文件收到了，但当前没有拿到可读取的文件资源。你可以再发一句希望我怎么处理，我会从最近消息里重新读取。', `digital-employee-file-resource-unavailable-${message.message_id}`);
     audit('capability_unavailable', message, senderOpenId, { capability: 'file_resource' });
     return;
@@ -3082,7 +3144,8 @@ async function processIncoming(client, message, sender, metadata = {}) {
       }
     }
   }
-  if (!fileRef && ['text', 'post'].includes(message.message_type) && refersToRecentFiles(cleanText)) {
+  if (!fileRef && metadata.channel !== 'wechat'
+    && ['text', 'post'].includes(message.message_type) && refersToRecentFiles(cleanText)) {
     try {
       fileRefs = await findRecentFileRefs(client, message, senderOpenId);
       fileRef = fileRefs.at(-1) || null;
@@ -3386,7 +3449,9 @@ async function processIncoming(client, message, sender, metadata = {}) {
     return;
   }
   const knowledgeResult = !imageRefs.length && !weChatImagePaths.length
-    && !fileRefs.length && !fileRef && ['text', 'post'].includes(message.message_type)
+    && !fileRefs.length && !fileRef
+    && !weChatFileContext.files.length && !weChatFileContext.sources.length
+    && ['text', 'post'].includes(message.message_type)
     ? await searchFeishuKnowledge(client, cleanText, senderOpenId)
     : null;
   const inboundMediaKind = metadata.media?.kind || message.message_type;
@@ -3394,10 +3459,13 @@ async function processIncoming(client, message, sender, metadata = {}) {
     || inboundMediaKind === 'image'
     ? buildImageUnderstandingTask(cleanText)
     : cleanText;
-  if (fileRefs.length || fileRef || metadata.file?.resourceId) {
+  if (fileRefs.length || fileRef || metadata.file?.resourceId
+    || weChatFileContext.files.length || weChatFileContext.sources.length) {
     const names = (fileRefs.length ? fileRefs : [fileRef]).filter(Boolean)
       .map(ref => ref.fileName || '未命名文件');
     if (metadata.file?.resourceId) names.push(metadata.file.fileName || '未命名文件');
+    names.push(...weChatFileContext.files.map(file => file.fileName || '微信文件'));
+    names.push(...weChatFileContext.sources.map(file => file.fileName || '微信文件'));
     task = `${cleanText ? `对方的问题是：${cleanText}\n` : ''}请阅读${names.length > 1 ? '这些文件' : '文件'}“${names.join('、')}”，结合全部文件内容直接回复对方。`;
   }
   if (inboundMediaKind === 'audio') {
@@ -3515,6 +3583,19 @@ async function processIncoming(client, message, sender, metadata = {}) {
       const extracted = await extractFileText(filePath);
       if (!extracted) throw new Error('No readable text found in file');
       task += `\n\n文件“${safeName}”内容：\n${extracted}`;
+    }
+    for (const cachedFile of weChatFileContext.files) {
+      await assertMediaFile(cachedFile.path);
+      const extracted = await extractFileText(cachedFile.path);
+      if (!extracted) throw new Error('No readable text found in cached WeChat file');
+      task += `\n\n文件“${cachedFile.fileName}”内容：\n${extracted}`;
+    }
+    for (const source of weChatFileContext.sources) {
+      const downloadedFile = await persistIncomingWeChatFile(message, senderOpenId, source);
+      await assertMediaFile(downloadedFile.path);
+      const extracted = await extractFileText(downloadedFile.path);
+      if (!extracted) throw new Error('No readable text found in WeChat file');
+      task += `\n\n文件“${downloadedFile.fileName}”内容：\n${extracted}`;
     }
     if (metadata.file?.resourceId) {
       await ensureTempDir();
@@ -3777,8 +3858,10 @@ async function processIncoming(client, message, sender, metadata = {}) {
     });
     const historyLabel = knowledgeResult?.documents?.length
       ? knowledgeMemoryLabel({ request: cleanText, documents: knowledgeResult.documents })
-      : fileRef
-        ? `${cleanText || '请求读取文件'}：${fileRef.fileName || '未命名文件'}`
+      : fileRef || weChatFileContext.files.length || weChatFileContext.sources.length
+        ? `${cleanText || '请求读取文件'}：${fileRef?.fileName
+          || weChatFileContext.files.at(-1)?.fileName
+          || weChatFileContext.sources.at(-1)?.fileName || '未命名文件'}`
         : imageRefs.length || dingTalkImageRefs.length || weChatImagePaths.length
           ? `${cleanText || '发送了图片'}（含图片）` : task;
     const requiredResponse = await resolveRequiredResponse({

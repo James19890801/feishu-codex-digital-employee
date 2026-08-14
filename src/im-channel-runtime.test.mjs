@@ -181,6 +181,8 @@ import {
           msg: '操作成功',
           data: String(url).endsWith('/message/downloadImage')
             ? { fileUrl: 'https://media.example.com/image.jpg' }
+            : String(url).endsWith('/message/downloadFile')
+              ? { fileUrl: 'https://media.example.com/report.pdf' }
             : String(url).endsWith('/group/getChatroomInfo')
               ? { chatroomId: 'room@chatroom', nickName: 'AI流程与组织变革交流群' }
             : true,
@@ -216,6 +218,15 @@ import {
     appId: 'device-a',
     xml: '<msg><img /></msg>',
     type: 2,
+  });
+
+  calls.length = 0;
+  const fileUrl = await channel.downloadFile('<msg><appmsg><type>6</type></appmsg></msg>');
+  assert.equal(fileUrl, 'https://media.example.com/report.pdf');
+  assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/message/downloadFile');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    appId: 'device-a',
+    xml: '<msg><appmsg><type>6</type></appmsg></msg>',
   });
 
   calls.length = 0;

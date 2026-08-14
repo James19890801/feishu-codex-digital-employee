@@ -1,6 +1,7 @@
 await import('./multimodal-content.test.mjs');
 await import('./web-reader.test.mjs');
 await import('./remote-content.test.mjs');
+await import('./wechat-file-context.test.mjs');
 await import('./extract_file_text.test.mjs');
 await import('./inbound-content.test.mjs');
 await import('./content-resolver.test.mjs');
