@@ -648,6 +648,32 @@ try {
     availableAt: now,
   }), false);
   assert.equal(state.multicaNotificationCount(), 1);
+  assert.equal(
+    typeof state.muteMulticaNotifications,
+    'function',
+    'completed Multica issues need a durable notification mute',
+  );
+  if (typeof state.muteMulticaNotifications === 'function') {
+    state.enqueueMulticaNotification({
+      notificationKey: 'multica-muted-pending',
+      issueId: 'issue-muted',
+      chatId: 'wechat:group:room@chatroom',
+      content: '这条待发送进度必须被清理',
+    });
+    assert.deepEqual(state.muteMulticaNotifications('issue-muted', 'completed_and_delivered'), {
+      muted: true,
+      cleared: 1,
+    });
+    assert.equal(state.isMulticaNotificationMuted('issue-muted'), true);
+    assert.equal(state.enqueueMulticaNotification({
+      notificationKey: 'multica-muted-future',
+      issueId: 'issue-muted',
+      chatId: 'wechat:group:room@chatroom',
+      content: '静默后不得重新入队',
+    }), false);
+    assert.equal(state.db.prepare(`SELECT COUNT(*) AS count
+      FROM multica_notification_outbox WHERE issue_id = ?`).get('issue-muted').count, 0);
+  }
   assert.deepEqual(
     state.listDueMulticaNotifications(now, 10)[0],
     {

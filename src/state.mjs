@@ -205,6 +205,12 @@ export class AgentState {
       );
       CREATE INDEX IF NOT EXISTS multica_notification_due
         ON multica_notification_outbox(available_at, created_at);
+      CREATE TABLE IF NOT EXISTS multica_notification_mute (
+        issue_id TEXT PRIMARY KEY,
+        reason TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS multica_feedback_registration (
         registration_key TEXT PRIMARY KEY,
         issue_id TEXT NOT NULL,
@@ -1982,6 +1988,7 @@ export class AgentState {
     content,
     availableAt = new Date().toISOString(),
   }) {
+    if (this.isMulticaNotificationMuted(issueId)) return false;
     const now = new Date().toISOString();
     const result = this.db.prepare(`INSERT OR IGNORE INTO multica_notification_outbox
       (notification_key, issue_id, chat_id, sender_id, chat_type, content, attempts,
@@ -1989,6 +1996,44 @@ export class AgentState {
       VALUES (?, ?, ?, ?, ?, ?, 0, 'pending', ?, '', ?, ?, '')`)
       .run(notificationKey, issueId, chatId, senderId, chatType, content, availableAt, now, now);
     return result.changes === 1;
+  }
+
+  isMulticaNotificationMuted(issueId) {
+    const normalizedIssueId = String(issueId || '').trim();
+    if (!normalizedIssueId) return false;
+    return Boolean(this.db.prepare(`SELECT 1 FROM multica_notification_mute
+      WHERE issue_id = ?`).get(normalizedIssueId));
+  }
+
+  muteMulticaNotifications(issueId, reason = 'completed_and_delivered') {
+    const normalizedIssueId = String(issueId || '').trim();
+    if (!normalizedIssueId) throw new Error('Multica notification mute requires an issue ID');
+    const now = new Date().toISOString();
+    let transactionStarted = false;
+    try {
+      this.db.exec('BEGIN IMMEDIATE');
+      transactionStarted = true;
+      this.db.prepare(`INSERT INTO multica_notification_mute
+        (issue_id, reason, created_at, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(issue_id) DO UPDATE SET
+          reason=excluded.reason,
+          updated_at=excluded.updated_at`).run(
+        normalizedIssueId,
+        String(reason || '').slice(0, 500),
+        now,
+        now,
+      );
+      const cleared = this.db.prepare(`DELETE FROM multica_notification_outbox
+        WHERE issue_id = ?`).run(normalizedIssueId).changes;
+      this.db.exec('COMMIT');
+      transactionStarted = false;
+      return { muted: true, cleared };
+    } catch (error) {
+      if (transactionStarted) {
+        try { this.db.exec('ROLLBACK'); } catch { /* preserve the original error */ }
+      }
+      throw error;
+    }
   }
 
   listDueMulticaNotifications(now = new Date().toISOString(), limit = 200) {
