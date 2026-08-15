@@ -327,6 +327,27 @@ export class GeWeChannel {
     };
   }
 
+  async getChatroomMemberList(chatroomId) {
+    const normalizedChatroomId = String(chatroomId || '').trim();
+    if (!normalizedChatroomId.endsWith('@chatroom') || normalizedChatroomId.length > 500) {
+      throw new Error('GeWe chatroom ID is invalid');
+    }
+    const result = await this.request('/gewe/v2/api/group/getChatroomMemberList', {
+      appId: this.appId,
+      chatroomId: normalizedChatroomId,
+    });
+    const members = Array.isArray(result?.data?.memberList) ? result.data.memberList : [];
+    return members.slice(0, 5_000).flatMap(member => {
+      const memberId = String(member?.wxid || '').trim().slice(0, 500);
+      if (!memberId) return [];
+      const displayName = String(member?.displayName || member?.nickName || '新朋友')
+        .replace(/[\u0000-\u001f\u007f]/g, '')
+        .trim()
+        .slice(0, 100) || '新朋友';
+      return [{ memberId, displayName }];
+    });
+  }
+
   normalizeWebhook(event) {
     return normalizeGeWeWebhook(event, { mentionNames: this.mentionNames });
   }

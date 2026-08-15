@@ -21,6 +21,10 @@ assert.equal(Array.isArray(config.groupHostChatIds), true);
 assert.equal(config.groupHostSilenceMs, 75_000);
 assert.equal(config.groupHostReplyCooldownMs, 180_000);
 assert.equal(config.dailyLearningConversationLimit, 1_000);
+assert.equal(config.geweNewcomerWelcomeEnabled, false);
+assert.equal(config.geweNewcomerWelcomeGroupId, '');
+assert.equal(config.geweNewcomerWelcomeGroupName, '');
+assert.equal(config.geweNewcomerWelcomeIntervalMs, 120_000);
 
 const directory = mkdtempSync(join(tmpdir(), 'aipro-config-'));
 try {
@@ -60,6 +64,7 @@ try {
     ['groupHostSilenceMs', 20_000],
     ['groupHostReplyCooldownMs', 30_000],
     ['dailyLearningConversationLimit', 0],
+    ['geweNewcomerWelcomeIntervalMs', 10_000],
   ]) {
     const invalidPath = join(directory, `${field}.json`);
     writeFileSync(invalidPath, JSON.stringify({ ...example, [field]: value }));
@@ -75,6 +80,26 @@ try {
     assert.notEqual(result.status, 0, field);
     assert.match(result.stderr, new RegExp(field));
   }
+  const enabledWithoutTargetPath = join(directory, 'gewe-welcome-missing-target.json');
+  writeFileSync(enabledWithoutTargetPath, JSON.stringify({
+    ...example,
+    feishuEnabled: false,
+    allowAllChats: true,
+    geweNewcomerWelcomeEnabled: true,
+    geweNewcomerWelcomeGroupId: '',
+    geweNewcomerWelcomeGroupName: '',
+  }));
+  const enabledWithoutTarget = spawnSync(process.execPath, [
+    '--input-type=module',
+    '--eval',
+    "await import('./src/config.mjs')",
+  ], {
+    cwd: new URL('..', import.meta.url),
+    env: { ...process.env, DIGITAL_EMPLOYEE_CONFIG: enabledWithoutTargetPath },
+    encoding: 'utf8',
+  });
+  assert.notEqual(enabledWithoutTarget.status, 0);
+  assert.match(enabledWithoutTarget.stderr, /geweNewcomerWelcomeGroup/);
 } finally {
   rmSync(directory, { recursive: true, force: true });
 }

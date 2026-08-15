@@ -185,6 +185,14 @@ import {
               ? { fileUrl: 'https://media.example.com/report.pdf' }
             : String(url).endsWith('/group/getChatroomInfo')
               ? { chatroomId: 'room@chatroom', nickName: 'AI流程与组织变革交流群' }
+            : String(url).endsWith('/group/getChatroomMemberList')
+              ? {
+                  memberList: [
+                    { wxid: 'wxid_member_a', nickName: '成员甲', displayName: '甲老师' },
+                    { wxid: 'wxid_member_b', nickName: '成员乙', displayName: null },
+                    { wxid: '', nickName: '无效成员' },
+                  ],
+                }
             : true,
         }),
       };
@@ -241,6 +249,18 @@ import {
     chatroomId: 'room@chatroom',
   });
   await assert.rejects(channel.getChatroomInfo('not-a-room'), /chatroom/i);
+
+  calls.length = 0;
+  assert.deepEqual(await channel.getChatroomMemberList('room@chatroom'), [
+    { memberId: 'wxid_member_a', displayName: '甲老师' },
+    { memberId: 'wxid_member_b', displayName: '成员乙' },
+  ]);
+  assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/group/getChatroomMemberList');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    appId: 'device-a',
+    chatroomId: 'room@chatroom',
+  });
+  await assert.rejects(channel.getChatroomMemberList('not-a-room'), /chatroom/i);
 
   calls.length = 0;
   await Promise.all([

@@ -156,6 +156,12 @@ export const config = {
   geweMentionNames: Array.isArray(raw.geweMentionNames)
     ? raw.geweMentionNames.map(value => String(value).trim()).filter(Boolean).slice(0, 10)
     : [],
+  geweNewcomerWelcomeEnabled: raw.geweNewcomerWelcomeEnabled === true,
+  geweNewcomerWelcomeGroupId: String(raw.geweNewcomerWelcomeGroupId || '').trim(),
+  geweNewcomerWelcomeGroupName: String(raw.geweNewcomerWelcomeGroupName || '').trim(),
+  geweNewcomerWelcomeIntervalMs: boundedInteger(raw.geweNewcomerWelcomeIntervalMs, {
+    name: 'geweNewcomerWelcomeIntervalMs', fallback: 120_000, min: 30_000, max: 900_000,
+  }),
   multicaEnabled: raw.multicaEnabled === true,
   multicaProfile: raw.multicaProfile || 'desktop-api.multica.ai',
   multicaAppUrl: raw.multicaAppUrl || 'https://multica.ai',
@@ -260,6 +266,16 @@ if (config.wecomEnabled && !config.wecomBotId) {
 }
 if (!/^wss:\/\/[^/\s]+(?:\/.*)?$/i.test(config.wecomWebsocketUrl)) {
   throw new Error('wecomWebsocketUrl 必须是 wss 地址');
+}
+if (config.geweNewcomerWelcomeEnabled) {
+  if (!config.geweNewcomerWelcomeGroupId.endsWith('@chatroom')
+    || config.geweNewcomerWelcomeGroupId.length > 500) {
+    throw new Error('geweNewcomerWelcomeGroupId 必须是有效的 @chatroom 群标识');
+  }
+  if (!config.geweNewcomerWelcomeGroupName
+    || config.geweNewcomerWelcomeGroupName.length > 200) {
+    throw new Error('geweNewcomerWelcomeGroupName 必须是非空群名称');
+  }
 }
 for (const [name, value] of [
   ['geweApiBaseUrl', config.geweApiBaseUrl],
