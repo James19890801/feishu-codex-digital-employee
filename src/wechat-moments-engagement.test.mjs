@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { AgentState } from './state.mjs';
 
 const moments = await import('./wechat-moments-engagement.mjs').catch(() => ({}));
 
@@ -9,8 +13,40 @@ for (const name of [
   'validateGeneratedReply',
   'parseEngagementDecision',
   'buildMomentsPrompt',
+  'WeChatMomentsEngagement',
 ]) {
   assert.equal(typeof moments[name], 'function', `${name} must be implemented`);
+}
+
+function rawMoment({
+  id,
+  userName,
+  nickName = '朋友',
+  createTime = 1_786_700_000,
+  content = '今天把流程从十二个节点压缩到了七个，终于正式上线。',
+  comments = [],
+} = {}) {
+  return {
+    id,
+    userName,
+    nickName,
+    createTime,
+    snsXml: `<TimelineObject><contentDesc><![CDATA[${content}]]></contentDesc></TimelineObject>`,
+    commentCount: comments.length,
+    commentList: comments,
+  };
+}
+
+function temporaryState(prefix) {
+  const directory = mkdtempSync(join(tmpdir(), prefix));
+  return {
+    directory,
+    state: new AgentState(join(directory, 'state.sqlite')),
+    close() {
+      this.state.close();
+      rmSync(directory, { recursive: true, force: true });
+    },
+  };
 }
 
 if (typeof moments.normalizeMoment === 'function') {
@@ -129,6 +165,212 @@ if (typeof moments.buildMomentsPrompt === 'function') {
   assert.match(prompt, /不得虚构|亲历/);
   assert.match(prompt, /严格 JSON/);
   assert.equal(prompt.includes('<TimelineObject>'), false);
+}
+
+if (typeof moments.WeChatMomentsEngagement === 'function') {
+  {
+    const database = temporaryState('aipro-moments-flow-');
+    try {
+      const ownerWxid = 'wxid_owner';
+      const ownerComment = {
+        commentId: 10,
+        replyCommentId: 0,
+        userName: ownerWxid,
+        nickName: '詹老师',
+        content: '我更关注交接标准是否一起压实。',
+        createTime: 1_786_700_010,
+      };
+      const friendPost = rawMoment({
+        id: '10001',
+        userName: 'wxid_friend_a',
+        comments: [ownerComment],
+      });
+      const ownerPost = rawMoment({
+        id: '20001',
+        userName: ownerWxid,
+        nickName: '詹老师',
+        content: 'AI 进入流程后，真正难的是 AI、AI 与人如何协同。',
+      });
+      let feed = [ownerPost, friendPost];
+      const writes = [];
+      const generatedPrompts = [];
+      const knowledgeQueries = [];
+      const channel = {
+        getProfile: async () => ({ wxid: ownerWxid, nickName: '詹老师' }),
+        listMoments: async () => ({ snsList: feed }),
+        getMomentDetails: async snsId => feed.find(item => String(item.id) === String(snsId)),
+        checkOnline: async () => true,
+        commentMoment: async input => {
+          writes.push(input);
+          return { ret: 200, msg: '操作成功' };
+        },
+      };
+      const worker = new moments.WeChatMomentsEngagement({
+        state: database.state,
+        channel,
+        now: () => Date.parse('2026-08-15T10:00:00+08:00'),
+        generate: async prompt => {
+          generatedPrompts.push(prompt);
+          if (prompt.includes('"mode":"proactive"')) {
+            return '{"action":"reply","text":"从十二个节点压到七个，真正难的是把责任边界一起压实。","reason":"specific"}';
+          }
+          return '{"action":"reply","text":"这个追问很关键，协同效果最终还是要看交接标准是否清楚。","reason":"direct_reply"}';
+        },
+        retrieveKnowledge: async query => {
+          knowledgeQueries.push(query);
+          return '端到端流程需要明确输入、输出和交接标准。';
+        },
+      });
+
+      const baseline = await worker.scan('startup');
+      assert.equal(baseline.baselineCreated, true);
+      assert.equal(writes.length, 0, 'startup must never back-comment historical Moments');
+
+      const newOwnerComment = {
+        commentId: 21,
+        replyCommentId: 0,
+        userName: 'wxid_member_a',
+        nickName: '成员甲',
+        content: '那人应该放在哪个决策节点？',
+        createTime: 1_786_700_100,
+      };
+      const replyToOwner = {
+        commentId: 11,
+        replyCommentId: 10,
+        userName: 'wxid_member_b',
+        nickName: '成员乙',
+        content: '交接标准具体怎么定义？',
+        createTime: 1_786_700_100,
+      };
+      ownerPost.commentList = [newOwnerComment];
+      ownerPost.commentCount = 1;
+      friendPost.commentList = [ownerComment, replyToOwner];
+      friendPost.commentCount = 2;
+      const newFriendPost = rawMoment({
+        id: '30001',
+        userName: 'wxid_friend_new',
+        nickName: '新朋友',
+        createTime: 1_786_704_000,
+      });
+      feed = [newFriendPost, ownerPost, friendPost];
+
+      const incremental = await worker.scan('periodic');
+      assert.equal(incremental.sent, 3);
+      assert.deepEqual(writes.map(item => ({
+        snsId: item.snsId,
+        wxid: item.wxid,
+        commentId: item.commentId,
+      })), [
+        { snsId: '20001', wxid: 'wxid_member_a', commentId: 21 },
+        { snsId: '10001', wxid: 'wxid_member_b', commentId: 11 },
+        { snsId: '30001', wxid: 'wxid_friend_new', commentId: 0 },
+      ]);
+      assert.equal(generatedPrompts.length, 3);
+      assert.equal(knowledgeQueries.some(query => query.includes('流程')), true);
+
+      const replay = await worker.scan('periodic');
+      assert.equal(replay.sent, 0);
+      assert.equal(writes.length, 3, 'seen posts and comments must be idempotent');
+
+      const auditText = database.state.db.prepare('SELECT detail FROM audit').all()
+        .map(row => row.detail).join('\n');
+      for (const secret of [
+        'wxid_friend_a',
+        'wxid_member_a',
+        'wxid_member_b',
+        '从十二个节点',
+        '交接标准具体怎么定义',
+      ]) {
+        assert.equal(auditText.includes(secret), false, `audit must not contain ${secret}`);
+      }
+    } finally {
+      database.close();
+    }
+  }
+
+  {
+    const database = temporaryState('aipro-moments-budget-');
+    try {
+      let feed = [];
+      const writes = [];
+      const channel = {
+        getProfile: async () => ({ wxid: 'wxid_owner', nickName: '詹老师' }),
+        listMoments: async () => ({ snsList: feed }),
+        getMomentDetails: async snsId => feed.find(item => String(item.id) === String(snsId)),
+        checkOnline: async () => true,
+        commentMoment: async input => { writes.push(input); return { ret: 200 }; },
+      };
+      const worker = new moments.WeChatMomentsEngagement({
+        state: database.state,
+        channel,
+        now: () => Date.parse('2026-08-15T10:00:00+08:00'),
+        maxProactivePerDay: 1,
+        generate: async () => '{"action":"reply","text":"这个变化很具体，后续可以继续观察交接成本有没有同步下降。","reason":"specific"}',
+      });
+      await worker.scan('startup');
+      feed = [
+        rawMoment({ id: '40001', userName: 'wxid_same_author' }),
+        rawMoment({ id: '40002', userName: 'wxid_same_author', content: '第二条也在讲流程改造，而且信息足够具体。' }),
+        rawMoment({ id: '40003', userName: 'wxid_other', content: '扫码加我，限时优惠，立即购买。' }),
+      ];
+      await worker.scan('periodic');
+      assert.equal(writes.length, 1, 'daily and per-author budgets must prevent flooding');
+    } finally {
+      database.close();
+    }
+  }
+
+  {
+    const database = temporaryState('aipro-moments-ambiguous-');
+    try {
+      let feed = [];
+      let attempts = 0;
+      const channel = {
+        getProfile: async () => ({ wxid: 'wxid_owner', nickName: '詹老师' }),
+        listMoments: async () => ({ snsList: feed }),
+        getMomentDetails: async snsId => feed.find(item => String(item.id) === String(snsId)),
+        checkOnline: async () => true,
+        commentMoment: async () => { attempts += 1; throw new Error('connection reset after write'); },
+      };
+      const worker = new moments.WeChatMomentsEngagement({
+        state: database.state,
+        channel,
+        now: () => Date.parse('2026-08-15T10:00:00+08:00'),
+        generate: async () => '{"action":"reply","text":"这个变化很具体，后续可以继续观察交接成本有没有同步下降。","reason":"specific"}',
+      });
+      await worker.scan('startup');
+      feed = [rawMoment({ id: '50001', userName: 'wxid_friend' })];
+      await worker.scan('periodic');
+      await worker.scan('periodic');
+      assert.equal(attempts, 1, 'ambiguous writes must never be retried automatically');
+    } finally {
+      database.close();
+    }
+  }
+
+  {
+    const database = temporaryState('aipro-moments-circuit-');
+    try {
+      let listCalls = 0;
+      const worker = new moments.WeChatMomentsEngagement({
+        state: database.state,
+        channel: {
+          getProfile: async () => ({ wxid: 'wxid_owner', nickName: '詹老师' }),
+          listMoments: async () => { listCalls += 1; throw new Error('read unavailable'); },
+        },
+        now: () => Date.parse('2026-08-15T10:00:00+08:00'),
+        generate: async () => '{"action":"skip","text":"","reason":"unused"}',
+      });
+      await worker.scan('periodic');
+      await worker.scan('periodic');
+      await worker.scan('periodic');
+      const circuit = await worker.scan('periodic');
+      assert.equal(circuit.circuitOpen, true);
+      assert.equal(listCalls, 3);
+    } finally {
+      database.close();
+    }
+  }
 }
 
 console.log('WECHAT_MOMENTS_ENGAGEMENT_POLICY_TEST_OK');

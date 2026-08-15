@@ -1,3 +1,9 @@
+import { createHash } from 'node:crypto';
+import { executeMutationOnce } from './mutation-execution.mjs';
+
+const STATE_SCOPE = 'wechat-moments-engagement';
+const STATE_KEY = 'worker';
+
 function cleanText(value, maxLength = 2_000) {
   return String(value || '')
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
@@ -166,4 +172,354 @@ export function buildMomentsPrompt({
 ${knowledge ? `可泛化的内部知识参考（不得提及来源或其中的专有实体）：\n${knowledge}\n\n` : ''}<untrusted_moments_data>
 ${JSON.stringify(payload)}
 </untrusted_moments_data>`;
+}
+
+function fingerprint(value) {
+  return createHash('sha256').update(String(value || '')).digest('hex');
+}
+
+function shanghaiDay(nowMs) {
+  return new Date(Number(nowMs) + 8 * 3_600_000).toISOString().slice(0, 10);
+}
+
+function boundedUnique(values, limit = 5_000) {
+  return [...new Set((Array.isArray(values) ? values : []).map(String).filter(Boolean))]
+    .slice(-limit);
+}
+
+function normalizedWorkerState(value, nowMs) {
+  const source = value && typeof value === 'object' ? value : {};
+  const today = shanghaiDay(nowMs);
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(source.day) ? source.day : today;
+  const sameDay = day === today;
+  const rawThreadCounts = source.threadCounts && typeof source.threadCounts === 'object'
+    ? source.threadCounts
+    : {};
+  const threadCounts = Object.fromEntries(Object.entries(rawThreadCounts)
+    .filter(([key, count]) => /^[a-f0-9]{24}$/.test(key)
+      && Number.isInteger(Number(count)) && Number(count) >= 0)
+    .slice(-500)
+    .map(([key, count]) => [key, Number(count)]));
+  return {
+    initialized: source.initialized === true,
+    seenMoments: boundedUnique(source.seenMoments),
+    seenComments: boundedUnique(source.seenComments, 20_000),
+    day: today,
+    proactiveCount: sameDay ? Math.max(0, Number(source.proactiveCount) || 0) : 0,
+    replyCount: sameDay ? Math.max(0, Number(source.replyCount) || 0) : 0,
+    authorHashes: sameDay ? boundedUnique(source.authorHashes, 500) : [],
+    threadCounts: sameDay ? threadCounts : {},
+    scanFailures: sameDay ? Math.max(0, Number(source.scanFailures) || 0) : 0,
+    writeFailures: sameDay ? Math.max(0, Number(source.writeFailures) || 0) : 0,
+    circuitDay: String(source.circuitDay || '') === today ? today : '',
+    lastScanAtMs: Math.max(0, Number(source.lastScanAtMs) || 0),
+  };
+}
+
+function commentKey(momentId, commentId) {
+  return `${String(momentId)}:${Number(commentId)}`;
+}
+
+function auditHash(value) {
+  return fingerprint(value).slice(0, 24);
+}
+
+function errorCode(error) {
+  return String(error?.code || error?.name || 'unknown_error')
+    .replace(/[^A-Za-z0-9_-]/g, '_')
+    .slice(0, 80);
+}
+
+export class WeChatMomentsEngagement {
+  constructor({
+    state,
+    channel,
+    generate,
+    retrieveKnowledge = async () => '',
+    intervalMs = 1_800_000,
+    maxProactivePerDay = 6,
+    maxRepliesPerDay = 20,
+    maxThreadDepth = 4,
+    postMaxAgeHours = 36,
+    now = Date.now,
+    setIntervalImpl = setInterval,
+    clearIntervalImpl = clearInterval,
+  } = {}) {
+    if (!state || !channel || typeof generate !== 'function') {
+      throw new Error('WeChat Moments engagement requires state, channel, and generate');
+    }
+    this.state = state;
+    this.channel = channel;
+    this.generate = generate;
+    this.retrieveKnowledge = retrieveKnowledge;
+    this.intervalMs = Math.max(60_000, Math.min(86_400_000, Number(intervalMs) || 1_800_000));
+    this.maxProactivePerDay = Math.max(1, Math.min(20, Number(maxProactivePerDay) || 6));
+    this.maxRepliesPerDay = Math.max(1, Math.min(100, Number(maxRepliesPerDay) || 20));
+    this.maxThreadDepth = Math.max(1, Math.min(10, Number(maxThreadDepth) || 4));
+    this.postMaxAgeHours = Math.max(1, Math.min(168, Number(postMaxAgeHours) || 36));
+    this.now = now;
+    this.setIntervalImpl = setIntervalImpl;
+    this.clearIntervalImpl = clearIntervalImpl;
+    this.timer = null;
+    this.tail = Promise.resolve();
+  }
+
+  readState() {
+    return normalizedWorkerState(
+      this.state.get(STATE_SCOPE, STATE_KEY, null),
+      this.now(),
+    );
+  }
+
+  writeState(value) {
+    const normalized = normalizedWorkerState(value, this.now());
+    this.state.set(STATE_SCOPE, STATE_KEY, normalized);
+    return normalized;
+  }
+
+  audit(event, detail = {}) {
+    this.state.audit(event, { detail });
+  }
+
+  async feedWithDetails() {
+    const page = await this.channel.listMoments();
+    const rawMoments = Array.isArray(page?.snsList) ? page.snsList.slice(0, 50) : [];
+    const hydrated = [];
+    for (const raw of rawMoments) {
+      if (Number(raw?.commentCount || 0) > 0 && typeof this.channel.getMomentDetails === 'function') {
+        try {
+          hydrated.push(await this.channel.getMomentDetails(String(raw.id)));
+          continue;
+        } catch {
+          // The first-page item remains useful for baseline and proactive decisions.
+        }
+      }
+      hydrated.push(raw);
+    }
+    return hydrated.map(normalizeMoment).filter(moment => moment.id && moment.userName);
+  }
+
+  async decision({ mode, moment, comment = null }) {
+    const query = [moment.content, comment?.content || ''].filter(Boolean).join('\n');
+    const knowledgeContext = await this.retrieveKnowledge(query).catch(() => '');
+    const generated = await this.generate(buildMomentsPrompt({
+      mode,
+      postContent: moment.content,
+      authorName: moment.nickName,
+      commentContent: comment?.content || '',
+      knowledgeContext,
+    }));
+    return parseEngagementDecision(generated?.text ?? generated);
+  }
+
+  async writeComment({ current, moment, comment = null, mode }) {
+    const isReply = mode === 'thread_reply';
+    const threadHash = auditHash(moment.id);
+    if (isReply) {
+      if (current.replyCount >= this.maxRepliesPerDay) return { sent: false, reason: 'reply_budget' };
+      if ((current.threadCounts[threadHash] || 0) >= this.maxThreadDepth) {
+        return { sent: false, reason: 'thread_budget' };
+      }
+    } else if (current.proactiveCount >= this.maxProactivePerDay) {
+      return { sent: false, reason: 'proactive_budget' };
+    }
+
+    let decision;
+    try {
+      decision = await this.decision({ mode, moment, comment });
+    } catch (error) {
+      this.audit('wechat_moments_generation_skipped', {
+        mode,
+        snsHash: threadHash,
+        error: errorCode(error),
+      });
+      return { sent: false, reason: 'generation_failed' };
+    }
+    if (decision.action !== 'reply') {
+      this.audit('wechat_moments_skipped', {
+        mode,
+        snsHash: threadHash,
+        reason: decision.reason,
+      });
+      return { sent: false, reason: decision.reason };
+    }
+
+    const targetWxid = isReply ? comment.userName : moment.userName;
+    const targetCommentId = isReply ? comment.commentId : 0;
+    const mutationMaterial = `${mode}\0${moment.id}\0${targetCommentId}`;
+    const executionKey = `wechat-moments:${auditHash(mutationMaterial)}`;
+    try {
+      if (typeof this.channel.checkOnline === 'function' && !await this.channel.checkOnline()) {
+        return { sent: false, reason: 'offline' };
+      }
+      const result = await executeMutationOnce({
+        state: this.state,
+        executionKey,
+        kind: 'wechat_moments_comment',
+        operation: () => this.channel.commentMoment({
+          snsId: moment.id,
+          wxid: targetWxid,
+          commentId: targetCommentId,
+          content: decision.text,
+        }),
+      });
+      if (!result.replayed) {
+        if (isReply) {
+          current.replyCount += 1;
+          current.threadCounts[threadHash] = (current.threadCounts[threadHash] || 0) + 1;
+        } else {
+          current.proactiveCount += 1;
+          current.authorHashes.push(auditHash(moment.userName));
+        }
+        current.writeFailures = 0;
+        this.writeState(current);
+      }
+      this.audit('wechat_moments_comment_sent', {
+        mode,
+        snsHash: threadHash,
+        targetHash: auditHash(targetWxid),
+        replayed: result.replayed === true,
+      });
+      return { sent: !result.replayed, reason: result.replayed ? 'replayed' : 'sent' };
+    } catch (error) {
+      current.writeFailures += 1;
+      if (current.writeFailures >= 2) current.circuitDay = current.day;
+      this.writeState(current);
+      this.audit('wechat_moments_write_failed', {
+        mode,
+        snsHash: threadHash,
+        error: errorCode(error),
+        circuitOpen: Boolean(current.circuitDay),
+      });
+      return { sent: false, reason: 'write_failed' };
+    }
+  }
+
+  async scan(reason = 'periodic') {
+    let current = this.readState();
+    if (current.circuitDay === current.day) {
+      return { circuitOpen: true, sent: 0 };
+    }
+    try {
+      const profile = await this.channel.getProfile();
+      const ownerWxid = normalizedWxid(profile?.wxid);
+      if (!ownerWxid) throw new Error('WeChat Moments owner profile is unavailable');
+      const moments = await this.feedWithDetails();
+      current.scanFailures = 0;
+
+      const allMomentIds = moments.map(moment => moment.id);
+      const allCommentKeys = moments.flatMap(moment => moment.comments
+        .map(comment => commentKey(moment.id, comment.commentId)));
+      if (!current.initialized) {
+        current = this.writeState({
+          ...current,
+          initialized: true,
+          seenMoments: allMomentIds,
+          seenComments: allCommentKeys,
+          lastScanAtMs: this.now(),
+        });
+        this.audit('wechat_moments_baseline', {
+          momentCount: moments.length,
+          commentCount: allCommentKeys.length,
+        });
+        return { baselineCreated: true, sent: 0 };
+      }
+
+      const seenMoments = new Set(current.seenMoments);
+      const seenComments = new Set(current.seenComments);
+      let sent = 0;
+
+      for (const moment of moments) {
+        const ownerCommentIds = new Set(moment.comments
+          .filter(comment => comment.userName === ownerWxid)
+          .map(comment => comment.commentId));
+        for (const comment of moment.comments) {
+          const key = commentKey(moment.id, comment.commentId);
+          if (seenComments.has(key) || comment.userName === ownerWxid) continue;
+          const directedAtOwner = moment.userName === ownerWxid
+            || ownerCommentIds.has(comment.replyCommentId);
+          if (!directedAtOwner) continue;
+          const outcome = await this.writeComment({
+            current,
+            moment,
+            comment,
+            mode: 'thread_reply',
+          });
+          if (outcome.sent) sent += 1;
+          if (current.circuitDay) break;
+        }
+        if (current.circuitDay) break;
+      }
+
+      if (!current.circuitDay) {
+        for (const moment of moments) {
+          if (seenMoments.has(moment.id)) continue;
+          const authorHash = auditHash(moment.userName);
+          const eligibility = isEligibleProactiveMoment(moment, {
+            ownerWxid,
+            nowMs: this.now(),
+            maxAgeHours: this.postMaxAgeHours,
+            authorAlreadyCommented: current.authorHashes.includes(authorHash),
+          });
+          if (!eligibility.eligible) {
+            this.audit('wechat_moments_skipped', {
+              mode: 'proactive',
+              snsHash: auditHash(moment.id),
+              reason: eligibility.reason,
+            });
+            continue;
+          }
+          const outcome = await this.writeComment({ current, moment, mode: 'proactive' });
+          if (outcome.sent) sent += 1;
+          if (current.circuitDay || current.proactiveCount >= this.maxProactivePerDay) break;
+        }
+      }
+
+      current = this.writeState({
+        ...current,
+        seenMoments: [...current.seenMoments, ...allMomentIds],
+        seenComments: [...current.seenComments, ...allCommentKeys],
+        lastScanAtMs: this.now(),
+      });
+      this.audit('wechat_moments_scan_completed', {
+        reason: cleanText(reason, 50),
+        momentCount: moments.length,
+        sent,
+        circuitOpen: Boolean(current.circuitDay),
+      });
+      return { sent, circuitOpen: Boolean(current.circuitDay) };
+    } catch (error) {
+      current.scanFailures += 1;
+      if (current.scanFailures >= 3) current.circuitDay = current.day;
+      this.writeState(current);
+      this.audit('wechat_moments_scan_failed', {
+        reason: cleanText(reason, 50),
+        error: errorCode(error),
+        failures: current.scanFailures,
+        circuitOpen: Boolean(current.circuitDay),
+      });
+      return { error: true, circuitOpen: Boolean(current.circuitDay), sent: 0 };
+    }
+  }
+
+  triggerScan(reason = 'periodic') {
+    const operation = this.tail.then(() => this.scan(reason));
+    this.tail = operation.catch(() => {});
+    return operation;
+  }
+
+  async start() {
+    await this.triggerScan('startup');
+    if (this.timer) return;
+    this.timer = this.setIntervalImpl(() => {
+      this.triggerScan('periodic').catch(() => {});
+    }, this.intervalMs);
+    this.timer?.unref?.();
+  }
+
+  stop() {
+    if (!this.timer) return;
+    this.clearIntervalImpl(this.timer);
+    this.timer = null;
+  }
 }

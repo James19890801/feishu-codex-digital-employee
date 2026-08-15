@@ -28,6 +28,55 @@ function errorState(error) {
   };
 }
 
+function parseJsonPreservingUnsafeIntegers(source) {
+  const input = String(source || '');
+  let output = '';
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < input.length;) {
+    const char = input[index];
+    if (inString) {
+      output += char;
+      index += 1;
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      output += char;
+      index += 1;
+      continue;
+    }
+    if (char === '-' || /\d/.test(char)) {
+      let end = index + 1;
+      while (end < input.length && /[0-9eE+.\-]/.test(input[end])) end += 1;
+      const token = input.slice(index, end);
+      if (/^-?\d+$/.test(token) && !Number.isSafeInteger(Number(token))) {
+        output += `"${token}"`;
+      } else {
+        output += token;
+      }
+      index = end;
+      continue;
+    }
+    output += char;
+    index += 1;
+  }
+  return JSON.parse(output);
+}
+
+function stringifyGeWeBody(body) {
+  let output = JSON.stringify(body);
+  for (const key of ['snsId', 'maxId']) {
+    const value = body?.[key];
+    if (typeof value !== 'string' || !/^\d{16,30}$/.test(value)) continue;
+    output = output.replace(`"${key}":"${value}"`, `"${key}":${value}`);
+  }
+  return output;
+}
+
 export class DingTalkChannel {
   constructor({
     bin,
@@ -238,12 +287,14 @@ export class GeWeChannel {
         'Content-Type': 'application/json',
         'X-GEWE-TOKEN': this.token,
       },
-      body: JSON.stringify(body),
+      body: stringifyGeWeBody(body),
       signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
     let payload;
     try {
-      payload = await response.json();
+      payload = typeof response.text === 'function'
+        ? parseJsonPreservingUnsafeIntegers(await response.text())
+        : await response.json();
     } catch {
       throw new Error(`GeWe returned invalid JSON (HTTP ${response.status})`);
     }

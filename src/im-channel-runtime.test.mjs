@@ -305,10 +305,8 @@ import {
     commentList: [{ commentId: 1, userName: 'wxid_member', content: '有意思' }],
   });
   assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/sns/snsDetails');
-  assert.deepEqual(JSON.parse(calls[0].options.body), {
-    appId: 'device-a',
-    snsId: '14287710653886042616',
-  });
+  assert.match(calls[0].options.body, /"snsId":14287710653886042616/);
+  assert.equal(calls[0].options.body.includes('"snsId":"14287710653886042616"'), false);
   await assert.rejects(channel.getMomentDetails('not-an-id'), /sns/i);
 
   calls.length = 0;
@@ -319,7 +317,8 @@ import {
     content: '这个切入点挺实在，关键还是看执行边界。',
   });
   assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/sns/commentSns');
-  assert.deepEqual(JSON.parse(calls[0].options.body), {
+  assert.match(calls[0].options.body, /"snsId":14287710653886042616/);
+  assert.deepEqual({ ...JSON.parse(calls[0].options.body), snsId: '14287710653886042616' }, {
     appId: 'device-a',
     snsId: '14287710653886042616',
     operType: 1,
@@ -439,6 +438,23 @@ import {
     }).checkOnline(),
     /https/i,
   );
+}
+
+{
+  const rawJson = '{"ret":200,"msg":"操作成功","data":{"firstPageMd5":"page-md5","maxId":14287710653886042616,"snsList":[{"id":14287710653886042616,"userName":"wxid_friend"}]}}';
+  const channel = new GeWeChannel({
+    appId: 'device-a',
+    token: 'secret',
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      text: async () => rawJson,
+      json: async () => JSON.parse(rawJson),
+    }),
+  });
+  const page = await channel.listMoments();
+  assert.equal(page.maxId, '14287710653886042616');
+  assert.equal(page.snsList[0].id, '14287710653886042616');
 }
 
 console.log('IM_CHANNEL_RUNTIME_TEST_OK');

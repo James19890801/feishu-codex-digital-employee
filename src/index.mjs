@@ -256,6 +256,7 @@ import {
 } from './wechat-file-context.mjs';
 import { enrichWeChatLearningContext } from './wechat-learning-context.mjs';
 import { WeChatNewcomerWelcome } from './wechat-newcomer-welcome.mjs';
+import { WeChatMomentsEngagement } from './wechat-moments-engagement.mjs';
 import {
   discoverBotP2pChats,
   isExpectedLarkCliResult,
@@ -465,6 +466,7 @@ let weComChannel = null;
 let geWeChannel = null;
 let geWeWebhookServer = null;
 let wechatNewcomerWelcome = null;
+let wechatMomentsEngagement = null;
 const shutdownDelay = new InterruptibleDelay();
 
 function remember(chatId, senderOpenId, role, content, options) {
@@ -5251,6 +5253,32 @@ async function initializeAdditionalImChannels() {
         await wechatNewcomerWelcome.start();
         console.log('[wechat] newcomer welcome reconciliation active');
       }
+      if (config.geweMomentsEngagementEnabled) {
+        wechatMomentsEngagement = new WeChatMomentsEngagement({
+          state,
+          channel: geWeChannel,
+          intervalMs: config.geweMomentsScanIntervalMs,
+          maxProactivePerDay: config.geweMomentsMaxProactivePerDay,
+          maxRepliesPerDay: config.geweMomentsMaxRepliesPerDay,
+          maxThreadDepth: config.geweMomentsMaxThreadDepth,
+          postMaxAgeHours: config.geweMomentsPostMaxAgeHours,
+          generate: async prompt => {
+            const result = await runAiRuntime(prompt, {
+              cwd: WORKDIR,
+              model: config.codexModel,
+              timeoutMs: 120_000,
+              auditErrorCode: 'wechat_moments_generation_failed',
+            });
+            return result.text;
+          },
+          retrieveKnowledge: query => LOCAL_WIKI_RETRIEVER.contextFor({
+            query,
+            channel: 'wechat-moments',
+          }),
+        });
+        await wechatMomentsEngagement.start();
+        console.log('[wechat] selective Moments engagement active');
+      }
       geWeMonitorPromise = superviseGeWeHealth()
         .catch(error => console.error('[wechat-gewe-monitor-fatal]', error));
       console.log(`[wechat] GeWe personal WeChat webhook listening on 127.0.0.1:${config.geweCallbackPort}`);
@@ -5259,6 +5287,10 @@ async function initializeAdditionalImChannels() {
       if (wechatNewcomerWelcome) {
         wechatNewcomerWelcome.stop();
         wechatNewcomerWelcome = null;
+      }
+      if (wechatMomentsEngagement) {
+        wechatMomentsEngagement.stop();
+        wechatMomentsEngagement = null;
       }
       if (geWeWebhookServer) await geWeWebhookServer.stop().catch(() => {});
       geWeWebhookServer = null;
@@ -5532,6 +5564,10 @@ function stopGracefully(signal) {
   if (wechatNewcomerWelcome) {
     wechatNewcomerWelcome.stop();
     wechatNewcomerWelcome = null;
+  }
+  if (wechatMomentsEngagement) {
+    wechatMomentsEngagement.stop();
+    wechatMomentsEngagement = null;
   }
   if (geWeWebhookServer) {
     geWeWebhookServer.stop().catch(() => {});
