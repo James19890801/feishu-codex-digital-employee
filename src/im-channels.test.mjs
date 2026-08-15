@@ -689,6 +689,53 @@ assert.equal(normalizeWeComFrame({
     Appid: 'device-a',
     Wxid: 'wxid_owner',
     Data: {
+      MsgType: 10000,
+      NewMsgId: 'group-system-v1',
+      FromUserName: { string: 'room-1@chatroom' },
+      ToUserName: { string: 'wxid_owner' },
+      Content: { string: '“邀请人”邀请“新成员”加入了群聊' },
+      CreateTime: 1785463200,
+    },
+  });
+  assert.equal(payload.message.chat_id, 'wechat:group:room-1@chatroom');
+  assert.equal(payload.message.message_type, 'system');
+  assert.equal(payload.sender.sender_id.open_id, 'wechat:system');
+  assert.equal(payload.metadata.groupMembershipSignal, true);
+  assert.equal(payload.metadata.contextOnly, true);
+}
+
+{
+  const payload = normalizeGeWeWebhook({
+    appid: 'device-v2',
+    wxid: 'wxid_owner',
+    msgType: 'SYSTEM',
+    newMsgId: 'group-system-v2',
+    fromUser: 'room-1@chatroom',
+    toUser: 'wxid_owner',
+    content: '群成员发生变化',
+    createTime: 1785463200,
+  });
+  assert.equal(payload.message.chat_id, 'wechat:group:room-1@chatroom');
+  assert.equal(payload.message.message_type, 'system');
+  assert.equal(payload.metadata.groupMembershipSignal, true);
+}
+
+assert.equal(normalizeGeWeWebhook({
+  appid: 'device-v2',
+  wxid: 'wxid_owner',
+  msgType: 'SYSTEM',
+  newMsgId: 'direct-system-v2',
+  fromUser: 'wxid_friend',
+  toUser: 'wxid_owner',
+  content: '普通系统通知',
+}), null);
+
+{
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
       MsgType: 1,
       NewMsgId: 'group-message-1',
       FromUserName: { string: 'room-1@chatroom' },

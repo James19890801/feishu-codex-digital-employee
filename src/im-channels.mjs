@@ -700,13 +700,41 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
   const isImage = v1
     ? String(event?.TypeName || '') === 'AddMsg' && messageType === 3
     : messageType === 'IMAGE';
-  if ((!isText && !isImage) || !appId || !selfWxid) return null;
+  const isSystem = v1
+    ? String(event?.TypeName || '') === 'AddMsg' && messageType === 10000
+    : messageType === 'SYSTEM';
+  if ((!isText && !isImage && !isSystem) || !appId || !selfWxid) return null;
   const fromUser = nestedString(v1 ? data?.FromUserName : data?.fromUser).trim();
   const toUser = nestedString(v1 ? data?.ToUserName : data?.toUser).trim();
   const rawContent = nestedString(v1 ? data?.Content : data?.content);
   const messageId = nestedString(v1 ? data?.NewMsgId : data?.newMsgId).trim();
   const group = fromUser.endsWith('@chatroom') || toUser.endsWith('@chatroom');
   const groupId = fromUser.endsWith('@chatroom') ? fromUser : toUser;
+  if (isSystem) {
+    if (!group || !messageId || !groupId) return null;
+    return {
+      message: {
+        message_id: `wechat:${appId}:${messageId}`,
+        chat_id: formatChannelChatId('wechat', 'group', groupId),
+        chat_type: 'group',
+        message_type: 'system',
+        create_time: normalizedTimestamp(v1 ? data?.CreateTime : data?.createTime),
+        content: JSON.stringify({ text: boundedGeWeText(rawContent, 4_000) }),
+        mentions: [],
+      },
+      sender: {
+        sender_type: 'system',
+        sender_id: { open_id: 'wechat:system' },
+      },
+      metadata: {
+        channel: 'wechat',
+        appId,
+        callbackVersion: v1 ? 'v1' : 'v2',
+        groupMembershipSignal: true,
+        contextOnly: true,
+      },
+    };
+  }
   const parsedGroup = group ? splitGeWeGroupContent(rawContent) : null;
   const isSelf = v1
     ? fromUser === selfWxid || (group && parsedGroup?.senderId === selfWxid)
