@@ -183,6 +183,20 @@ import {
             ? { fileUrl: 'https://media.example.com/image.jpg' }
             : String(url).endsWith('/message/downloadFile')
               ? { fileUrl: 'https://media.example.com/report.pdf' }
+            : String(url).endsWith('/personal/getProfile')
+              ? { wxid: 'wxid_owner', nickName: '詹老师', mobile: 'private' }
+            : String(url).endsWith('/sns/snsList')
+              ? {
+                  firstPageMd5: 'page-md5',
+                  maxId: '14287710653886042616',
+                  snsList: [{ id: '14287710653886042616', userName: 'wxid_friend' }],
+                }
+            : String(url).endsWith('/sns/snsDetails')
+              ? {
+                  id: '14287710653886042616',
+                  userName: 'wxid_friend',
+                  commentList: [{ commentId: 1, userName: 'wxid_member', content: '有意思' }],
+                }
             : String(url).endsWith('/group/getChatroomInfo')
               ? { chatroomId: 'room@chatroom', nickName: 'AI流程与组织变革交流群' }
             : String(url).endsWith('/group/getChatroomMemberList')
@@ -261,6 +275,74 @@ import {
     chatroomId: 'room@chatroom',
   });
   await assert.rejects(channel.getChatroomMemberList('not-a-room'), /chatroom/i);
+
+  calls.length = 0;
+  assert.deepEqual(await channel.getProfile(), {
+    wxid: 'wxid_owner',
+    nickName: '詹老师',
+  });
+  assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/personal/getProfile');
+  assert.deepEqual(JSON.parse(calls[0].options.body), { appId: 'device-a' });
+
+  calls.length = 0;
+  assert.deepEqual(await channel.listMoments(), {
+    firstPageMd5: 'page-md5',
+    maxId: '14287710653886042616',
+    snsList: [{ id: '14287710653886042616', userName: 'wxid_friend' }],
+  });
+  assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/sns/snsList');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    appId: 'device-a',
+    maxId: 0,
+    decrypt: true,
+    firstPageMd5: '',
+  });
+
+  calls.length = 0;
+  assert.deepEqual(await channel.getMomentDetails('14287710653886042616'), {
+    id: '14287710653886042616',
+    userName: 'wxid_friend',
+    commentList: [{ commentId: 1, userName: 'wxid_member', content: '有意思' }],
+  });
+  assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/sns/snsDetails');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    appId: 'device-a',
+    snsId: '14287710653886042616',
+  });
+  await assert.rejects(channel.getMomentDetails('not-an-id'), /sns/i);
+
+  calls.length = 0;
+  await channel.commentMoment({
+    snsId: '14287710653886042616',
+    wxid: 'wxid_friend',
+    commentId: 33,
+    content: '这个切入点挺实在，关键还是看执行边界。',
+  });
+  assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/sns/commentSns');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    appId: 'device-a',
+    snsId: '14287710653886042616',
+    operType: 1,
+    wxid: 'wxid_friend',
+    commentId: 33,
+    content: '这个切入点挺实在，关键还是看执行边界。',
+  });
+  await assert.rejects(channel.commentMoment({
+    snsId: '14287710653886042616',
+    wxid: '',
+    content: '内容',
+  }), /wxid/i);
+  await assert.rejects(channel.commentMoment({
+    snsId: '14287710653886042616',
+    wxid: 'wxid_friend',
+    commentId: -1,
+    content: '内容',
+  }), /comment/i);
+  await assert.rejects(channel.commentMoment({
+    snsId: '14287710653886042616',
+    wxid: 'wxid_friend',
+    content: '',
+  }), /content/i);
 
   calls.length = 0;
   const preparedMention = await channel.prepareGroupMention(

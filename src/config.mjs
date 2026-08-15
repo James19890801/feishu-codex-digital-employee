@@ -164,6 +164,22 @@ export const config = {
   }),
   geweDailyBriefingGroupId: String(raw.geweDailyBriefingGroupId || '').trim(),
   geweDailyBriefingGroupName: String(raw.geweDailyBriefingGroupName || '').trim(),
+  geweMomentsEngagementEnabled: raw.geweMomentsEngagementEnabled === true,
+  geweMomentsScanIntervalMs: boundedInteger(raw.geweMomentsScanIntervalMs, {
+    name: 'geweMomentsScanIntervalMs', fallback: 1_800_000, min: 60_000, max: 86_400_000,
+  }),
+  geweMomentsMaxProactivePerDay: boundedInteger(raw.geweMomentsMaxProactivePerDay, {
+    name: 'geweMomentsMaxProactivePerDay', fallback: 6, min: 1, max: 20,
+  }),
+  geweMomentsMaxRepliesPerDay: boundedInteger(raw.geweMomentsMaxRepliesPerDay, {
+    name: 'geweMomentsMaxRepliesPerDay', fallback: 20, min: 1, max: 100,
+  }),
+  geweMomentsMaxThreadDepth: boundedInteger(raw.geweMomentsMaxThreadDepth, {
+    name: 'geweMomentsMaxThreadDepth', fallback: 4, min: 1, max: 10,
+  }),
+  geweMomentsPostMaxAgeHours: boundedInteger(raw.geweMomentsPostMaxAgeHours, {
+    name: 'geweMomentsPostMaxAgeHours', fallback: 36, min: 1, max: 168,
+  }),
   multicaEnabled: raw.multicaEnabled === true,
   multicaProfile: raw.multicaProfile || 'desktop-api.multica.ai',
   multicaAppUrl: raw.multicaAppUrl || 'https://multica.ai',

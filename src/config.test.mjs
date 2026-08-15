@@ -27,6 +27,12 @@ assert.equal(typeof config.geweNewcomerWelcomeGroupName, 'string');
 assert.equal(config.geweNewcomerWelcomeIntervalMs, 120_000);
 assert.equal(typeof config.geweDailyBriefingGroupId, 'string');
 assert.equal(typeof config.geweDailyBriefingGroupName, 'string');
+assert.equal(typeof config.geweMomentsEngagementEnabled, 'boolean');
+assert.equal(config.geweMomentsScanIntervalMs, 1_800_000);
+assert.equal(config.geweMomentsMaxProactivePerDay, 6);
+assert.equal(config.geweMomentsMaxRepliesPerDay, 20);
+assert.equal(config.geweMomentsMaxThreadDepth, 4);
+assert.equal(config.geweMomentsPostMaxAgeHours, 36);
 
 const directory = mkdtempSync(join(tmpdir(), 'aipro-config-'));
 try {
@@ -43,11 +49,17 @@ try {
   delete defaultsInput.geweNewcomerWelcomeIntervalMs;
   delete defaultsInput.geweDailyBriefingGroupId;
   delete defaultsInput.geweDailyBriefingGroupName;
+  delete defaultsInput.geweMomentsEngagementEnabled;
+  delete defaultsInput.geweMomentsScanIntervalMs;
+  delete defaultsInput.geweMomentsMaxProactivePerDay;
+  delete defaultsInput.geweMomentsMaxRepliesPerDay;
+  delete defaultsInput.geweMomentsMaxThreadDepth;
+  delete defaultsInput.geweMomentsPostMaxAgeHours;
   writeFileSync(defaultsPath, JSON.stringify(defaultsInput));
   const defaults = spawnSync(process.execPath, [
     '--input-type=module',
     '--eval',
-    "const {config}=await import('./src/config.mjs'); console.log(JSON.stringify({enabled:config.groupHostModeEnabled,chats:config.groupHostChatIds,silence:config.groupHostSilenceMs,cooldown:config.groupHostReplyCooldownMs,welcomeEnabled:config.geweNewcomerWelcomeEnabled,welcomeGroupId:config.geweNewcomerWelcomeGroupId,welcomeGroupName:config.geweNewcomerWelcomeGroupName,welcomeInterval:config.geweNewcomerWelcomeIntervalMs,briefingGroupId:config.geweDailyBriefingGroupId,briefingGroupName:config.geweDailyBriefingGroupName}))",
+    "const {config}=await import('./src/config.mjs'); console.log(JSON.stringify({enabled:config.groupHostModeEnabled,chats:config.groupHostChatIds,silence:config.groupHostSilenceMs,cooldown:config.groupHostReplyCooldownMs,welcomeEnabled:config.geweNewcomerWelcomeEnabled,welcomeGroupId:config.geweNewcomerWelcomeGroupId,welcomeGroupName:config.geweNewcomerWelcomeGroupName,welcomeInterval:config.geweNewcomerWelcomeIntervalMs,briefingGroupId:config.geweDailyBriefingGroupId,briefingGroupName:config.geweDailyBriefingGroupName,momentsEnabled:config.geweMomentsEngagementEnabled,momentsInterval:config.geweMomentsScanIntervalMs,momentsProactive:config.geweMomentsMaxProactivePerDay,momentsReplies:config.geweMomentsMaxRepliesPerDay,momentsDepth:config.geweMomentsMaxThreadDepth,momentsAge:config.geweMomentsPostMaxAgeHours}))",
   ], {
     cwd: new URL('..', import.meta.url),
     env: { ...process.env, DIGITAL_EMPLOYEE_CONFIG: defaultsPath },
@@ -65,6 +77,12 @@ try {
     welcomeInterval: 120_000,
     briefingGroupId: '',
     briefingGroupName: '',
+    momentsEnabled: false,
+    momentsInterval: 1_800_000,
+    momentsProactive: 6,
+    momentsReplies: 20,
+    momentsDepth: 4,
+    momentsAge: 36,
   });
   for (const [field, value] of [
     ['semanticRepeatMaxReplies', 1],
@@ -79,6 +97,11 @@ try {
     ['groupHostReplyCooldownMs', 30_000],
     ['dailyLearningConversationLimit', 0],
     ['geweNewcomerWelcomeIntervalMs', 10_000],
+    ['geweMomentsScanIntervalMs', 59_000],
+    ['geweMomentsMaxProactivePerDay', 0],
+    ['geweMomentsMaxRepliesPerDay', 0],
+    ['geweMomentsMaxThreadDepth', 0],
+    ['geweMomentsPostMaxAgeHours', 0],
   ]) {
     const invalidPath = join(directory, `${field}.json`);
     writeFileSync(invalidPath, JSON.stringify({ ...example, [field]: value }));

@@ -219,6 +219,8 @@ export class GeWeChannel {
     this.mentionNames = mentionNames;
     this.lastSentAt = 0;
     this.sendTail = Promise.resolve();
+    this.lastMomentWriteAt = 0;
+    this.momentTail = Promise.resolve();
     this.chatroomMemberCache = new Map();
     this.chatroomMemberCacheTtlMs = 5 * 60_000;
   }
@@ -268,6 +270,92 @@ export class GeWeChannel {
       this.onStatus({ authenticated: false, connected: false, lastError: errorState(error) });
       throw error;
     }
+  }
+
+  async getProfile() {
+    const result = await this.request('/gewe/v2/api/personal/getProfile', {
+      appId: this.appId,
+    });
+    const wxid = String(result?.data?.wxid || '').trim().slice(0, 500);
+    if (!wxid) throw new Error('GeWe profile returned no wxid');
+    const nickName = String(result?.data?.nickName || '')
+      .replace(/[\u0000-\u001f\u007f]/g, '')
+      .trim()
+      .slice(0, 100);
+    return { wxid, nickName };
+  }
+
+  async listMoments({ maxId = 0, firstPageMd5 = '' } = {}) {
+    const normalizedMaxId = maxId === 0 ? 0 : String(maxId || '').trim();
+    if (normalizedMaxId !== 0 && !/^\d{1,30}$/.test(normalizedMaxId)) {
+      throw new Error('GeWe Moments maxId is invalid');
+    }
+    const normalizedMd5 = String(firstPageMd5 || '').trim();
+    if (normalizedMd5 && !/^[a-f0-9]{8,64}$/i.test(normalizedMd5)) {
+      throw new Error('GeWe Moments firstPageMd5 is invalid');
+    }
+    const result = await this.request('/gewe/v2/api/sns/snsList', {
+      appId: this.appId,
+      maxId: normalizedMaxId,
+      decrypt: true,
+      firstPageMd5: normalizedMd5,
+    });
+    const data = result?.data && typeof result.data === 'object' ? result.data : {};
+    return {
+      ...data,
+      snsList: Array.isArray(data.snsList) ? data.snsList.slice(0, 50) : [],
+    };
+  }
+
+  async getMomentDetails(snsId) {
+    const normalizedSnsId = String(snsId || '').trim();
+    if (!/^\d{1,30}$/.test(normalizedSnsId)) {
+      throw new Error('GeWe snsId is invalid');
+    }
+    const result = await this.request('/gewe/v2/api/sns/snsDetails', {
+      appId: this.appId,
+      snsId: normalizedSnsId,
+    });
+    return result?.data && typeof result.data === 'object' ? result.data : {};
+  }
+
+  commentMoment({ snsId, wxid, commentId = 0, content } = {}) {
+    const normalizedSnsId = String(snsId || '').trim();
+    if (!/^\d{1,30}$/.test(normalizedSnsId)) {
+      return Promise.reject(new Error('GeWe snsId is invalid'));
+    }
+    const normalizedWxid = String(wxid || '').trim();
+    if (!normalizedWxid || normalizedWxid.length > 500
+      || /[\s\u0000-\u001f\u007f]/.test(normalizedWxid)) {
+      return Promise.reject(new Error('GeWe Moments wxid is invalid'));
+    }
+    const normalizedCommentId = Number(commentId || 0);
+    if (!Number.isSafeInteger(normalizedCommentId) || normalizedCommentId < 0) {
+      return Promise.reject(new Error('GeWe Moments commentId is invalid'));
+    }
+    const normalizedContent = String(content || '')
+      .replace(/\r\n?/g, '\n')
+      .trim();
+    if (!normalizedContent || normalizedContent.length > 200
+      || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(normalizedContent)) {
+      return Promise.reject(new Error('GeWe Moments comment content is invalid'));
+    }
+    const operation = this.momentTail.then(async () => {
+      const waitMs = Math.max(0, this.lastMomentWriteAt + 3_000 - this.now());
+      if (waitMs) await this.sleep(waitMs);
+      const result = await this.request('/gewe/v2/api/sns/commentSns', {
+        appId: this.appId,
+        snsId: normalizedSnsId,
+        operType: 1,
+        wxid: normalizedWxid,
+        commentId: normalizedCommentId,
+        content: normalizedContent,
+      });
+      this.lastMomentWriteAt = this.now();
+      return result;
+    });
+    this.momentTail = operation.catch(() => {});
+    return operation;
   }
 
   async setCallback(callbackUrl) {
