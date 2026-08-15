@@ -21,9 +21,9 @@ assert.equal(Array.isArray(config.groupHostChatIds), true);
 assert.equal(config.groupHostSilenceMs, 75_000);
 assert.equal(config.groupHostReplyCooldownMs, 180_000);
 assert.equal(config.dailyLearningConversationLimit, 1_000);
-assert.equal(config.geweNewcomerWelcomeEnabled, false);
-assert.equal(config.geweNewcomerWelcomeGroupId, '');
-assert.equal(config.geweNewcomerWelcomeGroupName, '');
+assert.equal(typeof config.geweNewcomerWelcomeEnabled, 'boolean');
+assert.equal(typeof config.geweNewcomerWelcomeGroupId, 'string');
+assert.equal(typeof config.geweNewcomerWelcomeGroupName, 'string');
 assert.equal(config.geweNewcomerWelcomeIntervalMs, 120_000);
 
 const directory = mkdtempSync(join(tmpdir(), 'aipro-config-'));
@@ -35,11 +35,15 @@ try {
   delete defaultsInput.groupHostChatIds;
   delete defaultsInput.groupHostSilenceMs;
   delete defaultsInput.groupHostReplyCooldownMs;
+  delete defaultsInput.geweNewcomerWelcomeEnabled;
+  delete defaultsInput.geweNewcomerWelcomeGroupId;
+  delete defaultsInput.geweNewcomerWelcomeGroupName;
+  delete defaultsInput.geweNewcomerWelcomeIntervalMs;
   writeFileSync(defaultsPath, JSON.stringify(defaultsInput));
   const defaults = spawnSync(process.execPath, [
     '--input-type=module',
     '--eval',
-    "const {config}=await import('./src/config.mjs'); console.log(JSON.stringify({enabled:config.groupHostModeEnabled,chats:config.groupHostChatIds,silence:config.groupHostSilenceMs,cooldown:config.groupHostReplyCooldownMs}))",
+    "const {config}=await import('./src/config.mjs'); console.log(JSON.stringify({enabled:config.groupHostModeEnabled,chats:config.groupHostChatIds,silence:config.groupHostSilenceMs,cooldown:config.groupHostReplyCooldownMs,welcomeEnabled:config.geweNewcomerWelcomeEnabled,welcomeGroupId:config.geweNewcomerWelcomeGroupId,welcomeGroupName:config.geweNewcomerWelcomeGroupName,welcomeInterval:config.geweNewcomerWelcomeIntervalMs}))",
   ], {
     cwd: new URL('..', import.meta.url),
     env: { ...process.env, DIGITAL_EMPLOYEE_CONFIG: defaultsPath },
@@ -51,6 +55,10 @@ try {
     chats: [],
     silence: 75_000,
     cooldown: 180_000,
+    welcomeEnabled: false,
+    welcomeGroupId: '',
+    welcomeGroupName: '',
+    welcomeInterval: 120_000,
   });
   for (const [field, value] of [
     ['semanticRepeatMaxReplies', 1],

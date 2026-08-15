@@ -137,6 +137,15 @@ contract('multimodal-pipeline', 'Can a WeChat-origin Multica artifact return thr
   assert.match(runtimeSource, /buildChannelArtifactDeliveryPlan/);
 });
 
+contract('wechat-newcomer-welcome', 'Does the live GeWe lifecycle isolate and run newcomer welcomes?', () => {
+  const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
+  assert.match(runtimeSource, /import \{ WeChatNewcomerWelcome \} from '\.\/wechat-newcomer-welcome\.mjs'/);
+  assert.match(runtimeSource, /metadata\?\.groupMembershipSignal/);
+  assert.match(runtimeSource, /wechatNewcomerWelcome\.triggerReconcile\('system-event'\)/);
+  assert.match(runtimeSource, /await wechatNewcomerWelcome\.start\(\)/);
+  assert.match(runtimeSource, /wechatNewcomerWelcome\.stop\(\)/);
+});
+
 contract('multimodal-pipeline', 'Can a DingTalk group file placeholder become a downloadable drive reference?', () => {
   const file = parseDingTalkFilePlaceholder('[文件] 复盘.pptx fileId: drive-node-1 注意：如需下载使用dws drive download命令下载');
   assert.equal(file.fileName, '复盘.pptx');
