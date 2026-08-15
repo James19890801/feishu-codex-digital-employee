@@ -493,6 +493,40 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
       database.close();
     }
   }
+
+  {
+    const database = temporaryState('aipro-moments-nudge-');
+    try {
+      let nowMs = Date.parse('2026-08-15T10:00:00+08:00');
+      let listCalls = 0;
+      const worker = new moments.WeChatMomentsEngagement({
+        state: database.state,
+        channel: {
+          getProfile: async () => ({ wxid: 'wxid_owner', nickName: '詹老师' }),
+          listMoments: async () => { listCalls += 1; return { snsList: [] }; },
+        },
+        now: () => nowMs,
+        generate: async () => '{"action":"skip","text":"","reason":"unused"}',
+      });
+      await worker.scan('startup');
+      assert.equal(listCalls, 1);
+      assert.equal(worker.nudge('wechat-inbound'), false, 'fresh scans must enforce cooldown');
+      assert.equal(listCalls, 1);
+
+      nowMs += 61_000;
+      assert.equal(worker.nudge('wechat-inbound'), true);
+      assert.equal(worker.nudge('wechat-inbound'), false, 'concurrent inbound nudges must coalesce');
+      await worker.tail;
+      assert.equal(listCalls, 2);
+
+      nowMs += 61_000;
+      assert.equal(worker.nudge('wechat-inbound'), true);
+      await worker.tail;
+      assert.equal(listCalls, 3);
+    } finally {
+      database.close();
+    }
+  }
 }
 
 console.log('WECHAT_MOMENTS_ENGAGEMENT_POLICY_TEST_OK');

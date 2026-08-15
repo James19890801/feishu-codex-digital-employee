@@ -166,7 +166,7 @@ export const config = {
   geweDailyBriefingGroupName: String(raw.geweDailyBriefingGroupName || '').trim(),
   geweMomentsEngagementEnabled: raw.geweMomentsEngagementEnabled === true,
   geweMomentsScanIntervalMs: boundedInteger(raw.geweMomentsScanIntervalMs, {
-    name: 'geweMomentsScanIntervalMs', fallback: 1_800_000, min: 60_000, max: 86_400_000,
+    name: 'geweMomentsScanIntervalMs', fallback: 300_000, min: 60_000, max: 86_400_000,
   }),
   geweMomentsMaxProactivePerDay: boundedInteger(raw.geweMomentsMaxProactivePerDay, {
     name: 'geweMomentsMaxProactivePerDay', fallback: 6, min: 1, max: 20,

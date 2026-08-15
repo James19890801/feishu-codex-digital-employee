@@ -272,6 +272,7 @@ export class WeChatMomentsEngagement {
     this.clearIntervalImpl = clearIntervalImpl;
     this.timer = null;
     this.tail = Promise.resolve();
+    this.nudgePending = false;
   }
 
   readState() {
@@ -620,6 +621,20 @@ export class WeChatMomentsEngagement {
       });
       return { error: true, circuitOpen: Boolean(current.circuitDay), sent: 0, liked: 0 };
     }
+  }
+
+  nudge(reason = 'wechat-inbound') {
+    if (this.nudgePending) return false;
+    const current = this.readState();
+    if (current.lastScanAtMs > 0 && this.now() - current.lastScanAtMs < 60_000) {
+      return false;
+    }
+    this.nudgePending = true;
+    const operation = this.triggerScan(reason);
+    this.tail = operation
+      .finally(() => { this.nudgePending = false; })
+      .catch(() => {});
+    return true;
   }
 
   triggerScan(reason = 'periodic') {

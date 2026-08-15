@@ -28,7 +28,7 @@ assert.equal(config.geweNewcomerWelcomeIntervalMs, 120_000);
 assert.equal(typeof config.geweDailyBriefingGroupId, 'string');
 assert.equal(typeof config.geweDailyBriefingGroupName, 'string');
 assert.equal(typeof config.geweMomentsEngagementEnabled, 'boolean');
-assert.equal(config.geweMomentsScanIntervalMs, 1_800_000);
+assert.equal(config.geweMomentsScanIntervalMs, 300_000);
 assert.equal(config.geweMomentsMaxProactivePerDay, 6);
 assert.equal(config.geweMomentsMaxRepliesPerDay, 20);
 assert.equal(config.geweMomentsMaxThreadDepth, 4);
@@ -78,7 +78,7 @@ try {
     briefingGroupId: '',
     briefingGroupName: '',
     momentsEnabled: false,
-    momentsInterval: 1_800_000,
+    momentsInterval: 300_000,
     momentsProactive: 6,
     momentsReplies: 20,
     momentsDepth: 4,

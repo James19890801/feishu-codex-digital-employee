@@ -5226,6 +5226,7 @@ async function initializeAdditionalImChannels() {
         port: config.geweCallbackPort,
         onStatus: patch => updateImChannelStatus('wechat', patch),
         onMessage: payload => {
+          wechatMomentsEngagement?.nudge('wechat-inbound');
           if (payload?.metadata?.groupMembershipSignal) {
             const targetChatId = `wechat:group:${config.geweNewcomerWelcomeGroupId}`;
             if (wechatNewcomerWelcome && payload?.message?.chat_id === targetChatId) {

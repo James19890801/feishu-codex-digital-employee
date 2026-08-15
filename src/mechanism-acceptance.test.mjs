@@ -154,6 +154,7 @@ contract('wechat-moments-engagement', 'Does the live GeWe lifecycle run selectiv
   assert.match(runtimeSource, /AI_RUNTIME_CLIENT|runAiRuntime/);
   assert.match(runtimeSource, /LOCAL_WIKI_RETRIEVER\.contextFor\(\{/);
   assert.match(runtimeSource, /await wechatMomentsEngagement\.start\(\)/);
+  assert.match(runtimeSource, /wechatMomentsEngagement\?\.nudge\('wechat-inbound'\)/);
   assert.match(runtimeSource, /wechatMomentsEngagement\.stop\(\)/);
 });
 

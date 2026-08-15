@@ -63,7 +63,7 @@
   "geweDailyBriefingGroupId": "",
   "geweDailyBriefingGroupName": "",
   "geweMomentsEngagementEnabled": false,
-  "geweMomentsScanIntervalMs": 1800000,
+  "geweMomentsScanIntervalMs": 300000,
   "geweMomentsMaxProactivePerDay": 6,
   "geweMomentsMaxRepliesPerDay": 20,
   "geweMomentsMaxThreadDepth": 4,
