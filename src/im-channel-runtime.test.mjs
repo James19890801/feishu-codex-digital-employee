@@ -263,6 +263,36 @@ import {
   await assert.rejects(channel.getChatroomMemberList('not-a-room'), /chatroom/i);
 
   calls.length = 0;
+  const preparedMention = await channel.prepareGroupMention(
+    { channel: 'wechat', kind: 'group', id: 'room@chatroom' },
+    '我来回答这个问题',
+    { atWxids: ['wechat:wxid_member_a'] },
+  );
+  assert.deepEqual(preparedMention, {
+    content: '@甲老师\n我来回答这个问题',
+    ats: 'wxid_member_a',
+  });
+  await channel.send(
+    { channel: 'wechat', kind: 'group', id: 'room@chatroom' },
+    preparedMention.content,
+    { ats: preparedMention.ats },
+  );
+  assert.deepEqual(JSON.parse(calls.at(-1).options.body), {
+    appId: 'device-a',
+    toWxid: 'room@chatroom',
+    content: '@甲老师\n我来回答这个问题',
+    ats: 'wxid_member_a',
+  });
+  await assert.rejects(
+    channel.prepareGroupMention(
+      { channel: 'wechat', kind: 'group', id: 'room@chatroom' },
+      '不能静默降级',
+      { atWxids: ['wechat:wxid_missing'] },
+    ),
+    /member.*not found|群成员/iu,
+  );
+
+  calls.length = 0;
   await Promise.all([
     channel.send({ channel: 'wechat', kind: 'user', id: 'wxid_a' }, '第一条'),
     channel.send({ channel: 'wechat', kind: 'group', id: 'room@chatroom' }, '第二条'),

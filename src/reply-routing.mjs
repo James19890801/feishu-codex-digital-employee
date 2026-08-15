@@ -8,10 +8,13 @@ function normalizeSenderIds(values = []) {
 }
 
 export function createReplyContext({ message, senderId } = {}) {
+  const chatType = String(message?.chat_type || '').trim();
+  const senderIds = normalizeSenderIds([senderId]);
   return {
     chatId: String(message?.chat_id || '').trim(),
-    chatType: String(message?.chat_type || '').trim(),
-    senderIds: normalizeSenderIds([senderId]),
+    chatType,
+    senderIds,
+    mentionRequired: chatType === 'group' && senderIds.length > 0,
   };
 }
 
@@ -29,4 +32,21 @@ export function resolveReplyMentionSenderIds({
   if (String(context?.chatId || '').trim() !== String(chatId || '').trim()) return [];
   if (String(context?.chatType || '').trim() !== 'group') return [];
   return normalizeSenderIds(context?.senderIds);
+}
+
+export function assertRequiredReplyMention({
+  chatId,
+  chatType,
+  senderIds = [],
+  context = null,
+} = {}) {
+  const applies = context?.mentionRequired === true
+    && String(context?.chatId || '').trim() === String(chatId || '').trim();
+  if (!applies) return false;
+  if (String(chatType || '').trim() !== 'group' || normalizeSenderIds(senderIds).length === 0) {
+    const error = new Error('Required group reply mention has no valid recipient');
+    error.code = 'REQUIRED_REPLY_MENTION_MISSING';
+    throw error;
+  }
+  return true;
 }

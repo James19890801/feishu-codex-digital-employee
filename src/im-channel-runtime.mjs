@@ -219,6 +219,8 @@ export class GeWeChannel {
     this.mentionNames = mentionNames;
     this.lastSentAt = 0;
     this.sendTail = Promise.resolve();
+    this.chatroomMemberCache = new Map();
+    this.chatroomMemberCacheTtlMs = 5 * 60_000;
   }
 
   endpoint(path) {
@@ -348,28 +350,77 @@ export class GeWeChannel {
     });
   }
 
+  async cachedChatroomMemberList(chatroomId, { forceRefresh = false } = {}) {
+    const normalizedChatroomId = String(chatroomId || '').trim();
+    const cached = this.chatroomMemberCache.get(normalizedChatroomId);
+    if (!forceRefresh && cached && cached.expiresAt > this.now()) return cached.members;
+    const members = await this.getChatroomMemberList(normalizedChatroomId);
+    this.chatroomMemberCache.set(normalizedChatroomId, {
+      members,
+      expiresAt: this.now() + this.chatroomMemberCacheTtlMs,
+    });
+    return members;
+  }
+
+  async prepareGroupMention(target, text, { atWxids = [] } = {}) {
+    if (target?.channel !== 'wechat' || target?.kind !== 'group') {
+      throw new Error('GeWe group mention requires a personal WeChat group target');
+    }
+    const wxids = [...new Set((Array.isArray(atWxids) ? atWxids : [atWxids])
+      .map(value => String(value || '').replace(/^wechat:/, '').trim())
+      .filter(Boolean))].slice(0, 20);
+    if (!wxids.length) throw new Error('GeWe group mention requires at least one member wxid');
+
+    let members = await this.cachedChatroomMemberList(target.id);
+    let memberById = new Map(members.map(member => [member.memberId, member]));
+    if (wxids.some(wxid => !memberById.has(wxid))) {
+      members = await this.cachedChatroomMemberList(target.id, { forceRefresh: true });
+      memberById = new Map(members.map(member => [member.memberId, member]));
+    }
+    const missingWxid = wxids.find(wxid => !memberById.has(wxid));
+    if (missingWxid) {
+      throw new Error(`GeWe group member not found for required mention: ${missingWxid}`);
+    }
+    const labels = wxids.map(wxid => `@${memberById.get(wxid).displayName}`);
+    return {
+      content: `${labels.join(' ')}\n${String(text || '')}`,
+      ats: wxids.join(','),
+    };
+  }
+
   normalizeWebhook(event) {
     return normalizeGeWeWebhook(event, { mentionNames: this.mentionNames });
   }
 
-  async sendNow(target, text) {
+  async sendNow(target, text, { ats = '' } = {}) {
     if (target?.channel !== 'wechat') {
       throw new Error('GeWe sender received a non-WeChat target');
+    }
+    const normalizedAts = [...new Set(String(ats || '').split(',')
+      .map(value => value.replace(/^wechat:/, '').trim())
+      .filter(Boolean))].slice(0, 20).join(',');
+    if (normalizedAts && target?.kind !== 'group') {
+      throw new Error('GeWe mentions are only supported for group targets');
+    }
+    const content = String(text || '');
+    if (normalizedAts && !/(?:^|\s)@[^\s]+/u.test(content)) {
+      throw new Error('GeWe mention content must contain a visible @ label');
     }
     const waitMs = Math.max(0, this.lastSentAt + this.minSendIntervalMs - this.now());
     if (waitMs) await this.sleep(waitMs);
     const result = await this.request('/gewe/v2/api/message/postText', {
       appId: this.appId,
       toWxid: target.id,
-      content: String(text || ''),
+      content,
+      ...(normalizedAts ? { ats: normalizedAts } : {}),
     });
     this.lastSentAt = this.now();
     this.onStatus({ lastError: null, lastSendAt: new Date().toISOString() });
     return result;
   }
 
-  send(target, text) {
-    const operation = this.sendTail.then(() => this.sendNow(target, text));
+  send(target, text, options = {}) {
+    const operation = this.sendTail.then(() => this.sendNow(target, text, options));
     this.sendTail = operation.catch(() => {});
     return operation.catch(error => {
       this.onStatus({ lastError: errorState(error) });

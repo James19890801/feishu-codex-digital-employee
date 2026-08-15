@@ -68,6 +68,16 @@ export function prepareGroupMention({ chatId, chatType, senderId, senderIds = []
       atOpenDingTalkIds: openDingTalkIds,
     };
   }
+  if (target?.channel === 'wecom' && target.kind === 'group') {
+    const userIds = [...new Set(replySenderIds
+      .map(value => value.replace(/^wecom:/, '').trim())
+      .filter(Boolean))].slice(0, 20);
+    if (!userIds.length) return { text: content, atOpenDingTalkIds: [] };
+    return {
+      text: `${userIds.map(id => `<@${id}>`).join(' ')}\n${content}`,
+      atOpenDingTalkIds: [],
+    };
+  }
   const openIds = replySenderIds.filter(value => /^ou_[A-Za-z0-9]+$/.test(value));
   if (!target && openIds.length) {
     const mentionLabel = senderIds.length ? '回复对象' : '发起人';
@@ -77,6 +87,32 @@ export function prepareGroupMention({ chatId, chatType, senderId, senderIds = []
     };
   }
   return { text: content, atOpenDingTalkIds: [] };
+}
+
+export function requiredGroupMentionApplied({ chatId, senderIds = [], prepared = {} } = {}) {
+  const recipients = [...new Set(senderIds
+    .map(value => String(value || '').trim())
+    .filter(Boolean))].slice(0, 20);
+  if (!recipients.length) return false;
+  const target = parseChannelChatId(chatId);
+  const text = String(prepared?.text || '');
+  if (target?.channel === 'dingtalk' && target.kind === 'group') {
+    const ids = recipients.map(value => value.replace(/^dingtalk:/, '').trim()).filter(Boolean);
+    const atIds = Array.isArray(prepared?.atOpenDingTalkIds)
+      ? prepared.atOpenDingTalkIds.map(value => String(value || '').trim())
+      : [];
+    return ids.length > 0 && ids.every(id => atIds.includes(id) && text.includes(`<@${id}>`));
+  }
+  if (target?.channel === 'wecom' && target.kind === 'group') {
+    const ids = recipients.map(value => value.replace(/^wecom:/, '').trim()).filter(Boolean);
+    return ids.length > 0 && ids.every(id => text.includes(`<@${id}>`));
+  }
+  if (!target) {
+    const ids = recipients.filter(value => /^ou_[A-Za-z0-9]+$/.test(value));
+    return ids.length === recipients.length
+      && ids.every(id => text.includes(`<at user_id="${id}">`));
+  }
+  return false;
 }
 
 export function buildDingTalkConsumerArgs(profile = '') {

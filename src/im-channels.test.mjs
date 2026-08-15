@@ -18,6 +18,12 @@ import {
 } from './im-channels.mjs';
 
 assert.equal(
+  typeof imChannelHelpers.requiredGroupMentionApplied,
+  'function',
+  'the send route needs to verify that native channel mention syntax was generated',
+);
+
+assert.equal(
   typeof imChannelHelpers.buildDingTalkProcessEnv,
   'function',
   'DingTalk process environment must be built by a tested helper',
@@ -68,6 +74,18 @@ assert.deepEqual(prepareGroupMention({
   text: '<at user_id="ou_requester">发起人</at>\nMYS-4 状态已更新',
   atOpenDingTalkIds: [],
 });
+if (typeof imChannelHelpers.requiredGroupMentionApplied === 'function') {
+  assert.equal(imChannelHelpers.requiredGroupMentionApplied({
+    chatId: 'wecom:group:groupABC',
+    senderIds: ['wecom:user-a'],
+    prepared: { text: '<@user-a>\n回复', atOpenDingTalkIds: [] },
+  }), true);
+  assert.equal(imChannelHelpers.requiredGroupMentionApplied({
+    chatId: 'wecom:group:groupABC',
+    senderIds: ['wecom:user-a'],
+    prepared: { text: '回复', atOpenDingTalkIds: [] },
+  }), false);
+}
 assert.deepEqual(prepareGroupMention({
   chatId: 'dingtalk:group:cidABC',
   chatType: 'group',
@@ -85,6 +103,15 @@ assert.deepEqual(prepareGroupMention({
 }), {
   text: '<@open-a> <@open-b>\n需要两位数字人继续处理',
   atOpenDingTalkIds: ['open-a', 'open-b'],
+});
+assert.deepEqual(prepareGroupMention({
+  chatId: 'wecom:group:groupABC',
+  chatType: 'group',
+  senderIds: ['wecom:user-a', 'wecom:user-b', 'wecom:user-a'],
+  text: '我来回答这个问题',
+}), {
+  text: '<@user-a> <@user-b>\n我来回答这个问题',
+  atOpenDingTalkIds: [],
 });
 assert.deepEqual(prepareGroupMention({
   chatId: 'oc_feishu_group',

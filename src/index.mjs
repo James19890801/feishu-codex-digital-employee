@@ -175,8 +175,10 @@ import {
   normalizeDingTalkSelfMessages,
   parseChannelChatId,
   prepareGroupMention,
+  requiredGroupMentionApplied,
 } from './im-channels.mjs';
 import {
+  assertRequiredReplyMention,
   createReplyContext,
   resolveReplyMentionSenderIds,
 } from './reply-routing.mjs';
@@ -918,6 +920,12 @@ async function sendTextUnchecked(client, chatId, text, uuid, {
     explicitSenderIds: [...mentionSenderIds, mentionSenderId],
     context: replyContext,
   });
+  const mentionRequired = assertRequiredReplyMention({
+    chatId,
+    chatType: effectiveChatType,
+    senderIds: resolvedMentionSenderIds,
+    context: replyContext,
+  });
   const mention = prepareGroupMention({
     chatId,
     chatType: effectiveChatType,
@@ -926,6 +934,15 @@ async function sendTextUnchecked(client, chatId, text, uuid, {
   });
   outboundText = mention.text;
   const target = parseChannelChatId(chatId);
+  if (mentionRequired && target?.channel !== 'wechat' && !requiredGroupMentionApplied({
+    chatId,
+    senderIds: resolvedMentionSenderIds,
+    prepared: mention,
+  })) {
+    const error = new Error('Required native group mention was not generated');
+    error.code = 'REQUIRED_REPLY_MENTION_NOT_APPLIED';
+    throw error;
+  }
   if (target?.channel === 'dingtalk') {
     if (!dingTalkChannel) throw new Error('DingTalk channel is not available');
     return sendWithEchoGuard(chatId, outboundText, () => dingTalkChannel.send(target, outboundText, uuid, {
@@ -938,6 +955,16 @@ async function sendTextUnchecked(client, chatId, text, uuid, {
   }
   if (target?.channel === 'wechat') {
     if (!geWeChannel) throw new Error('Personal WeChat channel is not available');
+    if (mentionRequired) {
+      const preparedMention = await geWeChannel.prepareGroupMention(target, outboundText, {
+        atWxids: resolvedMentionSenderIds,
+      });
+      return sendWithEchoGuard(
+        chatId,
+        preparedMention.content,
+        () => geWeChannel.send(target, preparedMention.content, { ats: preparedMention.ats }),
+      );
+    }
     return sendWithEchoGuard(
       chatId,
       outboundText,
