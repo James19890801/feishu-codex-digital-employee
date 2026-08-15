@@ -53,6 +53,10 @@ export async function keychainCredentialExists(target, { run = runBufferedProces
   }
 }
 
+export async function readKeychainCredential(target, { run = runBufferedProcess } = {}) {
+  return readCredential(target, run);
+}
+
 export async function replaceKeychainCredential(target, credential, {
   run = runBufferedProcess,
 } = {}) {

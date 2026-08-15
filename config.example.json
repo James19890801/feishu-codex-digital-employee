@@ -60,6 +60,8 @@
   "geweNewcomerWelcomeGroupId": "",
   "geweNewcomerWelcomeGroupName": "",
   "geweNewcomerWelcomeIntervalMs": 120000,
+  "geweDailyBriefingGroupId": "",
+  "geweDailyBriefingGroupName": "",
   "multicaEnabled": false,
   "multicaProfile": "desktop-api.multica.ai",
   "multicaAppUrl": "https://multica.ai",

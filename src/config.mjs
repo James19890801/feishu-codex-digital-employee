@@ -162,6 +162,8 @@ export const config = {
   geweNewcomerWelcomeIntervalMs: boundedInteger(raw.geweNewcomerWelcomeIntervalMs, {
     name: 'geweNewcomerWelcomeIntervalMs', fallback: 120_000, min: 30_000, max: 900_000,
   }),
+  geweDailyBriefingGroupId: String(raw.geweDailyBriefingGroupId || '').trim(),
+  geweDailyBriefingGroupName: String(raw.geweDailyBriefingGroupName || '').trim(),
   multicaEnabled: raw.multicaEnabled === true,
   multicaProfile: raw.multicaProfile || 'desktop-api.multica.ai',
   multicaAppUrl: raw.multicaAppUrl || 'https://multica.ai',
@@ -275,6 +277,16 @@ if (config.geweNewcomerWelcomeEnabled) {
   if (!config.geweNewcomerWelcomeGroupName
     || config.geweNewcomerWelcomeGroupName.length > 200) {
     throw new Error('geweNewcomerWelcomeGroupName 必须是非空群名称');
+  }
+}
+if (config.geweDailyBriefingGroupId || config.geweDailyBriefingGroupName) {
+  if (!config.geweDailyBriefingGroupId.endsWith('@chatroom')
+    || config.geweDailyBriefingGroupId.length > 500) {
+    throw new Error('geweDailyBriefingGroupId 必须是有效的 @chatroom 群标识');
+  }
+  if (!config.geweDailyBriefingGroupName
+    || config.geweDailyBriefingGroupName.length > 200) {
+    throw new Error('geweDailyBriefingGroupName 必须是非空群名称');
   }
 }
 for (const [name, value] of [

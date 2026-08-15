@@ -4,6 +4,7 @@ const credentials = await import('./channel-credentials.mjs').catch(() => ({}));
 
 assert.equal(typeof credentials.keychainCredentialExists, 'function');
 assert.equal(typeof credentials.replaceKeychainCredential, 'function');
+assert.equal(typeof credentials.readKeychainCredential, 'function');
 
 const target = { service: 'aipro-test', account: 'account-1', label: 'Test Secret' };
 assert.equal(await credentials.keychainCredentialExists(target, {
@@ -12,6 +13,11 @@ assert.equal(await credentials.keychainCredentialExists(target, {
 assert.equal(await credentials.keychainCredentialExists(target, {
   run: async () => { throw new Error('not found'); },
 }), false);
+if (typeof credentials.readKeychainCredential === 'function') {
+  assert.equal(await credentials.readKeychainCredential(target, {
+    run: async () => ({ stdout: 'stored-value\n' }),
+  }), 'stored-value');
+}
 
 const calls = [];
 const rollbackNew = await credentials.replaceKeychainCredential(target, 'new-private-value', {

@@ -25,6 +25,8 @@ assert.equal(typeof config.geweNewcomerWelcomeEnabled, 'boolean');
 assert.equal(typeof config.geweNewcomerWelcomeGroupId, 'string');
 assert.equal(typeof config.geweNewcomerWelcomeGroupName, 'string');
 assert.equal(config.geweNewcomerWelcomeIntervalMs, 120_000);
+assert.equal(typeof config.geweDailyBriefingGroupId, 'string');
+assert.equal(typeof config.geweDailyBriefingGroupName, 'string');
 
 const directory = mkdtempSync(join(tmpdir(), 'aipro-config-'));
 try {
@@ -39,11 +41,13 @@ try {
   delete defaultsInput.geweNewcomerWelcomeGroupId;
   delete defaultsInput.geweNewcomerWelcomeGroupName;
   delete defaultsInput.geweNewcomerWelcomeIntervalMs;
+  delete defaultsInput.geweDailyBriefingGroupId;
+  delete defaultsInput.geweDailyBriefingGroupName;
   writeFileSync(defaultsPath, JSON.stringify(defaultsInput));
   const defaults = spawnSync(process.execPath, [
     '--input-type=module',
     '--eval',
-    "const {config}=await import('./src/config.mjs'); console.log(JSON.stringify({enabled:config.groupHostModeEnabled,chats:config.groupHostChatIds,silence:config.groupHostSilenceMs,cooldown:config.groupHostReplyCooldownMs,welcomeEnabled:config.geweNewcomerWelcomeEnabled,welcomeGroupId:config.geweNewcomerWelcomeGroupId,welcomeGroupName:config.geweNewcomerWelcomeGroupName,welcomeInterval:config.geweNewcomerWelcomeIntervalMs}))",
+    "const {config}=await import('./src/config.mjs'); console.log(JSON.stringify({enabled:config.groupHostModeEnabled,chats:config.groupHostChatIds,silence:config.groupHostSilenceMs,cooldown:config.groupHostReplyCooldownMs,welcomeEnabled:config.geweNewcomerWelcomeEnabled,welcomeGroupId:config.geweNewcomerWelcomeGroupId,welcomeGroupName:config.geweNewcomerWelcomeGroupName,welcomeInterval:config.geweNewcomerWelcomeIntervalMs,briefingGroupId:config.geweDailyBriefingGroupId,briefingGroupName:config.geweDailyBriefingGroupName}))",
   ], {
     cwd: new URL('..', import.meta.url),
     env: { ...process.env, DIGITAL_EMPLOYEE_CONFIG: defaultsPath },
@@ -59,6 +63,8 @@ try {
     welcomeGroupId: '',
     welcomeGroupName: '',
     welcomeInterval: 120_000,
+    briefingGroupId: '',
+    briefingGroupName: '',
   });
   for (const [field, value] of [
     ['semanticRepeatMaxReplies', 1],
@@ -108,6 +114,31 @@ try {
   });
   assert.notEqual(enabledWithoutTarget.status, 0);
   assert.match(enabledWithoutTarget.stderr, /geweNewcomerWelcomeGroup/);
+
+  for (const invalidBriefing of [
+    { geweDailyBriefingGroupId: '53822548488@chatroom', geweDailyBriefingGroupName: '' },
+    { geweDailyBriefingGroupId: '', geweDailyBriefingGroupName: 'AI流程与组织变革交流二群' },
+    { geweDailyBriefingGroupId: 'not-a-chatroom', geweDailyBriefingGroupName: 'AI流程与组织变革交流二群' },
+  ]) {
+    const invalidPath = join(directory, `invalid-briefing-${Math.random()}.json`);
+    writeFileSync(invalidPath, JSON.stringify({
+      ...example,
+      feishuEnabled: false,
+      allowAllChats: true,
+      ...invalidBriefing,
+    }));
+    const result = spawnSync(process.execPath, [
+      '--input-type=module',
+      '--eval',
+      "await import('./src/config.mjs')",
+    ], {
+      cwd: new URL('..', import.meta.url),
+      env: { ...process.env, DIGITAL_EMPLOYEE_CONFIG: invalidPath },
+      encoding: 'utf8',
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /geweDailyBriefingGroup/);
+  }
 } finally {
   rmSync(directory, { recursive: true, force: true });
 }

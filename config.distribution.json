@@ -61,6 +61,8 @@
   "geweNewcomerWelcomeGroupId": "",
   "geweNewcomerWelcomeGroupName": "",
   "geweNewcomerWelcomeIntervalMs": 120000,
+  "geweDailyBriefingGroupId": "",
+  "geweDailyBriefingGroupName": "",
   "a1Enabled": false,
   "a1Bin": "",
   "a1WebAgentProjectId": "",
