@@ -409,6 +409,32 @@ export class GeWeChannel {
     return operation;
   }
 
+  likeMoment({ snsId, wxid } = {}) {
+    const normalizedSnsId = String(snsId || '').trim();
+    if (!/^\d{1,30}$/.test(normalizedSnsId)) {
+      return Promise.reject(new Error('GeWe snsId is invalid'));
+    }
+    const normalizedWxid = String(wxid || '').trim();
+    if (!normalizedWxid || normalizedWxid.length > 500
+      || /[\s\u0000-\u001f\u007f]/.test(normalizedWxid)) {
+      return Promise.reject(new Error('GeWe Moments wxid is invalid'));
+    }
+    const operation = this.momentTail.then(async () => {
+      const waitMs = Math.max(0, this.lastMomentWriteAt + 3_000 - this.now());
+      if (waitMs) await this.sleep(waitMs);
+      const result = await this.request('/gewe/v2/api/sns/likeSns', {
+        appId: this.appId,
+        snsId: normalizedSnsId,
+        operType: 1,
+        wxid: normalizedWxid,
+      });
+      this.lastMomentWriteAt = this.now();
+      return result;
+    });
+    this.momentTail = operation.catch(() => {});
+    return operation;
+  }
+
   async setCallback(callbackUrl) {
     const parsed = new URL(String(callbackUrl || ''));
     if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {

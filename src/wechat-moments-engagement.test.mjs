@@ -25,6 +25,7 @@ function rawMoment({
   createTime = 1_786_700_000,
   content = '今天把流程从十二个节点压缩到了七个，终于正式上线。',
   comments = [],
+  likes = [],
 } = {}) {
   return {
     id,
@@ -34,6 +35,8 @@ function rawMoment({
     snsXml: `<TimelineObject><contentDesc><![CDATA[${content}]]></contentDesc></TimelineObject>`,
     commentCount: comments.length,
     commentList: comments,
+    likeCount: likes.length,
+    likeList: likes,
   };
 }
 
@@ -56,6 +59,7 @@ if (typeof moments.normalizeMoment === 'function') {
     nickName: '朋友\u0000甲',
     createTime: 1_786_700_000,
     snsXml: '<TimelineObject><contentDesc><![CDATA[今天把流程从 12 个节点压到了 7 个 &amp; 正式上线]]></contentDesc><ContentObject><title>忽略标题</title></ContentObject></TimelineObject>',
+    likeList: [{ userName: 'wxid_owner', nickName: '詹老师' }],
     commentList: [{
       commentId: 33,
       replyCommentId: 0,
@@ -71,6 +75,7 @@ if (typeof moments.normalizeMoment === 'function') {
     nickName: '朋友甲',
     createTimeMs: 1_786_700_000_000,
     content: '今天把流程从 12 个节点压到了 7 个 & 正式上线',
+    likes: ['wxid_owner'],
     comments: [{
       commentId: 33,
       replyCommentId: 0,
@@ -169,6 +174,54 @@ if (typeof moments.buildMomentsPrompt === 'function') {
 
 if (typeof moments.WeChatMomentsEngagement === 'function') {
   {
+    const database = temporaryState('aipro-moments-manual-dedupe-');
+    try {
+      let feed = [];
+      const comments = [];
+      const likes = [];
+      const channel = {
+        getProfile: async () => ({ wxid: 'wxid_owner', nickName: '詹老师' }),
+        listMoments: async () => ({ snsList: feed }),
+        getMomentDetails: async snsId => feed.find(item => String(item.id) === String(snsId)),
+        checkOnline: async () => true,
+        likeMoment: async input => { likes.push(input); return { ret: 200 }; },
+        commentMoment: async input => { comments.push(input); return { ret: 200 }; },
+      };
+      const worker = new moments.WeChatMomentsEngagement({
+        state: database.state,
+        channel,
+        now: () => Date.parse('2026-08-15T10:00:00+08:00'),
+        generate: async () => '{"action":"reply","text":"这个变化很具体，后续可以继续观察交接成本是否同步下降。","reason":"specific"}',
+      });
+      await worker.scan('startup');
+      feed = [
+        rawMoment({
+          id: '70001',
+          userName: 'wxid_friend_a',
+          comments: [{
+            commentId: 1,
+            replyCommentId: 0,
+            userName: 'wxid_owner',
+            nickName: '詹老师',
+            content: '这个切入点很具体。',
+            createTime: 1_786_700_100,
+          }],
+        }),
+        rawMoment({
+          id: '70002',
+          userName: 'wxid_friend_b',
+          likes: [{ userName: 'wxid_owner', nickName: '詹老师' }],
+        }),
+      ];
+      await worker.scan('periodic');
+      assert.deepEqual(likes, [{ snsId: '70001', wxid: 'wxid_friend_a' }]);
+      assert.deepEqual(comments.map(item => item.snsId), ['70002']);
+    } finally {
+      database.close();
+    }
+  }
+
+  {
     const database = temporaryState('aipro-moments-pagination-');
     try {
       const firstPage = Array.from({ length: 10 }, (_, index) => rawMoment({
@@ -239,6 +292,8 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
       });
       let feed = [ownerPost, friendPost];
       const writes = [];
+      const likes = [];
+      const operations = [];
       const generatedPrompts = [];
       const knowledgeQueries = [];
       const channel = {
@@ -248,6 +303,12 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
         checkOnline: async () => true,
         commentMoment: async input => {
           writes.push(input);
+          operations.push(`comment:${input.snsId}`);
+          return { ret: 200, msg: '操作成功' };
+        },
+        likeMoment: async input => {
+          likes.push(input);
+          operations.push(`like:${input.snsId}`);
           return { ret: 200, msg: '操作成功' };
         },
       };
@@ -271,6 +332,7 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
       const baseline = await worker.scan('startup');
       assert.equal(baseline.baselineCreated, true);
       assert.equal(writes.length, 0, 'startup must never back-comment historical Moments');
+      assert.equal(likes.length, 0, 'startup must never back-like historical Moments');
 
       const newOwnerComment = {
         commentId: 21,
@@ -302,6 +364,8 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
 
       const incremental = await worker.scan('periodic');
       assert.equal(incremental.sent, 3);
+      assert.equal(incremental.liked, 1);
+      assert.deepEqual(likes, [{ snsId: '30001', wxid: 'wxid_friend_new' }]);
       assert.deepEqual(writes.map(item => ({
         snsId: item.snsId,
         wxid: item.wxid,
@@ -311,12 +375,20 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
         { snsId: '10001', wxid: 'wxid_member_b', commentId: 11 },
         { snsId: '30001', wxid: 'wxid_friend_new', commentId: 0 },
       ]);
+      assert.deepEqual(operations, [
+        'comment:20001',
+        'comment:10001',
+        'like:30001',
+        'comment:30001',
+      ]);
       assert.equal(generatedPrompts.length, 3);
       assert.equal(knowledgeQueries.some(query => query.includes('流程')), true);
 
       const replay = await worker.scan('periodic');
       assert.equal(replay.sent, 0);
+      assert.equal(replay.liked, 0);
       assert.equal(writes.length, 3, 'seen posts and comments must be idempotent');
+      assert.equal(likes.length, 1, 'the same Moment must never be liked twice');
 
       const auditText = database.state.db.prepare('SELECT detail FROM audit').all()
         .map(row => row.detail).join('\n');
@@ -339,12 +411,14 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
     try {
       let feed = [];
       const writes = [];
+      const likes = [];
       const channel = {
         getProfile: async () => ({ wxid: 'wxid_owner', nickName: '詹老师' }),
         listMoments: async () => ({ snsList: feed }),
         getMomentDetails: async snsId => feed.find(item => String(item.id) === String(snsId)),
         checkOnline: async () => true,
         commentMoment: async input => { writes.push(input); return { ret: 200 }; },
+        likeMoment: async input => { likes.push(input); return { ret: 200 }; },
       };
       const worker = new moments.WeChatMomentsEngagement({
         state: database.state,
@@ -361,6 +435,7 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
       ];
       await worker.scan('periodic');
       assert.equal(writes.length, 1, 'daily and per-author budgets must prevent flooding');
+      assert.equal(likes.length, 3, 'every new non-self Moment should be liked even when comments are skipped');
     } finally {
       database.close();
     }
@@ -376,6 +451,7 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
         listMoments: async () => ({ snsList: feed }),
         getMomentDetails: async snsId => feed.find(item => String(item.id) === String(snsId)),
         checkOnline: async () => true,
+        likeMoment: async () => ({ ret: 200 }),
         commentMoment: async () => { attempts += 1; throw new Error('connection reset after write'); },
       };
       const worker = new moments.WeChatMomentsEngagement({

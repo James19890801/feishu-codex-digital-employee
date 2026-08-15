@@ -75,6 +75,10 @@ export function normalizeMoment(raw = {}) {
     nickName: cleanText(raw.nickName, 100),
     createTimeMs: normalizedTimestamp(raw.createTime),
     content: cleanText(contentDesc || fallback, 2_000),
+    likes: [...new Set((Array.isArray(raw.likeList) ? raw.likeList : [])
+      .slice(0, 500)
+      .map(item => normalizedWxid(item?.userName))
+      .filter(Boolean))],
     comments: (Array.isArray(raw.commentList) ? raw.commentList : [])
       .slice(0, 500)
       .map(normalizeComment)
@@ -205,7 +209,10 @@ function normalizedWorkerState(value, nowMs) {
     coverageVersion: Math.max(0, Math.min(2, Number(source.coverageVersion) || 0)),
     seenMoments: boundedUnique(source.seenMoments),
     seenComments: boundedUnique(source.seenComments, 20_000),
+    likeCoverageVersion: Math.max(0, Math.min(1, Number(source.likeCoverageVersion) || 0)),
+    likeHandledMoments: boundedUnique(source.likeHandledMoments),
     day: today,
+    likeCount: sameDay ? Math.max(0, Number(source.likeCount) || 0) : 0,
     proactiveCount: sameDay ? Math.max(0, Number(source.proactiveCount) || 0) : 0,
     replyCount: sameDay ? Math.max(0, Number(source.replyCount) || 0) : 0,
     authorHashes: sameDay ? boundedUnique(source.authorHashes, 500) : [],
@@ -238,6 +245,7 @@ export class WeChatMomentsEngagement {
     generate,
     retrieveKnowledge = async () => '',
     intervalMs = 1_800_000,
+    maxLikesPerDay = 30,
     maxProactivePerDay = 6,
     maxRepliesPerDay = 20,
     maxThreadDepth = 4,
@@ -254,6 +262,7 @@ export class WeChatMomentsEngagement {
     this.generate = generate;
     this.retrieveKnowledge = retrieveKnowledge;
     this.intervalMs = Math.max(60_000, Math.min(86_400_000, Number(intervalMs) || 1_800_000));
+    this.maxLikesPerDay = Math.max(1, Math.min(100, Number(maxLikesPerDay) || 30));
     this.maxProactivePerDay = Math.max(1, Math.min(20, Number(maxProactivePerDay) || 6));
     this.maxRepliesPerDay = Math.max(1, Math.min(100, Number(maxRepliesPerDay) || 20));
     this.maxThreadDepth = Math.max(1, Math.min(10, Number(maxThreadDepth) || 4));
@@ -415,10 +424,57 @@ export class WeChatMomentsEngagement {
     }
   }
 
+  async writeLike({ current, moment }) {
+    if (current.likeCount >= this.maxLikesPerDay) {
+      return { liked: false, handled: false, reason: 'like_budget' };
+    }
+    const snsHash = auditHash(moment.id);
+    const executionKey = `wechat-moments-like:${snsHash}`;
+    try {
+      if (typeof this.channel.checkOnline === 'function' && !await this.channel.checkOnline()) {
+        return { liked: false, handled: false, reason: 'offline' };
+      }
+      const result = await executeMutationOnce({
+        state: this.state,
+        executionKey,
+        kind: 'wechat_moments_like',
+        operation: () => this.channel.likeMoment({
+          snsId: moment.id,
+          wxid: moment.userName,
+        }),
+      });
+      current.likeHandledMoments.push(moment.id);
+      if (!result.replayed) current.likeCount += 1;
+      current.writeFailures = 0;
+      this.writeState(current);
+      this.audit('wechat_moments_like_sent', {
+        snsHash,
+        targetHash: auditHash(moment.userName),
+        replayed: result.replayed === true,
+      });
+      return {
+        liked: !result.replayed,
+        handled: true,
+        reason: result.replayed ? 'replayed' : 'liked',
+      };
+    } catch (error) {
+      current.likeHandledMoments.push(moment.id);
+      current.writeFailures += 1;
+      if (current.writeFailures >= 2) current.circuitDay = current.day;
+      this.writeState(current);
+      this.audit('wechat_moments_like_failed', {
+        snsHash,
+        error: errorCode(error),
+        circuitOpen: Boolean(current.circuitDay),
+      });
+      return { liked: false, handled: true, reason: 'write_failed' };
+    }
+  }
+
   async scan(reason = 'periodic') {
     let current = this.readState();
     if (current.circuitDay === current.day) {
-      return { circuitOpen: true, sent: 0 };
+      return { circuitOpen: true, sent: 0, liked: 0 };
     }
     try {
       const profile = await this.channel.getProfile();
@@ -438,18 +494,31 @@ export class WeChatMomentsEngagement {
           coverageVersion: 2,
           seenMoments: allMomentIds,
           seenComments: allCommentKeys,
+          likeCoverageVersion: 1,
+          likeHandledMoments: allMomentIds,
           lastScanAtMs: this.now(),
         });
         this.audit(baselineCreated ? 'wechat_moments_baseline' : 'wechat_moments_coverage_baseline', {
           momentCount: moments.length,
           commentCount: allCommentKeys.length,
         });
-        return { baselineCreated, coverageExpanded: !baselineCreated, sent: 0 };
+        return { baselineCreated, coverageExpanded: !baselineCreated, sent: 0, liked: 0 };
+      }
+
+      if (current.likeCoverageVersion < 1) {
+        current = this.writeState({
+          ...current,
+          likeCoverageVersion: 1,
+          likeHandledMoments: allMomentIds,
+        });
+        this.audit('wechat_moments_like_baseline', { momentCount: moments.length });
       }
 
       const seenMoments = new Set(current.seenMoments);
       const seenComments = new Set(current.seenComments);
+      const likeHandledMoments = new Set(current.likeHandledMoments);
       let sent = 0;
+      let liked = 0;
 
       for (const moment of moments) {
         const ownerCommentIds = new Set(moment.comments
@@ -475,7 +544,35 @@ export class WeChatMomentsEngagement {
 
       if (!current.circuitDay) {
         for (const moment of moments) {
+          if (likeHandledMoments.has(moment.id) || moment.userName === ownerWxid) continue;
+          if (moment.likes.includes(ownerWxid)) {
+            current.likeHandledMoments.push(moment.id);
+            likeHandledMoments.add(moment.id);
+            continue;
+          }
+          const ageMs = this.now() - moment.createTimeMs;
+          if (ageMs < -5 * 60_000 || ageMs > this.postMaxAgeHours * 3_600_000) {
+            current.likeHandledMoments.push(moment.id);
+            continue;
+          }
+          const outcome = await this.writeLike({ current, moment });
+          if (outcome.liked) liked += 1;
+          if (outcome.handled) likeHandledMoments.add(moment.id);
+          if (current.circuitDay || current.likeCount >= this.maxLikesPerDay) break;
+        }
+      }
+
+      if (!current.circuitDay) {
+        for (const moment of moments) {
           if (seenMoments.has(moment.id)) continue;
+          if (moment.comments.some(comment => comment.userName === ownerWxid)) {
+            this.audit('wechat_moments_skipped', {
+              mode: 'proactive',
+              snsHash: auditHash(moment.id),
+              reason: 'owner_already_commented',
+            });
+            continue;
+          }
           const authorHash = auditHash(moment.userName);
           const eligibility = isEligibleProactiveMoment(moment, {
             ownerWxid,
@@ -507,9 +604,10 @@ export class WeChatMomentsEngagement {
         reason: cleanText(reason, 50),
         momentCount: moments.length,
         sent,
+        liked,
         circuitOpen: Boolean(current.circuitDay),
       });
-      return { sent, circuitOpen: Boolean(current.circuitDay) };
+      return { sent, liked, circuitOpen: Boolean(current.circuitDay) };
     } catch (error) {
       current.scanFailures += 1;
       if (current.scanFailures >= 3) current.circuitDay = current.day;
@@ -520,7 +618,7 @@ export class WeChatMomentsEngagement {
         failures: current.scanFailures,
         circuitOpen: Boolean(current.circuitDay),
       });
-      return { error: true, circuitOpen: Boolean(current.circuitDay), sent: 0 };
+      return { error: true, circuitOpen: Boolean(current.circuitDay), sent: 0, liked: 0 };
     }
   }
 

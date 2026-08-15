@@ -344,6 +344,28 @@ import {
   }), /content/i);
 
   calls.length = 0;
+  await channel.likeMoment({
+    snsId: '14287710653886042616',
+    wxid: 'wxid_friend',
+  });
+  assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/sns/likeSns');
+  assert.match(calls[0].options.body, /"snsId":14287710653886042616/);
+  assert.deepEqual({ ...JSON.parse(calls[0].options.body), snsId: '14287710653886042616' }, {
+    appId: 'device-a',
+    snsId: '14287710653886042616',
+    operType: 1,
+    wxid: 'wxid_friend',
+  });
+  await assert.rejects(channel.likeMoment({
+    snsId: 'not-an-id',
+    wxid: 'wxid_friend',
+  }), /sns/i);
+  await assert.rejects(channel.likeMoment({
+    snsId: '14287710653886042616',
+    wxid: '',
+  }), /wxid/i);
+
+  calls.length = 0;
   const preparedMention = await channel.prepareGroupMention(
     { channel: 'wechat', kind: 'group', id: 'room@chatroom' },
     '我来回答这个问题',
