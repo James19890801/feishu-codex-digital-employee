@@ -169,6 +169,52 @@ if (typeof moments.buildMomentsPrompt === 'function') {
 
 if (typeof moments.WeChatMomentsEngagement === 'function') {
   {
+    const database = temporaryState('aipro-moments-pagination-');
+    try {
+      const firstPage = Array.from({ length: 10 }, (_, index) => rawMoment({
+        id: String(60_000 + index),
+        userName: `wxid_page_one_${index}`,
+      }));
+      const secondPage = [rawMoment({
+        id: '50001',
+        userName: 'wxid_page_two',
+      })];
+      const listCalls = [];
+      const worker = new moments.WeChatMomentsEngagement({
+        state: database.state,
+        channel: {
+          getProfile: async () => ({ wxid: 'wxid_owner', nickName: '詹老师' }),
+          listMoments: async args => {
+            listCalls.push(args);
+            if (args.maxId === 0) {
+              return {
+                snsList: firstPage,
+                snsCount: 10,
+                maxId: '60009',
+                firstPageMd5: '2eb48afd4862ddc8',
+              };
+            }
+            return { snsList: secondPage, snsCount: 1, maxId: '50001' };
+          },
+        },
+        now: () => Date.parse('2026-08-15T10:00:00+08:00'),
+        generate: async () => '{"action":"skip","text":"","reason":"unused"}',
+      });
+      const baseline = await worker.scan('startup');
+      assert.equal(baseline.baselineCreated, true);
+      assert.deepEqual(listCalls, [
+        { maxId: 0, firstPageMd5: '' },
+        { maxId: '60009', firstPageMd5: '2eb48afd4862ddc8' },
+      ]);
+      const persisted = database.state.get('wechat-moments-engagement', 'worker', null);
+      assert.equal(persisted.seenMoments.length, 11);
+      assert.equal(persisted.coverageVersion, 2);
+    } finally {
+      database.close();
+    }
+  }
+
+  {
     const database = temporaryState('aipro-moments-flow-');
     try {
       const ownerWxid = 'wxid_owner';

@@ -202,6 +202,7 @@ function normalizedWorkerState(value, nowMs) {
     .map(([key, count]) => [key, Number(count)]));
   return {
     initialized: source.initialized === true,
+    coverageVersion: Math.max(0, Math.min(2, Number(source.coverageVersion) || 0)),
     seenMoments: boundedUnique(source.seenMoments),
     seenComments: boundedUnique(source.seenComments, 20_000),
     day: today,
@@ -282,8 +283,23 @@ export class WeChatMomentsEngagement {
   }
 
   async feedWithDetails() {
-    const page = await this.channel.listMoments();
-    const rawMoments = Array.isArray(page?.snsList) ? page.snsList.slice(0, 50) : [];
+    const rawMoments = [];
+    let maxId = 0;
+    let firstPageMd5 = '';
+    const visitedCursors = new Set();
+    for (let pageIndex = 0; pageIndex < 5; pageIndex += 1) {
+      const page = await this.channel.listMoments({ maxId, firstPageMd5 });
+      const batch = Array.isArray(page?.snsList) ? page.snsList.slice(0, 10) : [];
+      rawMoments.push(...batch);
+      if (batch.length < 10 || Number(page?.snsCount || batch.length) < 10) break;
+      const nextMaxId = normalizedId(page?.maxId, 30);
+      const nextFirstPageMd5 = cleanText(page?.firstPageMd5, 64);
+      const cursor = `${nextMaxId}:${nextFirstPageMd5}`;
+      if (!nextMaxId || visitedCursors.has(cursor)) break;
+      visitedCursors.add(cursor);
+      maxId = nextMaxId;
+      firstPageMd5 = nextFirstPageMd5;
+    }
     const hydrated = [];
     for (const raw of rawMoments) {
       if (Number(raw?.commentCount || 0) > 0 && typeof this.channel.getMomentDetails === 'function') {
@@ -296,7 +312,11 @@ export class WeChatMomentsEngagement {
       }
       hydrated.push(raw);
     }
-    return hydrated.map(normalizeMoment).filter(moment => moment.id && moment.userName);
+    const unique = new Map();
+    for (const moment of hydrated.map(normalizeMoment)) {
+      if (moment.id && moment.userName && !unique.has(moment.id)) unique.set(moment.id, moment);
+    }
+    return [...unique.values()];
   }
 
   async decision({ mode, moment, comment = null }) {
@@ -410,19 +430,21 @@ export class WeChatMomentsEngagement {
       const allMomentIds = moments.map(moment => moment.id);
       const allCommentKeys = moments.flatMap(moment => moment.comments
         .map(comment => commentKey(moment.id, comment.commentId)));
-      if (!current.initialized) {
+      if (!current.initialized || current.coverageVersion < 2) {
+        const baselineCreated = !current.initialized;
         current = this.writeState({
           ...current,
           initialized: true,
+          coverageVersion: 2,
           seenMoments: allMomentIds,
           seenComments: allCommentKeys,
           lastScanAtMs: this.now(),
         });
-        this.audit('wechat_moments_baseline', {
+        this.audit(baselineCreated ? 'wechat_moments_baseline' : 'wechat_moments_coverage_baseline', {
           momentCount: moments.length,
           commentCount: allCommentKeys.length,
         });
-        return { baselineCreated: true, sent: 0 };
+        return { baselineCreated, coverageExpanded: !baselineCreated, sent: 0 };
       }
 
       const seenMoments = new Set(current.seenMoments);
