@@ -181,6 +181,8 @@ import {
           msg: '操作成功',
           data: String(url).endsWith('/message/downloadImage')
             ? { fileUrl: 'https://media.example.com/image.jpg' }
+            : String(url).endsWith('/message/downloadVoice')
+              ? { fileUrl: 'https://media.example.com/voice.silk' }
             : String(url).endsWith('/message/downloadFile')
               ? { fileUrl: 'https://media.example.com/report.pdf' }
             : String(url).endsWith('/personal/getProfile')
@@ -222,9 +224,20 @@ import {
   assert.equal(calls[0].options.headers['X-GEWE-TOKEN'], 'super-secret-token');
   assert.deepEqual(JSON.parse(calls[0].options.body), { appId: 'device-a' });
 
-  await channel.setCallback('https://aipro.example.com/webhooks/gewe/callback_secret_1234567890123456');
-  assert.equal(calls[1].url, 'https://api.geweapi.com/gewe/v2/api/login/setCallback');
+  assert.equal(
+    await channel.downloadVoice('<msg><voicemsg /></msg>', { msgId: '1169533812' }),
+    'https://media.example.com/voice.silk',
+  );
+  assert.equal(calls[1].url, 'https://api.geweapi.com/gewe/v2/api/message/downloadVoice');
   assert.deepEqual(JSON.parse(calls[1].options.body), {
+    appId: 'device-a',
+    msgId: '1169533812',
+    xml: '<msg><voicemsg /></msg>',
+  });
+
+  await channel.setCallback('https://aipro.example.com/webhooks/gewe/callback_secret_1234567890123456');
+  assert.equal(calls[2].url, 'https://api.geweapi.com/gewe/v2/api/login/setCallback');
+  assert.deepEqual(JSON.parse(calls[2].options.body), {
     token: 'super-secret-token',
     callbackUrl: 'https://aipro.example.com/webhooks/gewe/callback_secret_1234567890123456',
   });

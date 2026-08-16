@@ -758,6 +758,58 @@ assert.equal(normalizeGeWeWebhook({
 }), null);
 
 {
+  const voiceXml = '<msg><voicemsg voiceformat="4" voicelength="2240" length="3628" /></msg>';
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
+      MsgType: 34,
+      MsgId: 1169533812,
+      NewMsgId: 'voice-message-v1',
+      FromUserName: { string: 'wxid_friend' },
+      ToUserName: { string: 'wxid_owner' },
+      Content: { string: voiceXml },
+      CreateTime: 1785463200,
+      ImgBuf: { buffer: 'IyFTSUxLX1Yz' },
+    },
+  });
+  assert.equal(payload.message.message_type, 'audio');
+  assert.equal(payload.message.chat_id, 'wechat:user:wxid_friend');
+  assert.equal(JSON.parse(payload.message.content).text, '');
+  assert.deepEqual(payload.metadata.voice, {
+    xml: voiceXml,
+    msgId: '1169533812',
+    bufferBase64: 'IyFTSUxLX1Yz',
+  });
+}
+
+{
+  const voiceXml = '<msg><voicemsg voiceformat="4" voicelength="3800" /></msg>';
+  const payload = normalizeGeWeWebhook({
+    appid: 'device-v2',
+    wxid: 'wxid_owner',
+    msgType: 'VOICE',
+    msgId: '7788',
+    newMsgId: 'voice-message-v2',
+    fromUser: 'room-voice@chatroom',
+    toUser: 'wxid_owner',
+    senderWxid: 'wxid_member',
+    content: `wxid_member:\n${voiceXml}`,
+    createTime: 1785463200,
+    atWxids: ['wxid_owner'],
+  });
+  assert.equal(payload.message.message_type, 'audio');
+  assert.equal(payload.message.chat_id, 'wechat:group:room-voice@chatroom');
+  assert.equal(payload.sender.sender_id.open_id, 'wechat:wxid_member');
+  assert.equal(payload.metadata.contextOnly, undefined);
+  assert.deepEqual(payload.metadata.voice, {
+    xml: voiceXml,
+    msgId: '7788',
+  });
+}
+
+{
   const payload = normalizeGeWeWebhook({
     TypeName: 'AddMsg',
     Appid: 'device-a',

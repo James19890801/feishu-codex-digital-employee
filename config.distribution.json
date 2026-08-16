@@ -55,6 +55,7 @@
   "geweKeychainService": "personal-digital-human-gewe",
   "geweApiBaseUrl": "https://api.geweapi.com",
   "gewePublicCallbackBaseUrl": "",
+  "geweSilkDecoderCommand": "",
   "geweCallbackPort": 17656,
   "geweMentionNames": [],
   "geweRelationshipMemoryEnabled": true,

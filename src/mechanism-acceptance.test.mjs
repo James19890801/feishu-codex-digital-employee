@@ -137,6 +137,18 @@ contract('multimodal-pipeline', 'Can a WeChat-origin Multica artifact return thr
   assert.match(runtimeSource, /buildChannelArtifactDeliveryPlan/);
 });
 
+contract('multimodal-pipeline', 'Can a personal WeChat voice reach local transcription and reply routing?', () => {
+  const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
+  assert.match(runtimeSource, /from '\.\/wechat-voice-context\.mjs'/);
+  assert.match(runtimeSource, /downloadWeChatVoice/);
+  assert.match(runtimeSource, /decodeSilkVoice/);
+  assert.match(runtimeSource, /metadata\.voice/);
+  assert.match(runtimeSource, /downloadWeChatVoice\(\{/);
+  assert.match(runtimeSource, /decodeSilkVoice\(/);
+  assert.match(runtimeSource, /语音转写/);
+  assert.match(runtimeSource, /channel:\s*'wechat',\s*kind:\s*'audio'/);
+});
+
 contract('wechat-newcomer-welcome', 'Does the live GeWe lifecycle isolate and run newcomer welcomes?', () => {
   const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
   assert.match(runtimeSource, /import \{ WeChatNewcomerWelcome \} from '\.\/wechat-newcomer-welcome\.mjs'/);

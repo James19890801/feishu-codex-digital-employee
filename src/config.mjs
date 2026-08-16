@@ -163,6 +163,8 @@ export const config = {
   geweCallbackPort: boundedInteger(raw.geweCallbackPort, {
     name: 'geweCallbackPort', fallback: 17656, min: 1024, max: 65535,
   }),
+  geweSilkDecoderCommand: String(raw.geweSilkDecoderCommand
+    || join(workdir, 'data', 'tools', 'silk-v3-decoder', 'silk', 'decoder')).trim(),
   geweMentionNames: Array.isArray(raw.geweMentionNames)
     ? raw.geweMentionNames.map(value => String(value).trim()).filter(Boolean).slice(0, 10)
     : [],

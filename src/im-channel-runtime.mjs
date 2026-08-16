@@ -489,6 +489,23 @@ export class GeWeChannel {
     return fileUrl;
   }
 
+  async downloadVoice(xml, { msgId } = {}) {
+    const voiceXml = String(xml || '').trim();
+    const normalizedMsgId = String(msgId || '').trim();
+    if (!voiceXml) throw new Error('GeWe voice XML is required');
+    if (!/^\d{1,30}$/.test(normalizedMsgId)) throw new Error('GeWe voice msgId is invalid');
+    const result = await this.request('/gewe/v2/api/message/downloadVoice', {
+      appId: this.appId,
+      msgId: normalizedMsgId,
+      xml: voiceXml,
+    });
+    const fileUrl = String(result?.data?.fileUrl || '').trim();
+    if (!/^https?:\/\//i.test(fileUrl)) {
+      throw new Error('GeWe voice download returned no valid file URL');
+    }
+    return fileUrl;
+  }
+
   async downloadFile(xml) {
     const fileXml = String(xml || '').trim();
     if (!fileXml) throw new Error('GeWe file XML is required');

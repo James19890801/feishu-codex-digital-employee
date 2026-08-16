@@ -254,6 +254,10 @@ import {
   rememberWeChatFile,
   resolveWeChatFileContext,
 } from './wechat-file-context.mjs';
+import {
+  decodeSilkVoice,
+  downloadWeChatVoice,
+} from './wechat-voice-context.mjs';
 import { enrichWeChatLearningContext } from './wechat-learning-context.mjs';
 import { WeChatNewcomerWelcome } from './wechat-newcomer-welcome.mjs';
 import { WeChatMomentsEngagement } from './wechat-moments-engagement.mjs';
@@ -2647,6 +2651,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
   let fileRefs = [];
   let weChatFileContext = { files: [], sources: [] };
   let audioRef = null;
+  let weChatVoiceRef = null;
   let videoRef = null;
   try {
     const content = JSON.parse(message.content || '{}');
@@ -2667,6 +2672,9 @@ async function processIncoming(client, message, sender, metadata = {}) {
   } catch { return; }
   const cleanText = cleanTask(String(text || '').slice(0, 20_000));
   const senderOpenId = sender?.sender_id?.open_id || '';
+  if (metadata.channel === 'wechat' && message.message_type === 'audio' && metadata.voice) {
+    weChatVoiceRef = metadata.voice;
+  }
   if (message.chat_type === 'group' || message.chat_type === 'p2p') {
     const rememberedChat = state.get('feishu_chat', message.chat_id, {});
     state.set('feishu_chat', message.chat_id, {
@@ -3740,6 +3748,39 @@ async function processIncoming(client, message, sender, metadata = {}) {
       } catch (error) {
         audit('audio_transcription_unavailable', message, senderOpenId, {
           channel: metadata.channel || 'feishu',
+          error: processFailureSummary(error),
+        });
+        await sendText(null, message.chat_id, '语音收到了，但这次没有转写成功。你可以再发一次，或者补一句文字。', `aipro-audio-unavailable-${message.message_id}`);
+        return;
+      }
+    }
+    if (weChatVoiceRef) {
+      await ensureTempDir();
+      try {
+        const downloaded = await downloadWeChatVoice({
+          channel: geWeChannel,
+          voice: weChatVoiceRef,
+          outputDir: tempDir,
+          maxBytes: MAX_FILE_BYTES,
+          downloadContent: downloadPublicContent,
+        });
+        const voicePath = await decodeSilkVoice(downloaded.path, {
+          decoderPath: config.geweSilkDecoderCommand,
+          run: (command, args) => runBufferedProcess(command, args, {
+            cwd: WORKDIR,
+            timeoutMs: Math.max(config.helperTimeoutMs, 60_000),
+            maxStdoutBytes: 128 * 1024,
+            maxStderrBytes: 128 * 1024,
+          }),
+        });
+        await assertMediaFile(voicePath);
+        task += `\n\n语音转写：\n${await transcribeAudio(voicePath)}`;
+        audit('media_downloaded', message, senderOpenId, {
+          channel: 'wechat', kind: 'audio', bytes: downloaded.bytes,
+        });
+      } catch (error) {
+        audit('audio_transcription_unavailable', message, senderOpenId, {
+          channel: 'wechat',
           error: processFailureSummary(error),
         });
         await sendText(null, message.chat_id, '语音收到了，但这次没有转写成功。你可以再发一次，或者补一句文字。', `aipro-audio-unavailable-${message.message_id}`);

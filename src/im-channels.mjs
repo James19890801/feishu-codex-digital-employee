@@ -736,10 +736,13 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
   const isImage = v1
     ? String(event?.TypeName || '') === 'AddMsg' && messageType === 3
     : messageType === 'IMAGE';
+  const isAudio = v1
+    ? String(event?.TypeName || '') === 'AddMsg' && messageType === 34
+    : ['VOICE', 'AUDIO'].includes(messageType);
   const isSystem = v1
     ? String(event?.TypeName || '') === 'AddMsg' && messageType === 10000
     : messageType === 'SYSTEM';
-  if ((!isText && !isImage && !isSystem) || !appId || !selfWxid) return null;
+  if ((!isText && !isImage && !isAudio && !isSystem) || !appId || !selfWxid) return null;
   const fromUser = nestedString(v1 ? data?.FromUserName : data?.fromUser).trim();
   const toUser = nestedString(v1 ? data?.ToUserName : data?.toUser).trim();
   const rawContent = nestedString(v1 ? data?.Content : data?.content);
@@ -802,8 +805,8 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
   const explicitBotMention = Boolean(explicitlyMentioned || namedInText);
   const mentioned = isSelf || !group || isImage || Boolean(linkCandidate) || explicitlyMentioned || namedInText;
   const contextOnly = group && !isSelf && (!mentioned || isImage);
-  const text = isImage ? '' : appMessage?.text || messageContent;
-  if (!isImage && !String(text).trim()) return null;
+  const text = isImage || isAudio ? '' : appMessage?.text || messageContent;
+  if (!isImage && !isAudio && !String(text).trim()) return null;
   const targetId = group ? groupId : isSelf ? toUser : senderId;
   if (!targetId) return null;
   const imageXml = isImage ? String(group ? parsedGroup.text : rawContent).trim() : '';
@@ -821,7 +824,7 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
       message_id: `wechat:${appId}:${messageId}`,
       chat_id: formatChannelChatId('wechat', group ? 'group' : 'user', targetId),
       chat_type: group ? 'group' : 'p2p',
-      message_type: isImage ? 'image' : appMessage?.appType === 6 && appMessage?.wechatFile
+      message_type: isImage ? 'image' : isAudio ? 'audio' : appMessage?.appType === 6 && appMessage?.wechatFile
         ? 'file' : 'text',
       create_time: normalizedTimestamp(v1 ? data?.CreateTime : data?.createTime),
       content: JSON.stringify({
@@ -848,6 +851,15 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
       ...(linkCandidate ? { linkCandidate } : {}),
       ...(appMessage?.quotedMessage ? { quotedMessage: appMessage.quotedMessage } : {}),
       ...(appMessage?.wechatFile ? { wechatFile: appMessage.wechatFile } : {}),
+      ...(isAudio ? {
+        voice: {
+          xml: String(group ? parsedGroup.text : rawContent).trim(),
+          msgId: nestedString(v1 ? data?.MsgId : data?.msgId).trim(),
+          ...(nestedString(v1 ? data?.ImgBuf?.buffer : data?.imgBuf?.buffer).trim()
+            ? { bufferBase64: nestedString(v1 ? data?.ImgBuf?.buffer : data?.imgBuf?.buffer).trim() }
+            : {}),
+        },
+      } : {}),
       ...(isImage ? {
         image: {
           xml: imageXml,

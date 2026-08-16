@@ -54,6 +54,7 @@
   "geweKeychainService": "aipro-gewe",
   "geweApiBaseUrl": "https://api.geweapi.com",
   "gewePublicCallbackBaseUrl": "",
+  "geweSilkDecoderCommand": "",
   "geweCallbackPort": 17656,
   "geweMentionNames": [],
   "geweRelationshipMemoryEnabled": true,
