@@ -366,6 +366,25 @@ import {
   }), /wxid/i);
 
   calls.length = 0;
+  await channel.publishTextMoment({
+    content: 'AI 进流程，不是给旧表单装个聊天框，而是重新分配判断、执行和责任。',
+  });
+  assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/sns/sendTextSns');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    appId: 'device-a',
+    allowWxIds: [],
+    atWxIds: [],
+    disableWxIds: [],
+    content: 'AI 进流程，不是给旧表单装个聊天框，而是重新分配判断、执行和责任。',
+    privacy: false,
+    allowTagIds: [],
+    disableTagIds: [],
+  });
+  await assert.rejects(channel.publishTextMoment({ content: '' }), /content/i);
+  await assert.rejects(channel.publishTextMoment({ content: 'a'.repeat(501) }), /content/i);
+  await assert.rejects(channel.publishTextMoment({ content: '正文\u0000' }), /content/i);
+
+  calls.length = 0;
   const preparedMention = await channel.prepareGroupMention(
     { channel: 'wechat', kind: 'group', id: 'room@chatroom' },
     '我来回答这个问题',

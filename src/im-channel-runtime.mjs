@@ -435,6 +435,34 @@ export class GeWeChannel {
     return operation;
   }
 
+  publishTextMoment({ content } = {}) {
+    const normalizedContent = String(content || '')
+      .replace(/\r\n?/g, '\n')
+      .trim();
+    if (!normalizedContent || normalizedContent.length > 500
+      || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(normalizedContent)) {
+      return Promise.reject(new Error('GeWe Moments content is invalid'));
+    }
+    const operation = this.momentTail.then(async () => {
+      const waitMs = Math.max(0, this.lastMomentWriteAt + 3_000 - this.now());
+      if (waitMs) await this.sleep(waitMs);
+      const result = await this.request('/gewe/v2/api/sns/sendTextSns', {
+        appId: this.appId,
+        allowWxIds: [],
+        atWxIds: [],
+        disableWxIds: [],
+        content: normalizedContent,
+        privacy: false,
+        allowTagIds: [],
+        disableTagIds: [],
+      });
+      this.lastMomentWriteAt = this.now();
+      return result;
+    });
+    this.momentTail = operation.catch(() => {});
+    return operation;
+  }
+
   async setCallback(callbackUrl) {
     const parsed = new URL(String(callbackUrl || ''));
     if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
