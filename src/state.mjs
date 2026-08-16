@@ -564,6 +564,19 @@ export class AgentState {
       .all(String(personId || ''), Math.max(1, Math.min(200, Number(limit) || 50)));
   }
 
+  pendingRelationshipPeople(limit = 20) {
+    return this.db.prepare(`SELECT person_id AS personId, MIN(occurred_at) AS firstPendingAt
+      FROM relationship_episode WHERE processed_at = '' GROUP BY person_id
+      ORDER BY firstPendingAt ASC LIMIT ?`)
+      .all(Math.max(1, Math.min(200, Number(limit) || 20)));
+  }
+
+  relationshipScopes(personId) {
+    return this.db.prepare(`SELECT DISTINCT audience_scope AS audienceScope
+      FROM relationship_episode WHERE person_id = ? ORDER BY audience_scope ASC`)
+      .all(String(personId || '')).map(row => row.audienceScope);
+  }
+
   markRelationshipEpisodesProcessed(eventIds, processedAt = new Date().toISOString()) {
     const ids = [...new Set((Array.isArray(eventIds) ? eventIds : [])
       .map(value => String(value || '').trim()).filter(Boolean))].slice(0, 200);
