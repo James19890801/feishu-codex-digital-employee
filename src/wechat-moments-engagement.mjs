@@ -230,6 +230,30 @@ function commentKey(momentId, commentId) {
   return `${String(momentId)}:${Number(commentId)}`;
 }
 
+function commentThreadHash(moment, comment) {
+  const commentsById = new Map((Array.isArray(moment?.comments) ? moment.comments : [])
+    .map(item => [Number(item.commentId), item]));
+  let root = comment;
+  const visited = new Set();
+  while (Number(root?.replyCommentId) > 0 && !visited.has(Number(root.commentId))) {
+    visited.add(Number(root.commentId));
+    const parent = commentsById.get(Number(root.replyCommentId));
+    if (!parent) break;
+    root = parent;
+  }
+  return auditHash(`${String(moment?.id || '')}:${Number(root?.commentId || comment?.commentId || 0)}`);
+}
+
+function isTransientCommentOutcome(outcome) {
+  return new Set([
+    'reply_budget',
+    'thread_budget',
+    'offline',
+    'generation_failed',
+    'write_failed',
+  ]).has(String(outcome?.reason || ''));
+}
+
 function auditHash(value) {
   return fingerprint(value).slice(0, 24);
 }
@@ -361,9 +385,10 @@ export class WeChatMomentsEngagement {
   async writeComment({ current, moment, comment = null, mode }) {
     const isReply = mode === 'thread_reply';
     const threadHash = auditHash(moment.id);
+    const replyThreadHash = isReply ? commentThreadHash(moment, comment) : threadHash;
     if (isReply) {
       if (current.replyCount >= this.maxRepliesPerDay) return { sent: false, reason: 'reply_budget' };
-      if ((current.threadCounts[threadHash] || 0) >= this.maxThreadDepth) {
+      if ((current.threadCounts[replyThreadHash] || 0) >= this.maxThreadDepth) {
         return { sent: false, reason: 'thread_budget' };
       }
     } else if (current.proactiveCount >= this.maxProactivePerDay) {
@@ -412,7 +437,7 @@ export class WeChatMomentsEngagement {
       if (!result.replayed) {
         if (isReply) {
           current.replyCount += 1;
-          current.threadCounts[threadHash] = (current.threadCounts[threadHash] || 0) + 1;
+          current.threadCounts[replyThreadHash] = (current.threadCounts[replyThreadHash] || 0) + 1;
         } else {
           current.proactiveCount += 1;
           current.authorHashes.push(auditHash(moment.userName));
@@ -560,6 +585,7 @@ export class WeChatMomentsEngagement {
 
       const seenMoments = new Set(current.seenMoments);
       const seenComments = new Set(current.seenComments);
+      const handledCommentKeys = new Set(current.seenComments);
       const likeHandledMoments = new Set(current.likeHandledMoments);
       let sent = 0;
       let liked = 0;
@@ -570,10 +596,17 @@ export class WeChatMomentsEngagement {
           .map(comment => comment.commentId));
         for (const comment of moment.comments) {
           const key = commentKey(moment.id, comment.commentId);
-          if (seenComments.has(key) || comment.userName === ownerWxid) continue;
+          if (seenComments.has(key)) continue;
+          if (comment.userName === ownerWxid) {
+            handledCommentKeys.add(key);
+            continue;
+          }
           const directedAtOwner = moment.userName === ownerWxid
             || ownerCommentIds.has(comment.replyCommentId);
-          if (!directedAtOwner) continue;
+          if (!directedAtOwner) {
+            handledCommentKeys.add(key);
+            continue;
+          }
           const outcome = await this.writeComment({
             current,
             moment,
@@ -581,6 +614,7 @@ export class WeChatMomentsEngagement {
             mode: 'thread_reply',
           });
           if (outcome.sent) sent += 1;
+          if (!isTransientCommentOutcome(outcome)) handledCommentKeys.add(key);
           if (current.circuitDay) break;
         }
         if (current.circuitDay) break;
@@ -641,7 +675,7 @@ export class WeChatMomentsEngagement {
       current = this.writeState({
         ...current,
         seenMoments: [...current.seenMoments, ...allMomentIds],
-        seenComments: [...current.seenComments, ...allCommentKeys],
+        seenComments: [...handledCommentKeys],
         lastScanAtMs: this.now(),
       });
       this.audit('wechat_moments_scan_completed', {

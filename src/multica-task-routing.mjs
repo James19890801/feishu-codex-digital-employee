@@ -85,6 +85,18 @@ export function buildDefaultSquadQuestion(squads) {
   return lines.join('\n');
 }
 
+export function defaultCreateSelection(squads, preferredSquadName = '') {
+  const available = (Array.isArray(squads) ? squads : [])
+    .filter(squad => normalized(squad?.id));
+  const preferred = normalized(preferredSquadName).toLowerCase();
+  const squad = available.find(item => normalized(item?.name).toLowerCase() === preferred)
+    || available[0]
+    || null;
+  return squad
+    ? { mode: 'squad', squad }
+    : { mode: 'create_only', squad: null };
+}
+
 export function parseSquadSelection(value, squads) {
   const text = normalized(value).replace(/[。！!]+$/, '').trim();
   if (/^(?:0|仅创建|只创建|不执行|不启动小队|无需小队|不需要小队)$/.test(text)) {

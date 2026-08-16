@@ -396,6 +396,7 @@ export class MulticaClient {
     parent = '',
     dueDate = '',
     startDate = '',
+    attachments = [],
   }) {
     const targetWorkspace = requiredText(
       workspaceId || this.defaultWorkspaceId,
@@ -414,6 +415,15 @@ export class MulticaClient {
       '--output', 'json',
     ];
     const input = String(description || '');
+    const attachmentPaths = (Array.isArray(attachments) ? attachments : [])
+      .map(value => String(value || '').trim())
+      .filter(Boolean);
+    if (attachmentPaths.length > 10) throw new Error('Too many Multica issue attachments');
+    for (const path of attachmentPaths) {
+      if (path.length > 2_000 || /[\u0000-\u001f\u007f]/.test(path)) {
+        throw new Error('Multica issue attachment path is invalid');
+      }
+    }
     if (input) args.push('--description-stdin');
     if (assignee) args.push('--assignee', requiredText(assignee, 'Assignee', 300));
     if (assigneeId) args.push('--assignee-id', requiredText(assigneeId, 'Assignee ID', 200));
@@ -421,6 +431,10 @@ export class MulticaClient {
     if (parent) args.push('--parent', requiredText(parent, 'Parent issue', 200));
     if (dueDate) args.push('--due-date', optionalDate(dueDate, 'Due date'));
     if (startDate) args.push('--start-date', optionalDate(startDate, 'Start date'));
+    if (attachmentPaths.length) {
+      args.push('--allow-external-file');
+      for (const path of attachmentPaths) args.push('--attachment', path);
+    }
     const result = await this.runJson(args, {
       workspaceId: targetWorkspace,
       input: input || undefined,

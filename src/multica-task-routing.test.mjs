@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   applyCreateRoute,
   buildDefaultSquadQuestion,
+  defaultCreateSelection,
   buildSquadQuestion,
   buildWorkspaceQuestion,
   parseSquadSelection,
@@ -43,6 +44,15 @@ assert.match(buildSquadQuestion(workspaces[0], squads), /0\. 仅创建 Issue，�
 assert.match(buildSquadQuestion(workspaces[0], squads), /1\. 詹老师的开发团伙（4 人）/);
 assert.doesNotMatch(buildDefaultSquadQuestion(squads), /空间|workspace/i);
 assert.match(buildDefaultSquadQuestion(squads), /1\. 詹老师的开发团伙（4 人）/);
+assert.deepEqual(defaultCreateSelection(squads, '詹老师的开发团伙'), {
+  mode: 'squad', squad: squads[0],
+});
+assert.deepEqual(defaultCreateSelection(squads, '不存在的小队'), {
+  mode: 'squad', squad: squads[0],
+});
+assert.deepEqual(defaultCreateSelection([], '詹老师的开发团伙'), {
+  mode: 'create_only', squad: null,
+});
 assert.deepEqual(parseSquadSelection('0', squads), { mode: 'create_only', squad: null });
 assert.deepEqual(parseSquadSelection('仅创建', squads), { mode: 'create_only', squad: null });
 assert.equal(parseSquadSelection('2', squads).squad.id, 'squad-2');

@@ -132,6 +132,7 @@ const created = await client.createIssue({
   status: 'todo',
   priority: 'high',
   assigneeId: 'squad-1',
+  attachments: ['/tmp/source-image.png'],
 });
 assert.equal(created.identifier, 'MYS-4');
 const createCall = calls.find(call => call.args.includes('create'));
@@ -141,6 +142,9 @@ assert.deepEqual(createCall.args.slice(0, 4), [
 assert.equal(createCall.args.includes('--description-stdin'), true);
 assert.equal(createCall.args.includes('--assignee-id'), true);
 assert.equal(createCall.args.includes('squad-1'), true);
+assert.equal(createCall.args.includes('--attachment'), true);
+assert.equal(createCall.args.includes('/tmp/source-image.png'), true);
+assert.equal(createCall.args.includes('--allow-external-file'), true);
 assert.equal(createCall.args.includes('Line 1\nLine 2'), false);
 assert.equal(createCall.options.input, 'Line 1\nLine 2');
 

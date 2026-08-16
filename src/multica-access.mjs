@@ -21,6 +21,10 @@ export function isVerifiedMulticaOwner(context = {}, identities = {}) {
 }
 
 export function isAuthorizedMulticaOwner(context = {}, identities = {}) {
+  const wechatP2pParticipant = context.chatType === 'p2p'
+    && context.metadata?.channel === 'wechat'
+    && String(context.senderId || '').startsWith('wechat:');
+  if (wechatP2pParticipant) return true;
   const selfChat = context.chatType === 'p2p' && context.metadata?.selfChat === true;
   const wechatGroupParticipant = context.chatType === 'group'
     && context.metadata?.channel === 'wechat'

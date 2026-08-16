@@ -50,6 +50,12 @@ assert.equal(isAuthorizedMulticaOwner({
 }, identities), true);
 
 assert.equal(isAuthorizedMulticaOwner({
+  senderId: 'wechat:wxid_guest',
+  chatType: 'p2p',
+  metadata: { channel: 'wechat', selfChat: false },
+}, identities), true, '个人微信单聊中的任何联系人都可以发起 Multica 任务');
+
+assert.equal(isAuthorizedMulticaOwner({
   senderId: 'wechat:wxid_owner',
   chatType: 'group',
   metadata: {
@@ -98,16 +104,6 @@ for (const context of [
   { senderId: 'dingtalk:dt_other', metadata: { channel: 'dingtalk', selfChat: true } },
   { senderId: 'dingtalk:dt_owner', metadata: { channel: 'feishu', selfChat: true } },
   { senderId: '', metadata: { channel: 'dingtalk', selfChat: true } },
-  {
-    senderId: 'wechat:wxid_owner',
-    chatType: 'p2p',
-    metadata: { channel: 'wechat', ownerControlAuthenticated: true },
-  },
-  {
-    senderId: 'wechat:wxid_owner',
-    chatType: 'p2p',
-    metadata: { channel: 'wechat', selfChat: true },
-  },
 ]) {
   assert.equal(isAuthorizedMulticaOwner(context, identities), false);
 }

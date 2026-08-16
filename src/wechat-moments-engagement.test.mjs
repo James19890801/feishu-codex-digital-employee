@@ -465,6 +465,108 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
   }
 
   {
+    const database = temporaryState('aipro-moments-independent-threads-');
+    try {
+      const ownerWxid = 'wxid_owner';
+      const ownerPost = rawMoment({ id: '41001', userName: ownerWxid, comments: [] });
+      let feed = [ownerPost];
+      const writes = [];
+      const worker = new moments.WeChatMomentsEngagement({
+        state: database.state,
+        channel: {
+          getProfile: async () => ({ wxid: ownerWxid, nickName: '詹老师' }),
+          listMoments: async () => ({ snsList: feed }),
+          getMomentDetails: async () => ownerPost,
+          checkOnline: async () => true,
+          commentMoment: async input => { writes.push(input); return { ret: 200 }; },
+        },
+        now: () => Date.parse('2026-08-15T10:00:00+08:00'),
+        maxThreadDepth: 1,
+        generate: async () => '{"action":"reply","text":"这个问题值得单独展开，关键要看导航是否保留人的判断权。","reason":"direct_reply"}',
+      });
+      await worker.scan('startup');
+
+      ownerPost.commentList = [{
+        commentId: 1, replyCommentId: 0, userName: 'wxid_friend_a',
+        nickName: '甲', content: '第一个问题', createTime: 1_786_700_100,
+      }];
+      ownerPost.commentCount = 1;
+      await worker.scan('periodic');
+
+      ownerPost.commentList.push(
+        {
+          commentId: 33, replyCommentId: 1, userName: ownerWxid,
+          nickName: '詹老师', content: '上一轮回复', createTime: 1_786_700_200,
+        },
+        {
+          commentId: 65, replyCommentId: 33, userName: 'wxid_friend_a',
+          nickName: '甲', content: '同一分支继续追问', createTime: 1_786_700_300,
+        },
+        {
+          commentId: 97, replyCommentId: 0, userName: 'wxid_friend_b',
+          nickName: '乙', content: '一个全新的独立问题', createTime: 1_786_700_400,
+        },
+      );
+      ownerPost.commentCount = ownerPost.commentList.length;
+      await worker.scan('periodic');
+
+      assert.deepEqual(
+        writes.map(item => item.commentId),
+        [1, 97],
+        'thread depth must be isolated per root comment, not shared by the whole Moment',
+      );
+      const persisted = database.state.get('wechat-moments-engagement', 'worker', null);
+      assert.equal(
+        persisted.seenComments.includes('41001:65'),
+        false,
+        'temporarily blocked comments must remain pending for a later scan',
+      );
+    } finally {
+      database.close();
+    }
+  }
+
+  {
+    const database = temporaryState('aipro-moments-reply-budget-retry-');
+    try {
+      let nowMs = Date.parse('2026-08-15T10:00:00+08:00');
+      const ownerPost = rawMoment({ id: '42001', userName: 'wxid_owner', comments: [] });
+      const writes = [];
+      const worker = new moments.WeChatMomentsEngagement({
+        state: database.state,
+        channel: {
+          getProfile: async () => ({ wxid: 'wxid_owner', nickName: '詹老师' }),
+          listMoments: async () => ({ snsList: [ownerPost] }),
+          getMomentDetails: async () => ownerPost,
+          checkOnline: async () => true,
+          commentMoment: async input => { writes.push(input); return { ret: 200 }; },
+        },
+        now: () => nowMs,
+        maxRepliesPerDay: 1,
+        generate: async () => '{"action":"reply","text":"这个问题我接着回答，先把判断依据讲清楚。","reason":"direct_reply"}',
+      });
+      await worker.scan('startup');
+      ownerPost.commentList = [
+        { commentId: 1, replyCommentId: 0, userName: 'wxid_a', content: '问题一' },
+        { commentId: 33, replyCommentId: 0, userName: 'wxid_b', content: '问题二' },
+      ];
+      ownerPost.commentCount = 2;
+      await worker.scan('periodic');
+      assert.deepEqual(writes.map(item => item.commentId), [1]);
+
+      nowMs += 24 * 60 * 60_000;
+      await worker.scan('periodic');
+      assert.deepEqual(
+        writes.map(item => item.commentId),
+        [1, 33],
+        'a comment deferred by the daily reply budget must be retried the next day',
+      );
+    } finally {
+      database.close();
+    }
+  }
+
+  {
     const database = temporaryState('aipro-moments-ambiguous-');
     try {
       let feed = [];

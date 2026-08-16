@@ -135,6 +135,7 @@ import {
 import {
   applyCreateRoute,
   buildDefaultSquadQuestion,
+  defaultCreateSelection,
   buildSquadQuestion,
   buildWorkspaceQuestion,
   parseSquadSelection,
@@ -1859,11 +1860,30 @@ async function startMulticaCreateRouting(
   cleanText,
   plan,
   deliveryContract = null,
+  context = null,
 ) {
   pendingActions.delete('multica', message.chat_id, senderOpenId);
   const workspaces = await MULTICA_CLIENT.listWorkspaces();
   const workspace = selectMyWorkspace(workspaces, config.multicaDefaultWorkspaceId);
   const squads = await MULTICA_CLIENT.listSquads(workspace.id);
+  if (messageChannel(message) === 'wechat') {
+    const selection = defaultCreateSelection(squads, config.multicaOwnerSquad);
+    const createRoute = { workspace, selection };
+    const routedPlan = applyCreateRoute(plan, createRoute);
+    audit('multica_create_default_routed', message, senderOpenId, {
+      workspaceId: workspace.id,
+      squadId: selection.squad?.id || '',
+      mode: selection.mode,
+    });
+    return applyRoutedMulticaCreate(
+      message,
+      senderOpenId,
+      routedPlan,
+      context || multicaContext(message, senderOpenId, { channel: 'wechat' }),
+      createRoute,
+      deliveryContract,
+    );
+  }
   const answer = buildDefaultSquadQuestion(squads);
   pendingActions.set('multica_create_route', message.chat_id, senderOpenId, {
     stage: 'squad',
@@ -2350,7 +2370,13 @@ async function applyPendingMulticaCreateRoute(message, senderOpenId, cleanText, 
   return false;
 }
 
-async function handleMulticaRequest(message, senderOpenId, cleanText, metadata = {}) {
+async function handleMulticaRequest(
+  message,
+  senderOpenId,
+  cleanText,
+  metadata = {},
+  localAttachments = [],
+) {
   if (!MULTICA_CAPABILITY) {
     await sendText(
       null,
@@ -2365,6 +2391,18 @@ async function handleMulticaRequest(message, senderOpenId, cleanText, metadata =
     chatType: message.chat_type,
   });
   let plan = await runCodexMulticaPlan(cleanText, history);
+  if (plan.action === 'create') {
+    const attachments = (Array.isArray(localAttachments) ? localAttachments : [])
+      .map(value => String(value || '').trim())
+      .filter(path => path && existsSync(path))
+      .slice(0, 4);
+    if (attachments.length) {
+      plan = {
+        ...plan,
+        fields: { ...plan.fields, attachments },
+      };
+    }
+  }
   const deliveryPlan = buildDeliveryPlan({ chatId: message.chat_id, request: cleanText });
   const deliveryContract = plan.action === 'create' && deliveryPlan.kind === 'artifact'
     ? {
@@ -2423,6 +2461,7 @@ async function handleMulticaRequest(message, senderOpenId, cleanText, metadata =
       cleanText,
       plan,
       deliveryContract,
+      context,
     );
   }
   return prepareMulticaConfirmation(message, senderOpenId, plan, context);
@@ -3308,7 +3347,13 @@ async function processIncoming(client, message, sender, metadata = {}) {
   }
   if (looksLikeMulticaRequest(cleanText)) {
     try {
-      await handleMulticaRequest(message, senderOpenId, cleanText, metadata);
+      await handleMulticaRequest(
+        message,
+        senderOpenId,
+        cleanText,
+        metadata,
+        weChatImagePaths,
+      );
     } catch (error) {
       console.error(`[multica-request-error] ${message.message_id}:`, error);
       await sendText(

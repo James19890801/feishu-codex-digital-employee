@@ -271,6 +271,21 @@ for (const channel of ['feishu', 'dingtalk', 'unknown']) {
   }
 }
 
+contract('owner-authorization', 'Can any personal WeChat p2p contact create and execute a Multica task?', () => {
+  assert.equal(isAuthorizedMulticaOwner({
+    senderId: 'wechat:wxid_contact',
+    chatType: 'p2p',
+    metadata: { channel: 'wechat', selfChat: false },
+  }, identities), true);
+});
+
+contract('agent-routing', 'Does personal WeChat create default to My Workspace and an execution squad?', () => {
+  const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
+  assert.match(runtimeSource, /defaultCreateSelection\(squads, config\.multicaOwnerSquad\)/);
+  assert.match(runtimeSource, /multica_create_default_routed/);
+  assert.match(runtimeSource, /localAttachments/);
+});
+
 for (const [question, input, expected] of [
   ['Can an authenticated Owner pause?', {
     current: null, text: '数字人请退场', authenticatedOwner: true,

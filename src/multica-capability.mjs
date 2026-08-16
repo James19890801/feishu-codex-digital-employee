@@ -27,6 +27,7 @@ const FIELD_LABELS = {
   parent: '父 Issue',
   dueDate: '截止日期',
   startDate: '开始日期',
+  attachments: '来源附件',
 };
 
 function statusLabel(value) {
@@ -41,6 +42,7 @@ function previewValue(key, value) {
   if (key === 'status') return statusLabel(value);
   if (key === 'priority') return priorityLabel(value);
   if (key === 'description') return String(value || '').slice(0, 800) || '（空）';
+  if (key === 'attachments') return `${Array.isArray(value) ? value.length : 0} 个本地来源文件`;
   return String(value || '（空）');
 }
 
