@@ -31,6 +31,11 @@ assert.match(greeting, /要继续聊吗/);
 assert.doesNotMatch(greeting, /詹老师|AI 助理 AIPRO/);
 assert.doesNotMatch(greeting, /告诉我他的一切|我掌握他所有|他懂的我也懂/);
 
+const wechatGreeting = buildFirstTakeoverGreeting({ channel: 'wechat' });
+assert.match(wechatGreeting, /我是詹老师的助理/);
+assert.match(wechatGreeting, /詹老师现在不在/);
+assert.doesNotMatch(wechatGreeting, /阿充/);
+
 assert.equal(shouldIntroduceAssistant({ chatType: 'p2p', isOwner: false, history: [] }), true);
 assert.equal(shouldIntroduceAssistant({
   chatType: 'p2p', isOwner: false, history: [{ role: 'assistant', content: greeting }],

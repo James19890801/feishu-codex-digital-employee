@@ -120,7 +120,11 @@ if (typeof moments.isEligibleProactiveMoment === 'function') {
     ...base,
     createTimeMs: Date.parse('2026-08-12T09:00:00+08:00'),
   }, context).reason, 'expired');
-  assert.equal(moments.isEligibleProactiveMoment(base, { ...context, authorAlreadyCommented: true }).reason, 'author_budget');
+  assert.equal(
+    moments.isEligibleProactiveMoment(base, { ...context, authorAlreadyCommented: true }).reason,
+    'eligible',
+    'a distinct Moment stays eligible even when its author was commented on earlier',
+  );
 }
 
 if (typeof moments.validateGeneratedReply === 'function') {
@@ -465,6 +469,45 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
   }
 
   {
+    const database = temporaryState('aipro-moments-same-author-distinct-posts-');
+    try {
+      let feed = [];
+      const writes = [];
+      const worker = new moments.WeChatMomentsEngagement({
+        state: database.state,
+        channel: {
+          getProfile: async () => ({ wxid: 'wxid_owner', nickName: '詹老师' }),
+          listMoments: async () => ({ snsList: feed }),
+          getMomentDetails: async snsId => feed.find(item => String(item.id) === String(snsId)),
+          checkOnline: async () => true,
+          likeMoment: async () => ({ ret: 200 }),
+          commentMoment: async input => { writes.push(input); return { ret: 200 }; },
+        },
+        now: () => Date.parse('2026-08-15T10:00:00+08:00'),
+        maxProactivePerDay: 2,
+        generate: async () => '{"action":"reply","text":"这个变化很具体，值得继续观察它对协作成本的影响。","reason":"specific"}',
+      });
+      await worker.scan('startup');
+      feed = [
+        rawMoment({ id: '43001', userName: 'wxid_same_author' }),
+        rawMoment({
+          id: '43002',
+          userName: 'wxid_same_author',
+          content: '第二条记录了另一项流程调整，信息同样足够具体。',
+        }),
+      ];
+      await worker.scan('periodic');
+      assert.deepEqual(
+        writes.map(item => item.snsId),
+        ['43001', '43002'],
+        'distinct eligible Moments from the same author may each receive one deduplicated comment',
+      );
+    } finally {
+      database.close();
+    }
+  }
+
+  {
     const database = temporaryState('aipro-moments-independent-threads-');
     try {
       const ownerWxid = 'wxid_owner';
@@ -599,11 +642,17 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
     const database = temporaryState('aipro-moments-circuit-');
     try {
       let listCalls = 0;
+      let online = false;
       const worker = new moments.WeChatMomentsEngagement({
         state: database.state,
         channel: {
           getProfile: async () => ({ wxid: 'wxid_owner', nickName: '詹老师' }),
-          listMoments: async () => { listCalls += 1; throw new Error('read unavailable'); },
+          checkOnline: async () => online,
+          listMoments: async () => {
+            listCalls += 1;
+            if (!online) throw new Error('read unavailable');
+            return { snsList: [] };
+          },
         },
         now: () => Date.parse('2026-08-15T10:00:00+08:00'),
         generate: async () => '{"action":"skip","text":"","reason":"unused"}',
@@ -614,6 +663,14 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
       const circuit = await worker.scan('periodic');
       assert.equal(circuit.circuitOpen, true);
       assert.equal(listCalls, 3);
+
+      online = true;
+      const recovered = await worker.scan('periodic');
+      assert.notEqual(recovered.circuitOpen, true, 'an online account must recover the daily circuit');
+      assert.equal(listCalls, 4);
+      const auditEvents = database.state.db.prepare('SELECT event FROM audit ORDER BY id').all()
+        .map(row => row.event);
+      assert.equal(auditEvents.includes('wechat_moments_circuit_recovered'), true);
     } finally {
       database.close();
     }

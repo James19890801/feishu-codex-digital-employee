@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  buildChannelIdentityInstruction,
   buildIdentityInstruction,
   isExcludedIdentityText,
   sanitizeIdentityContext,
@@ -18,5 +19,13 @@ assert.match(instruction, /你是新用户的数字人/);
 assert.match(instruction, /新用户在本企业的现行角色是产品经理/);
 assert.doesNotMatch(instruction, /阿充|James|詹老师|James/);
 assert.match(instruction, /被排除的业务上下文/);
+
+const wechatIdentity = buildChannelIdentityInstruction('wechat');
+assert.match(wechatIdentity, /你是詹老师的助理/);
+assert.match(wechatIdentity, /微信渠道/);
+assert.doesNotMatch(wechatIdentity, /你是阿充的数字人/);
+
+const dingtalkIdentity = buildChannelIdentityInstruction('dingtalk');
+assert.match(dingtalkIdentity, /你是阿充的数字人/);
 
 console.log('IDENTITY_POLICY_TEST_OK');

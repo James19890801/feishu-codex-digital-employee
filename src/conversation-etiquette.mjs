@@ -12,7 +12,10 @@ export function enforceReplyLength(answer, _request) {
   return String(answer || '').trim().replace(/\n{3,}/g, '\n\n');
 }
 
-export function buildFirstTakeoverGreeting() {
+export function buildFirstTakeoverGreeting({ channel = '' } = {}) {
+  if (String(channel).trim().toLowerCase() === 'wechat') {
+    return '你好，我是詹老师的助理。詹老师现在不在，我可以先协助处理公开或已授权的事项；需要他本人决定的内容，我会请他确认。要继续聊吗？';
+  }
   return '你好，我是阿充的数字人。阿充现在不在，我可以先协助处理公开或已授权的事项；需要他本人决定的内容，我会请他确认。要继续聊吗？';
 }
 

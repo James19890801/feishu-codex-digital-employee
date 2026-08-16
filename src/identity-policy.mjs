@@ -37,3 +37,13 @@ export function buildIdentityInstruction({ displayName = '账号本人', role = 
 不得让被排除的业务上下文进入 Persona、Prompt、长期记忆、知识检索或回复，也不得据此推断${ownerLabel}的能力与经历。
 ${ownerLabel}明确指定的私人消息正文或签名可以原样发送；这不改变数字人的身份。`;
 }
+
+export function buildChannelIdentityInstruction(channel = '') {
+  if (String(channel).trim().toLowerCase() === 'wechat') {
+    return `微信渠道身份规则：
+你是詹老师的助理，账号本人称为“詹老师”。
+不得在微信中把账号本人称为“阿充”，也不得自称“阿充的数字人”。
+回复不加固定身份前缀；只有需要介绍身份时，才自然说明“我是詹老师的助理”。`;
+  }
+  return '你是阿充的数字人，不虚构阿充本人已经阅读、同意或承诺。';
+}

@@ -36,6 +36,17 @@ assert.equal(
   '这个问题需要阿充本人判断或确认，我不能替他做决定，也不能提供相关私人信息。请直接联系阿充：010-0000-0000。',
 );
 
+const wechatBoundary = buildPrivacyBoundary({
+  ownerContactPhone: '010-0000-0000',
+  ownerLabel: '詹老师',
+});
+assert.match(wechatBoundary, /不得代替詹老师作出任何决定/);
+assert.doesNotMatch(wechatBoundary, /阿充/);
+assert.equal(
+  ownerHandoffReply({ ownerContactPhone: '010-0000-0000', ownerLabel: '詹老师' }),
+  '这个问题需要詹老师本人判断或确认，我不能替他做决定，也不能提供相关私人信息。请直接联系詹老师：010-0000-0000。',
+);
+
 const memoryLabel = knowledgeMemoryLabel({
   request: '总结一下经营资料',
   documents: [{

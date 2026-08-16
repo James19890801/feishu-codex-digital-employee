@@ -93,11 +93,9 @@ export function isEligibleProactiveMoment(moment, {
   ownerWxid = '',
   nowMs = Date.now(),
   maxAgeHours = 36,
-  authorAlreadyCommented = false,
 } = {}) {
   if (!moment?.id || !moment?.userName) return { eligible: false, reason: 'invalid' };
   if (moment.userName === ownerWxid) return { eligible: false, reason: 'self' };
-  if (authorAlreadyCommented) return { eligible: false, reason: 'author_budget' };
   const ageMs = Number(nowMs) - Number(moment.createTimeMs || 0);
   if (ageMs < -5 * 60_000 || ageMs > Number(maxAgeHours) * 3_600_000) {
     return { eligible: false, reason: 'expired' };
@@ -532,7 +530,13 @@ export class WeChatMomentsEngagement {
   async scan(reason = 'periodic') {
     let current = this.readState();
     if (current.circuitDay === current.day) {
-      return { circuitOpen: true, sent: 0, liked: 0 };
+      const online = typeof this.channel.checkOnline === 'function'
+        && await this.channel.checkOnline().catch(() => false);
+      if (!online) return { circuitOpen: true, sent: 0, liked: 0 };
+      current = this.writeState({ ...current, circuitDay: '', scanFailures: 0 });
+      this.audit('wechat_moments_circuit_recovered', {
+        reason: cleanText(reason, 50),
+      });
     }
     try {
       const profile = await this.channel.getProfile();
@@ -656,7 +660,6 @@ export class WeChatMomentsEngagement {
             ownerWxid,
             nowMs: this.now(),
             maxAgeHours: this.postMaxAgeHours,
-            authorAlreadyCommented: current.authorHashes.includes(authorHash),
           });
           if (!eligibility.eligible) {
             this.audit('wechat_moments_skipped', {

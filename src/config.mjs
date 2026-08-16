@@ -194,7 +194,7 @@ export const config = {
     name: 'geweMomentsScanIntervalMs', fallback: 300_000, min: 60_000, max: 86_400_000,
   }),
   geweMomentsMaxProactivePerDay: boundedInteger(raw.geweMomentsMaxProactivePerDay, {
-    name: 'geweMomentsMaxProactivePerDay', fallback: 6, min: 1, max: 20,
+    name: 'geweMomentsMaxProactivePerDay', fallback: 20, min: 1, max: 20,
   }),
   geweMomentsMaxRepliesPerDay: boundedInteger(raw.geweMomentsMaxRepliesPerDay, {
     name: 'geweMomentsMaxRepliesPerDay', fallback: 20, min: 1, max: 100,
