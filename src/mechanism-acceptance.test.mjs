@@ -165,6 +165,9 @@ contract('wechat-relationship-memory', 'Does every personal WeChat reply use aud
   assert.match(runtimeSource, /wechatRelationshipMemory\.contextFor\(\{/);
   assert.match(runtimeSource, /relationshipContext/);
   assert.match(runtimeSource, /wechatRelationshipMemory\.observeOutbound\(\{/);
+  assert.match(runtimeSource, /observeRelationship: moment => wechatRelationshipMemory\.observeMoment\(moment\)/);
+  assert.match(runtimeSource, /retrieveRelationship: input => wechatRelationshipMemory\.contextFor\(input\)/);
+  assert.match(runtimeSource, /observeRelationshipOutbound: input => wechatRelationshipMemory\.observeOutbound\(input\)/);
   assert.match(runtimeSource, /wechatRelationshipMemory\.start\(\)/);
   assert.match(runtimeSource, /wechatRelationshipMemory\.stop\(\)/);
 });

@@ -5367,6 +5367,9 @@ async function initializeAdditionalImChannels() {
             query,
             channel: 'wechat-moments',
           }),
+          observeRelationship: moment => wechatRelationshipMemory.observeMoment(moment),
+          retrieveRelationship: input => wechatRelationshipMemory.contextFor(input),
+          observeRelationshipOutbound: input => wechatRelationshipMemory.observeOutbound(input),
         });
         await wechatMomentsEngagement.start();
         console.log('[wechat] selective Moments engagement active');

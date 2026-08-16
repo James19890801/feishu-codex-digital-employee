@@ -165,10 +165,12 @@ if (typeof moments.buildMomentsPrompt === 'function') {
     authorName: '朋友甲',
     commentContent: '',
     knowledgeContext: '',
+    relationshipContext: '与对方公开讨论过流程交接标准。',
   });
   assert.match(prompt, /不可信|untrusted/i);
   assert.match(prompt, /不得虚构|亲历/);
   assert.match(prompt, /严格 JSON/);
+  assert.match(prompt, /公开讨论过流程交接标准/);
   assert.equal(prompt.includes('<TimelineObject>'), false);
 }
 
@@ -296,6 +298,9 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
       const operations = [];
       const generatedPrompts = [];
       const knowledgeQueries = [];
+      const observedRelationships = [];
+      const relationshipQueries = [];
+      const relationshipOutbounds = [];
       const channel = {
         getProfile: async () => ({ wxid: ownerWxid, nickName: '詹老师' }),
         listMoments: async () => ({ snsList: feed }),
@@ -327,6 +332,12 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
           knowledgeQueries.push(query);
           return '端到端流程需要明确输入、输出和交接标准。';
         },
+        observeRelationship: moment => { observedRelationships.push(moment.id); },
+        retrieveRelationship: async input => {
+          relationshipQueries.push(input);
+          return '与对方公开讨论过流程交接标准。';
+        },
+        observeRelationshipOutbound: input => { relationshipOutbounds.push(input); },
       });
 
       const baseline = await worker.scan('startup');
@@ -382,7 +393,19 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
         'comment:30001',
       ]);
       assert.equal(generatedPrompts.length, 3);
+      assert.equal(generatedPrompts.every(prompt => prompt.includes('公开讨论过流程交接标准')), true);
       assert.equal(knowledgeQueries.some(query => query.includes('流程')), true);
+      assert.equal(observedRelationships.includes('30001'), true);
+      assert.deepEqual(relationshipQueries.map(item => item.personId), [
+        'wxid_member_a', 'wxid_member_b', 'wxid_friend_new',
+      ]);
+      assert.deepEqual(relationshipOutbounds.map(item => ({
+        personId: item.personId, surface: item.surface, contextId: item.contextId,
+      })), [
+        { personId: 'wxid_member_a', surface: 'moments', contextId: '20001' },
+        { personId: 'wxid_member_b', surface: 'moments', contextId: '10001' },
+        { personId: 'wxid_friend_new', surface: 'moments', contextId: '30001' },
+      ]);
 
       const replay = await worker.scan('periodic');
       assert.equal(replay.sent, 0);
