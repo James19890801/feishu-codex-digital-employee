@@ -63,6 +63,19 @@ function randomMinute(startMs, endMs, random) {
   return startMs + Math.floor(unit * minutes) * 60_000;
 }
 
+function parsedWindow(value, fallback) {
+  const normalized = String(value || fallback);
+  const match = normalized.match(/^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]\d)$/);
+  if (!match) throw new Error('Moments publisher window is invalid');
+  const start = `${match[1]}:${match[2]}`;
+  const end = `${match[3]}:${match[4]}`;
+  if ((Number(match[3]) * 60 + Number(match[4]))
+    <= (Number(match[1]) * 60 + Number(match[2]))) {
+    throw new Error('Moments publisher window must end after it starts');
+  }
+  return { start, end };
+}
+
 function slot(id, atMs, endMs) {
   return {
     id,
@@ -78,11 +91,15 @@ export function planMomentsDay({
   nowMs = Date.now(),
   activatedAtMs = 0,
   random = Math.random,
+  morningWindow = '10:00-12:00',
+  eveningWindow = '18:30-21:00',
 } = {}) {
   const day = shanghaiDayKey(nowMs);
+  const morning = parsedWindow(morningWindow, '10:00-12:00');
+  const evening = parsedWindow(eveningWindow, '18:30-21:00');
   const windows = [
-    { id: 'morning', startMs: atShanghai(day, '10:00'), endMs: atShanghai(day, '12:00') },
-    { id: 'evening', startMs: atShanghai(day, '18:30'), endMs: atShanghai(day, '21:00') },
+    { id: 'morning', startMs: atShanghai(day, morning.start), endMs: atShanghai(day, morning.end) },
+    { id: 'evening', startMs: atShanghai(day, evening.start), endMs: atShanghai(day, evening.end) },
   ];
   if (!activatedAtMs) {
     const dayEndMs = atShanghai(day, '23:59') + 59_000;
@@ -239,6 +256,8 @@ export class WeChatMomentsPublisher {
     generate,
     retrieveKnowledge,
     intervalMs = 60_000,
+    morningWindow = '10:00-12:00',
+    eveningWindow = '18:30-21:00',
     now = Date.now,
     random = Math.random,
     setIntervalImpl = setInterval,
@@ -253,6 +272,8 @@ export class WeChatMomentsPublisher {
     this.generate = generate;
     this.retrieveKnowledge = retrieveKnowledge;
     this.intervalMs = Math.max(60_000, Math.min(15 * 60_000, Number(intervalMs) || 60_000));
+    this.morningWindow = morningWindow;
+    this.eveningWindow = eveningWindow;
     this.now = now;
     this.random = random;
     this.setIntervalImpl = setIntervalImpl;
@@ -283,6 +304,8 @@ export class WeChatMomentsPublisher {
       nowMs,
       activatedAtMs: current.activatedAtMs,
       random: this.random,
+      morningWindow: this.morningWindow,
+      eveningWindow: this.eveningWindow,
     });
     const next = this.writeState({
       ...current,

@@ -47,6 +47,16 @@ function boundedStringArray(value, { name, maxItems = 20, maxLength = 500 } = {}
   return [...new Set(effective.map(item => item.trim()))];
 }
 
+function dailyWindow(value, { name, fallback }) {
+  const normalized = String(value === undefined ? fallback : value).trim();
+  const match = normalized.match(/^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]\d)$/);
+  if (!match) throw new Error(`${name} must use HH:MM-HH:MM`);
+  const start = Number(match[1]) * 60 + Number(match[2]);
+  const end = Number(match[3]) * 60 + Number(match[4]);
+  if (end - start < 30) throw new Error(`${name} must end at least 30 minutes after it starts`);
+  return normalized;
+}
+
 export const config = {
   feishuEnabled: raw.feishuEnabled !== false,
   feishuAppId: raw.feishuAppId || '',
@@ -179,6 +189,16 @@ export const config = {
   }),
   geweMomentsPostMaxAgeHours: boundedInteger(raw.geweMomentsPostMaxAgeHours, {
     name: 'geweMomentsPostMaxAgeHours', fallback: 36, min: 1, max: 168,
+  }),
+  geweMomentsPublisherEnabled: raw.geweMomentsPublisherEnabled === true,
+  geweMomentsPublisherIntervalMs: boundedInteger(raw.geweMomentsPublisherIntervalMs, {
+    name: 'geweMomentsPublisherIntervalMs', fallback: 60_000, min: 60_000, max: 900_000,
+  }),
+  geweMomentsPublisherMorningWindow: dailyWindow(raw.geweMomentsPublisherMorningWindow, {
+    name: 'geweMomentsPublisherMorningWindow', fallback: '10:00-12:00',
+  }),
+  geweMomentsPublisherEveningWindow: dailyWindow(raw.geweMomentsPublisherEveningWindow, {
+    name: 'geweMomentsPublisherEveningWindow', fallback: '18:30-21:00',
   }),
   multicaEnabled: raw.multicaEnabled === true,
   multicaProfile: raw.multicaProfile || 'desktop-api.multica.ai',

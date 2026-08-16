@@ -257,6 +257,7 @@ import {
 import { enrichWeChatLearningContext } from './wechat-learning-context.mjs';
 import { WeChatNewcomerWelcome } from './wechat-newcomer-welcome.mjs';
 import { WeChatMomentsEngagement } from './wechat-moments-engagement.mjs';
+import { WeChatMomentsPublisher } from './wechat-moments-publisher.mjs';
 import {
   discoverBotP2pChats,
   isExpectedLarkCliResult,
@@ -467,6 +468,7 @@ let geWeChannel = null;
 let geWeWebhookServer = null;
 let wechatNewcomerWelcome = null;
 let wechatMomentsEngagement = null;
+let wechatMomentsPublisher = null;
 const shutdownDelay = new InterruptibleDelay();
 
 function remember(chatId, senderOpenId, role, content, options) {
@@ -5280,6 +5282,30 @@ async function initializeAdditionalImChannels() {
         await wechatMomentsEngagement.start();
         console.log('[wechat] selective Moments engagement active');
       }
+      if (config.geweMomentsPublisherEnabled) {
+        wechatMomentsPublisher = new WeChatMomentsPublisher({
+          state,
+          channel: geWeChannel,
+          intervalMs: config.geweMomentsPublisherIntervalMs,
+          morningWindow: config.geweMomentsPublisherMorningWindow,
+          eveningWindow: config.geweMomentsPublisherEveningWindow,
+          generate: async prompt => {
+            const result = await runAiRuntime(prompt, {
+              cwd: WORKDIR,
+              model: config.codexModel,
+              timeoutMs: 120_000,
+              auditErrorCode: 'wechat_moments_post_generation_failed',
+            });
+            return result.text;
+          },
+          retrieveKnowledge: query => LOCAL_WIKI_RETRIEVER.contextFor({
+            query,
+            channel: 'wechat-moments-publisher',
+          }),
+        });
+        await wechatMomentsPublisher.start();
+        console.log('[wechat] grounded daily Moments publisher active');
+      }
       geWeMonitorPromise = superviseGeWeHealth()
         .catch(error => console.error('[wechat-gewe-monitor-fatal]', error));
       console.log(`[wechat] GeWe personal WeChat webhook listening on 127.0.0.1:${config.geweCallbackPort}`);
@@ -5292,6 +5318,10 @@ async function initializeAdditionalImChannels() {
       if (wechatMomentsEngagement) {
         wechatMomentsEngagement.stop();
         wechatMomentsEngagement = null;
+      }
+      if (wechatMomentsPublisher) {
+        wechatMomentsPublisher.stop();
+        wechatMomentsPublisher = null;
       }
       if (geWeWebhookServer) await geWeWebhookServer.stop().catch(() => {});
       geWeWebhookServer = null;
@@ -5569,6 +5599,10 @@ function stopGracefully(signal) {
   if (wechatMomentsEngagement) {
     wechatMomentsEngagement.stop();
     wechatMomentsEngagement = null;
+  }
+  if (wechatMomentsPublisher) {
+    wechatMomentsPublisher.stop();
+    wechatMomentsPublisher = null;
   }
   if (geWeWebhookServer) {
     geWeWebhookServer.stop().catch(() => {});
