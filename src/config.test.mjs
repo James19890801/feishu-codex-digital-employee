@@ -37,6 +37,11 @@ assert.equal(typeof config.geweMomentsPublisherEnabled, 'boolean');
 assert.equal(config.geweMomentsPublisherIntervalMs, 60_000);
 assert.equal(config.geweMomentsPublisherMorningWindow, '10:00-12:00');
 assert.equal(config.geweMomentsPublisherEveningWindow, '18:30-21:00');
+assert.equal(config.geweRelationshipMemoryEnabled, true);
+assert.equal(config.geweRelationshipMemoryIntervalMs, 120_000);
+assert.equal(config.geweRelationshipMemoryBatchSize, 10);
+assert.equal(config.geweRelationshipMemoryCapsuleMaxChars, 1_200);
+assert.equal(config.geweRelationshipMemoryRecallLimit, 6);
 
 const directory = mkdtempSync(join(tmpdir(), 'aipro-config-'));
 try {
@@ -117,6 +122,10 @@ try {
     ['geweMomentsPublisherIntervalMs', 30_000],
     ['geweMomentsPublisherMorningWindow', '12:00-10:00'],
     ['geweMomentsPublisherEveningWindow', 'not-a-window'],
+    ['geweRelationshipMemoryIntervalMs', 30_000],
+    ['geweRelationshipMemoryBatchSize', 0],
+    ['geweRelationshipMemoryCapsuleMaxChars', 200],
+    ['geweRelationshipMemoryRecallLimit', 0],
   ]) {
     const invalidPath = join(directory, `${field}.json`);
     writeFileSync(invalidPath, JSON.stringify({ ...example, [field]: value }));

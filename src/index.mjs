@@ -5298,18 +5298,24 @@ async function initializeAdditionalImChannels() {
         mentionNames: config.geweMentionNames,
         onStatus: patch => updateImChannelStatus('wechat', patch),
       });
-      wechatRelationshipMemory = new WeChatRelationshipMemory({
-        state,
-        runAi: async prompt => {
-          const result = await runAiRuntime(prompt, {
-            cwd: WORKDIR,
-            model: config.codexModel,
-            timeoutMs: 120_000,
-            auditErrorCode: 'wechat_relationship_memory_generation_failed',
-          });
-          return result.text;
-        },
-      });
+      if (config.geweRelationshipMemoryEnabled) {
+        wechatRelationshipMemory = new WeChatRelationshipMemory({
+          state,
+          intervalMs: config.geweRelationshipMemoryIntervalMs,
+          batchSize: config.geweRelationshipMemoryBatchSize,
+          capsuleMaxChars: config.geweRelationshipMemoryCapsuleMaxChars,
+          recallLimit: config.geweRelationshipMemoryRecallLimit,
+          runAi: async prompt => {
+            const result = await runAiRuntime(prompt, {
+              cwd: WORKDIR,
+              model: config.codexModel,
+              timeoutMs: 120_000,
+              auditErrorCode: 'wechat_relationship_memory_generation_failed',
+            });
+            return result.text;
+          },
+        });
+      }
       geWeWebhookServer = new GeWeWebhookServer({
         channel: geWeChannel,
         callbackSecret,
@@ -5333,7 +5339,7 @@ async function initializeAdditionalImChannels() {
       await geWeChannel.setCallback(callbackUrl);
       updateImChannelStatus('wechat', { callbackRegistered: true });
       await geWeChannel.checkOnline();
-      wechatRelationshipMemory.start();
+      if (wechatRelationshipMemory) wechatRelationshipMemory.start();
       if (config.geweNewcomerWelcomeEnabled) {
         wechatNewcomerWelcome = new WeChatNewcomerWelcome({
           state,
@@ -5367,9 +5373,11 @@ async function initializeAdditionalImChannels() {
             query,
             channel: 'wechat-moments',
           }),
-          observeRelationship: moment => wechatRelationshipMemory.observeMoment(moment),
-          retrieveRelationship: input => wechatRelationshipMemory.contextFor(input),
-          observeRelationshipOutbound: input => wechatRelationshipMemory.observeOutbound(input),
+          ...(wechatRelationshipMemory ? {
+            observeRelationship: moment => wechatRelationshipMemory.observeMoment(moment),
+            retrieveRelationship: input => wechatRelationshipMemory.contextFor(input),
+            observeRelationshipOutbound: input => wechatRelationshipMemory.observeOutbound(input),
+          } : {}),
         });
         await wechatMomentsEngagement.start();
         console.log('[wechat] selective Moments engagement active');

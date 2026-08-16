@@ -161,6 +161,11 @@ contract('wechat-moments-engagement', 'Does the live GeWe lifecycle run selectiv
 contract('wechat-relationship-memory', 'Does every personal WeChat reply use audience-safe relationship memory?', () => {
   const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
   assert.match(runtimeSource, /import \{ WeChatRelationshipMemory \} from '\.\/wechat-relationship-memory\.mjs'/);
+  assert.match(runtimeSource, /config\.geweRelationshipMemoryEnabled/);
+  assert.match(runtimeSource, /intervalMs: config\.geweRelationshipMemoryIntervalMs/);
+  assert.match(runtimeSource, /batchSize: config\.geweRelationshipMemoryBatchSize/);
+  assert.match(runtimeSource, /capsuleMaxChars: config\.geweRelationshipMemoryCapsuleMaxChars/);
+  assert.match(runtimeSource, /recallLimit: config\.geweRelationshipMemoryRecallLimit/);
   assert.match(runtimeSource, /wechatRelationshipMemory\.observeChat\(\{/);
   assert.match(runtimeSource, /wechatRelationshipMemory\.contextFor\(\{/);
   assert.match(runtimeSource, /relationshipContext/);

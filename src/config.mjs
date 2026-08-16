@@ -166,6 +166,19 @@ export const config = {
   geweMentionNames: Array.isArray(raw.geweMentionNames)
     ? raw.geweMentionNames.map(value => String(value).trim()).filter(Boolean).slice(0, 10)
     : [],
+  geweRelationshipMemoryEnabled: raw.geweRelationshipMemoryEnabled !== false,
+  geweRelationshipMemoryIntervalMs: boundedInteger(raw.geweRelationshipMemoryIntervalMs, {
+    name: 'geweRelationshipMemoryIntervalMs', fallback: 120_000, min: 60_000, max: 3_600_000,
+  }),
+  geweRelationshipMemoryBatchSize: boundedInteger(raw.geweRelationshipMemoryBatchSize, {
+    name: 'geweRelationshipMemoryBatchSize', fallback: 10, min: 1, max: 50,
+  }),
+  geweRelationshipMemoryCapsuleMaxChars: boundedInteger(raw.geweRelationshipMemoryCapsuleMaxChars, {
+    name: 'geweRelationshipMemoryCapsuleMaxChars', fallback: 1_200, min: 300, max: 4_000,
+  }),
+  geweRelationshipMemoryRecallLimit: boundedInteger(raw.geweRelationshipMemoryRecallLimit, {
+    name: 'geweRelationshipMemoryRecallLimit', fallback: 6, min: 1, max: 12,
+  }),
   geweNewcomerWelcomeEnabled: raw.geweNewcomerWelcomeEnabled === true,
   geweNewcomerWelcomeGroupId: String(raw.geweNewcomerWelcomeGroupId || '').trim(),
   geweNewcomerWelcomeGroupName: String(raw.geweNewcomerWelcomeGroupName || '').trim(),
