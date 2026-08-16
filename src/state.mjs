@@ -270,6 +270,67 @@ export class AgentState {
       );
       CREATE INDEX IF NOT EXISTS mutation_execution_status
         ON mutation_execution(status, updated_at);
+      CREATE TABLE IF NOT EXISTS relationship_person (
+        person_id TEXT PRIMARY KEY,
+        channel TEXT NOT NULL,
+        external_id TEXT NOT NULL,
+        display_name TEXT NOT NULL DEFAULT '',
+        remark TEXT NOT NULL DEFAULT '',
+        aliases TEXT NOT NULL DEFAULT '[]',
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS relationship_person_external
+        ON relationship_person(channel, external_id);
+      CREATE TABLE IF NOT EXISTS relationship_episode (
+        event_id TEXT PRIMARY KEY,
+        person_id TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        surface TEXT NOT NULL,
+        context_id TEXT NOT NULL,
+        audience_scope TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        content TEXT NOT NULL,
+        source_ref TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        importance REAL NOT NULL DEFAULT 0.5,
+        processed_at TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS relationship_episode_person
+        ON relationship_episode(person_id, occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS relationship_episode_pending
+        ON relationship_episode(processed_at, occurred_at);
+      CREATE TABLE IF NOT EXISTS relationship_fact (
+        fact_id TEXT PRIMARY KEY,
+        person_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        content TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        confidence REAL NOT NULL,
+        audience_scope TEXT NOT NULL,
+        source_event_id TEXT NOT NULL,
+        valid_from TEXT NOT NULL,
+        valid_until TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'current',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(person_id, kind, fingerprint)
+      );
+      CREATE INDEX IF NOT EXISTS relationship_fact_recall
+        ON relationship_fact(person_id, status, updated_at DESC);
+      CREATE TABLE IF NOT EXISTS relationship_profile (
+        person_id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL DEFAULT '',
+        familiarity TEXT NOT NULL DEFAULT 'new',
+        tone TEXT NOT NULL DEFAULT '',
+        topics TEXT NOT NULL DEFAULT '[]',
+        open_loops TEXT NOT NULL DEFAULT '[]',
+        summary TEXT NOT NULL DEFAULT '',
+        confidence REAL NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS learning_run (
         id TEXT PRIMARY KEY,
         learning_date TEXT NOT NULL UNIQUE,
@@ -406,6 +467,227 @@ export class AgentState {
       )
       ORDER BY createdAt ASC, id ASC`)
       .all(chatId, limit);
+  }
+
+  upsertRelationshipPerson({
+    personId, channel, externalId, displayName = '', remark = '', aliases = [],
+    firstSeenAt = '', lastSeenAt = '',
+  } = {}) {
+    const normalizedPersonId = String(personId || '').trim().slice(0, 500);
+    const normalizedChannel = String(channel || '').trim().slice(0, 50);
+    const normalizedExternalId = String(externalId || '').trim().slice(0, 500);
+    if (!normalizedPersonId || !normalizedChannel || !normalizedExternalId) {
+      throw new Error('Relationship person requires person, channel, and external IDs');
+    }
+    const now = new Date().toISOString();
+    const first = String(firstSeenAt || lastSeenAt || now);
+    const last = String(lastSeenAt || firstSeenAt || now);
+    const uniqueAliases = [...new Set((Array.isArray(aliases) ? aliases : [])
+      .map(value => String(value || '').trim().slice(0, 200)).filter(Boolean))].slice(0, 20);
+    this.db.prepare(`INSERT INTO relationship_person
+      (person_id, channel, external_id, display_name, remark, aliases,
+       first_seen_at, last_seen_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(person_id) DO UPDATE SET
+        display_name=CASE WHEN excluded.display_name <> '' THEN excluded.display_name ELSE display_name END,
+        remark=CASE WHEN excluded.remark <> '' THEN excluded.remark ELSE remark END,
+        aliases=CASE WHEN excluded.aliases <> '[]' THEN excluded.aliases ELSE aliases END,
+        first_seen_at=MIN(first_seen_at, excluded.first_seen_at),
+        last_seen_at=MAX(last_seen_at, excluded.last_seen_at),
+        updated_at=excluded.updated_at`)
+      .run(
+        normalizedPersonId, normalizedChannel, normalizedExternalId,
+        String(displayName || '').trim().slice(0, 200),
+        String(remark || '').trim().slice(0, 200), JSON.stringify(uniqueAliases),
+        first, last, now,
+      );
+    return this.relationshipPerson(normalizedPersonId);
+  }
+
+  relationshipPerson(personId) {
+    const row = this.db.prepare(`SELECT person_id AS personId, channel,
+      external_id AS externalId, display_name AS displayName, remark, aliases,
+      first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt, updated_at AS updatedAt
+      FROM relationship_person WHERE person_id = ?`).get(String(personId || ''));
+    if (!row) return null;
+    try { row.aliases = JSON.parse(row.aliases); } catch { row.aliases = []; }
+    return row;
+  }
+
+  relationshipPeople(limit = 1_000) {
+    return this.db.prepare(`SELECT person_id AS personId, channel, external_id AS externalId,
+      display_name AS displayName, remark, first_seen_at AS firstSeenAt,
+      last_seen_at AS lastSeenAt, updated_at AS updatedAt
+      FROM relationship_person ORDER BY last_seen_at DESC LIMIT ?`)
+      .all(Math.max(1, Math.min(10_000, Number(limit) || 1_000)));
+  }
+
+  recordRelationshipEpisode({
+    eventId, personId, channel = 'wechat', surface, contextId,
+    audienceScope, direction, content, sourceRef, occurredAt = '', importance = 0.5,
+  } = {}) {
+    const normalized = {
+      eventId: String(eventId || '').trim().slice(0, 500),
+      personId: String(personId || '').trim().slice(0, 500),
+      channel: String(channel || '').trim().slice(0, 50),
+      surface: String(surface || '').trim().slice(0, 50),
+      contextId: String(contextId || '').trim().slice(0, 500),
+      audienceScope: String(audienceScope || '').trim().slice(0, 500),
+      direction: String(direction || '').trim().slice(0, 30),
+      content: String(content || '').trim().slice(0, 4_000),
+      sourceRef: String(sourceRef || eventId || '').trim().slice(0, 500),
+      occurredAt: String(occurredAt || new Date().toISOString()),
+    };
+    if (Object.values(normalized).some(value => !value)) {
+      throw new Error('Relationship episode is incomplete');
+    }
+    const score = Math.max(0, Math.min(1, Number(importance) || 0));
+    const result = this.db.prepare(`INSERT OR IGNORE INTO relationship_episode
+      (event_id, person_id, channel, surface, context_id, audience_scope, direction,
+       content, source_ref, occurred_at, importance, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(
+        normalized.eventId, normalized.personId, normalized.channel, normalized.surface,
+        normalized.contextId, normalized.audienceScope, normalized.direction,
+        normalized.content, normalized.sourceRef, normalized.occurredAt, score,
+        new Date().toISOString(),
+      );
+    return result.changes > 0;
+  }
+
+  pendingRelationshipEpisodes(personId, limit = 50) {
+    return this.db.prepare(`SELECT event_id AS eventId, person_id AS personId, channel,
+      surface, context_id AS contextId, audience_scope AS audienceScope, direction,
+      content, source_ref AS sourceRef, occurred_at AS occurredAt, importance
+      FROM relationship_episode WHERE person_id = ? AND processed_at = ''
+      ORDER BY occurred_at ASC LIMIT ?`)
+      .all(String(personId || ''), Math.max(1, Math.min(200, Number(limit) || 50)));
+  }
+
+  markRelationshipEpisodesProcessed(eventIds, processedAt = new Date().toISOString()) {
+    const ids = [...new Set((Array.isArray(eventIds) ? eventIds : [])
+      .map(value => String(value || '').trim()).filter(Boolean))].slice(0, 200);
+    if (!ids.length) return 0;
+    const placeholders = ids.map(() => '?').join(',');
+    return this.db.prepare(`UPDATE relationship_episode SET processed_at = ?
+      WHERE event_id IN (${placeholders}) AND processed_at = ''`).run(processedAt, ...ids).changes;
+  }
+
+  relationshipEpisodes(personId, { allowedScopes = [], limit = 20 } = {}) {
+    const scopes = [...new Set((Array.isArray(allowedScopes) ? allowedScopes : [])
+      .map(value => String(value || '').trim()).filter(Boolean))].slice(0, 50);
+    if (!scopes.length) return [];
+    const placeholders = scopes.map(() => '?').join(',');
+    return this.db.prepare(`SELECT event_id AS eventId, person_id AS personId, channel,
+      surface, context_id AS contextId, audience_scope AS audienceScope, direction,
+      content, source_ref AS sourceRef, occurred_at AS occurredAt, importance
+      FROM relationship_episode WHERE person_id = ? AND audience_scope IN (${placeholders})
+      ORDER BY occurred_at DESC LIMIT ?`)
+      .all(String(personId || ''), ...scopes, Math.max(1, Math.min(200, Number(limit) || 20)));
+  }
+
+  upsertRelationshipFact({
+    factId, personId, kind, content, fingerprint, confidence = 0,
+    audienceScope, sourceEventId, validFrom = '', validUntil = '', status = 'current',
+  } = {}) {
+    const values = [factId, personId, kind, content, fingerprint, audienceScope, sourceEventId]
+      .map(value => String(value || '').trim());
+    if (values.some(value => !value)) throw new Error('Relationship fact is incomplete');
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT INTO relationship_fact
+      (fact_id, person_id, kind, content, fingerprint, confidence, audience_scope,
+       source_event_id, valid_from, valid_until, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(person_id, kind, fingerprint) DO UPDATE SET
+        content=excluded.content, confidence=excluded.confidence,
+        audience_scope=excluded.audience_scope, source_event_id=excluded.source_event_id,
+        valid_from=excluded.valid_from, valid_until=excluded.valid_until,
+        status=excluded.status, updated_at=excluded.updated_at`)
+      .run(
+        values[0].slice(0, 500), values[1].slice(0, 500), values[2].slice(0, 80),
+        values[3].slice(0, 1_000), values[4].slice(0, 128),
+        Math.max(0, Math.min(1, Number(confidence) || 0)), values[5].slice(0, 500),
+        values[6].slice(0, 500), String(validFrom || now), String(validUntil || ''),
+        ['current', 'invalidated', 'deleted'].includes(status) ? status : 'current', now, now,
+      );
+  }
+
+  invalidateRelationshipFacts({
+    personId, kind, exceptFingerprint = '', validUntil = new Date().toISOString(),
+  } = {}) {
+    return this.db.prepare(`UPDATE relationship_fact
+      SET status = 'invalidated', valid_until = ?, updated_at = ?
+      WHERE person_id = ? AND kind = ? AND status = 'current' AND fingerprint <> ?`)
+      .run(validUntil, validUntil, String(personId || ''), String(kind || ''),
+        String(exceptFingerprint || '')).changes;
+  }
+
+  relationshipFacts(personId, { allowedScopes = [], limit = 20 } = {}) {
+    const scopes = [...new Set((Array.isArray(allowedScopes) ? allowedScopes : [])
+      .map(value => String(value || '').trim()).filter(Boolean))].slice(0, 50);
+    if (!scopes.length) return [];
+    const placeholders = scopes.map(() => '?').join(',');
+    return this.db.prepare(`SELECT fact_id AS factId, person_id AS personId, kind, content,
+      fingerprint, confidence, audience_scope AS audienceScope,
+      source_event_id AS sourceEventId, valid_from AS validFrom,
+      valid_until AS validUntil, status, created_at AS createdAt, updated_at AS updatedAt
+      FROM relationship_fact WHERE person_id = ? AND status = 'current'
+      AND audience_scope IN (${placeholders})
+      ORDER BY confidence DESC, updated_at DESC LIMIT ?`)
+      .all(String(personId || ''), ...scopes, Math.max(1, Math.min(200, Number(limit) || 20)));
+  }
+
+  setRelationshipProfile(personId, profile = {}) {
+    const normalizedPersonId = String(personId || '').trim().slice(0, 500);
+    if (!normalizedPersonId) throw new Error('Relationship profile requires a person');
+    const now = new Date().toISOString();
+    const list = value => [...new Set((Array.isArray(value) ? value : [])
+      .map(item => String(item || '').trim().slice(0, 200)).filter(Boolean))].slice(0, 20);
+    this.db.prepare(`INSERT INTO relationship_profile
+      (person_id, display_name, familiarity, tone, topics, open_loops, summary,
+       confidence, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(person_id) DO UPDATE SET display_name=excluded.display_name,
+        familiarity=excluded.familiarity, tone=excluded.tone, topics=excluded.topics,
+        open_loops=excluded.open_loops, summary=excluded.summary,
+        confidence=excluded.confidence, updated_at=excluded.updated_at`)
+      .run(
+        normalizedPersonId, String(profile.displayName || '').trim().slice(0, 200),
+        String(profile.familiarity || 'new').trim().slice(0, 50),
+        String(profile.tone || '').trim().slice(0, 300), JSON.stringify(list(profile.topics)),
+        JSON.stringify(list(profile.openLoops)), String(profile.summary || '').trim().slice(0, 1_000),
+        Math.max(0, Math.min(1, Number(profile.confidence) || 0)), now,
+      );
+    return this.relationshipProfile(normalizedPersonId);
+  }
+
+  relationshipProfile(personId) {
+    const row = this.db.prepare(`SELECT person_id AS personId, display_name AS displayName,
+      familiarity, tone, topics, open_loops AS openLoops, summary, confidence,
+      updated_at AS updatedAt FROM relationship_profile WHERE person_id = ?`)
+      .get(String(personId || ''));
+    if (!row) return null;
+    for (const field of ['topics', 'openLoops']) {
+      try { row[field] = JSON.parse(row[field]); } catch { row[field] = []; }
+    }
+    return row;
+  }
+
+  deleteRelationshipPersonMemory(personId) {
+    const id = String(personId || '').trim();
+    if (!id) return 0;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      let changes = 0;
+      changes += this.db.prepare('DELETE FROM relationship_fact WHERE person_id = ?').run(id).changes;
+      changes += this.db.prepare('DELETE FROM relationship_episode WHERE person_id = ?').run(id).changes;
+      changes += this.db.prepare('DELETE FROM relationship_profile WHERE person_id = ?').run(id).changes;
+      changes += this.db.prepare('DELETE FROM relationship_person WHERE person_id = ?').run(id).changes;
+      this.db.exec('COMMIT');
+      return changes;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   scheduleGroupHostCandidate({

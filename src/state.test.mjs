@@ -56,6 +56,75 @@ try {
   assert.equal(state.get('chat', 'paused'), true);
   state.audit('test', { chatId: 'chat', detail: { ok: true } });
 
+  state.upsertRelationshipPerson({
+    personId: 'wechat:wxid_alice', channel: 'wechat', externalId: 'wxid_alice',
+    displayName: '同名朋友', firstSeenAt: '2026-08-01T00:00:00.000Z',
+    lastSeenAt: '2026-08-16T00:00:00.000Z',
+  });
+  state.upsertRelationshipPerson({
+    personId: 'wechat:wxid_bob', channel: 'wechat', externalId: 'wxid_bob',
+    displayName: '同名朋友', firstSeenAt: '2026-08-02T00:00:00.000Z',
+    lastSeenAt: '2026-08-16T00:00:01.000Z',
+  });
+  assert.equal(state.relationshipPerson('wechat:wxid_alice').externalId, 'wxid_alice');
+  assert.equal(state.relationshipPerson('wechat:wxid_bob').externalId, 'wxid_bob');
+  assert.equal(state.relationshipPeople().length, 2, '同名联系人必须按 wxid 隔离');
+
+  const privateEpisode = {
+    eventId: 'wechat-message-1', personId: 'wechat:wxid_alice', channel: 'wechat',
+    surface: 'p2p', contextId: 'wechat:user:wxid_alice',
+    audienceScope: 'private:wechat:wxid_alice', direction: 'inbound',
+    content: '我现在更关注流程治理', sourceRef: 'wechat-message-1',
+    occurredAt: '2026-08-16T01:00:00.000Z', importance: 0.8,
+  };
+  assert.equal(state.recordRelationshipEpisode(privateEpisode), true);
+  assert.equal(state.recordRelationshipEpisode(privateEpisode), false, '同一来源事件只能写入一次');
+  assert.equal(state.pendingRelationshipEpisodes('wechat:wxid_alice').length, 1);
+  assert.equal(state.markRelationshipEpisodesProcessed(['wechat-message-1']), 1);
+  assert.equal(state.pendingRelationshipEpisodes('wechat:wxid_alice').length, 0);
+  state.recordRelationshipEpisode({
+    ...privateEpisode,
+    eventId: 'wechat-moment-1', surface: 'moments', contextId: 'sns-1',
+    audienceScope: 'public_moments', content: '公开讨论 AI 与流程协同',
+    sourceRef: 'sns-1', occurredAt: '2026-08-16T02:00:00.000Z',
+  });
+  assert.deepEqual(
+    state.relationshipEpisodes('wechat:wxid_alice', {
+      allowedScopes: ['public_moments'], limit: 10,
+    }).map(item => item.eventId),
+    ['wechat-moment-1'],
+    '公开召回不能取到私聊事件',
+  );
+
+  state.upsertRelationshipFact({
+    factId: 'fact-old', personId: 'wechat:wxid_alice', kind: 'professional_interest',
+    content: '关注流程治理', fingerprint: 'interest-old', confidence: 0.95,
+    audienceScope: 'private:wechat:wxid_alice', sourceEventId: 'wechat-message-1',
+    validFrom: '2026-08-01T00:00:00.000Z',
+  });
+  state.invalidateRelationshipFacts({
+    personId: 'wechat:wxid_alice', kind: 'professional_interest',
+    exceptFingerprint: 'interest-new', validUntil: '2026-08-16T03:00:00.000Z',
+  });
+  state.upsertRelationshipFact({
+    factId: 'fact-new', personId: 'wechat:wxid_alice', kind: 'professional_interest',
+    content: '关注 AI 原生流程', fingerprint: 'interest-new', confidence: 0.98,
+    audienceScope: 'public_moments', sourceEventId: 'wechat-moment-1',
+    validFrom: '2026-08-16T03:00:00.000Z',
+  });
+  assert.deepEqual(
+    state.relationshipFacts('wechat:wxid_alice', {
+      allowedScopes: ['public_moments'], limit: 10,
+    }).map(item => item.content),
+    ['关注 AI 原生流程'],
+    '只召回当前有效且受众允许的事实',
+  );
+  state.setRelationshipProfile('wechat:wxid_alice', {
+    displayName: '同名朋友', familiarity: 'familiar', tone: '自然直接',
+    topics: ['流程管理'], openLoops: [], summary: '经常讨论流程管理。', confidence: 0.9,
+  });
+  assert.equal(state.relationshipProfile('wechat:wxid_alice').tone, '自然直接');
+
   state.remember('learning-chat', 'learning-user', 'user', '修复消息重复问题', {
     createdAt: '2026-08-06T14:00:00.000Z',
   });
