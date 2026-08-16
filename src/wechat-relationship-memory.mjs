@@ -20,7 +20,11 @@ function hash(value, length = 32) {
 }
 
 function timestamp(value, fallback = Date.now()) {
-  const date = new Date(value || fallback);
+  const numeric = String(value ?? '').trim() ? Number(value) : Number.NaN;
+  const source = Number.isFinite(numeric)
+    ? (numeric < 10_000_000_000 ? numeric * 1_000 : numeric)
+    : value || fallback;
+  const date = new Date(source);
   return Number.isFinite(date.getTime()) ? date.toISOString() : new Date(fallback).toISOString();
 }
 
@@ -320,17 +324,21 @@ export class WeChatRelationshipMemory {
     return [];
   }
 
-  contextFor({ personId = '', wxid = '', surface, contextId = '', query = '' } = {}) {
+  contextFor({
+    personId = '', wxid = '', surface, contextId = '', query = '', excludeEventId = '',
+  } = {}) {
     const person = canonicalWeChatPersonId(personId || wxid);
     if (!person || !this.state.relationshipPerson(person)) return '';
     const scopes = this.allowedScopes(person, surface, contextId);
     if (!scopes.length) return '';
     const facts = this.state.relationshipFacts(person, { allowedScopes: scopes, limit: 40 })
+      .filter(item => item.sourceEventId !== String(excludeEventId || ''))
       .filter(item => Number(item.confidence) >= MIN_FACT_CONFIDENCE)
       .map(item => ({ ...item, score: Number(item.confidence) * 0.5 + relevance(item.content, query) * 0.5 }))
       .sort((a, b) => b.score - a.score).slice(0, this.recallLimit);
     const nowMs = Number(this.now());
     const episodes = this.state.relationshipEpisodes(person, { allowedScopes: scopes, limit: 80 })
+      .filter(item => item.eventId !== String(excludeEventId || ''))
       .map(item => {
         const ageDays = Math.max(0, (nowMs - Date.parse(item.occurredAt || '')) / 86_400_000);
         const recency = Number.isFinite(ageDays) ? Math.exp(-ageDays / 30) : 0;

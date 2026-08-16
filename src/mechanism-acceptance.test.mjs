@@ -158,6 +158,17 @@ contract('wechat-moments-engagement', 'Does the live GeWe lifecycle run selectiv
   assert.match(runtimeSource, /wechatMomentsEngagement\.stop\(\)/);
 });
 
+contract('wechat-relationship-memory', 'Does every personal WeChat reply use audience-safe relationship memory?', () => {
+  const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
+  assert.match(runtimeSource, /import \{ WeChatRelationshipMemory \} from '\.\/wechat-relationship-memory\.mjs'/);
+  assert.match(runtimeSource, /wechatRelationshipMemory\.observeChat\(\{/);
+  assert.match(runtimeSource, /wechatRelationshipMemory\.contextFor\(\{/);
+  assert.match(runtimeSource, /relationshipContext/);
+  assert.match(runtimeSource, /wechatRelationshipMemory\.observeOutbound\(\{/);
+  assert.match(runtimeSource, /wechatRelationshipMemory\.start\(\)/);
+  assert.match(runtimeSource, /wechatRelationshipMemory\.stop\(\)/);
+});
+
 contract('wechat-moments-engagement', 'Does the live GeWe lifecycle publish grounded daily Moments?', () => {
   const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
   assert.match(runtimeSource, /import \{ WeChatMomentsPublisher \} from '\.\/wechat-moments-publisher\.mjs'/);

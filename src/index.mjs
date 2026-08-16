@@ -258,6 +258,7 @@ import { enrichWeChatLearningContext } from './wechat-learning-context.mjs';
 import { WeChatNewcomerWelcome } from './wechat-newcomer-welcome.mjs';
 import { WeChatMomentsEngagement } from './wechat-moments-engagement.mjs';
 import { WeChatMomentsPublisher } from './wechat-moments-publisher.mjs';
+import { WeChatRelationshipMemory } from './wechat-relationship-memory.mjs';
 import {
   discoverBotP2pChats,
   isExpectedLarkCliResult,
@@ -469,6 +470,7 @@ let geWeWebhookServer = null;
 let wechatNewcomerWelcome = null;
 let wechatMomentsEngagement = null;
 let wechatMomentsPublisher = null;
+let wechatRelationshipMemory = null;
 const shutdownDelay = new InterruptibleDelay();
 
 function remember(chatId, senderOpenId, role, content, options) {
@@ -875,7 +877,7 @@ async function sendText(client, chatId, text, uuid, options = {}) {
     ],
     context: replyContext,
   });
-  return sendUnlessRecentRepeat({
+  const result = await sendUnlessRecentRepeat({
     state,
     chatId,
     audienceKey: [...audience].sort().join(','),
@@ -883,6 +885,33 @@ async function sendText(client, chatId, text, uuid, options = {}) {
     audit: (event, detail) => state.audit(event, { chatId, detail }),
     send: () => sendTextUnchecked(client, chatId, text, uuid, options),
   });
+  const target = parseChannelChatId(chatId);
+  if (target?.channel === 'wechat' && result?.suppressed !== true && wechatRelationshipMemory) {
+    const surface = target.kind === 'group' ? 'group' : 'p2p';
+    const recipients = surface === 'p2p'
+      ? [`wechat:${target.id}`]
+      : [...audience].filter(Boolean);
+    const sourceId = outboundMessageId(result) || String(uuid || '').trim();
+    if (sourceId) {
+      try {
+        for (const personId of recipients) {
+          wechatRelationshipMemory.observeOutbound({
+            personId,
+            eventId: `wechat-outbound:${sourceId}:${personId}`,
+            surface,
+            contextId: chatId,
+            content: text,
+          });
+        }
+      } catch (error) {
+        state.audit('wechat_relationship_capture_failed', {
+          chatId,
+          detail: { stage: 'outbound', error: processFailureSummary(error) },
+        });
+      }
+    }
+  }
+  return result;
 }
 
 async function sendTextUnchecked(client, chatId, text, uuid, {
@@ -1402,6 +1431,8 @@ ${PRIVACY_BOUNDARY_TEXT}
 
 每日自体学习形成的长期记忆（仅作行为改进，不得向对方披露记忆来源或私人数据）：
 ${learnedMemory || '（尚未完成首次每日学习）'}
+
+${options.relationshipContext || ''}
 
 ${localKnowledgeContext}
 
@@ -2645,6 +2676,31 @@ async function processIncoming(client, message, sender, metadata = {}) {
     });
   }
   audit('message_received', message, senderOpenId, { type: message.message_type, text: cleanText.slice(0, 300) });
+
+  if (metadata.channel === 'wechat' && metadata.ownerActivity !== true && wechatRelationshipMemory) {
+    const relationshipText = cleanText || (message.message_type === 'image'
+      ? '对方发送了一张图片'
+      : message.message_type === 'file'
+        ? `对方发送了文件：${fileName || '未命名文件'}`
+        : `对方发送了${message.message_type}`);
+    try {
+      wechatRelationshipMemory.observeChat({
+        senderId: senderOpenId,
+        chatId: message.chat_id,
+        chatType: message.chat_type,
+        messageId: message.message_id,
+        text: relationshipText,
+        occurredAt: message.create_time,
+      });
+    } catch (error) {
+      state.audit('wechat_relationship_capture_failed', {
+        chatId: message.chat_id,
+        senderId: senderOpenId,
+        messageId: message.message_id,
+        detail: { stage: 'inbound', error: processFailureSummary(error) },
+      });
+    }
+  }
 
   if (metadata.channel === 'wechat') {
     const allowedMessageIds = new Set(
@@ -3901,10 +3957,30 @@ async function processIncoming(client, message, sender, metadata = {}) {
           || weChatFileContext.sources.at(-1)?.fileName || '未命名文件'}`
         : imageRefs.length || dingTalkImageRefs.length || weChatImagePaths.length
           ? `${cleanText || '发送了图片'}（含图片）` : task;
+    let relationshipContext = '';
+    if (metadata.channel === 'wechat' && wechatRelationshipMemory) {
+      try {
+        relationshipContext = wechatRelationshipMemory.contextFor({
+          personId: senderOpenId,
+          surface: message.chat_type === 'group' ? 'group' : 'p2p',
+          contextId: message.chat_id,
+          query: cleanText || task,
+          excludeEventId: message.message_id,
+        });
+      } catch (error) {
+        state.audit('wechat_relationship_recall_failed', {
+          chatId: message.chat_id,
+          senderId: senderOpenId,
+          messageId: message.message_id,
+          detail: { error: processFailureSummary(error) },
+        });
+      }
+    }
     const requiredResponse = await resolveRequiredResponse({
       responseRequired,
       generate: () => runCodex(task, history, imagePaths, decision, {
         channel: messageChannel(message, metadata),
+        relationshipContext,
       }),
     });
     const answer = requiredResponse.text;
@@ -5222,6 +5298,18 @@ async function initializeAdditionalImChannels() {
         mentionNames: config.geweMentionNames,
         onStatus: patch => updateImChannelStatus('wechat', patch),
       });
+      wechatRelationshipMemory = new WeChatRelationshipMemory({
+        state,
+        runAi: async prompt => {
+          const result = await runAiRuntime(prompt, {
+            cwd: WORKDIR,
+            model: config.codexModel,
+            timeoutMs: 120_000,
+            auditErrorCode: 'wechat_relationship_memory_generation_failed',
+          });
+          return result.text;
+        },
+      });
       geWeWebhookServer = new GeWeWebhookServer({
         channel: geWeChannel,
         callbackSecret,
@@ -5245,6 +5333,7 @@ async function initializeAdditionalImChannels() {
       await geWeChannel.setCallback(callbackUrl);
       updateImChannelStatus('wechat', { callbackRegistered: true });
       await geWeChannel.checkOnline();
+      wechatRelationshipMemory.start();
       if (config.geweNewcomerWelcomeEnabled) {
         wechatNewcomerWelcome = new WeChatNewcomerWelcome({
           state,
@@ -5322,6 +5411,10 @@ async function initializeAdditionalImChannels() {
       if (wechatMomentsPublisher) {
         wechatMomentsPublisher.stop();
         wechatMomentsPublisher = null;
+      }
+      if (wechatRelationshipMemory) {
+        wechatRelationshipMemory.stop();
+        wechatRelationshipMemory = null;
       }
       if (geWeWebhookServer) await geWeWebhookServer.stop().catch(() => {});
       geWeWebhookServer = null;
@@ -5603,6 +5696,10 @@ function stopGracefully(signal) {
   if (wechatMomentsPublisher) {
     wechatMomentsPublisher.stop();
     wechatMomentsPublisher = null;
+  }
+  if (wechatRelationshipMemory) {
+    wechatRelationshipMemory.stop();
+    wechatRelationshipMemory = null;
   }
   if (geWeWebhookServer) {
     geWeWebhookServer.stop().catch(() => {});

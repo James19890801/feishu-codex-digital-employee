@@ -41,6 +41,15 @@ try {
     direction: 'inbound', displayName: 'Alice', occurredAt: '2026-08-16T01:00:00.000Z',
   }), false, 'duplicate webhook delivery must not duplicate an episode');
   memory.observeChat({
+    senderId: 'wechat:wxid_numeric_time', chatId: 'wechat:user:wxid_numeric_time', chatType: 'p2p',
+    messageId: 'wechat:message-numeric-time', text: '数字时间戳也要保留',
+    occurredAt: String(Date.parse('2026-08-16T01:30:00.000Z')),
+  });
+  assert.equal(
+    state.pendingRelationshipEpisodes('wechat:wxid_numeric_time')[0].occurredAt,
+    '2026-08-16T01:30:00.000Z',
+  );
+  memory.observeChat({
     senderId: 'wechat:wxid_alice', chatId: 'wechat:group:room-a@chatroom', chatType: 'group',
     messageId: 'wechat:message-group-a', text: '我们在 A 群讨论流程责任',
     direction: 'inbound', occurredAt: '2026-08-16T02:00:00.000Z',
@@ -66,6 +75,10 @@ try {
   assert.match(privateContext, /下周提醒我继续聊流程治理/);
   assert.match(privateContext, /A 群讨论流程责任/, 'private recall may use shared group history');
   assert.doesNotMatch(privateContext, /另一个同名朋友/, 'same nickname cannot merge people');
+  assert.doesNotMatch(memory.contextFor({
+    personId: 'wechat:wxid_alice', surface: 'p2p', contextId: 'wechat:user:wxid_alice',
+    query: '流程治理', excludeEventId: 'wechat:message-private',
+  }), /下周提醒我继续聊流程治理/, 'the current inbound message must not be duplicated into memory context');
 
   const groupContext = memory.contextFor({
     personId: 'wechat:wxid_alice', surface: 'group',
