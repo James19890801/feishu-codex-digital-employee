@@ -264,6 +264,7 @@ import { enrichWeChatLearningContext } from './wechat-learning-context.mjs';
 import { WeChatNewcomerWelcome } from './wechat-newcomer-welcome.mjs';
 import { WeChatMomentsEngagement } from './wechat-moments-engagement.mjs';
 import { WeChatMomentsPublisher } from './wechat-moments-publisher.mjs';
+import { readOwnerArticlePage } from './wechat-owner-article-reader.mjs';
 import { WeChatOwnerArticleSyndication } from './wechat-owner-article-syndication.mjs';
 import { WeChatRelationshipMemory } from './wechat-relationship-memory.mjs';
 import {
@@ -5514,7 +5515,10 @@ async function initializeAdditionalImChannels() {
       if (config.geweOwnerArticleSyndicationEnabled) {
         wechatOwnerArticleSyndication = new WeChatOwnerArticleSyndication({
           state,
-          readPage: url => readPublicWebPage(url),
+          readPage: (url, article) => readOwnerArticlePage(url, article, {
+            readPublicPage: readPublicWebPage,
+            loadLocalIndex: async () => JSON.parse(await readFile(LOCAL_WIKI_INDEX_PATH, 'utf8')),
+          }),
           generate: async prompt => {
             const result = await runAiRuntime(prompt, {
               cwd: WORKDIR,

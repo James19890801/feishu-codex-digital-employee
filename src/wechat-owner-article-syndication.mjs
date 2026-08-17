@@ -179,7 +179,11 @@ export class WeChatOwnerArticleSyndication {
 
     if (!article.articleComment || !article.momentInsight) {
       try {
-        const page = await this.readPage(article.url);
+        const page = await this.readPage(article.url, {
+          title: article.title,
+          description: article.description,
+          publisherId: article.publisherId,
+        });
         if (!boundedText(page?.text, 30_000) || boundedText(page?.text, 30_000).length < 60) {
           throw new Error('article_text_unavailable');
         }
