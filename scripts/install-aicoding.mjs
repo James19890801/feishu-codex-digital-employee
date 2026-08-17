@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import {
   access,
@@ -13,7 +13,11 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
-import { resolveStandaloneConnector } from './connector-deployment-policy.mjs';
+import {
+  bundledDwsPath,
+  resolveStandaloneDws,
+} from './connector-deployment-policy.mjs';
+import { assertInstallationAttestation } from './installation-attestation.mjs';
 
 const packageRoot = resolve(process.argv[2] || '.');
 const payloadRoot = join(packageRoot, 'payload');
@@ -34,8 +38,13 @@ const installRoot = resolve(
     || defaultInstallRoot,
 );
 const skipDependencies = process.env.ACHONG_SKIP_DEPENDENCIES === '1';
+const skipPython = process.env.ACHONG_SKIP_PYTHON === '1';
 const skipServices = process.env.ACHONG_SKIP_SERVICES === '1';
 const skipOpen = process.env.ACHONG_SKIP_OPEN === '1';
+const skipDingTalkSetup = process.env.ACHONG_SKIP_DINGTALK_SETUP === '1'
+  || skipDependencies
+  || skipServices;
+let expectedInstallation = null;
 
 if (!['darwin', 'win32', 'linux'].includes(installPlatform)) {
   throw new Error(`Unsupported installation platform: ${installPlatform}`);
@@ -118,18 +127,32 @@ async function initializeUserState(stageRoot) {
     }
   }
   await mkdir(join(stageRoot, 'data'), { recursive: true });
+  const config = JSON.parse(await readFile(configPath, 'utf8'));
   if (createdConfig) {
-    const config = JSON.parse(await readFile(configPath, 'utf8'));
     config.nodeBin = dirname(process.execPath);
-    config.pythonBin = installPlatform === 'win32'
-      ? join(installRoot, '.venv', 'Scripts', 'python.exe')
-      : join(installRoot, '.venv', 'bin', 'python3');
-    const explicitConnector = String(process.env.JAMES_CONNECTOR_BIN || '').trim();
+    config.pythonBin = skipPython
+      ? ''
+      : installPlatform === 'win32'
+        ? join(installRoot, '.venv', 'Scripts', 'python.exe')
+        : join(installRoot, '.venv', 'bin', 'python3');
+    const explicitConnector = String(
+      process.env.JAMES_DWS_BIN || process.env.JAMES_CONNECTOR_BIN || '',
+    ).trim();
     config.enterpriseChatBin = explicitConnector
-      ? await resolveStandaloneConnector({ explicitPath: explicitConnector, home: installHome })
-      : '';
-    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+      ? await resolveStandaloneDws({ explicitPath: explicitConnector, home: installHome })
+      : bundledDwsPath(installRoot, installPlatform);
   }
+  config.installationId = /^[A-Za-z0-9-]{8,128}$/u.test(String(config.installationId || ''))
+    ? config.installationId
+    : randomUUID();
+  config.installationBuildSha = await sha256(join(packageRoot, 'release-manifest.json'));
+  config.installationRoot = installRoot;
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  return {
+    id: config.installationId,
+    buildSha: config.installationBuildSha,
+    root: config.installationRoot,
+  };
 }
 
 function installDependencies(stageRoot) {
@@ -155,9 +178,16 @@ function installDependencies(stageRoot) {
       'james-local-digital-human', '--frozen-lockfile',
     ], { cwd: stageRoot });
   }
+  if (skipPython) {
+    console.log('OPTIONAL_CAPABILITY_PYTHON=skipped');
+    return;
+  }
   const pythonCandidates = installPlatform === 'win32' ? ['python.exe', 'python3.exe'] : ['python3', 'python'];
   const python = pythonCandidates.map(locate).find(result => result.status === 0 && result.stdout.trim());
-  if (!python) throw new Error('Python 3 is required');
+  if (!python) {
+    console.log('OPTIONAL_CAPABILITY_PYTHON=unavailable');
+    return;
+  }
   run(python.stdout.trim().split(/\r?\n/u)[0], ['-m', 'venv', join(stageRoot, '.venv')], { cwd: stageRoot });
   const venvPython = installPlatform === 'win32'
     ? join(stageRoot, '.venv', 'Scripts', 'python.exe')
@@ -171,6 +201,40 @@ function quotedSystemdPath(path) {
   return `"${String(path).replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
 }
 
+function xml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
+}
+
+function launchAgentPlist({ label, entry, stdout, stderr }) {
+  const path = [
+    installRoot,
+    join(installRoot, 'node_modules', '.bin'),
+    join(installHome, '.npm-global', 'bin'),
+    join(installHome, '.local', 'bin'),
+    '/usr/local/bin',
+    '/usr/bin',
+    '/bin',
+  ].join(':');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>${xml(label)}</string>
+<key>ProgramArguments</key><array><string>${xml(process.execPath)}</string><string>${xml(join(installRoot, entry))}</string></array>
+<key>WorkingDirectory</key><string>${xml(installRoot)}</string>
+<key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
+<key>ProcessType</key><string>Interactive</string><key>ThrottleInterval</key><integer>10</integer>
+<key>StandardOutPath</key><string>${xml(join(installRoot, stdout))}</string>
+<key>StandardErrorPath</key><string>${xml(join(installRoot, stderr))}</string>
+<key>EnvironmentVariables</key><dict><key>HOME</key><string>${xml(installHome)}</string><key>PATH</key><string>${xml(path)}</string></dict>
+</dict></plist>
+`;
+}
+
 async function installServices() {
   if (skipServices) return;
   const serviceEnv = {
@@ -179,14 +243,28 @@ async function installServices() {
     ACHONG_INSTALL_HOME: installHome,
   };
   if (installPlatform === 'darwin') {
-    run('/bin/zsh', [join(installRoot, 'scripts', 'install-service.sh')], {
-      cwd: installRoot,
-      env: serviceEnv,
-    });
-    run('/bin/zsh', [join(installRoot, 'scripts', 'install-dashboard-service.sh')], {
-      cwd: installRoot,
-      env: serviceEnv,
-    });
+    const agentRoot = join(installHome, 'Library', 'LaunchAgents');
+    await mkdir(agentRoot, { recursive: true });
+    const agents = [
+      ['com.local.feishu-codex-digital-employee', 'src/index.mjs', 'bridge.log', 'bridge-error.log'],
+      ['com.local.feishu-codex-dashboard', 'src/dashboard-server.mjs', 'dashboard.log', 'dashboard-error.log'],
+    ];
+    for (const [label, entry, stdout, stderr] of agents) {
+      const plist = join(agentRoot, `${label}.plist`);
+      await writeFile(plist, launchAgentPlist({ label, entry, stdout, stderr }), {
+        encoding: 'utf8',
+        mode: 0o600,
+      });
+      const service = `gui/${process.getuid()}/${label}`;
+      spawnSync(process.env.ACHONG_LAUNCHCTL || '/bin/launchctl', ['bootout', service], {
+        cwd: installRoot,
+        env: serviceEnv,
+        encoding: 'utf8',
+      });
+      run(process.env.ACHONG_LAUNCHCTL || '/bin/launchctl', [
+        'bootstrap', `gui/${process.getuid()}`, plist,
+      ], { cwd: installRoot, env: serviceEnv });
+    }
     return;
   }
   if (installPlatform === 'linux') {
@@ -230,28 +308,55 @@ async function installServices() {
 
 function openDashboard() {
   if (skipOpen) return;
-  const url = 'http://127.0.0.1:17655/';
+  const url = 'http://127.0.0.1:17655/?setup=dingtalk';
   if (installPlatform === 'darwin') run('/usr/bin/open', [url], { cwd: installRoot });
   else if (installPlatform === 'win32') run('cmd.exe', ['/d', '/s', '/c', 'start', '', url], { cwd: installRoot });
   else run('xdg-open', [url], { cwd: installRoot });
 }
 
+function setupDingTalk() {
+  if (skipDingTalkSetup) return false;
+  console.log('DINGTALK_SETUP=starting');
+  const result = spawnSync(process.execPath, [join(installRoot, 'scripts', 'setup-dingtalk.mjs')], {
+    cwd: installRoot,
+    env: { ...process.env, HOME: installHome },
+    stdio: 'inherit',
+  });
+  if (result.status === 0) return true;
+  console.error('DINGTALK_SETUP_PENDING=安装已完成，钉钉授权尚未完成。');
+  console.error(`DINGTALK_SETUP_COMMAND=${process.execPath} ${join(installRoot, 'scripts', 'setup-dingtalk.mjs')}`);
+  return false;
+}
+
 async function verifyDashboard() {
-  if (skipDependencies) return;
+  if (skipDependencies || skipServices) return;
   const config = JSON.parse(await readFile(join(installRoot, 'config.local.json'), 'utf8'));
   const url = `http://127.0.0.1:${Number(config.dashboardPort || 17655)}/api/status`;
   let lastError;
   for (let attempt = 0; attempt < 30; attempt += 1) {
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(1_000) });
-      if (response.ok) return;
-      lastError = new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        lastError = new Error(`HTTP ${response.status}`);
+      } else {
+        const status = await response.json();
+        assertInstallationAttestation(status, expectedInstallation);
+        return;
+      }
     } catch (error) {
       lastError = error;
     }
     await new Promise(resolvePromise => setTimeout(resolvePromise, 1_000));
   }
   throw new Error(`Dashboard health check failed: ${String(lastError?.message || lastError)}`);
+}
+
+function verifyInstalledFiles() {
+  const args = [join(installRoot, 'scripts', 'verify-install.mjs')];
+  if (skipDependencies || skipServices) args.push('--offline');
+  const result = run(process.execPath, args, { cwd: installRoot });
+  const output = String(result.stdout || '').trim();
+  if (output) console.log(output);
 }
 
 assertSafeInstallRoot(installRoot);
@@ -266,7 +371,7 @@ try {
   await cp(payloadRoot, stageRoot, { recursive: true, preserveTimestamps: true });
   previousExists = await exists(installRoot);
   if (previousExists) await copyUserState(installRoot, stageRoot);
-  await initializeUserState(stageRoot);
+  expectedInstallation = await initializeUserState(stageRoot);
   installDependencies(stageRoot);
 
   await rm(backupRoot, { recursive: true, force: true });
@@ -275,13 +380,18 @@ try {
   switched = true;
   await installServices();
   await verifyDashboard();
+  verifyInstalledFiles();
+  const dingtalkReady = setupDingTalk();
   await rm(backupRoot, { recursive: true, force: true });
   openDashboard();
   console.log('INSTALL_OK');
   console.log(`INSTALL_PLATFORM=${installPlatform}`);
   console.log(`INSTALL_ROOT=${installRoot}`);
-  console.log('DASHBOARD_URL=http://127.0.0.1:17655/');
-  console.log('NEXT_STEP=Open the local Dashboard and complete your own channel authorization.');
+  console.log('DASHBOARD_URL=http://127.0.0.1:17655/?setup=dingtalk');
+  console.log(`DINGTALK_SETUP_READY=${dingtalkReady}`);
+  console.log(dingtalkReady
+    ? 'NEXT_STEP=请让另一个受控钉钉账号发私聊，或在受控测试群 @ 你；不要用自己发给自己的消息验收。'
+    : 'NEXT_STEP=完成钉钉 DWS 授权，然后在钉钉里给自己发一条测试消息。');
 } catch (error) {
   if (switched) {
     await rm(installRoot, { recursive: true, force: true });

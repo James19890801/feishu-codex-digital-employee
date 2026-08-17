@@ -18,6 +18,7 @@ try {
   let generations = 0;
   const worker = new WeChatOwnerArticleSyndication({
     state,
+    publisherIds: ['gh_07e3d1422f5e'],
     readPage: async url => {
       reads += 1;
       return {
@@ -125,6 +126,7 @@ try {
     let shares = 0;
     const worker = new WeChatOwnerArticleSyndication({
       state,
+      publisherIds: ['gh_63f557f95450'],
       readPage: async () => { throw new Error('page unavailable'); },
       generate: async () => { throw new Error('must not generate'); },
       commentArticle: async () => { throw new Error('must not comment'); },
@@ -153,6 +155,7 @@ try {
     const shares = [];
     const worker = new WeChatOwnerArticleSyndication({
       state,
+      publisherIds: ['gh_07e3d1422f5e'],
       readPage: async () => ({
         title: '流程管理者做 AI 变革，起点不是技术',
         text: '这是一篇足够长的公开文章正文，用于检验精确公众号身份能够补齐封面图，并且明确失败不会被误判为已发布。内容还需继续增加一些字符。',

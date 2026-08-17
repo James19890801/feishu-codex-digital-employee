@@ -29,6 +29,7 @@ const configuration = {
   feishuAppId: 'cli_0123456789abcdef',
   enterpriseChatEnabled: false,
   enterpriseChatProfile: 'desktop-api.enterpriseChat',
+  enterpriseChatChannel: 'approved-channel',
   wecomEnabled: true,
   wecomBotId: 'bot-production-01',
   wecomKeychainService: 'aipro-wecom-bot',
@@ -49,6 +50,7 @@ assert.equal(view.feishu.protected, true);
 assert.equal(view.feishu.enabled, true);
 assert.match(view.feishu.identity, /^cli_\*+/);
 assert.equal(view.enterpriseChat.profile, 'desktop-api.enterpriseChat');
+assert.equal(view.enterpriseChat.channelCode, 'approved-channel');
 assert.equal(view.wecom.credentialStored, true);
 assert.equal(view.wechat.credentialStored, false);
 assert.equal(view.wechat.callbackPort, 17656);
@@ -64,12 +66,25 @@ assert.deepEqual(
   channelConfiguration.normalizeChannelConfigurationRequest('enterpriseChat', {
     enabled: true,
     profile: 'desktop-api.enterpriseChat',
+    channelCode: 'approved-channel',
   }),
   {
     channel: 'enterpriseChat',
-    changes: { enterpriseChatEnabled: true, enterpriseChatProfile: 'desktop-api.enterpriseChat' },
+    changes: {
+      enterpriseChatEnabled: true,
+      enterpriseChatProfile: 'desktop-api.enterpriseChat',
+      enterpriseChatChannel: 'approved-channel',
+    },
     credential: null,
   },
+);
+
+assert.throws(
+  () => channelConfiguration.normalizeChannelConfigurationRequest('enterpriseChat', {
+    enabled: true,
+    channelCode: 'bad channel with spaces',
+  }),
+  /channel code/i,
 );
 
 assert.deepEqual(

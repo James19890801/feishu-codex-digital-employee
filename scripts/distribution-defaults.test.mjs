@@ -14,17 +14,17 @@ const packageMetadata = JSON.parse(await readFile(join(root, 'package.json'), 'u
 assert.equal(packageMetadata.author, '阿充');
 
 for (const key of [
-  'feishuEnabled', 'wecomEnabled', 'geweEnabled',
-  'multicaEnabled', 'licensingEnforced',
+  'feishuEnabled', 'enterpriseChatEnabled', 'wecomEnabled', 'geweEnabled',
+  'multicaEnabled', 'licensingEnforced', 'semanticGroupEngagementEnabled',
+  'adaptiveDiscussionEnabled', 'geweRelationshipMemoryEnabled', 'dailyLearningEnabled',
 ]) {
   assert.equal(defaults[key], false, `${key} must fail closed`);
+  assert.equal(example[key], false, `${key} example must fail closed`);
 }
-assert.equal(defaults.enterpriseChatEnabled, true);
 assert.equal(defaults.enterpriseChatTransport, 'event-stream');
 assert.equal(defaults.enterpriseChatProfile, '');
 assert.equal(defaults.enterpriseChatChannel, '');
 assert.equal(defaults.enterpriseChatBin, '');
-assert.equal(example.enterpriseChatEnabled, true);
 assert.equal(example.enterpriseChatTransport, 'event-stream');
 assert.equal(example.feishuEnabled, false);
 assert.equal(example.feishuAppId, '');
@@ -47,12 +47,32 @@ for (const candidate of [defaults, example]) {
   assert.equal(candidate.cloudFailoverKeychainAccount, 'hmac-secret');
 }
 assert.deepEqual(defaults.automaticCommunicationBlocklist, []);
+assert.deepEqual(defaults.geweOwnerArticlePublisherIds, []);
+assert.deepEqual(defaults.geweOwnerArticleWechatIds, []);
+assert.equal(defaults.multicaOwnerSquad, '');
 assert.equal(defaults.webReaderEnabled, true);
 assert.equal(defaults.webReaderMaxUrls, 2);
 assert.equal(defaults.audioTranscriptionCommand, '');
 assert.deepEqual(defaults.audioTranscriptionArgs, ['{input}', 'zh-CN']);
 assert.equal(example.webReaderEnabled, true);
 assert.equal(example.webReaderMaxUrls, 2);
+
+const productionText = (await Promise.all([
+  'src/config.mjs',
+  'src/index.mjs',
+  'src/wechat-owner-article-policy.mjs',
+  'dashboard/index.html',
+].map(path => readFile(join(root, path), 'utf8')))).join('\n');
+for (const encodedValue of [
+  'Z2hfMDdlM2QxNDIyZjVl',
+  'QlBNMzIxR08=',
+  'SHVhWXVfQ29uc3VsdGluZ18yMQ==',
+  'ZnVuZzUxMTU=',
+  '5Yav5ZGo5YWF',
+]) {
+  const value = Buffer.from(encodedValue, 'base64').toString('utf8');
+  assert.equal(productionText.includes(value), false, 'production defaults contain a private identifier');
+}
 
 const fixture = await mkdtemp(join(tmpdir(), 'james-safe-setup-'));
 await mkdir(join(fixture, 'scripts'), { recursive: true });
@@ -85,7 +105,7 @@ const result = spawnSync('/bin/zsh', [join(fixture, 'scripts', 'setup.sh')], {
 assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 const installed = JSON.parse(await readFile(join(fixture, 'config.local.json'), 'utf8'));
 assert.equal(installed.feishuEnabled, false);
-assert.equal(installed.enterpriseChatEnabled, true);
+assert.equal(installed.enterpriseChatEnabled, false);
 assert.equal(installed.enterpriseChatTransport, 'event-stream');
 assert.equal(installed.allowAllChats, false);
 assert.deepEqual(

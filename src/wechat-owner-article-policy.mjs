@@ -1,13 +1,8 @@
 import { createHash } from 'node:crypto';
 
-export const OWNER_ARTICLE_PUBLISHER_IDS = Object.freeze([
-  'gh_07e3d1422f5e',
-  'BPM321GO',
-  'gh_63f557f95450',
-  'HuaYu_Consulting_21',
-]);
+export const OWNER_ARTICLE_PUBLISHER_IDS = Object.freeze([]);
 
-export const OWNER_ARTICLE_WECHAT_IDS = Object.freeze(['fung5115']);
+export const OWNER_ARTICLE_WECHAT_IDS = Object.freeze([]);
 
 function boundedText(value, maxLength) {
   return String(value || '')

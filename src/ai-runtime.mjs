@@ -71,10 +71,15 @@ function defaultCandidates({
     workbuddy: [
       ...pathCandidates(['workbuddy-cli', 'workbuddy', 'workbuddy-cli.exe', 'workbuddy.exe'], pathEnv),
       join(homeDir, '.local', 'bin', 'workbuddy-cli'),
+      '/Applications/WorkBuddy.app/Contents/Resources/app.asar.unpacked/cli/bin/codebuddy',
+      join(homeDir, 'AppData', 'Local', 'Programs', 'WorkBuddy', 'resources', 'app.asar.unpacked', 'cli', 'bin', 'codebuddy.exe'),
+      join(homeDir, 'AppData', 'Local', 'WorkBuddy', 'resources', 'app.asar.unpacked', 'cli', 'bin', 'codebuddy.exe'),
     ],
     qoder_work: [
       ...pathCandidates(['qoder-work', 'qoderwork', 'qoder-work.exe', 'qoderwork.exe'], pathEnv),
       '/Applications/QoderWork.app/Contents/Resources/bin/qodercli',
+      join(homeDir, 'AppData', 'Local', 'Programs', 'QoderWork', 'resources', 'bin', 'qodercli.exe'),
+      join(homeDir, 'AppData', 'Local', 'QoderWork', 'resources', 'bin', 'qodercli.exe'),
     ],
     qoder: [
       ...pathCandidates(['qodercli', 'qoderclicn', 'qodercli.exe', 'qoderclicn.exe'], pathEnv),
@@ -163,6 +168,25 @@ export function selectAiRuntime(runtimes, preference = 'auto') {
   return selected;
 }
 
+export function selectAiRuntimeOrUnavailable(runtimes, preference = 'auto') {
+  try {
+    return selectAiRuntime(runtimes, preference);
+  } catch (error) {
+    return {
+      id: 'unavailable',
+      adapter: 'unavailable',
+      label: '待连接 AI Runtime',
+      description: '主服务已启动，但还没有可供后台调用的 AI Coding CLI',
+      supportsImages: false,
+      installed: false,
+      available: false,
+      path: '',
+      installedPath: '',
+      reason: String(error?.message || error),
+    };
+  }
+}
+
 export function buildAiRuntimeInvocation(runtime, {
   cwd,
   model = '',
@@ -207,7 +231,8 @@ export function buildAiRuntimeInvocation(runtime, {
   if (adapter === 'codebuddy') {
     const args = [
       '-p',
-      '--permission-mode', 'dontAsk',
+      '--permission-mode', 'default',
+      '--tools', '',
       '--output-format', 'text',
     ];
     if (model) args.push('--model', model);

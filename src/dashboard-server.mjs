@@ -590,6 +590,11 @@ async function collectStatus() {
     ...database,
   });
   view.learning = database.learning;
+  view.installation = {
+    id: config.installationId,
+    buildSha: config.installationBuildSha,
+    root: config.installationRoot,
+  };
   return view;
 }
 
@@ -636,6 +641,29 @@ function sendJson(response, statusCode, payload) {
 }
 
 async function restartMainService() {
+  if (process.platform === 'win32') {
+    await runBufferedProcess('schtasks.exe', [
+      '/Run', '/TN', 'James Digital Human',
+    ], {
+      timeoutMs: 20_000,
+      maxStdoutBytes: 64 * 1024,
+      maxStderrBytes: 128 * 1024,
+    });
+    return;
+  }
+  if (process.platform === 'linux') {
+    await runBufferedProcess('systemctl', [
+      '--user', 'restart', 'james-digital-human.service',
+    ], {
+      timeoutMs: 20_000,
+      maxStdoutBytes: 64 * 1024,
+      maxStderrBytes: 128 * 1024,
+    });
+    return;
+  }
+  if (process.platform !== 'darwin') {
+    throw new Error(`Unsupported service platform: ${process.platform}`);
+  }
   await runBufferedProcess('/bin/launchctl', [
     'kickstart', '-k', `gui/${process.getuid()}/${SERVICE_LABEL}`,
   ], {

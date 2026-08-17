@@ -29,7 +29,7 @@ function boundedNumber(value, { name, fallback, min, max }) {
 
 function semanticGroupAliases(value) {
   const effective = value === undefined
-    ? ['AIPRO', '詹老师助理', '数字人', '詹老师']
+    ? []
     : value;
   if (!Array.isArray(effective) || effective.length > 20
     || effective.some(item => typeof item !== 'string' || !item.trim() || item.length > 100)) {
@@ -58,11 +58,19 @@ function dailyWindow(value, { name, fallback }) {
 }
 
 export const config = {
-  feishuEnabled: raw.feishuEnabled !== false,
+  installationId: String(raw.installationId || '').trim(),
+  installationBuildSha: String(raw.installationBuildSha || '').trim(),
+  installationRoot: String(raw.installationRoot || workdir).trim(),
+  ownerDisplayName: String(raw.ownerDisplayName || '').trim(),
+  ownerAliases: boundedStringArray(raw.ownerAliases, { name: 'ownerAliases' }),
+  feishuEnabled: raw.feishuEnabled === true,
   feishuAppId: raw.feishuAppId || '',
   ownerOpenId: raw.ownerOpenId || '',
   keychainService: raw.keychainService || 'codex-feishu-digital-employee',
   authorizedChatIds: raw.authorizedChatIds || [],
+  automaticCommunicationBlocklist: Array.isArray(raw.automaticCommunicationBlocklist)
+    ? structuredClone(raw.automaticCommunicationBlocklist).slice(0, 200)
+    : [],
   allowAllChats: raw.allowAllChats === true,
   ownerContactPhone: String(raw.ownerContactPhone || '').trim(),
   actionItemDocumentToken: raw.actionItemDocumentToken || '',
@@ -108,7 +116,7 @@ export const config = {
   semanticRepeatMaxReplies: boundedInteger(raw.semanticRepeatMaxReplies, {
     name: 'semanticRepeatMaxReplies', fallback: 2, min: 2, max: 5,
   }),
-  semanticGroupEngagementEnabled: raw.semanticGroupEngagementEnabled !== false,
+  semanticGroupEngagementEnabled: raw.semanticGroupEngagementEnabled === true,
   semanticGroupReplyThreshold: boundedNumber(raw.semanticGroupReplyThreshold, {
     name: 'semanticGroupReplyThreshold', fallback: 0.86, min: 0.5, max: 0.99,
   }),
@@ -124,7 +132,7 @@ export const config = {
   groupHostReplyCooldownMs: boundedInteger(raw.groupHostReplyCooldownMs, {
     name: 'groupHostReplyCooldownMs', fallback: 180_000, min: 60_000, max: 900_000,
   }),
-  adaptiveDiscussionEnabled: raw.adaptiveDiscussionEnabled !== false,
+  adaptiveDiscussionEnabled: raw.adaptiveDiscussionEnabled === true,
   adaptiveDiscussionMaxReplies: boundedInteger(raw.adaptiveDiscussionMaxReplies, {
     name: 'adaptiveDiscussionMaxReplies', fallback: 100, min: 10, max: 100,
   }),
@@ -150,7 +158,13 @@ export const config = {
   enterpriseChatProfile: raw.enterpriseChatProfile || '',
   enterpriseChatChannel: String(raw.enterpriseChatChannel || '').trim(),
   enterpriseChatOwnerOpenId: String(raw.enterpriseChatOwnerOpenId || '').trim(),
-  enterpriseChatBin: raw.enterpriseChatBin || join(home, '.npm-global', 'bin', 'connector'),
+  enterpriseChatBin: raw.enterpriseChatBin || join(
+    workdir,
+    'node_modules',
+    'dingtalk-workspace-cli',
+    'vendor',
+    process.platform === 'win32' ? 'dws.exe' : 'dws',
+  ),
   wecomEnabled: raw.wecomEnabled === true,
   wecomBotId: raw.wecomBotId || '',
   wecomKeychainService: raw.wecomKeychainService || 'aipro-wecom-bot',
@@ -168,7 +182,7 @@ export const config = {
   geweMentionNames: Array.isArray(raw.geweMentionNames)
     ? raw.geweMentionNames.map(value => String(value).trim()).filter(Boolean).slice(0, 10)
     : [],
-  geweRelationshipMemoryEnabled: raw.geweRelationshipMemoryEnabled !== false,
+  geweRelationshipMemoryEnabled: raw.geweRelationshipMemoryEnabled === true,
   geweRelationshipMemoryIntervalMs: boundedInteger(raw.geweRelationshipMemoryIntervalMs, {
     name: 'geweRelationshipMemoryIntervalMs', fallback: 120_000, min: 60_000, max: 3_600_000,
   }),
@@ -194,7 +208,7 @@ export const config = {
     name: 'geweMomentsScanIntervalMs', fallback: 300_000, min: 60_000, max: 86_400_000,
   }),
   geweMomentsMaxProactivePerDay: boundedInteger(raw.geweMomentsMaxProactivePerDay, {
-    name: 'geweMomentsMaxProactivePerDay', fallback: 20, min: 1, max: 20,
+    name: 'geweMomentsMaxProactivePerDay', fallback: 6, min: 1, max: 20,
   }),
   geweMomentsMaxRepliesPerDay: boundedInteger(raw.geweMomentsMaxRepliesPerDay, {
     name: 'geweMomentsMaxRepliesPerDay', fallback: 20, min: 1, max: 100,
@@ -217,27 +231,25 @@ export const config = {
   }),
   geweOwnerArticleSyndicationEnabled: raw.geweOwnerArticleSyndicationEnabled === true,
   geweOwnerArticlePublisherIds: boundedStringArray(
-    raw.geweOwnerArticlePublisherIds === undefined
-      ? ['gh_07e3d1422f5e', 'BPM321GO', 'gh_63f557f95450', 'HuaYu_Consulting_21']
-      : raw.geweOwnerArticlePublisherIds,
+    raw.geweOwnerArticlePublisherIds === undefined ? [] : raw.geweOwnerArticlePublisherIds,
     { name: 'geweOwnerArticlePublisherIds', maxItems: 20, maxLength: 256 },
   ),
   geweOwnerArticleWechatIds: boundedStringArray(
-    raw.geweOwnerArticleWechatIds === undefined ? ['fung5115'] : raw.geweOwnerArticleWechatIds,
+    raw.geweOwnerArticleWechatIds === undefined ? [] : raw.geweOwnerArticleWechatIds,
     { name: 'geweOwnerArticleWechatIds', maxItems: 20, maxLength: 256 },
   ),
   multicaEnabled: raw.multicaEnabled === true,
   multicaProfile: raw.multicaProfile || 'desktop-api.multica.ai',
   multicaAppUrl: raw.multicaAppUrl || 'https://multica.ai',
   multicaDefaultWorkspaceId: raw.multicaDefaultWorkspaceId || '',
-  multicaOwnerSquad: String(raw.multicaOwnerSquad || '詹老师的开发团伙').trim(),
+  multicaOwnerSquad: String(raw.multicaOwnerSquad || '').trim(),
   multicaSyncIntervalMs: boundedInteger(raw.multicaSyncIntervalMs, {
     name: 'multicaSyncIntervalMs', fallback: 10000, min: 5000, max: 300000,
   }),
   multicaMaxIssues: boundedInteger(raw.multicaMaxIssues, {
     name: 'multicaMaxIssues', fallback: 5000, min: 100, max: 20000,
   }),
-  dailyLearningEnabled: raw.dailyLearningEnabled !== false,
+  dailyLearningEnabled: raw.dailyLearningEnabled === true,
   dailyLearningHour: boundedInteger(raw.dailyLearningHour, {
     name: 'dailyLearningHour', fallback: 1, min: 0, max: 23,
   }),
@@ -258,7 +270,7 @@ export const config = {
   codexProxyUrl: raw.codexProxyUrl || '',
   larkCli: raw.larkCli || join(home, '.local', 'bin', 'lark-cli'),
   nodeBin: raw.nodeBin || join(home, '.cache', 'codex-runtimes', 'codex-primary-runtime', 'dependencies', 'node', 'bin'),
-  pythonBin: raw.pythonBin || join(home, '.cache', 'codex-runtimes', 'codex-primary-runtime', 'dependencies', 'python', 'bin', 'python3'),
+  pythonBin: raw.pythonBin || '',
   multicaBin: raw.multicaBin
     || '/Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/multica',
 };

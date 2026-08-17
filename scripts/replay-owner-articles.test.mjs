@@ -39,7 +39,11 @@ try {
     },
   }, '2026-08-17T00:05:00.000Z');
 
-  const first = replayStoredOwnerArticles({ state, sinceAt: '2026-08-17T00:00:00.000Z' });
+  const first = replayStoredOwnerArticles({
+    state,
+    sinceAt: '2026-08-17T00:00:00.000Z',
+    publisherIds: ['gh_07e3d1422f5e'],
+  });
   assert.deepEqual(first, { scanned: 2, discovered: 1, enqueued: 1 });
   const pending = state.db.prepare("SELECT message_id,payload,status FROM inbound_message WHERE source='owner-article-replay'").all();
   assert.equal(pending.length, 1);
@@ -49,7 +53,11 @@ try {
   assert.equal(replayPayload.metadata.ownerArticleReplay, true);
   assert.equal(replayPayload.message.message_id, pending[0].message_id);
 
-  const second = replayStoredOwnerArticles({ state, sinceAt: '2026-08-17T00:00:00.000Z' });
+  const second = replayStoredOwnerArticles({
+    state,
+    sinceAt: '2026-08-17T00:00:00.000Z',
+    publisherIds: ['gh_07e3d1422f5e'],
+  });
   assert.deepEqual(second, { scanned: 2, discovered: 1, enqueued: 0 });
   state.close();
 } finally {

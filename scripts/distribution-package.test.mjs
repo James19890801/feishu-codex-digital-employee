@@ -18,6 +18,7 @@ async function put(root, relativePath, content = '') {
 const fixture = await mkdtemp(join(tmpdir(), 'james-package-source-'));
 await put(fixture, 'src/index.mjs', 'export const ready = true;\n');
 await put(fixture, 'src/index.test.mjs', 'private fixture data\n');
+await put(fixture, 'src/__pycache__/extract.cpython-312.pyc', 'compiled local path /Users/private/project\n');
 await put(fixture, 'dashboard/index.html', '<h1>Personal Digital Human</h1>\n');
 await put(fixture, 'scripts/setup.sh', '#!/bin/zsh\n');
 await put(fixture, 'templates/PERSONA.example.md', '# Persona\n');
@@ -52,7 +53,8 @@ assert.equal(files.includes('README.md'), true);
 assert.equal(files.includes('cloud-failover/worker/src/index.mjs'), true);
 assert.equal(files.includes('cloud-failover/container/Dockerfile'), true);
 for (const forbidden of [
-  'src/index.test.mjs', 'config.local.json', 'PERSONA.md', 'knowledge-catalog.json',
+  'src/index.test.mjs', 'src/__pycache__/extract.cpython-312.pyc',
+  'config.local.json', 'PERSONA.md', 'knowledge-catalog.json',
   'data/state.sqlite', 'docs/private.md', '.git/config',
   'cloud-failover/worker/src/index.test.mjs', 'cloud-failover/worker/.dev.vars',
 ]) {
@@ -83,6 +85,15 @@ assert.deepEqual(
   [...manifest.files].map(item => item.path),
   [...manifest.files].map(item => item.path).sort((left, right) => left.localeCompare(right)),
 );
+
+const unpackagedOutput = await mkdtemp(join(tmpdir(), 'james-package-no-archive-'));
+const unpackaged = await buildDistribution({
+  root: fixture,
+  outputDir: unpackagedOutput,
+  version: '1.2.3',
+  createArchive: false,
+});
+assert.equal(unpackaged.archive, null);
 
 const archiveList = spawnSync('/usr/bin/unzip', ['-Z1', built.archive], { encoding: 'utf8' });
 assert.equal(archiveList.status, 0, archiveList.stderr);

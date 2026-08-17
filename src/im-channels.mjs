@@ -1,4 +1,4 @@
-import { dirname } from 'node:path';
+import { delimiter, dirname } from 'node:path';
 import { matchHumanTakeoverCommand } from './human-takeover.mjs';
 import {
   parseEnterpriseChatFilePlaceholder,
@@ -24,10 +24,10 @@ export function buildEnterpriseChatProcessEnv({
   return {
     ...baseEnv,
     ...(resolvedHome ? { HOME: resolvedHome } : {}),
-    ...(channel ? { CONNECTOR_CHANNEL: channel } : {}),
+    ...(channel ? { DWS_CHANNEL: channel } : {}),
     PATH: [dirname(executable), String(nodeBin || ''), String(pathEnv || '')]
       .filter(Boolean)
-      .join(':'),
+      .join(delimiter),
   };
 }
 
@@ -119,9 +119,9 @@ export function buildEnterpriseChatConsumerArgs(profile = '') {
   return [
     ...(profile ? ['--profile', profile] : []),
     'event', 'consume',
-    'message.mention.received',
-    'message.direct.received',
-    'message.group.received',
+    'user_im_message_receive_at',
+    'user_im_message_receive_o2o_all',
+    'user_im_message_receive_group_all',
     '--flatten',
     '--format', 'ndjson',
   ];
@@ -169,7 +169,7 @@ export function buildEnterpriseChatConversationPollingArgs(profile, target, star
   if (!targetId) throw new Error('EnterpriseChat target ID is required for conversation polling');
   const recipient = target.kind === 'group'
     ? ['--group', targetId]
-    : ['--user', targetId];
+    : ['--open-dingtalk-id', targetId];
   return [
     ...(profile ? ['--profile', profile] : []),
     'chat', 'message', 'list',
@@ -207,10 +207,13 @@ export function buildEnterpriseChatSendArgs(target, text, uuid = '', {
   }
   const targetId = String(target.id || '').trim();
   if (!targetId) throw new Error('EnterpriseChat target ID is required for sending');
+  if (transport !== 'event-stream') {
+    throw new Error('DingTalk requires the standalone DWS event-stream transport');
+  }
   const recipient = target.kind === 'group'
     ? ['--group', targetId]
     : target.kind === 'user'
-      ? ['--user', targetId]
+      ? ['--open-dingtalk-id', targetId]
       : null;
   if (!recipient) throw new Error(`Unsupported EnterpriseChat target kind: ${target?.kind || ''}`);
   const content = String(text || '');
@@ -219,7 +222,7 @@ export function buildEnterpriseChatSendArgs(target, text, uuid = '', {
     ...recipient,
     '--text', content,
   ];
-  if (transport !== 'legacyBridge-polling') args.push('--transport-mode=standard');
+  args.push('--ai-tag=false');
   const mentionIds = target.kind === 'group'
     ? [...new Set(mentionUserIds.map(value => String(value || '').trim()).filter(Boolean))]
       .slice(0, 20)
@@ -227,7 +230,7 @@ export function buildEnterpriseChatSendArgs(target, text, uuid = '', {
   if (mentionIds.some(id => !content.includes(`<@${id}>`))) {
     throw new Error('EnterpriseChat mention placeholder is required for every mentioned user');
   }
-  if (mentionIds.length) args.push('--mentions', mentionIds.join(','));
+  if (mentionIds.length) args.push('--at-open-dingtalk-ids', mentionIds.join(','));
   if (uuid) args.push('--uuid', String(uuid).slice(0, 128));
   args.push('--yes', '--format', 'json');
   return args;
@@ -245,12 +248,12 @@ function normalizedTimestamp(value) {
 
 export function normalizeEnterpriseChatEvent(event) {
   const type = String(event?.type || '');
-  const explicitGroupMention = type === 'message.mention.received';
-  const semanticGroup = type === 'message.group.received';
+  const explicitGroupMention = type === 'user_im_message_receive_at';
+  const semanticGroup = type === 'user_im_message_receive_group_all';
   const group = explicitGroupMention || semanticGroup;
-  const direct = type === 'message.direct.received';
+  const direct = type === 'user_im_message_receive_o2o_all';
   if (!group && !direct) return null;
-  const senderId = String(event?.sender_enterprise_user_id || '').trim();
+  const senderId = String(event?.sender_open_dingtalk_id || '').trim();
   const targetId = group
     ? String(event?.conversation_id || '').trim()
     : senderId;

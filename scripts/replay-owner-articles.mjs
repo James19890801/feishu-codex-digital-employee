@@ -13,6 +13,8 @@ export function replayStoredOwnerArticles({
   state,
   sinceAt,
   limit = 2_000,
+  publisherIds,
+  ownerWechatIds,
 } = {}) {
   if (!state?.db) throw new Error('Replay requires an AgentState instance');
   const since = safeSince(sinceAt);
@@ -29,6 +31,8 @@ export function replayStoredOwnerArticles({
     const eligibility = eligibleOwnerArticle({
       senderOpenId: payload?.sender?.sender_id?.open_id,
       linkCandidate: payload?.metadata?.linkCandidate,
+      ...(publisherIds ? { publisherIds } : {}),
+      ...(ownerWechatIds ? { ownerWechatIds } : {}),
     });
     if (!eligibility.eligible) continue;
     if (!unique.has(eligibility.article.key)) unique.set(eligibility.article.key, payload);
@@ -50,9 +54,15 @@ async function main() {
   const sinceIndex = process.argv.indexOf('--since');
   const sinceAt = sinceIndex >= 0 ? process.argv[sinceIndex + 1] : '';
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const { config } = await import('../src/config.mjs');
   const state = new AgentState(join(root, 'data', 'agent-state.sqlite'));
   try {
-    const result = replayStoredOwnerArticles({ state, sinceAt });
+    const result = replayStoredOwnerArticles({
+      state,
+      sinceAt,
+      publisherIds: config.geweOwnerArticlePublisherIds,
+      ownerWechatIds: config.geweOwnerArticleWechatIds,
+    });
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } finally {
     state.close();

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { AgentState } from './state.mjs';
 import {
   applyAutomaticInboundBlock,
+  assertAutomaticOutboundAllowed,
   automaticCommunicationDecision,
   canSendBlockedRecipient,
   normalizeCommunicationBlocklist,
@@ -38,6 +39,20 @@ assert.equal(automaticCommunicationDecision({
 assert.equal(canSendBlockedRecipient({ blocked: true, explicitOwnerAuthorized: false }), false);
 assert.equal(canSendBlockedRecipient({ blocked: true, explicitOwnerAuthorized: true }), true);
 assert.equal(canSendBlockedRecipient({ blocked: false, explicitOwnerAuthorized: false }), true);
+assert.throws(() => assertAutomaticOutboundAllowed({
+  chatId: 'enterpriseChat:user:DZShVINWxiSe70fNkE84kZiiJB41gumdvbO',
+  blocklist,
+}), /blocked/u);
+assert.throws(() => assertAutomaticOutboundAllowed({
+  chatId: 'enterpriseChat:group:cid-group',
+  senderIds: ['enterpriseChat:DZShVINWxiSe70fNkE84kZiiJB41gumdvbO'],
+  blocklist,
+}), /blocked/u);
+assert.equal(assertAutomaticOutboundAllowed({
+  chatId: 'enterpriseChat:user:DZShVINWxiSe70fNkE84kZiiJB41gumdvbO',
+  blocklist,
+  explicitOwnerAuthorized: true,
+}), true);
 
 const directory = await mkdtemp(join(tmpdir(), 'communication-blocklist-'));
 const state = new AgentState(join(directory, 'state.sqlite'));

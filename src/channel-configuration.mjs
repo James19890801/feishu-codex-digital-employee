@@ -23,6 +23,14 @@ function optionalProfile(value) {
   return normalized;
 }
 
+function optionalDwsChannelCode(value) {
+  const normalized = String(value || '').trim();
+  if (normalized && !/^[A-Za-z0-9._-]{1,256}$/u.test(normalized)) {
+    throw new Error('DWS channel code may contain only letters, numbers, dot, underscore, or hyphen');
+  }
+  return normalized;
+}
+
 function optionalCredential(value) {
   const credential = String(value || '');
   if (!credential) return null;
@@ -85,6 +93,7 @@ export function channelConfigurationView(configuration, credentialStates = {}) {
       protected: false,
       enabled: configuration.enterpriseChatEnabled === true,
       profile: String(configuration.enterpriseChatProfile || ''),
+      channelCode: String(configuration.enterpriseChatChannel || ''),
       credentialStored: true,
     },
     wecom: {
@@ -122,6 +131,7 @@ export function normalizeChannelConfigurationRequest(channel, payload = {}) {
       changes: {
         enterpriseChatEnabled: enabled,
         enterpriseChatProfile: optionalProfile(payload.profile),
+        enterpriseChatChannel: optionalDwsChannelCode(payload.channelCode),
       },
       credential: null,
     };

@@ -4,8 +4,14 @@
   "author": "阿充",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "dingtalk-workspace-cli"
+    ]
+  },
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "start": "node src/index.mjs",
@@ -19,6 +25,7 @@
     "pretest": "node scripts/public-repository-neutrality.test.mjs && node scripts/check-native.test.mjs && node src/local-wiki-policy.test.mjs && node src/local-wiki-index.test.mjs && node src/local-wiki-retrieval.test.mjs && node src/workspace-artifact.test.mjs && node src/multimodal-end-to-end.test.mjs && node src/config.test.mjs && node src/wechat-owner-article-policy.test.mjs && node src/wechat-owner-article-reader.test.mjs && node src/wechat-owner-article-syndication.test.mjs && node scripts/replay-owner-articles.test.mjs && node src/semantic-repeat-guard.test.mjs && node src/semantic-repeat-controller.test.mjs && node src/discussion-value.test.mjs && node src/discussion-budget-controller.test.mjs && node src/outbound-repeat-controller.test.mjs && node src/group-host-mode.test.mjs && node src/group-host-worker.test.mjs && node src/conversation-history.test.mjs && node src/reply-routing.test.mjs && node src/semantic-group-engagement.test.mjs && node src/required-response-fallback.test.mjs",
     "test:public-neutrality": "node scripts/public-repository-neutrality.test.mjs",
     "test:install-service": "node scripts/install-service.test.mjs",
+    "test:beginner-install": "node scripts/source-install-entrypoint.test.mjs && node scripts/node-requirements.test.mjs && node scripts/bootstrap-entrypoints.test.mjs && node src/communication-blocklist.test.mjs && node scripts/dingtalk-install.test.mjs && node scripts/connector-deployment-policy.test.mjs && node scripts/dingtalk-readiness.test.mjs && node scripts/setup-dingtalk.test.mjs && node scripts/installation-attestation.test.mjs && node scripts/verify-install.test.mjs && node scripts/distribution-package.test.mjs && node scripts/install-aicoding.test.mjs && node dashboard/dingtalk-primary-ui.test.mjs",
     "test:multimodal": "node src/multimodal-content.test.mjs && node src/web-reader.test.mjs && node src/remote-content.test.mjs && node src/wechat-media-context.test.mjs && node src/wechat-file-context.test.mjs && node src/wechat-voice-context.test.mjs && node src/extract_file_text.test.mjs && node src/inbound-content.test.mjs && node src/content-resolver.test.mjs && node src/media-context.test.mjs && node src/artifact-channel-delivery.test.mjs && node src/channel-artifact-delivery.test.mjs && node src/html-preview.test.mjs && node src/enterpriseChat-legacyBridge-poller.test.mjs",
     "test:multimodal-smoke": "node scripts/multimodal-smoke.test.mjs",
     "check:multimodal": "node --check src/workspace-artifact.mjs && node --check src/web-reader.mjs && node --check src/remote-content.mjs && node --check src/multimodal-content.mjs && node --check src/inbound-content.mjs && node --check src/content-resolver.mjs && node --check src/artifact-channel-delivery.mjs && node --check src/channel-artifact-delivery.mjs && node --check src/html-preview.mjs && node --check scripts/multimodal-smoke.mjs && node scripts/check-native.mjs --mode multimodal",
@@ -33,12 +40,16 @@
     "dashboard-browser-smoke": "node scripts/dashboard-browser-smoke.mjs",
     "codex-smoke": "node scripts/codex-smoke.mjs",
     "runtime-smoke": "node scripts/runtime-smoke.mjs",
+    "verify:install": "node scripts/verify-install.mjs",
+    "setup:dingtalk": "node scripts/setup-dingtalk.mjs",
+    "check:dingtalk": "node scripts/dingtalk-readiness.mjs",
     "backup-smoke": "node scripts/backup-smoke.mjs",
     "multica-smoke": "node scripts/multica-smoke.mjs"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.58.0",
     "@wecom/aibot-node-sdk": "^1.0.7",
+    "dingtalk-workspace-cli": "1.0.58",
     "undici": "^7.29.0"
   }
 }

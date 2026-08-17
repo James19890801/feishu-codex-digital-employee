@@ -1,5 +1,5 @@
 export function runtimeMode(configuration = {}) {
-  const feishuEnabled = configuration.feishuEnabled !== false;
+  const feishuEnabled = configuration.feishuEnabled === true;
   return {
     feishuEnabled,
     primaryChannel: feishuEnabled
@@ -24,8 +24,8 @@ export function validateFeishuConfiguration(configuration = {}) {
 
 export function validateEnterpriseChatConfiguration(configuration = {}) {
   const transport = String(configuration.enterpriseChatTransport || 'event-stream').trim();
-  if (!['event-stream', 'legacyBridge-polling'].includes(transport)) {
-    throw new Error('enterpriseChatTransport 只能是 event-stream 或 legacyBridge-polling');
+  if (transport !== 'event-stream') {
+    throw new Error('DingTalk DWS Channel requires enterpriseChatTransport=event-stream');
   }
   const ownerOpenId = String(configuration.enterpriseChatOwnerOpenId || '').trim();
   if (ownerOpenId && !/^[A-Za-z0-9_-]{8,256}$/.test(ownerOpenId)) {

@@ -10,10 +10,10 @@ assert.deepEqual(runtime.runtimeMode({ feishuEnabled: false, enterpriseChatEnabl
 });
 
 assert.deepEqual(runtime.runtimeMode({}), {
-  feishuEnabled: true,
-  primaryChannel: 'feishu',
-  pollingRequired: true,
-  websocketRequired: true,
+  feishuEnabled: false,
+  primaryChannel: 'none',
+  pollingRequired: false,
+  websocketRequired: false,
 });
 
 assert.doesNotThrow(() => runtime.validateFeishuConfiguration({ feishuEnabled: false }));
@@ -34,12 +34,15 @@ assert.doesNotThrow(() => runtime.validateFeishuConfiguration({
   ownerOpenId: 'ou_abc123',
 }));
 
-assert.doesNotThrow(() => runtime.validateEnterpriseChatConfiguration({
-  enterpriseChatEnabled: true,
-  multicaEnabled: false,
-  enterpriseChatTransport: 'legacyBridge-polling',
-  enterpriseChatOwnerOpenId: '',
-}));
+assert.throws(
+  () => runtime.validateEnterpriseChatConfiguration({
+    enterpriseChatEnabled: true,
+    multicaEnabled: false,
+    enterpriseChatTransport: 'legacyBridge-polling',
+    enterpriseChatOwnerOpenId: '',
+  }),
+  /event-stream/u,
+);
 assert.doesNotThrow(() => runtime.validateEnterpriseChatConfiguration({
   enterpriseChatEnabled: true,
   multicaEnabled: false,

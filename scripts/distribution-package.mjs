@@ -29,13 +29,17 @@ const SCRIPT_FILES = new Set([
   'scripts/check-python.mjs',
   'scripts/cloud-failover-smoke.mjs',
   'scripts/connector-deployment-policy.mjs',
+  'scripts/dingtalk-readiness.mjs',
   'scripts/health-check.mjs',
   'scripts/install-aicoding.mjs',
+  'scripts/installation-attestation.mjs',
   'scripts/install-dashboard-service.sh',
   'scripts/install-service.sh',
   'scripts/runtime-smoke.mjs',
   'scripts/qoder-cloud-provision.mjs',
   'scripts/setup.sh',
+  'scripts/setup-dingtalk.mjs',
+  'scripts/verify-install.mjs',
   'scripts/wechat-poc-health.mjs',
   'scripts/wechat-poc-ui.jxa',
   'scripts/wechat-poc-vision.swift',
@@ -44,6 +48,7 @@ const SCRIPT_FILES = new Set([
 const FORBIDDEN_PATH_PATTERNS = [
   /(^|\/)\.git(\/|$)/u,
   /(^|\/)node_modules(\/|$)/u,
+  /(^|\/)__pycache__(\/|$)/u,
   /(^|\/)dist(\/|$)/u,
   /(^|\/)data(\/|$)/u,
   /(^|\/)docs\/(?!CLOUD_FAILOVER\.md$)/u,
@@ -53,6 +58,7 @@ const FORBIDDEN_PATH_PATTERNS = [
   /(^|\/)BIBLE\.md$/u,
   /(^|\/)knowledge-(?:catalog|source-manifest)\.json$/u,
   /\.test\.[cm]?[jt]s$/u,
+  /\.py[co]$/iu,
   /\.(?:sqlite|sqlite-wal|sqlite-shm|log)$/iu,
   /(?:recovery|founder-recovery|\.james-license)/iu,
 ];
@@ -197,7 +203,7 @@ async function localForbiddenValues(root) {
   }
 }
 
-export async function buildDistribution({ root, outputDir, version }) {
+export async function buildDistribution({ root, outputDir, version, createArchive = true }) {
   const sourceRoot = resolve(root);
   const targetRoot = resolve(outputDir);
   const packageMetadata = JSON.parse(await readFile(join(sourceRoot, 'package.json'), 'utf8'));
@@ -211,10 +217,11 @@ export async function buildDistribution({ root, outputDir, version }) {
   }
   const packageName = `personal-digital-human-${normalizedVersion}`;
   const directory = join(targetRoot, packageName);
-  const archive = `${directory}.zip`;
+  const archivePath = `${directory}.zip`;
+  const archive = createArchive ? archivePath : null;
   await mkdir(targetRoot, { recursive: true });
   await rm(directory, { recursive: true, force: true });
-  await rm(archive, { force: true });
+  await rm(archivePath, { force: true });
   await mkdir(join(directory, 'payload'), { recursive: true });
 
   const files = await distributionFileList(sourceRoot);
@@ -223,7 +230,7 @@ export async function buildDistribution({ root, outputDir, version }) {
     await mkdir(dirname(target), { recursive: true });
     await copyFile(join(sourceRoot, path), target);
   }
-  for (const path of ['AI_CODING_INSTALL.md', 'install.mjs', 'install.command']) {
+  for (const path of ['AI_CODING_INSTALL.md', 'install.mjs', 'install.command', 'install.ps1']) {
     try {
       const source = join(sourceRoot, path);
       if (!(await lstat(source)).isFile()) continue;
@@ -269,16 +276,18 @@ export async function buildDistribution({ root, outputDir, version }) {
     const summary = finalScan.violations.map(item => `${item.code}:${item.path}`).join(', ');
     throw new Error(`Final distribution privacy scan failed: ${summary}`);
   }
-  const ditto = spawnSync('/usr/bin/ditto', [
-    '-c', '-k', '--sequesterRsrc', '--keepParent', directory, archive,
-  ], { encoding: 'utf8' });
-  if (ditto.status !== 0) {
-    throw new Error(`ZIP creation failed: ${String(ditto.stderr || ditto.stdout).trim()}`);
+  if (createArchive) {
+    const ditto = spawnSync('/usr/bin/ditto', [
+      '-c', '-k', '--sequesterRsrc', '--keepParent', directory, archivePath,
+    ], { encoding: 'utf8' });
+    if (ditto.status !== 0) {
+      throw new Error(`ZIP creation failed: ${String(ditto.stderr || ditto.stdout).trim()}`);
+    }
   }
   return {
     directory,
     archive,
-    sha256: await sha256File(archive),
+    sha256: createArchive ? await sha256File(archivePath) : null,
     fileCount: payloadEntries.length,
     bytes,
   };

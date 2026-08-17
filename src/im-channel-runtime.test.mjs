@@ -11,7 +11,7 @@ import {
   const statuses = [];
   const messages = [];
   const channel = new EnterpriseChatChannel({
-    bin: '/opt/connector',
+    bin: '/opt/dws',
     profile: 'corp:user',
     run: async (bin, args) => {
       calls.push({ bin, args });
@@ -22,18 +22,18 @@ import {
   assert.deepEqual(channel.consumerArgs(), [
     '--profile', 'corp:user',
     'event', 'consume',
-    'message.mention.received',
-    'message.direct.received',
-    'message.group.received',
+    'user_im_message_receive_at',
+    'user_im_message_receive_o2o_all',
+    'user_im_message_receive_group_all',
     '--flatten',
     '--format', 'ndjson',
   ]);
   assert.equal(channel.handleStderr('[event] ready event_count=2 bus_pid=123'), true);
   assert.equal(statuses.at(-1).connected, true);
   assert.equal(channel.handleLine(JSON.stringify({
-    type: 'message.direct.received',
+    type: 'user_im_message_receive_o2o_all',
     event_id: 'event-1',
-    sender_enterprise_user_id: 'user-1',
+    sender_open_dingtalk_id: 'user-1',
     content: '测试',
   }), payload => messages.push(payload)), true);
   assert.equal(messages[0].message.chat_id, 'enterpriseChat:user:user-1');
@@ -44,11 +44,11 @@ import {
     '回复内容',
     'uuid-1',
   );
-  assert.equal(calls[0].bin, '/opt/connector');
+  assert.equal(calls[0].bin, '/opt/dws');
   assert.deepEqual(calls[0].args.slice(0, 5), [
     '--profile', 'corp:user', 'chat', 'message', 'send',
   ]);
-  assert.ok(calls[0].args.includes('--transport-mode=standard'));
+  assert.ok(calls[0].args.includes('--ai-tag=false'));
 
   await channel.send(
     { channel: 'enterpriseChat', kind: 'group', id: 'group-1' },
@@ -57,37 +57,26 @@ import {
     { mentionUserIds: ['user-1'] },
   );
   assert.equal(
-    calls[1].args[calls[1].args.indexOf('--mentions') + 1],
+    calls[1].args[calls[1].args.indexOf('--at-open-dingtalk-ids') + 1],
     'user-1',
   );
 }
 
 {
-  const calls = [];
   const channel = new EnterpriseChatChannel({
-    bin: '/opt/legacyBridge/connector',
+    bin: '/opt/wukong/dws',
     profile: 'corp:user',
     transport: 'legacyBridge-polling',
-    run: async (bin, args) => {
-      calls.push({ bin, args });
-      return {
-        stdout: JSON.stringify({
-          success: true,
-          result: { deliveryTaskId: 'task-legacyBridge-1' },
-        }),
-        stderr: '',
-      };
-    },
+    run: async () => ({ stdout: '{"success":true}', stderr: '' }),
   });
-  await channel.send(
-    { channel: 'enterpriseChat', kind: 'user', id: 'open-colleague' },
-    '阿充稍后回复你。',
-    'legacyBridge-send-1',
+  await assert.rejects(
+    () => channel.send(
+      { channel: 'enterpriseChat', kind: 'user', id: 'open-colleague' },
+      '稍后回复你。',
+      'legacyBridge-send-1',
+    ),
+    /event-stream/u,
   );
-  assert.equal(calls[0].bin, '/opt/legacyBridge/connector');
-  assert.equal(calls[0].args.includes('--profile'), false);
-  assert.equal(calls[0].args.includes('--transport-mode=standard'), false);
-  assert.equal(calls[0].args.includes('--user'), true);
 }
 
 {

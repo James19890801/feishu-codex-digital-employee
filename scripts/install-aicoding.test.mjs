@@ -64,6 +64,60 @@ function install(directory, extraEnv = {}) {
 
 const directory = await packageDirectory();
 
+const noPythonTools = join(sandbox, 'no-python-tools');
+const noPythonRoot = join(sandbox, 'installed', 'no-python');
+await mkdir(noPythonTools, { recursive: true });
+for (const [name, body] of [
+  ['pnpm', '#!/bin/sh\nexit 0\n'],
+  ['python3', '#!/bin/sh\necho PYTHON_MUST_NOT_RUN >&2\nexit 91\n'],
+  ['python', '#!/bin/sh\necho PYTHON_MUST_NOT_RUN >&2\nexit 91\n'],
+]) {
+  await writeFile(join(noPythonTools, name), body, 'utf8');
+  await chmod(join(noPythonTools, name), 0o755);
+}
+const noPython = spawnSync(process.execPath, [join(directory, 'install.mjs')], {
+  cwd: directory,
+  encoding: 'utf8',
+  env: {
+    ...process.env,
+    HOME: home,
+    PATH: `${noPythonTools}:/bin:/usr/bin`,
+    ACHONG_INSTALL_HOME: home,
+    ACHONG_INSTALL_ROOT: noPythonRoot,
+    ACHONG_SKIP_PYTHON: '1',
+    ACHONG_SKIP_SERVICES: '1',
+    ACHONG_SKIP_OPEN: '1',
+    JAMES_INSTALL_PLATFORM: 'linux',
+  },
+});
+assert.equal(noPython.status, 0, `${noPython.stdout}\n${noPython.stderr}`);
+assert.doesNotMatch(`${noPython.stdout}\n${noPython.stderr}`, /PYTHON_MUST_NOT_RUN/u);
+const noPythonConfig = JSON.parse(await readFile(join(noPythonRoot, 'config.local.json'), 'utf8'));
+assert.equal(noPythonConfig.pythonBin, '');
+
+const dwsInstallRoot = join(sandbox, 'installed', 'dws-primary');
+const dwsInstall = spawnSync(process.execPath, [join(directory, 'install.mjs')], {
+  cwd: directory,
+  encoding: 'utf8',
+  env: {
+    ...process.env,
+    HOME: home,
+    ACHONG_INSTALL_HOME: home,
+    ACHONG_INSTALL_ROOT: dwsInstallRoot,
+    ACHONG_SKIP_PYTHON: '1',
+    ACHONG_SKIP_SERVICES: '1',
+    ACHONG_SKIP_OPEN: '1',
+    JAMES_INSTALL_PLATFORM: 'darwin',
+  },
+});
+assert.equal(dwsInstall.status, 0, `${dwsInstall.stdout}\n${dwsInstall.stderr}`);
+const dwsConfig = JSON.parse(await readFile(join(dwsInstallRoot, 'config.local.json'), 'utf8'));
+assert.match(dwsConfig.enterpriseChatBin, /dingtalk-workspace-cli.*vendor.*dws/u);
+await access(dwsConfig.enterpriseChatBin);
+const dwsVersion = spawnSync(dwsConfig.enterpriseChatBin, ['--version'], { encoding: 'utf8' });
+assert.equal(dwsVersion.status, 0, dwsVersion.stderr);
+assert.match(dwsVersion.stdout, /1\.0\.58/u);
+
 for (const [platform, pythonRelativePath] of [
   ['win32', join('.venv', 'Scripts', 'python.exe')],
   ['linux', join('.venv', 'bin', 'python3')],
@@ -92,6 +146,7 @@ for (const [platform, pythonRelativePath] of [
 let result = install(directory);
 assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 assert.match(result.stdout, /INSTALL_OK/);
+assert.match(result.stdout, /VERIFY_INSTALL_OK/);
 assert.match(result.stdout, /http:\/\/127\.0\.0\.1:17655/);
 const config = JSON.parse(await readFile(join(installRoot, 'config.local.json'), 'utf8'));
 assert.equal(config.feishuEnabled, false);
@@ -131,7 +186,11 @@ await writeFile(join(installRoot, 'data', 'marker.txt'), 'preserved data\n', 'ut
 await writeFile(launchctlLog, '', 'utf8');
 result = install(directory);
 assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-assert.equal(await readFile(join(installRoot, 'config.local.json'), 'utf8'), '{"preserved":true}\n');
+const upgradedConfig = JSON.parse(await readFile(join(installRoot, 'config.local.json'), 'utf8'));
+assert.equal(upgradedConfig.preserved, true);
+assert.match(upgradedConfig.installationId, /^[A-Za-z0-9-]{8,128}$/u);
+assert.match(upgradedConfig.installationBuildSha, /^[a-f0-9]{64}$/u);
+assert.equal(upgradedConfig.installationRoot, installRoot);
 assert.equal(await readFile(join(installRoot, 'PERSONA.md'), 'utf8'), 'preserved persona\n');
 assert.equal(await readFile(join(installRoot, 'BIBLE.md'), 'utf8'), 'preserved bible\n');
 assert.equal(await readFile(join(installRoot, 'data', 'marker.txt'), 'utf8'), 'preserved data\n');
@@ -147,7 +206,7 @@ const rollbackPackage = await packageDirectory();
 result = install(rollbackPackage, { ACHONG_LAUNCHCTL_FAIL: '1' });
 assert.notEqual(result.status, 0);
 assert.match(`${result.stdout}\n${result.stderr}`, /rollback/i);
-assert.equal(await readFile(join(installRoot, 'config.local.json'), 'utf8'), '{"preserved":true}\n');
+assert.equal(JSON.parse(await readFile(join(installRoot, 'config.local.json'), 'utf8')).preserved, true);
 assert.equal(await readFile(join(installRoot, 'data', 'marker.txt'), 'utf8'), 'preserved data\n');
 
 console.log('INSTALL_AICODING_TEST_OK');

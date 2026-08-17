@@ -548,7 +548,12 @@ function startOperationsConsole() {
   if (operationsStarted) return;
   operationsStarted = true;
   refresh();
-  loadConfigurationAssistant();
+  const setup = new URLSearchParams(window.location.search).get('setup');
+  loadConfigurationAssistant().then(() => {
+    if (setup !== 'dingtalk') return;
+    window.history.replaceState({}, '', window.location.pathname);
+    openChannelDialog('enterpriseChat');
+  });
   refreshTimer = setInterval(refresh, 5000);
 }
 
@@ -925,6 +930,7 @@ function renderChannelForm(channel, configuration) {
   $('channelEnabled').checked = configuration.enabled === true;
   $('channelFeishuIdentity').value = configuration.identity || '';
   $('channelEnterpriseChatProfile').value = configuration.profile || '';
+  $('channelEnterpriseChatChannel').value = configuration.channelCode || '';
   $('channelWecomBotId').value = configuration.botId || '';
   $('channelWecomCredential').value = '';
   $('channelWechatAppId').value = configuration.appId || '';
@@ -962,6 +968,7 @@ function channelRequestBody() {
   };
   if (selectedChannel === 'enterpriseChat') {
     base.profile = $('channelEnterpriseChatProfile').value.trim();
+    base.channelCode = $('channelEnterpriseChatChannel').value.trim();
   } else if (selectedChannel === 'wecom') {
     base.botId = $('channelWecomBotId').value.trim();
     base.credential = $('channelWecomCredential').value;

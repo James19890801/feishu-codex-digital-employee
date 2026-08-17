@@ -431,7 +431,7 @@ contract('group-attribution', 'Are EnterpriseChat mentions deduplicated and boun
     'bounded-mentions',
     { mentionUserIds: [...ids, 'user-0'] },
   );
-  const mentioned = args[args.indexOf('--mentions') + 1].split(',');
+  const mentioned = args[args.indexOf('--at-open-dingtalk-ids') + 1].split(',');
   assert.equal(mentioned.length, 20);
   assert.equal(new Set(mentioned).size, 20);
 });
@@ -469,21 +469,21 @@ for (const [question, input, expected] of [
 
 for (const [question, event, accepted] of [
   ['Is a valid EnterpriseChat group @ event accepted?', {
-    type: 'message.mention.received', message_id: 'm1', conversation_id: 'c1',
-    sender_enterprise_user_id: 'u1', content: '@AIPRO 你好',
+    type: 'user_im_message_receive_at', message_id: 'm1', conversation_id: 'c1',
+    sender_open_dingtalk_id: 'u1', content: '@AIPRO 你好',
   }, true],
   ['Is a valid EnterpriseChat direct event accepted?', {
-    type: 'message.direct.received', event_id: 'e1',
-    sender_enterprise_user_id: 'u1', content: '你好',
+    type: 'user_im_message_receive_o2o_all', event_id: 'e1',
+    sender_open_dingtalk_id: 'u1', content: '你好',
   }, true],
   ['Is an unrelated EnterpriseChat event rejected?', {
     type: 'message.recalled', event_id: 'e2', sender_enterprise_user_id: 'u1',
   }, false],
   ['Is an event without sender rejected?', {
-    type: 'message.mention.received', message_id: 'm2', conversation_id: 'c1',
+    type: 'user_im_message_receive_at', message_id: 'm2', conversation_id: 'c1',
   }, false],
   ['Is a group event without conversation rejected?', {
-    type: 'message.mention.received', message_id: 'm3', sender_enterprise_user_id: 'u1',
+    type: 'user_im_message_receive_at', message_id: 'm3', sender_open_dingtalk_id: 'u1',
   }, false],
 ]) {
   contract('inbound-normalization', question, () => {

@@ -40,17 +40,17 @@ assert.equal(
 );
 if (typeof imChannelHelpers.buildEnterpriseChatProcessEnv === 'function') {
   assert.deepEqual(imChannelHelpers.buildEnterpriseChatProcessEnv({
-    enterpriseChatBin: '/opt/connector/bin/connector',
+    enterpriseChatBin: '/opt/dws/bin/dws',
     enterpriseChatChannel: 'channel-code',
     nodeBin: '/opt/node/bin',
     pathEnv: '/usr/bin:/bin',
     baseEnv: { LANG: 'zh_CN.UTF-8' },
     home: '/Users/example',
   }), {
-    CONNECTOR_CHANNEL: 'channel-code',
+    DWS_CHANNEL: 'channel-code',
     HOME: '/Users/example',
     LANG: 'zh_CN.UTF-8',
-    PATH: '/opt/connector/bin:/opt/node/bin:/usr/bin:/bin',
+    PATH: '/opt/dws/bin:/opt/node/bin:/usr/bin:/bin',
   });
 }
 
@@ -170,18 +170,18 @@ assert.deepEqual(parseChannelChatId('wechat:user:wxid_friend'), {
 
 assert.deepEqual(buildEnterpriseChatConsumerArgs(), [
   'event', 'consume',
-  'message.mention.received',
-  'message.direct.received',
-  'message.group.received',
+  'user_im_message_receive_at',
+  'user_im_message_receive_o2o_all',
+  'user_im_message_receive_group_all',
   '--flatten',
   '--format', 'ndjson',
 ]);
 assert.deepEqual(buildEnterpriseChatConsumerArgs('corp:user'), [
   '--profile', 'corp:user',
   'event', 'consume',
-  'message.mention.received',
-  'message.direct.received',
-  'message.group.received',
+  'user_im_message_receive_at',
+  'user_im_message_receive_o2o_all',
+  'user_im_message_receive_group_all',
   '--flatten',
   '--format', 'ndjson',
 ]);
@@ -395,7 +395,7 @@ assert.deepEqual(buildEnterpriseChatConversationPollingArgs(
 ), [
   '--profile', 'corp:user',
   'chat', 'message', 'list',
-  '--user', 'open-friend',
+  '--open-dingtalk-id', 'open-friend',
   '--time', '2026-08-01 13:50:00',
   '--direction', 'older',
   '--limit', '50',
@@ -473,11 +473,11 @@ if (typeof imChannelHelpers.normalizeEnterpriseChatGroupHistoryMessages === 'fun
 
 {
   const payload = normalizeEnterpriseChatEvent({
-    type: 'message.mention.received',
+    type: 'user_im_message_receive_at',
     event_id: 'event-1',
     message_id: 'msg-1',
     conversation_id: 'cid-group',
-    sender_enterprise_user_id: 'sender-1',
+    sender_open_dingtalk_id: 'sender-1',
     content: '@James 请给我项目状态',
     create_time: '2026-07-31T10:00:00+08:00',
   });
@@ -493,11 +493,11 @@ if (typeof imChannelHelpers.normalizeEnterpriseChatGroupHistoryMessages === 'fun
 
 {
   const payload = normalizeEnterpriseChatEvent({
-    type: 'message.direct.received',
+    type: 'user_im_message_receive_o2o_all',
     event_id: 'event-voice',
     message_id: 'msg-voice',
     conversation_id: 'cid-direct',
-    sender_enterprise_user_id: 'sender-voice',
+    sender_open_dingtalk_id: 'sender-voice',
     content: '[语音消息](mediaId=@voice_123) 注意：如需下载使用命令',
   });
   assert.equal(payload.message.message_type, 'audio');
@@ -512,12 +512,12 @@ if (typeof imChannelHelpers.normalizeEnterpriseChatGroupHistoryMessages === 'fun
 
 {
   const payload = normalizeEnterpriseChatEvent({
-    type: 'message.group.received',
+    type: 'user_im_message_receive_group_all',
     event_id: 'event-file',
     message_id: 'msg-file',
     conversation_id: 'cid-files',
-    sender_enterprise_user_id: 'sender-file',
-    content: '[文件] 季度复盘.pptx fileId: file-node-123 注意：如需下载使用connector drive download命令下载',
+    sender_open_dingtalk_id: 'sender-file',
+    content: '[文件] 季度复盘.pptx fileId: file-node-123 注意：如需下载使用 dws drive download 命令下载',
   });
   assert.equal(payload.message.message_type, 'file');
   assert.deepEqual(JSON.parse(payload.message.content), {
@@ -535,10 +535,10 @@ if (typeof imChannelHelpers.normalizeEnterpriseChatGroupHistoryMessages === 'fun
 
 {
   const payload = normalizeEnterpriseChatEvent({
-    type: 'message.direct.received',
+    type: 'user_im_message_receive_o2o_all',
     event_id: 'event-2',
     conversation_id: 'cid-direct',
-    sender_enterprise_user_id: 'sender-2',
+    sender_open_dingtalk_id: 'sender-2',
     content: '你好',
     timestamp: 1785463200000,
   });
@@ -550,11 +550,11 @@ if (typeof imChannelHelpers.normalizeEnterpriseChatGroupHistoryMessages === 'fun
 
 {
   const payload = normalizeEnterpriseChatEvent({
-    type: 'message.group.received',
+    type: 'user_im_message_receive_group_all',
     event_id: 'event-group-all',
     message_id: 'message-group-all',
     conversation_id: 'cid-group-all',
-    sender_enterprise_user_id: 'sender-group-all',
+    sender_open_dingtalk_id: 'sender-group-all',
     content: 'AI 对流程管理有什么影响？',
     timestamp: 1785463200000,
   });
@@ -573,7 +573,7 @@ if (typeof imChannelHelpers.normalizeEnterpriseChatGroupHistoryMessages === 'fun
     'chat', 'message', 'send',
     '--group', 'cid-group',
     '--text', '收到，我来处理。',
-    '--transport-mode=standard',
+    '--ai-tag=false',
     '--uuid', 'reply-uuid',
     '--yes',
     '--format', 'json',
@@ -581,20 +581,12 @@ if (typeof imChannelHelpers.normalizeEnterpriseChatGroupHistoryMessages === 'fun
 }
 
 {
-  const args = buildEnterpriseChatSendArgs(
+  assert.throws(() => buildEnterpriseChatSendArgs(
     { channel: 'enterpriseChat', kind: 'user', id: 'open-colleague' },
     '收到，我来看一下。',
     'legacyBridge-uuid',
     { transport: 'legacyBridge-polling' },
-  );
-  assert.deepEqual(args, [
-    'chat', 'message', 'send',
-    '--user', 'open-colleague',
-    '--text', '收到，我来看一下。',
-    '--uuid', 'legacyBridge-uuid',
-    '--yes',
-    '--format', 'json',
-  ]);
+  ), /event-stream/u);
 }
 
 {
@@ -604,8 +596,8 @@ if (typeof imChannelHelpers.normalizeEnterpriseChatGroupHistoryMessages === 'fun
     'mention-uuid',
     { mentionUserIds: ['sender-1'] },
   );
-  assert.ok(args.includes('--mentions'));
-  assert.equal(args[args.indexOf('--mentions') + 1], 'sender-1');
+  assert.ok(args.includes('--at-open-dingtalk-ids'));
+  assert.equal(args[args.indexOf('--at-open-dingtalk-ids') + 1], 'sender-1');
 }
 
 assert.throws(
@@ -633,7 +625,7 @@ assert.throws(
     'direct-uuid',
   );
   assert.deepEqual(args.slice(0, 5), [
-    'chat', 'message', 'send', '--user', 'sender-2',
+    'chat', 'message', 'send', '--open-dingtalk-id', 'sender-2',
   ]);
 }
 

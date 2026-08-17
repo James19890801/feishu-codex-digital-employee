@@ -8,14 +8,14 @@ import { config } from './config.mjs';
 assert.equal(config.semanticRepeatGuardEnabled, true);
 assert.equal(config.semanticRepeatWindowMs, 30 * 60_000);
 assert.equal(config.semanticRepeatMaxReplies, 2);
-assert.equal(config.adaptiveDiscussionEnabled, true);
+assert.equal(config.adaptiveDiscussionEnabled, false);
 assert.equal(config.adaptiveDiscussionMaxReplies, 100);
 assert.equal(config.adaptiveDiscussionLowValueLimit, 3);
 assert.equal(config.adaptiveDiscussionCooldownMs, 30 * 60_000);
-assert.equal(config.semanticGroupEngagementEnabled, true);
+assert.equal(config.semanticGroupEngagementEnabled, false);
 assert.equal(config.semanticGroupReplyThreshold, 0.86);
 assert.equal(config.semanticGroupEntryCooldownMs, 120_000);
-assert.equal(config.semanticGroupAliases.includes('AIPRO'), true);
+assert.deepEqual(config.semanticGroupAliases, []);
 assert.equal(typeof config.groupHostModeEnabled, 'boolean');
 assert.equal(Array.isArray(config.groupHostChatIds), true);
 assert.equal(config.groupHostSilenceMs, 75_000);
@@ -29,7 +29,7 @@ assert.equal(typeof config.geweDailyBriefingGroupId, 'string');
 assert.equal(typeof config.geweDailyBriefingGroupName, 'string');
 assert.equal(typeof config.geweMomentsEngagementEnabled, 'boolean');
 assert.equal(config.geweMomentsScanIntervalMs, 300_000);
-assert.equal(config.geweMomentsMaxProactivePerDay, 20);
+assert.equal(config.geweMomentsMaxProactivePerDay, 6);
 assert.equal(config.geweMomentsMaxRepliesPerDay, 20);
 assert.equal(config.geweMomentsMaxThreadDepth, 4);
 assert.equal(config.geweMomentsPostMaxAgeHours, 36);
@@ -38,14 +38,10 @@ assert.equal(config.geweMomentsPublisherIntervalMs, 60_000);
 assert.equal(config.geweMomentsPublisherMorningWindow, '10:00-12:00');
 assert.equal(config.geweMomentsPublisherEveningWindow, '18:30-21:00');
 assert.equal(typeof config.geweOwnerArticleSyndicationEnabled, 'boolean');
-assert.deepEqual(config.geweOwnerArticlePublisherIds, [
-  'gh_07e3d1422f5e',
-  'BPM321GO',
-  'gh_63f557f95450',
-  'HuaYu_Consulting_21',
-]);
-assert.deepEqual(config.geweOwnerArticleWechatIds, ['fung5115']);
-assert.equal(config.geweRelationshipMemoryEnabled, true);
+assert.deepEqual(config.geweOwnerArticlePublisherIds, []);
+assert.deepEqual(config.geweOwnerArticleWechatIds, []);
+assert.equal(config.geweRelationshipMemoryEnabled, false);
+assert.equal(config.dailyLearningEnabled, false);
 assert.equal(config.geweRelationshipMemoryIntervalMs, 120_000);
 assert.equal(config.geweRelationshipMemoryBatchSize, 10);
 assert.equal(config.geweRelationshipMemoryCapsuleMaxChars, 1_200);
@@ -79,11 +75,16 @@ try {
   delete defaultsInput.geweOwnerArticleSyndicationEnabled;
   delete defaultsInput.geweOwnerArticlePublisherIds;
   delete defaultsInput.geweOwnerArticleWechatIds;
+  delete defaultsInput.semanticGroupEngagementEnabled;
+  delete defaultsInput.semanticGroupAliases;
+  delete defaultsInput.adaptiveDiscussionEnabled;
+  delete defaultsInput.geweRelationshipMemoryEnabled;
+  delete defaultsInput.dailyLearningEnabled;
   writeFileSync(defaultsPath, JSON.stringify(defaultsInput));
   const defaults = spawnSync(process.execPath, [
     '--input-type=module',
     '--eval',
-    "const {config}=await import('./src/config.mjs'); console.log(JSON.stringify({enabled:config.groupHostModeEnabled,chats:config.groupHostChatIds,silence:config.groupHostSilenceMs,cooldown:config.groupHostReplyCooldownMs,welcomeEnabled:config.geweNewcomerWelcomeEnabled,welcomeGroupId:config.geweNewcomerWelcomeGroupId,welcomeGroupName:config.geweNewcomerWelcomeGroupName,welcomeInterval:config.geweNewcomerWelcomeIntervalMs,briefingGroupId:config.geweDailyBriefingGroupId,briefingGroupName:config.geweDailyBriefingGroupName,momentsEnabled:config.geweMomentsEngagementEnabled,momentsInterval:config.geweMomentsScanIntervalMs,momentsProactive:config.geweMomentsMaxProactivePerDay,momentsReplies:config.geweMomentsMaxRepliesPerDay,momentsDepth:config.geweMomentsMaxThreadDepth,momentsAge:config.geweMomentsPostMaxAgeHours,publisherEnabled:config.geweMomentsPublisherEnabled,publisherInterval:config.geweMomentsPublisherIntervalMs,publisherMorning:config.geweMomentsPublisherMorningWindow,publisherEvening:config.geweMomentsPublisherEveningWindow,ownerArticleEnabled:config.geweOwnerArticleSyndicationEnabled,ownerArticlePublishers:config.geweOwnerArticlePublisherIds,ownerArticleWechatIds:config.geweOwnerArticleWechatIds}))",
+    "const {config}=await import('./src/config.mjs'); console.log(JSON.stringify({enabled:config.groupHostModeEnabled,chats:config.groupHostChatIds,silence:config.groupHostSilenceMs,cooldown:config.groupHostReplyCooldownMs,welcomeEnabled:config.geweNewcomerWelcomeEnabled,welcomeGroupId:config.geweNewcomerWelcomeGroupId,welcomeGroupName:config.geweNewcomerWelcomeGroupName,welcomeInterval:config.geweNewcomerWelcomeIntervalMs,briefingGroupId:config.geweDailyBriefingGroupId,briefingGroupName:config.geweDailyBriefingGroupName,momentsEnabled:config.geweMomentsEngagementEnabled,momentsInterval:config.geweMomentsScanIntervalMs,momentsProactive:config.geweMomentsMaxProactivePerDay,momentsReplies:config.geweMomentsMaxRepliesPerDay,momentsDepth:config.geweMomentsMaxThreadDepth,momentsAge:config.geweMomentsPostMaxAgeHours,publisherEnabled:config.geweMomentsPublisherEnabled,publisherInterval:config.geweMomentsPublisherIntervalMs,publisherMorning:config.geweMomentsPublisherMorningWindow,publisherEvening:config.geweMomentsPublisherEveningWindow,ownerArticleEnabled:config.geweOwnerArticleSyndicationEnabled,ownerArticlePublishers:config.geweOwnerArticlePublisherIds,ownerArticleWechatIds:config.geweOwnerArticleWechatIds,semanticGroupEnabled:config.semanticGroupEngagementEnabled,semanticAliases:config.semanticGroupAliases,adaptiveEnabled:config.adaptiveDiscussionEnabled,relationshipMemoryEnabled:config.geweRelationshipMemoryEnabled,dailyLearningEnabled:config.dailyLearningEnabled}))",
   ], {
     cwd: new URL('..', import.meta.url),
     env: { ...process.env, DIGITAL_EMPLOYEE_CONFIG: defaultsPath },
@@ -103,7 +104,7 @@ try {
     briefingGroupName: '',
     momentsEnabled: false,
     momentsInterval: 300_000,
-    momentsProactive: 20,
+    momentsProactive: 6,
     momentsReplies: 20,
     momentsDepth: 4,
     momentsAge: 36,
@@ -112,10 +113,13 @@ try {
     publisherMorning: '10:00-12:00',
     publisherEvening: '18:30-21:00',
     ownerArticleEnabled: false,
-    ownerArticlePublishers: [
-      'gh_07e3d1422f5e', 'BPM321GO', 'gh_63f557f95450', 'HuaYu_Consulting_21',
-    ],
-    ownerArticleWechatIds: ['fung5115'],
+    ownerArticlePublishers: [],
+    ownerArticleWechatIds: [],
+    semanticGroupEnabled: false,
+    semanticAliases: [],
+    adaptiveEnabled: false,
+    relationshipMemoryEnabled: false,
+    dailyLearningEnabled: false,
   });
   for (const [field, value] of [
     ['semanticRepeatMaxReplies', 1],

@@ -1,14 +1,14 @@
 # James
 
-> 运行在本地 AI Runtime 上、通过本人授权的企业会话工作的 AI 数字人。
+> 运行在本地 AI Runtime 上、通过本人授权的钉钉 DWS Channel 工作的 AI 数字人。
 
 **唯一开发者 / 维护者：阿充（James Feng）**
 
-**适用环境：任意公司或组织 · macOS / Windows / Linux · 任意兼容的企业消息连接器**
+**学员部署主路径：macOS / Windows / Linux · 钉钉 · 独立 DWS CLI · WorkBuddy / Qoder Work 等 AI Runtime**
 
 James 不是一个额外加入群聊的机器人账号，也不是只会生成文本的 Demo。它把企业会话、实时上下文、本地 AI Runtime、个人知识、权限治理、Multica 需求闭环和可靠性工程组合成一套长期运行的数字人系统。
 
-公开版不绑定任何公司的消息平台、内部工具或申请流程。企业会话通过可替换的连接器适配器接入，默认关闭；部署者自行选择平台、完成组织管理员授权并提供兼容实现。发行包只保留开发者“阿充”，不携带任何人的账号、Token、聊天、记忆或本机配置。
+学员发行版固定使用项目随包安装的 `dingtalk-workspace-cli` (`dws`)，通过学员本人的钉钉 OAuth 和 DWS 个人事件流接入。飞书、企业微信、个人微信等通道默认关闭，不是小白安装的替代路径。发行包只保留开发者“阿充”，不携带任何人的账号、Token、Profile、Channel 码、聊天、记忆或本机配置。
 
 ## 用 AI Coding 工具直接安装
 
@@ -16,11 +16,11 @@ James 不是一个额外加入群聊的机器人账号，也不是只会生成�
 Qoder Work、Qoder、CodeBuddy、Codex 或其他 AI Coding 工具打开本项目，把下面
 这句话交给它即可：
 
-> 帮我安装这个项目。请自动识别操作系统和可用运行时，全程完成安装、验证并打开 Dashboard；企业连接器保持关闭，只有需要我登录、授权或选择时再提醒我。
+> 请严格按仓库 AGENTS.md 完成本机安装。我要接入的是钉钉 DWS Channel，不是飞书或其他通道。请自动补齐环境、安装和启动服务、引导我完成钉钉 OAuth，验证 DWS 事件流和 AI Runtime，并打开 Dashboard。
 
 工具会结合项目内的 [AGENTS.md](AGENTS.md) 自动检查依赖、运行统一安装器并
 打开本机 Dashboard。只有账号登录、系统授权或运行时选择必须由本人完成时，
-工具才会暂停并给出一步提示。
+工具才会暂停并给出一步提示。即使电脑没有 Node.js、Python、pnpm 或包管理器，根目录的 macOS/Linux 和 Windows 引导入口也会下载并校验官方便携 Node，不需要管理员权限。
 
 整个用户流程都留在 AI Coding 工具中；命令行仅作为安装器内部实现和维护者
 排障入口。
@@ -240,11 +240,11 @@ Dashboard 默认只绑定 `127.0.0.1`，用于观察和配置当前机器：
 
 ### 环境要求
 
-- macOS、Windows 10/11 或主流 Linux 发行版，以及 Node.js `>= 22.5.0`。
-- Python 3，用于文档解析等可选辅助能力。
+- macOS、Windows 10/11 或主流 Linux 发行版。Node.js `>=22.13.0` 缺失时由引导器自动安装并校验。
+- Python 3 仅用于文档解析等可选能力，不是启动服务的前置。
 - WorkBuddy、Qoder Work、Qoder、CodeBuddy、Codex 或其他具备项目操作能力的 AI Coding 工具。
 - 至少一个可供后台调用的 AI Runtime；可以是当前工具提供的兼容运行时，不要求 Codex。
-- 如需企业消息能力，由部署者提供符合公开适配器契约的连接器可执行文件。
+- 钉钉客户端和学员自己的钉钉账号；独立 DWS CLI 由项目自动安装。
 
 ### 1. 一键安装
 
@@ -252,15 +252,15 @@ Dashboard 默认只绑定 `127.0.0.1`，用于观察和配置当前机器：
 [AGENTS.md](AGENTS.md) 全程执行：识别系统、检查依赖、调用统一安装器、验证
 结果并打开 Dashboard。用户不需要进入终端或复制安装命令。
 
-底层安装器会校验所有 payload checksum，安装到当前用户目录，并按系统注册用户级后台服务：macOS 使用 LaunchAgent，Windows 使用计划任务，Linux 使用 systemd user service。升级时保留 `config.local.json`、Persona、Bible 和 `data/`。
+底层安装器会校验所有 payload checksum，安装固定版本 DWS，引导本人钉钉 OAuth，并按系统注册用户级后台服务。升级时保留 `config.local.json`、Persona、Bible 和 `data/`。
 
 ### 2. 完成本人配置
 
 在 Dashboard 中填写：
 
 - 操作者姓名、角色和别名。
-- 需要启用的消息平台与私有连接器可执行文件。
-- 自己的企业账号、授权范围与允许自动处理的会话。
+- 自己的钉钉 OAuth、Profile，以及允许自动处理的精确会话范围。
+- `DWS_CHANNEL` 普通组织留空；受控组织只填管理员明确授权的渠道码。
 - 当前机器实际可用的 AI Runtime。
 
 安装包不会替使用者登录，也不会复制阿充的配置。

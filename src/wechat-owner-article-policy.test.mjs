@@ -4,6 +4,13 @@ import {
   eligibleOwnerArticle,
 } from './wechat-owner-article-policy.mjs';
 
+const publisherIds = [
+  'gh_07e3d1422f5e',
+  'BPM321GO',
+  'gh_63f557f95450',
+  'HuaYu_Consulting_21',
+];
+
 const canonical = canonicalWechatArticle({
   url: 'http://mp.weixin.qq.com/s?__biz=MzkxMTczNzkyMA==&mid=2247488166&idx=1&sn=bdd47a6f9cf63f43783fbac863076c90&scene=0&xtrack=1#rd',
   title: '流程管理者做 AI 变革，起点不是技术',
@@ -27,6 +34,7 @@ assert.equal(duplicateShare.url, canonical.url);
 const directPublisher = eligibleOwnerArticle({
   senderOpenId: 'wechat:gh_07e3d1422f5e',
   linkCandidate: { ...canonical, publisherId: '' },
+  publisherIds,
 });
 assert.equal(directPublisher.eligible, true);
 assert.equal(directPublisher.article.publisherId, 'gh_07e3d1422f5e');
@@ -34,17 +42,14 @@ assert.equal(directPublisher.article.publisherId, 'gh_07e3d1422f5e');
 assert.equal(eligibleOwnerArticle({
   senderOpenId: 'wechat:fung5115',
   linkCandidate: canonical,
+  publisherIds,
 }).eligible, true);
 
-for (const publisherId of [
-  'gh_07e3d1422f5e',
-  'BPM321GO',
-  'gh_63f557f95450',
-  'HuaYu_Consulting_21',
-]) {
+for (const publisherId of publisherIds) {
   assert.equal(eligibleOwnerArticle({
     senderOpenId: `wechat:${publisherId}`,
     linkCandidate: { ...canonical, publisherId },
+    publisherIds,
   }).eligible, true, `${publisherId} must be an exact eligible publisher`);
 }
 

@@ -33,6 +33,11 @@ import {
 } from './knowledge.mjs';
 import { AgentState } from './state.mjs';
 import {
+  applyAutomaticInboundBlock,
+  assertAutomaticOutboundAllowed,
+  normalizeCommunicationBlocklist,
+} from './communication-blocklist.mjs';
+import {
   hasSelfChatOutboundMarker,
   markSelfChatOutbound,
 } from './self-chat-guard.mjs';
@@ -165,7 +170,7 @@ import {
 import {
   AiRuntimeClient,
   discoverAiRuntimes,
-  selectAiRuntime,
+  selectAiRuntimeOrUnavailable,
 } from './ai-runtime.mjs';
 import {
   buildEnterpriseChatAuthStatusArgs,
@@ -358,7 +363,7 @@ try {
   }
 }
 const AI_RUNTIMES = discoverAiRuntimes({ configuredCodexBin: config.codexBin });
-const SELECTED_AI_RUNTIME = selectAiRuntime(AI_RUNTIMES, config.aiRuntime);
+const SELECTED_AI_RUNTIME = selectAiRuntimeOrUnavailable(AI_RUNTIMES, config.aiRuntime);
 const AI_RUNTIME_CLIENT = new AiRuntimeClient({
   runtime: SELECTED_AI_RUNTIME,
   env: aiRuntimeEnv(),
@@ -369,6 +374,9 @@ const pendingActions = new PendingActionStore(state);
 const chatQueues = new SerialKeyQueue();
 const replyContextStorage = new AsyncLocalStorage();
 const AUTHORIZED_CHAT_IDS = new Set(config.authorizedChatIds);
+const AUTOMATIC_COMMUNICATION_BLOCKLIST = normalizeCommunicationBlocklist(
+  config.automaticCommunicationBlocklist,
+);
 const DIGITAL_TWIN_LABEL = config.digitalTwinLabel;
 const POLL_INTERVAL_MS = config.pollIntervalMs;
 const RUNTIME_MODE = runtimeMode(config);
@@ -890,6 +898,13 @@ async function sendText(client, chatId, text, uuid, options = {}) {
     ],
     context: replyContext,
   });
+  assertAutomaticOutboundAllowed({
+    chatId,
+    senderIds: [replyContext?.senderId || '', ...audience],
+    blocklist: AUTOMATIC_COMMUNICATION_BLOCKLIST,
+    explicitOwnerAuthorized: options.explicitOwnerAuthorized === true,
+    state,
+  });
   const result = await sendUnlessRecentRepeat({
     state,
     chatId,
@@ -1065,6 +1080,12 @@ async function deliverMulticaArtifact(payload) {
   const sourceChannel = String(payload?.channel || '').trim().toLowerCase();
   const target = parseChannelChatId(chatId);
   const effectiveChannel = target?.channel || 'feishu';
+  assertAutomaticOutboundAllowed({
+    chatId,
+    senderIds: [replyContextStorage.getStore()?.senderId || ''],
+    blocklist: AUTOMATIC_COMMUNICATION_BLOCKLIST,
+    state,
+  });
   if (!chatId || sourceChannel !== effectiveChannel) {
     throw new Error('Multica artifact source channel does not match its destination');
   }
@@ -4135,6 +4156,21 @@ function enqueueInbound(payload, source) {
     });
     return false;
   }
+  if (applyAutomaticInboundBlock({
+    payload,
+    source,
+    blocklist: AUTOMATIC_COMMUNICATION_BLOCKLIST,
+    state,
+  })) return false;
+  if (!config.allowAllChats && !AUTHORIZED_CHAT_IDS.has(payload.message.chat_id)) {
+    state.audit('inbound_rejected', {
+      chatId: payload.message.chat_id || '',
+      senderId: payload.sender?.sender_id?.open_id || '',
+      messageId: payload.message.message_id || '',
+      detail: { source, reason: 'chat_not_authorized' },
+    });
+    return false;
+  }
   const websocketBotChat = payload.message.chat_type === 'p2p'
     && (source === 'websocket-lark-cli' || source === 'websocket-sdk');
   const botChat = payload.metadata?.botChat === true || websocketBotChat;
@@ -4250,6 +4286,12 @@ async function processStoredInbound(item, client = null) {
     });
     return;
   }
+  if (applyAutomaticInboundBlock({
+    payload,
+    source: 'stored-inbound',
+    blocklist: AUTOMATIC_COMMUNICATION_BLOCKLIST,
+    state,
+  })) return;
 
   await chatQueues.run(message.chat_id, () => replyContextStorage.run(createReplyContext({
     message,
@@ -4856,8 +4898,8 @@ async function fetchEnterpriseChatLegacyBridgeMessages(startMs, endMs) {
     start: enterpriseChatPollingTime(startMs),
     end: enterpriseChatPollingTime(endMs),
     ownerOpenId: config.enterpriseChatOwnerOpenId,
-    ownerNames: ['阿充', '阿充James', '冯周充'],
-    mentionNames: ['阿充', '阿充James'],
+    ownerNames: [config.ownerDisplayName, ...config.ownerAliases].filter(Boolean),
+    mentionNames: [config.ownerDisplayName, ...config.ownerAliases].filter(Boolean),
     includeUnmentionedGroups: config.semanticGroupEngagementEnabled !== false,
     run: runBufferedProcess,
     runOptions: {
@@ -4885,8 +4927,8 @@ async function fetchEnterpriseChatSemanticGroupMessages(startMs, endMs) {
     start: enterpriseChatPollingTime(startMs),
     end: enterpriseChatPollingTime(endMs),
     ownerOpenId: config.enterpriseChatOwnerOpenId,
-    ownerNames: ['阿充', '阿充James', '冯周充'],
-    mentionNames: ['阿充', '阿充James'],
+    ownerNames: [config.ownerDisplayName, ...config.ownerAliases].filter(Boolean),
+    mentionNames: [config.ownerDisplayName, ...config.ownerAliases].filter(Boolean),
     includeUnmentionedGroups: true,
     run: runBufferedProcess,
     runOptions: {

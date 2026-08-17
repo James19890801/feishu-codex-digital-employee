@@ -1,4 +1,5 @@
 const CHANNELS = new Set(['enterpriseChat', 'feishu', 'wecom', 'wechat']);
+const CANONICAL_CHANNELS = new Map([...CHANNELS].map(channel => [channel.toLowerCase(), channel]));
 
 function bounded(value, maximum = 160) {
   return String(value || '').trim().slice(0, maximum);
@@ -18,14 +19,14 @@ function directTarget(chatId) {
 export function normalizeCommunicationBlocklist(entries = []) {
   return (Array.isArray(entries) ? entries : [])
     .map(entry => {
-      const channel = bounded(entry?.channel, 20).toLowerCase();
+      const channel = CANONICAL_CHANNELS.get(bounded(entry?.channel, 20).toLowerCase()) || '';
       const ids = [...new Set([
         entry?.openId,
         entry?.userId,
         ...(Array.isArray(entry?.ids) ? entry.ids : []),
       ].map(value => bounded(value, 300)).filter(Boolean))];
       return {
-        channel: CHANNELS.has(channel) ? channel : '',
+        channel,
         displayName: bounded(entry?.displayName, 80),
         ids,
       };
@@ -50,6 +51,31 @@ export function automaticCommunicationDecision({ senderId = '', chatId = '' } = 
 
 export function canSendBlockedRecipient({ blocked = false, explicitOwnerAuthorized = false } = {}) {
   return !blocked || explicitOwnerAuthorized === true;
+}
+
+export function assertAutomaticOutboundAllowed({
+  chatId = '',
+  senderIds = [],
+  blocklist = [],
+  explicitOwnerAuthorized = false,
+  state = null,
+} = {}) {
+  const candidates = [...new Set([
+    '',
+    ...(Array.isArray(senderIds) ? senderIds : []),
+  ].map(value => String(value || '').trim()))];
+  const decision = candidates
+    .map(senderId => automaticCommunicationDecision({ senderId, chatId }, blocklist))
+    .find(item => item.blocked) || { blocked: false, channel: '', entryIndex: -1 };
+  if (canSendBlockedRecipient({ blocked: decision.blocked, explicitOwnerAuthorized })) return true;
+  state?.audit?.('automatic_communication_blocked', {
+    chatId,
+    senderId: candidates.find(Boolean) || '',
+    detail: { channel: decision.channel, phase: 'outbound' },
+  });
+  const error = new Error('Automatic outbound communication is blocked for this recipient');
+  error.code = 'AUTOMATIC_COMMUNICATION_BLOCKED';
+  throw error;
 }
 
 export function applyAutomaticInboundBlock({ payload, source = '', blocklist = [], state } = {}) {

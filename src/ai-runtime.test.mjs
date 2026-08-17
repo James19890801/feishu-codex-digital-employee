@@ -4,6 +4,7 @@ import {
   buildAiRuntimeInvocation,
   discoverAiRuntimes,
   selectAiRuntime,
+  selectAiRuntimeOrUnavailable,
 } from './ai-runtime.mjs';
 
 const executablePaths = new Set([
@@ -50,6 +51,25 @@ assert.match(runtimes.find(item => item.id === 'trae').reason, /headless/i);
 assert.equal(selectAiRuntime(runtimes, 'auto').id, 'qoder_work');
 assert.equal(selectAiRuntime(runtimes, 'qoder_work').id, 'qoder_work');
 assert.throws(() => selectAiRuntime(runtimes, 'trae'), /not available/i);
+assert.equal(selectAiRuntimeOrUnavailable(
+  runtimes.map(item => ({ ...item, available: false, path: '' })),
+  'auto',
+).available, false);
+
+const bundledWorkBuddy = discoverAiRuntimes({
+  homeDir: '/Users/learner',
+  pathEnv: '',
+  isExecutable: path => path === '/Applications/WorkBuddy.app/Contents/Resources/app.asar.unpacked/cli/bin/codebuddy',
+});
+assert.equal(bundledWorkBuddy.find(item => item.id === 'workbuddy').available, true);
+const workBuddyInvocation = buildAiRuntimeInvocation(
+  bundledWorkBuddy.find(item => item.id === 'workbuddy'),
+  { cwd: '/tmp/aipro-runtime' },
+);
+assert.deepEqual(
+  workBuddyInvocation.args.slice(0, 7),
+  ['-p', '--permission-mode', 'default', '--tools', '', '--output-format', 'text'],
+);
 
 const qoderInvocation = buildAiRuntimeInvocation(
   runtimes.find(item => item.id === 'qoder_work'),
