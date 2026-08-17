@@ -78,6 +78,14 @@
   "geweMomentsPublisherIntervalMs": 60000,
   "geweMomentsPublisherMorningWindow": "10:00-12:00",
   "geweMomentsPublisherEveningWindow": "18:30-21:00",
+  "geweOwnerArticleSyndicationEnabled": false,
+  "geweOwnerArticlePublisherIds": [
+    "gh_07e3d1422f5e",
+    "BPM321GO",
+    "gh_63f557f95450",
+    "HuaYu_Consulting_21"
+  ],
+  "geweOwnerArticleWechatIds": ["fung5115"],
   "multicaEnabled": false,
   "multicaProfile": "desktop-api.multica.ai",
   "multicaAppUrl": "https://multica.ai",

@@ -37,6 +37,14 @@ assert.equal(typeof config.geweMomentsPublisherEnabled, 'boolean');
 assert.equal(config.geweMomentsPublisherIntervalMs, 60_000);
 assert.equal(config.geweMomentsPublisherMorningWindow, '10:00-12:00');
 assert.equal(config.geweMomentsPublisherEveningWindow, '18:30-21:00');
+assert.equal(typeof config.geweOwnerArticleSyndicationEnabled, 'boolean');
+assert.deepEqual(config.geweOwnerArticlePublisherIds, [
+  'gh_07e3d1422f5e',
+  'BPM321GO',
+  'gh_63f557f95450',
+  'HuaYu_Consulting_21',
+]);
+assert.deepEqual(config.geweOwnerArticleWechatIds, ['fung5115']);
 assert.equal(config.geweRelationshipMemoryEnabled, true);
 assert.equal(config.geweRelationshipMemoryIntervalMs, 120_000);
 assert.equal(config.geweRelationshipMemoryBatchSize, 10);
@@ -68,11 +76,14 @@ try {
   delete defaultsInput.geweMomentsPublisherIntervalMs;
   delete defaultsInput.geweMomentsPublisherMorningWindow;
   delete defaultsInput.geweMomentsPublisherEveningWindow;
+  delete defaultsInput.geweOwnerArticleSyndicationEnabled;
+  delete defaultsInput.geweOwnerArticlePublisherIds;
+  delete defaultsInput.geweOwnerArticleWechatIds;
   writeFileSync(defaultsPath, JSON.stringify(defaultsInput));
   const defaults = spawnSync(process.execPath, [
     '--input-type=module',
     '--eval',
-    "const {config}=await import('./src/config.mjs'); console.log(JSON.stringify({enabled:config.groupHostModeEnabled,chats:config.groupHostChatIds,silence:config.groupHostSilenceMs,cooldown:config.groupHostReplyCooldownMs,welcomeEnabled:config.geweNewcomerWelcomeEnabled,welcomeGroupId:config.geweNewcomerWelcomeGroupId,welcomeGroupName:config.geweNewcomerWelcomeGroupName,welcomeInterval:config.geweNewcomerWelcomeIntervalMs,briefingGroupId:config.geweDailyBriefingGroupId,briefingGroupName:config.geweDailyBriefingGroupName,momentsEnabled:config.geweMomentsEngagementEnabled,momentsInterval:config.geweMomentsScanIntervalMs,momentsProactive:config.geweMomentsMaxProactivePerDay,momentsReplies:config.geweMomentsMaxRepliesPerDay,momentsDepth:config.geweMomentsMaxThreadDepth,momentsAge:config.geweMomentsPostMaxAgeHours,publisherEnabled:config.geweMomentsPublisherEnabled,publisherInterval:config.geweMomentsPublisherIntervalMs,publisherMorning:config.geweMomentsPublisherMorningWindow,publisherEvening:config.geweMomentsPublisherEveningWindow}))",
+    "const {config}=await import('./src/config.mjs'); console.log(JSON.stringify({enabled:config.groupHostModeEnabled,chats:config.groupHostChatIds,silence:config.groupHostSilenceMs,cooldown:config.groupHostReplyCooldownMs,welcomeEnabled:config.geweNewcomerWelcomeEnabled,welcomeGroupId:config.geweNewcomerWelcomeGroupId,welcomeGroupName:config.geweNewcomerWelcomeGroupName,welcomeInterval:config.geweNewcomerWelcomeIntervalMs,briefingGroupId:config.geweDailyBriefingGroupId,briefingGroupName:config.geweDailyBriefingGroupName,momentsEnabled:config.geweMomentsEngagementEnabled,momentsInterval:config.geweMomentsScanIntervalMs,momentsProactive:config.geweMomentsMaxProactivePerDay,momentsReplies:config.geweMomentsMaxRepliesPerDay,momentsDepth:config.geweMomentsMaxThreadDepth,momentsAge:config.geweMomentsPostMaxAgeHours,publisherEnabled:config.geweMomentsPublisherEnabled,publisherInterval:config.geweMomentsPublisherIntervalMs,publisherMorning:config.geweMomentsPublisherMorningWindow,publisherEvening:config.geweMomentsPublisherEveningWindow,ownerArticleEnabled:config.geweOwnerArticleSyndicationEnabled,ownerArticlePublishers:config.geweOwnerArticlePublisherIds,ownerArticleWechatIds:config.geweOwnerArticleWechatIds}))",
   ], {
     cwd: new URL('..', import.meta.url),
     env: { ...process.env, DIGITAL_EMPLOYEE_CONFIG: defaultsPath },
@@ -100,6 +111,11 @@ try {
     publisherInterval: 60_000,
     publisherMorning: '10:00-12:00',
     publisherEvening: '18:30-21:00',
+    ownerArticleEnabled: false,
+    ownerArticlePublishers: [
+      'gh_07e3d1422f5e', 'BPM321GO', 'gh_63f557f95450', 'HuaYu_Consulting_21',
+    ],
+    ownerArticleWechatIds: ['fung5115'],
   });
   for (const [field, value] of [
     ['semanticRepeatMaxReplies', 1],
@@ -122,6 +138,8 @@ try {
     ['geweMomentsPublisherIntervalMs', 30_000],
     ['geweMomentsPublisherMorningWindow', '12:00-10:00'],
     ['geweMomentsPublisherEveningWindow', 'not-a-window'],
+    ['geweOwnerArticlePublisherIds', ['']],
+    ['geweOwnerArticleWechatIds', ['']],
     ['geweRelationshipMemoryIntervalMs', 30_000],
     ['geweRelationshipMemoryBatchSize', 0],
     ['geweRelationshipMemoryCapsuleMaxChars', 200],

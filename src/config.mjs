@@ -215,6 +215,17 @@ export const config = {
   geweMomentsPublisherEveningWindow: dailyWindow(raw.geweMomentsPublisherEveningWindow, {
     name: 'geweMomentsPublisherEveningWindow', fallback: '18:30-21:00',
   }),
+  geweOwnerArticleSyndicationEnabled: raw.geweOwnerArticleSyndicationEnabled === true,
+  geweOwnerArticlePublisherIds: boundedStringArray(
+    raw.geweOwnerArticlePublisherIds === undefined
+      ? ['gh_07e3d1422f5e', 'BPM321GO', 'gh_63f557f95450', 'HuaYu_Consulting_21']
+      : raw.geweOwnerArticlePublisherIds,
+    { name: 'geweOwnerArticlePublisherIds', maxItems: 20, maxLength: 256 },
+  ),
+  geweOwnerArticleWechatIds: boundedStringArray(
+    raw.geweOwnerArticleWechatIds === undefined ? ['fung5115'] : raw.geweOwnerArticleWechatIds,
+    { name: 'geweOwnerArticleWechatIds', maxItems: 20, maxLength: 256 },
+  ),
   multicaEnabled: raw.multicaEnabled === true,
   multicaProfile: raw.multicaProfile || 'desktop-api.multica.ai',
   multicaAppUrl: raw.multicaAppUrl || 'https://multica.ai',

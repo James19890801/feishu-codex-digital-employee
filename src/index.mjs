@@ -264,6 +264,7 @@ import { enrichWeChatLearningContext } from './wechat-learning-context.mjs';
 import { WeChatNewcomerWelcome } from './wechat-newcomer-welcome.mjs';
 import { WeChatMomentsEngagement } from './wechat-moments-engagement.mjs';
 import { WeChatMomentsPublisher } from './wechat-moments-publisher.mjs';
+import { WeChatOwnerArticleSyndication } from './wechat-owner-article-syndication.mjs';
 import { WeChatRelationshipMemory } from './wechat-relationship-memory.mjs';
 import {
   discoverBotP2pChats,
@@ -476,6 +477,7 @@ let geWeWebhookServer = null;
 let wechatNewcomerWelcome = null;
 let wechatMomentsEngagement = null;
 let wechatMomentsPublisher = null;
+let wechatOwnerArticleSyndication = null;
 let wechatRelationshipMemory = null;
 const shutdownDelay = new InterruptibleDelay();
 
@@ -2728,6 +2730,15 @@ async function processIncoming(client, message, sender, metadata = {}) {
     });
   }
   audit('message_received', message, senderOpenId, { type: message.message_type, text: cleanText.slice(0, 300) });
+
+  if (metadata.channel === 'wechat' && metadata.linkCandidate && wechatOwnerArticleSyndication) {
+    const syndication = await wechatOwnerArticleSyndication.observe({
+      senderOpenId,
+      messageId: message.message_id,
+      linkCandidate: metadata.linkCandidate,
+    });
+    if (syndication.eligible) return;
+  }
 
   if (metadata.channel === 'wechat' && metadata.ownerActivity !== true && wechatRelationshipMemory) {
     const relationshipText = cleanText || (message.message_type === 'image'
@@ -5500,6 +5511,31 @@ async function initializeAdditionalImChannels() {
         await wechatMomentsPublisher.start();
         console.log('[wechat] grounded daily Moments publisher active');
       }
+      if (config.geweOwnerArticleSyndicationEnabled) {
+        wechatOwnerArticleSyndication = new WeChatOwnerArticleSyndication({
+          state,
+          readPage: url => readPublicWebPage(url),
+          generate: async prompt => {
+            const result = await runAiRuntime(prompt, {
+              cwd: WORKDIR,
+              model: config.codexModel,
+              timeoutMs: 120_000,
+              auditErrorCode: 'wechat_owner_article_generation_failed',
+            });
+            return result.text;
+          },
+          commentArticle: async () => {
+            const error = new Error('WeChat article comment requires confirmed UI submission');
+            error.code = 'COMMENT_CONFIRMATION_REQUIRED';
+            throw error;
+          },
+          publishLinkMoment: input => geWeChannel.publishLinkMoment(input),
+          publisherIds: config.geweOwnerArticlePublisherIds,
+          ownerWechatIds: config.geweOwnerArticleWechatIds,
+        });
+        await wechatOwnerArticleSyndication.start();
+        console.log('[wechat] owner article reading and Moments syndication active');
+      }
       geWeMonitorPromise = superviseGeWeHealth()
         .catch(error => console.error('[wechat-gewe-monitor-fatal]', error));
       console.log(`[wechat] GeWe personal WeChat webhook listening on 127.0.0.1:${config.geweCallbackPort}`);
@@ -5516,6 +5552,10 @@ async function initializeAdditionalImChannels() {
       if (wechatMomentsPublisher) {
         wechatMomentsPublisher.stop();
         wechatMomentsPublisher = null;
+      }
+      if (wechatOwnerArticleSyndication) {
+        wechatOwnerArticleSyndication.stop();
+        wechatOwnerArticleSyndication = null;
       }
       if (wechatRelationshipMemory) {
         wechatRelationshipMemory.stop();
@@ -5801,6 +5841,10 @@ function stopGracefully(signal) {
   if (wechatMomentsPublisher) {
     wechatMomentsPublisher.stop();
     wechatMomentsPublisher = null;
+  }
+  if (wechatOwnerArticleSyndication) {
+    wechatOwnerArticleSyndication.stop();
+    wechatOwnerArticleSyndication = null;
   }
   if (wechatRelationshipMemory) {
     wechatRelationshipMemory.stop();

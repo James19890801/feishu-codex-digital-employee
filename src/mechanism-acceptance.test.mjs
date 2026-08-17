@@ -199,6 +199,16 @@ contract('wechat-moments-engagement', 'Does the live GeWe lifecycle publish grou
   assert.match(runtimeSource, /wechatMomentsPublisher\.stop\(\)/);
 });
 
+contract('wechat-owner-article-syndication', 'Does the live WeChat runtime detect and syndicate exact owner articles?', () => {
+  const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
+  assert.match(runtimeSource, /import \{ WeChatOwnerArticleSyndication \} from '\.\/wechat-owner-article-syndication\.mjs'/);
+  assert.match(runtimeSource, /config\.geweOwnerArticleSyndicationEnabled/);
+  assert.match(runtimeSource, /new WeChatOwnerArticleSyndication\(\{/);
+  assert.match(runtimeSource, /wechatOwnerArticleSyndication\.observe\(\{/);
+  assert.match(runtimeSource, /wechatOwnerArticleSyndication\.start\(\)/);
+  assert.match(runtimeSource, /wechatOwnerArticleSyndication\.stop\(\)/);
+});
+
 contract('multimodal-pipeline', 'Can a DingTalk group file placeholder become a downloadable drive reference?', () => {
   const file = parseDingTalkFilePlaceholder('[文件] 复盘.pptx fileId: drive-node-1 注意：如需下载使用dws drive download命令下载');
   assert.equal(file.fileName, '复盘.pptx');
