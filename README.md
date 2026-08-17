@@ -4,7 +4,7 @@
 
 **唯一开发者 / 维护者：阿充（James Feng）**
 
-**适用环境：任意公司或组织 · macOS · 任意兼容的企业消息连接器**
+**适用环境：任意公司或组织 · macOS / Windows / Linux · 任意兼容的企业消息连接器**
 
 James 不是一个额外加入群聊的机器人账号，也不是只会生成文本的 Demo。它把企业会话、实时上下文、本地 AI Runtime、个人知识、权限治理、Multica 需求闭环和可靠性工程组合成一套长期运行的数字人系统。
 
@@ -124,7 +124,7 @@ James 会把企业会话中的非文本内容转换为受控的本地任务上�
 
 企业会话媒体通过已授权的连接器下载。所有媒体都写入工作区下权限受控的临时目录，处理前拒绝符号链接、空文件和超过 20 MB 的文件，处理结束后删除。外部网页内容始终按不可信资料处理，其中的命令或角色设定不会被执行。
 
-语音转写使用 Apple `SpeechTranscriber`，构建 `JamesTranscribe` 需要 macOS 26 SDK。安装器在较旧 SDK 上会明确跳过该辅助程序，Dashboard 也会把语音能力显示为不可用；图片、文档和网页能力不受这一 SDK 限制。
+语音转写采用可替换命令：macOS 可选用 Apple `SpeechTranscriber` 原生辅助程序，Windows/Linux 可配置兼容的本地转写命令。未配置转写器时只关闭语音转写，图片、文档、网页及核心运行能力不受影响。
 
 ## AI 产品经理与 Multica 需求闭环
 
@@ -218,26 +218,27 @@ Dashboard 默认只绑定 `127.0.0.1`，用于观察和配置当前机器：
 - Multica 同步、通知队列和最近审计。
 - 配置变更的校验、确认、重启、健康检查和失败回滚。
 
-`localhost` 只是网络边界的一部分；是否访问云端仍取决于所选 AI Runtime、企业连接器、工作项适配器和其他启用的服务。
+`localhost` 只是网络边界的一部分；是否访问云端仍取决于所选 AI Runtime、企业连接器、Multica 和其他启用的服务。
 
 ## 快速开始
 
 ### 环境要求
 
-- macOS 与 Node.js `>= 22.5.0`。
+- macOS、Windows 10/11 或主流 Linux 发行版，以及 Node.js `>= 22.5.0`。
+- Python 3，用于文档解析等可选辅助能力。
 - AI Coding 工具或等价终端环境。
 - 可无头运行的 AI CLI Runtime，推荐 Codex。
 - 如需企业消息能力，由部署者提供符合公开适配器契约的连接器可执行文件。
 
 ### 1. 一键安装
 
-解压发行 ZIP，在 AI Coding 终端进入目录后执行：
+解压发行 ZIP，在终端或 PowerShell 进入目录后执行统一入口：
 
-```zsh
-zsh ./install.command
+```sh
+node ./install.mjs
 ```
 
-安装器会校验所有 payload checksum，安装到当前用户目录，注册 macOS LaunchAgent，并打开本地 Dashboard。升级时保留 `config.local.json`、Persona、Bible 和 `data/`。
+安装器会校验所有 payload checksum，安装到当前用户目录，并按系统注册用户级后台服务：macOS 使用 LaunchAgent，Windows 使用计划任务，Linux 使用 systemd user service。升级时保留 `config.local.json`、Persona、Bible 和 `data/`。macOS 用户也可继续双击或执行 `install.command`，它调用同一个跨平台安装器。
 
 ### 2. 完成本人配置
 
@@ -288,7 +289,7 @@ src/            核心消息、运行时、权限、记忆、Multica 与可靠�
 dashboard/      本地运维与配置界面
 scripts/        安装、服务、健康、备份、打包与隐私扫描
 templates/      不含个人数据的 Persona / Bible / 知识模板
-macos/James/    macOS 原生入口与应用资源
+macos/James/    可选的 macOS 原生入口与应用资源
 licensing/      可选的激活与许可边界
 cloud-failover/ 可选的 Cloudflare 控制面与公司自有连接器容器
 docs/           通用部署、许可与运行边界说明
@@ -308,7 +309,7 @@ docs/           通用部署、许可与运行边界说明
 
 ## 已知边界
 
-- 当前一键安装面向 macOS，不承诺 Windows/Linux 服务管理兼容性。
+- 核心运行、Dashboard、配置、持久化、Multica 和通用连接器支持 macOS、Windows 与 Linux；操作系统专属原生辅助能力按平台启用。
 - Local-first 不代表模型推理完全离线。
 - 企业连接器、Multica 和 AI Runtime 的授权仍受各自账号、设备和服务策略约束。
 - 系统不会绕过企业权限，也不会在连接器失败时静默切换平台或身份。

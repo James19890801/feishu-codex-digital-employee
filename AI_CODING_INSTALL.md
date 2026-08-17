@@ -1,4 +1,4 @@
-# James 通用 macOS 部署指南
+# James 跨平台部署指南
 
 本指南适用于任意公司或组织。公开仓库不绑定消息平台、内部工具或申请流程；企业消息能力默认关闭，部署者可在自己的私有环境接入兼容连接器。
 
@@ -12,21 +12,24 @@
 
 ## 环境要求
 
-1. macOS。
+1. macOS、Windows 10/11 或主流 Linux 发行版。
 2. Node.js `22.5.0` 或更高版本。
-3. AI Coding 工具或等价终端。
-4. 可无头运行的本地 AI CLI Runtime，推荐 Codex。
-5. 如需企业消息能力，由部署者提供符合公开适配器契约的私有连接器可执行文件。
+3. Python 3，用于文档解析等可选辅助能力。
+4. AI Coding 工具、PowerShell 或等价终端。
+5. 可无头运行的本地 AI CLI Runtime，推荐 Codex。
+6. 如需企业消息能力，由部署者提供符合公开适配器契约的私有连接器可执行文件。
 
 ## 第一步：一键安装
 
-解压发行 ZIP，在终端进入解压目录后运行：
+解压发行 ZIP，在终端或 PowerShell 进入解压目录后运行：
 
-```zsh
-zsh ./install.command
+```sh
+node ./install.mjs
 ```
 
-安装器会校验 payload、安装到当前用户目录、生成不含个人数据的初始配置、注册本机服务并打开 `http://127.0.0.1:17655/`。升级时保留 `config.local.json`、Persona、Bible 和 `data/`；任一步骤失败时终止或回滚。
+安装器会校验 payload、安装到当前用户目录、生成不含个人数据的初始配置、注册本机服务并打开 `http://127.0.0.1:17655/`。macOS 使用 LaunchAgent，Windows 使用当前用户计划任务，Linux 使用 systemd user service。升级时保留 `config.local.json`、Persona、Bible 和 `data/`；任一步骤失败时终止或回滚。
+
+macOS 用户仍可运行 `zsh ./install.command`，该包装器与 Windows/Linux 一样调用 `install.mjs`。需要自行托管服务时，可设置 `ACHONG_SKIP_SERVICES=1` 完成文件与依赖安装，再使用 `npm start` 和 `npm run dashboard` 启动两个进程。
 
 ## 第二步：配置自己的数字人
 
@@ -51,7 +54,7 @@ zsh ./install.command
 
 ## 第三步：连接验收
 
-```zsh
+```sh
 npm run check
 npm test
 npm run health

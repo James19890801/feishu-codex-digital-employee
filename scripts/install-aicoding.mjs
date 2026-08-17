@@ -17,13 +17,29 @@ import { resolveStandaloneConnector } from './connector-deployment-policy.mjs';
 
 const packageRoot = resolve(process.argv[2] || '.');
 const payloadRoot = join(packageRoot, 'payload');
-const installHome = resolve(process.env.ACHONG_INSTALL_HOME || process.env.HOME || '');
+const installPlatform = String(process.env.JAMES_INSTALL_PLATFORM || process.platform).trim();
+const installHome = resolve(
+  process.env.ACHONG_INSTALL_HOME
+    || process.env.HOME
+    || process.env.USERPROFILE
+    || '.',
+);
+const defaultInstallRoot = installPlatform === 'darwin'
+  ? join(installHome, 'Library', 'Application Support', 'JamesDigitalHuman')
+  : installPlatform === 'win32'
+    ? join(process.env.LOCALAPPDATA || installHome, 'JamesDigitalHuman')
+    : join(process.env.XDG_DATA_HOME || join(installHome, '.local', 'share'), 'JamesDigitalHuman');
 const installRoot = resolve(
   process.env.ACHONG_INSTALL_ROOT
-    || join(installHome, 'Library', 'Application Support', 'AchongDigitalHuman'),
+    || defaultInstallRoot,
 );
 const skipDependencies = process.env.ACHONG_SKIP_DEPENDENCIES === '1';
+const skipServices = process.env.ACHONG_SKIP_SERVICES === '1';
 const skipOpen = process.env.ACHONG_SKIP_OPEN === '1';
+
+if (!['darwin', 'win32', 'linux'].includes(installPlatform)) {
+  throw new Error(`Unsupported installation platform: ${installPlatform}`);
+}
 
 function assertSafeInstallRoot(path) {
   if (!path || path === '/' || path === installHome || dirname(path) === path) {
@@ -63,7 +79,10 @@ async function verifyChecksums() {
 }
 
 function run(command, args, { cwd = installRoot, env = process.env } = {}) {
-  const result = spawnSync(command, args, { cwd, env, encoding: 'utf8' });
+  const windowsCommand = installPlatform === 'win32' && /\.(?:cmd|bat)$/iu.test(command);
+  const executable = windowsCommand ? (process.env.ComSpec || 'cmd.exe') : command;
+  const commandArgs = windowsCommand ? ['/d', '/s', '/c', command, ...args] : args;
+  const result = spawnSync(executable, commandArgs, { cwd, env, encoding: 'utf8' });
   if (result.status !== 0) {
     const detail = String(result.stderr || result.stdout || '').trim();
     throw new Error(`${command} failed${detail ? `: ${detail}` : ''}`);
@@ -102,54 +121,119 @@ async function initializeUserState(stageRoot) {
   if (createdConfig) {
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     config.nodeBin = dirname(process.execPath);
-    config.pythonBin = join(installRoot, '.venv', 'bin', 'python3');
-    config.enterpriseChatBin = await resolveStandaloneConnector({
-      explicitPath: process.env.JAMES_CONNECTOR_BIN || '',
-      home: installHome,
-    });
+    config.pythonBin = installPlatform === 'win32'
+      ? join(installRoot, '.venv', 'Scripts', 'python.exe')
+      : join(installRoot, '.venv', 'bin', 'python3');
+    const explicitConnector = String(process.env.JAMES_CONNECTOR_BIN || '').trim();
+    config.enterpriseChatBin = explicitConnector
+      ? await resolveStandaloneConnector({ explicitPath: explicitConnector, home: installHome })
+      : '';
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   }
 }
 
 function installDependencies(stageRoot) {
   if (skipDependencies) return;
-  const pnpm = spawnSync('/usr/bin/env', ['sh', '-c', 'command -v pnpm'], { encoding: 'utf8' });
+  const locator = installPlatform === 'win32' ? 'where.exe' : '/usr/bin/env';
+  const locate = command => spawnSync(
+    locator,
+    installPlatform === 'win32' ? [command] : ['sh', '-c', `command -v ${command}`],
+    { encoding: 'utf8' },
+  );
+  const pnpm = locate(installPlatform === 'win32' ? 'pnpm.cmd' : 'pnpm');
   if (pnpm.status === 0 && pnpm.stdout.trim()) {
-    run(pnpm.stdout.trim(), [
-      'install', '--prod', '--filter', 'feishu-codex-digital-employee', '--frozen-lockfile',
+    run(pnpm.stdout.trim().split(/\r?\n/u)[0], [
+      'install', '--prod', '--filter', 'james-local-digital-human', '--frozen-lockfile',
     ], { cwd: stageRoot });
   } else {
-    const corepack = spawnSync('/usr/bin/env', ['sh', '-c', 'command -v corepack'], { encoding: 'utf8' });
+    const corepack = locate(installPlatform === 'win32' ? 'corepack.cmd' : 'corepack');
     if (corepack.status !== 0 || !corepack.stdout.trim()) {
       throw new Error('pnpm or Corepack is required');
     }
-    run(corepack.stdout.trim(), [
+    run(corepack.stdout.trim().split(/\r?\n/u)[0], [
       'pnpm', 'install', '--prod', '--filter',
-      'feishu-codex-digital-employee', '--frozen-lockfile',
+      'james-local-digital-human', '--frozen-lockfile',
     ], { cwd: stageRoot });
   }
-  const python = spawnSync('/usr/bin/env', ['sh', '-c', 'command -v python3'], { encoding: 'utf8' });
-  if (python.status !== 0 || !python.stdout.trim()) throw new Error('Python 3 is required');
-  run(python.stdout.trim(), ['-m', 'venv', join(stageRoot, '.venv')], { cwd: stageRoot });
-  run(join(stageRoot, '.venv', 'bin', 'python3'), [
+  const pythonCandidates = installPlatform === 'win32' ? ['python.exe', 'python3.exe'] : ['python3', 'python'];
+  const python = pythonCandidates.map(locate).find(result => result.status === 0 && result.stdout.trim());
+  if (!python) throw new Error('Python 3 is required');
+  run(python.stdout.trim().split(/\r?\n/u)[0], ['-m', 'venv', join(stageRoot, '.venv')], { cwd: stageRoot });
+  const venvPython = installPlatform === 'win32'
+    ? join(stageRoot, '.venv', 'Scripts', 'python.exe')
+    : join(stageRoot, '.venv', 'bin', 'python3');
+  run(venvPython, [
     '-m', 'pip', 'install', '--disable-pip-version-check', '-r', join(stageRoot, 'requirements.txt'),
   ], { cwd: stageRoot });
 }
 
-function installServices() {
+function quotedSystemdPath(path) {
+  return `"${String(path).replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+}
+
+async function installServices() {
+  if (skipServices) return;
   const serviceEnv = {
     ...process.env,
     HOME: installHome,
     ACHONG_INSTALL_HOME: installHome,
   };
-  run('/bin/zsh', [join(installRoot, 'scripts', 'install-service.sh')], {
-    cwd: installRoot,
-    env: serviceEnv,
-  });
-  run('/bin/zsh', [join(installRoot, 'scripts', 'install-dashboard-service.sh')], {
-    cwd: installRoot,
-    env: serviceEnv,
-  });
+  if (installPlatform === 'darwin') {
+    run('/bin/zsh', [join(installRoot, 'scripts', 'install-service.sh')], {
+      cwd: installRoot,
+      env: serviceEnv,
+    });
+    run('/bin/zsh', [join(installRoot, 'scripts', 'install-dashboard-service.sh')], {
+      cwd: installRoot,
+      env: serviceEnv,
+    });
+    return;
+  }
+  if (installPlatform === 'linux') {
+    const unitRoot = join(installHome, '.config', 'systemd', 'user');
+    await mkdir(unitRoot, { recursive: true });
+    const units = [
+      ['james-digital-human.service', 'src/index.mjs'],
+      ['james-digital-human-dashboard.service', 'src/dashboard-server.mjs'],
+    ];
+    for (const [name, entry] of units) {
+      await writeFile(join(unitRoot, name), [
+        '[Unit]',
+        'Description=James Local Digital Human',
+        'After=network.target',
+        '',
+        '[Service]',
+        `WorkingDirectory=${quotedSystemdPath(installRoot)}`,
+        `ExecStart=${quotedSystemdPath(process.execPath)} ${quotedSystemdPath(join(installRoot, entry))}`,
+        'Restart=on-failure',
+        'RestartSec=3',
+        '',
+        '[Install]',
+        'WantedBy=default.target',
+        '',
+      ].join('\n'), 'utf8');
+    }
+    run('systemctl', ['--user', 'daemon-reload']);
+    run('systemctl', ['--user', 'enable', '--now', ...units.map(([name]) => name)]);
+    return;
+  }
+  const tasks = [
+    ['James Digital Human', join(installRoot, 'src', 'index.mjs')],
+    ['James Digital Human Dashboard', join(installRoot, 'src', 'dashboard-server.mjs')],
+  ];
+  for (const [name, entry] of tasks) {
+    const command = `"${process.execPath}" "${entry}"`;
+    run('schtasks.exe', ['/Create', '/F', '/SC', 'ONLOGON', '/TN', name, '/TR', command]);
+    run('schtasks.exe', ['/Run', '/TN', name]);
+  }
+}
+
+function openDashboard() {
+  if (skipOpen) return;
+  const url = 'http://127.0.0.1:17655/';
+  if (installPlatform === 'darwin') run('/usr/bin/open', [url], { cwd: installRoot });
+  else if (installPlatform === 'win32') run('cmd.exe', ['/d', '/s', '/c', 'start', '', url], { cwd: installRoot });
+  else run('xdg-open', [url], { cwd: installRoot });
 }
 
 async function verifyDashboard() {
@@ -189,11 +273,12 @@ try {
   if (previousExists) await rename(installRoot, backupRoot);
   await rename(stageRoot, installRoot);
   switched = true;
-  installServices();
+  await installServices();
   await verifyDashboard();
   await rm(backupRoot, { recursive: true, force: true });
-  if (!skipOpen) run('/usr/bin/open', ['http://127.0.0.1:17655/'], { cwd: installRoot });
+  openDashboard();
   console.log('INSTALL_OK');
+  console.log(`INSTALL_PLATFORM=${installPlatform}`);
   console.log(`INSTALL_ROOT=${installRoot}`);
   console.log('DASHBOARD_URL=http://127.0.0.1:17655/');
   console.log('NEXT_STEP=Open the local Dashboard and complete your own channel authorization.');

@@ -129,7 +129,9 @@ npm run test:cloud-failover
 npm run cloud-failover:dry
 
 # Idempotently create or reuse the restricted Qoder Agent and Environment.
-QODER_PAT='<read-from-secret-store>' node scripts/qoder-cloud-provision.mjs
+read -s QODER_PAT
+export QODER_PAT
+node scripts/qoder-cloud-provision.mjs
 
 cd cloud-failover/worker
 pnpm exec wrangler secret put AIPROS_NODE_ID

@@ -20,7 +20,7 @@ assert.equal(matchOperatorCommand(''), null);
   assert.match(text, /数字人请退场/);
   assert.match(text, /5 分钟/);
   assert.match(text, /Multica/);
-  assert.match(text, /仅在这台 Mac/);
+  assert.match(text, /仅在本机/);
 }
 
 {

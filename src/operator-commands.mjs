@@ -29,7 +29,7 @@ export function buildHelpReply({ dashboardUrl }) {
     '• 发送“把 Multica 全空间变化同步到这里”开启业务变化同步',
     '',
     `可视化面板：${dashboardUrl}`,
-    '面板仅在这台 Mac 上可以打开。',
+    '面板仅在本机上可以打开。',
   ].join('\n');
 }
 
@@ -82,7 +82,7 @@ export function buildStatusReply({
       `主进程：运行中${startedAt ? `，启动于 ${new Date(startedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}` : ''}`,
       `队列：待处理 ${Number(inboxCounts.pending || 0)}，处理中 ${Number(inboxCounts.processing || 0)}，失败/死信 ${Number(inboxCounts.failed || 0) + Number(inboxCounts.dead || 0)}`,
       `可视化面板：${dashboardUrl}`,
-      '面板仅在这台 Mac 上可以打开。',
+      '面板仅在本机上可以打开。',
     );
   }
   return lines.join('\n');

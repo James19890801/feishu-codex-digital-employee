@@ -2,8 +2,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-[[ "$(uname -s)" == "Darwin" ]] || { echo "INSTALL_ERROR macOS is required" >&2; exit 1; }
-
 NODE="$(command -v node 2>/dev/null || true)"
 if [[ -z "$NODE" ]]; then
   for candidate in \
@@ -19,4 +17,4 @@ fi
 "$NODE" -e "const [major,minor]=process.versions.node.split('.').map(Number);if(major<22||(major===22&&minor<5))process.exit(1)" \
   || { echo "INSTALL_ERROR Node.js 22.5+ is required" >&2; exit 1; }
 
-exec "$NODE" "$SCRIPT_DIR/payload/scripts/install-aicoding.mjs" "$SCRIPT_DIR"
+exec "$NODE" "$SCRIPT_DIR/install.mjs"

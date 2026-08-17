@@ -63,13 +63,39 @@ function install(directory, extraEnv = {}) {
 }
 
 const directory = await packageDirectory();
+
+for (const [platform, pythonRelativePath] of [
+  ['win32', join('.venv', 'Scripts', 'python.exe')],
+  ['linux', join('.venv', 'bin', 'python3')],
+]) {
+  const portableRoot = join(sandbox, 'installed', `portable-${platform}`);
+  const portable = spawnSync(process.execPath, [join(directory, 'install.mjs')], {
+    cwd: directory,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      ACHONG_INSTALL_HOME: home,
+      ACHONG_INSTALL_ROOT: portableRoot,
+      ACHONG_SKIP_DEPENDENCIES: '1',
+      ACHONG_SKIP_SERVICES: '1',
+      ACHONG_SKIP_OPEN: '1',
+      JAMES_INSTALL_PLATFORM: platform,
+    },
+  });
+  assert.equal(portable.status, 0, `${platform}\n${portable.stdout}\n${portable.stderr}`);
+  const portableConfig = JSON.parse(await readFile(join(portableRoot, 'config.local.json'), 'utf8'));
+  assert.equal(portableConfig.pythonBin, join(portableRoot, pythonRelativePath));
+}
+
 let result = install(directory);
 assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 assert.match(result.stdout, /INSTALL_OK/);
 assert.match(result.stdout, /http:\/\/127\.0\.0\.1:17655/);
 const config = JSON.parse(await readFile(join(installRoot, 'config.local.json'), 'utf8'));
 assert.equal(config.feishuEnabled, false);
-assert.equal(config.enterpriseChatEnabled, true);
+assert.equal(config.enterpriseChatEnabled, false);
 assert.equal(config.enterpriseChatTransport, 'event-stream');
 assert.equal(config.enterpriseChatBin, await realpath(standaloneConnector));
 assert.equal(config.allowAllChats, false);

@@ -25,6 +25,7 @@ const ROOT_FILES = new Set([
 
 const SCRIPT_FILES = new Set([
   'scripts/check-config.mjs',
+  'scripts/check-native.mjs',
   'scripts/check-python.mjs',
   'scripts/cloud-failover-smoke.mjs',
   'scripts/connector-deployment-policy.mjs',
@@ -208,7 +209,7 @@ export async function buildDistribution({ root, outputDir, version }) {
   if (!/^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/u.test(normalizedVersion)) {
     throw new Error('Distribution version must be a semantic version');
   }
-  const packageName = `personal-digital-human-macos-${normalizedVersion}`;
+  const packageName = `personal-digital-human-${normalizedVersion}`;
   const directory = join(targetRoot, packageName);
   const archive = `${directory}.zip`;
   await mkdir(targetRoot, { recursive: true });
@@ -222,7 +223,7 @@ export async function buildDistribution({ root, outputDir, version }) {
     await mkdir(dirname(target), { recursive: true });
     await copyFile(join(sourceRoot, path), target);
   }
-  for (const path of ['AI_CODING_INSTALL.md', 'install.command']) {
+  for (const path of ['AI_CODING_INSTALL.md', 'install.mjs', 'install.command']) {
     try {
       const source = join(sourceRoot, path);
       if (!(await lstat(source)).isFile()) continue;
