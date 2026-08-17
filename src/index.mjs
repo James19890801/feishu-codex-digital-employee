@@ -43,6 +43,7 @@ import { createVerifiedDatabaseBackup } from './database-backup.mjs';
 import { SerialKeyQueue } from './serial-key-queue.mjs';
 import { InterruptibleDelay } from './interruptible-delay.mjs';
 import { acquireSingletonLock } from './singleton-lock.mjs';
+import { createShutdownGuard } from './shutdown-guard.mjs';
 import {
   consumeLinesUntilExit,
   shouldRetrySupervisor,
@@ -364,6 +365,7 @@ const AI_RUNTIME_CLIENT = new AiRuntimeClient({
   env: aiRuntimeEnv(),
 });
 const singletonLock = await acquireSingletonLock(join(WORKDIR, 'data', 'service.lock'));
+const shutdownGuard = createShutdownGuard();
 const state = new AgentState(STATE_PATH);
 const pendingActions = new PendingActionStore(state);
 const chatQueues = new SerialKeyQueue();
@@ -5835,6 +5837,7 @@ async function refreshLocalWiki() {
 function stopGracefully(signal) {
   if (stopping) return;
   stopping = true;
+  shutdownGuard.start(signal);
   shutdownDelay.stop();
   console.log(`[bridge] stopping on ${signal}`);
   if (activeEventChild && !activeEventChild.killed) activeEventChild.kill('SIGTERM');
@@ -6001,7 +6004,11 @@ async function main() {
     try {
       state.close();
     } finally {
-      await singletonLock.release();
+      try {
+        await singletonLock.release();
+      } finally {
+        shutdownGuard.complete();
+      }
     }
   }
 }
