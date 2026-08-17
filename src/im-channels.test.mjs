@@ -884,6 +884,31 @@ assert.equal(normalizeGeWeWebhook({
     Appid: 'device-a',
     Wxid: 'wxid_owner',
     Data: {
+      MsgType: 49,
+      NewMsgId: 'owner-public-account-article-1',
+      FromUserName: { string: 'gh_07e3d1422f5e' },
+      ToUserName: { string: 'wxid_owner' },
+      Content: { string: '<msg><appmsg><title>流程管理者做 AI 变革，起点不是技术</title><des>真正的起点是业务问题。</des><type>5</type><url>https://mp.weixin.qq.com/s?__biz=Mzkx&amp;mid=2247488166&amp;idx=1&amp;sn=article-signature</url><sourceusername>gh_07e3d1422f5e</sourceusername><sourcedisplayname>詹生talk</sourcedisplayname><thumburl>https://mmbiz.qpic.cn/example/640</thumburl></appmsg></msg>' },
+      CreateTime: 1786925068,
+    },
+  });
+  assert.equal(payload.sender.sender_id.open_id, 'wechat:gh_07e3d1422f5e');
+  assert.deepEqual(payload.metadata.linkCandidate, {
+    url: 'https://mp.weixin.qq.com/s?__biz=Mzkx&mid=2247488166&idx=1&sn=article-signature',
+    title: '流程管理者做 AI 变革，起点不是技术',
+    description: '真正的起点是业务问题。',
+    publisherId: 'gh_07e3d1422f5e',
+    publisherName: '詹生talk',
+    thumbUrl: 'https://mmbiz.qpic.cn/example/640',
+  });
+}
+
+{
+  const payload = normalizeGeWeWebhook({
+    TypeName: 'AddMsg',
+    Appid: 'device-a',
+    Wxid: 'wxid_owner',
+    Data: {
       MsgType: 1,
       NewMsgId: 'group-plain-link-without-at',
       FromUserName: { string: 'room-1@chatroom' },

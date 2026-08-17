@@ -679,10 +679,21 @@ function geWeAppMessage(content) {
     const url = boundedGeWeText(geWeXmlTag(content, 'url'), 4_000);
     if (!/^https?:\/\//i.test(url)) return { appType, text: title };
     const description = boundedGeWeText(geWeXmlTag(content, 'des'), 4_000);
+    const publisherId = boundedGeWeText(geWeXmlTag(content, 'sourceusername'), 256);
+    const publisherName = boundedGeWeText(geWeXmlTag(content, 'sourcedisplayname'), 512);
+    const rawThumbUrl = boundedGeWeText(geWeXmlTag(content, 'thumburl'), 4_000);
+    const thumbUrl = /^https:\/\//i.test(rawThumbUrl) ? rawThumbUrl : '';
     return {
       appType,
       text: [title, description, url].filter(Boolean).join('\n'),
-      linkCandidate: { url, title, description },
+      linkCandidate: {
+        url,
+        title,
+        description,
+        ...(publisherId ? { publisherId } : {}),
+        ...(publisherName ? { publisherName } : {}),
+        ...(thumbUrl ? { thumbUrl } : {}),
+      },
     };
   }
   if (appType !== 57) return { appType, text: '' };

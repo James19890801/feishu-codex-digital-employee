@@ -398,6 +398,39 @@ import {
   await assert.rejects(channel.publishTextMoment({ content: '正文\u0000' }), /content/i);
 
   calls.length = 0;
+  await channel.publishLinkMoment({
+    content: '真正困难的不是让流程接上 AI，而是把业务判断、责任和反馈一起重新设计。',
+    title: '流程管理者做 AI 变革，起点不是技术',
+    description: '流程负责人走到 AI 变革前台，需要先理解业务问题。',
+    linkUrl: 'https://mp.weixin.qq.com/s?__biz=Mzkx&mid=2247488166&idx=1&sn=article-signature',
+    thumbUrl: 'https://mmbiz.qpic.cn/example/640',
+  });
+  assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/sns/sendUrlSns');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    appId: 'device-a',
+    allowWxIds: [],
+    atWxIds: [],
+    disableWxIds: [],
+    content: '真正困难的不是让流程接上 AI，而是把业务判断、责任和反馈一起重新设计。',
+    description: '流程负责人走到 AI 变革前台，需要先理解业务问题。',
+    title: '流程管理者做 AI 变革，起点不是技术',
+    linkUrl: 'https://mp.weixin.qq.com/s?__biz=Mzkx&mid=2247488166&idx=1&sn=article-signature',
+    thumbUrl: 'https://mmbiz.qpic.cn/example/640',
+    privacy: false,
+    allowTagIds: [],
+    disableTagIds: [],
+  });
+  await assert.rejects(channel.publishLinkMoment({
+    content: '观点', title: '标题', linkUrl: 'http://example.com/article',
+  }), /link/i);
+  await assert.rejects(channel.publishLinkMoment({
+    content: '观点', title: '', linkUrl: 'https://mp.weixin.qq.com/s?mid=1',
+  }), /title/i);
+  await assert.rejects(channel.publishLinkMoment({
+    content: '观点', title: '标题', linkUrl: 'https://mp.weixin.qq.com/s?mid=1', thumbUrl: 'http://example.com/a.jpg',
+  }), /thumb/i);
+
+  calls.length = 0;
   const preparedMention = await channel.prepareGroupMention(
     { channel: 'wechat', kind: 'group', id: 'room@chatroom' },
     '我来回答这个问题',

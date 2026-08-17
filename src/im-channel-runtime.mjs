@@ -463,6 +463,62 @@ export class GeWeChannel {
     return operation;
   }
 
+  publishLinkMoment({ content, title, description = '', linkUrl, thumbUrl = '' } = {}) {
+    const normalizedContent = String(content || '').replace(/\r\n?/g, '\n').trim();
+    const normalizedTitle = String(title || '').replace(/\s+/g, ' ').trim();
+    const normalizedDescription = String(description || '').replace(/\s+/g, ' ').trim();
+    const unsafeText = value => /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value);
+    if (!normalizedContent || normalizedContent.length > 500 || unsafeText(normalizedContent)) {
+      return Promise.reject(new Error('GeWe Moments link content is invalid'));
+    }
+    if (!normalizedTitle || normalizedTitle.length > 200 || unsafeText(normalizedTitle)) {
+      return Promise.reject(new Error('GeWe Moments link title is invalid'));
+    }
+    if (normalizedDescription.length > 500 || unsafeText(normalizedDescription)) {
+      return Promise.reject(new Error('GeWe Moments link description is invalid'));
+    }
+    let normalizedLinkUrl;
+    try {
+      const parsed = new URL(String(linkUrl || ''));
+      if (parsed.protocol !== 'https:' || parsed.username || parsed.password) throw new Error('invalid');
+      normalizedLinkUrl = parsed.href;
+    } catch {
+      return Promise.reject(new Error('GeWe Moments link URL is invalid'));
+    }
+    let normalizedThumbUrl = '';
+    if (String(thumbUrl || '').trim()) {
+      try {
+        const parsed = new URL(String(thumbUrl));
+        if (parsed.protocol !== 'https:' || parsed.username || parsed.password) throw new Error('invalid');
+        normalizedThumbUrl = parsed.href;
+      } catch {
+        return Promise.reject(new Error('GeWe Moments thumb URL is invalid'));
+      }
+    }
+    const operation = this.momentTail.then(async () => {
+      const waitMs = Math.max(0, this.lastMomentWriteAt + 3_000 - this.now());
+      if (waitMs) await this.sleep(waitMs);
+      const result = await this.request('/gewe/v2/api/sns/sendUrlSns', {
+        appId: this.appId,
+        allowWxIds: [],
+        atWxIds: [],
+        disableWxIds: [],
+        content: normalizedContent,
+        description: normalizedDescription,
+        title: normalizedTitle,
+        linkUrl: normalizedLinkUrl,
+        thumbUrl: normalizedThumbUrl,
+        privacy: false,
+        allowTagIds: [],
+        disableTagIds: [],
+      });
+      this.lastMomentWriteAt = this.now();
+      return result;
+    });
+    this.momentTail = operation.catch(() => {});
+    return operation;
+  }
+
   async setCallback(callbackUrl) {
     const parsed = new URL(String(callbackUrl || ''));
     if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
