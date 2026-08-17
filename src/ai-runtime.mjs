@@ -5,22 +5,39 @@ import { processFailureSummary, runBufferedProcess } from './process-runner.mjs'
 
 const DEFINITIONS = [
   {
-    id: 'codex',
-    label: 'Codex CLI',
-    description: 'OpenAI Codex 的无界面执行模式',
+    id: 'workbuddy',
+    adapter: 'codebuddy',
+    label: 'WorkBuddy',
+    description: 'WorkBuddy 的兼容无界面执行模式',
+    supportsImages: false,
+  },
+  {
+    id: 'qoder_work',
+    adapter: 'qoder',
+    label: 'Qoder Work',
+    description: 'Qoder Work 内置 CLI 的非交互 print 模式',
     supportsImages: true,
   },
   {
     id: 'qoder',
+    adapter: 'qoder',
     label: 'Qoder CLI',
     description: 'Qoder 的非交互 print 模式',
     supportsImages: true,
   },
   {
     id: 'codebuddy',
+    adapter: 'codebuddy',
     label: 'CodeBuddy CLI',
-    description: '腾讯 CodeBuddy Code 的 headless 模式',
+    description: 'CodeBuddy Code 的 headless 模式',
     supportsImages: false,
+  },
+  {
+    id: 'codex',
+    adapter: 'codex',
+    label: 'Codex CLI',
+    description: 'OpenAI Codex 的无界面执行模式',
+    supportsImages: true,
   },
   {
     id: 'trae',
@@ -51,22 +68,30 @@ function defaultCandidates({
   pathEnv = process.env.PATH || '',
 } = {}) {
   return {
+    workbuddy: [
+      ...pathCandidates(['workbuddy-cli', 'workbuddy', 'workbuddy-cli.exe', 'workbuddy.exe'], pathEnv),
+      join(homeDir, '.local', 'bin', 'workbuddy-cli'),
+    ],
+    qoder_work: [
+      ...pathCandidates(['qoder-work', 'qoderwork', 'qoder-work.exe', 'qoderwork.exe'], pathEnv),
+      '/Applications/QoderWork.app/Contents/Resources/bin/qodercli',
+    ],
+    qoder: [
+      ...pathCandidates(['qodercli', 'qoderclicn', 'qodercli.exe', 'qoderclicn.exe'], pathEnv),
+      '/Applications/Qoder.app/Contents/Resources/bin/qodercli',
+      '/Applications/QoderWake CN.app/Contents/Resources/payload/qodercli/qodercli-cn-wake',
+      join(homeDir, '.local', 'bin', 'qodercli'),
+    ],
+    codebuddy: [
+      ...pathCandidates(['codebuddy', 'cbc', 'codebuddy.exe', 'cbc.exe'], pathEnv),
+      join(homeDir, '.local', 'bin', 'codebuddy'),
+      join(homeDir, '.codebuddy', 'bin', 'codebuddy'),
+    ],
     codex: [
       configuredCodexBin,
       ...pathCandidates(['codex'], pathEnv),
       '/Applications/Codex.app/Contents/Resources/codex',
       '/Applications/ChatGPT.app/Contents/Resources/codex',
-    ],
-    qoder: [
-      ...pathCandidates(['qodercli', 'qoderclicn'], pathEnv),
-      '/Applications/QoderWork.app/Contents/Resources/bin/qodercli',
-      '/Applications/QoderWake CN.app/Contents/Resources/payload/qodercli/qodercli-cn-wake',
-      join(homeDir, '.local', 'bin', 'qodercli'),
-    ],
-    codebuddy: [
-      ...pathCandidates(['codebuddy', 'cbc'], pathEnv),
-      join(homeDir, '.local', 'bin', 'codebuddy'),
-      join(homeDir, '.codebuddy', 'bin', 'codebuddy'),
     ],
     // TRAE's desktop launcher has a `chat` command, but it opens the GUI and
     // does not return an answer to a background caller. Do not report it as a
@@ -80,6 +105,10 @@ function defaultCandidates({
 
 function defaultInstalledCandidates() {
   return {
+    workbuddy: [
+      '/Applications/WorkBuddy.app/Contents/MacOS/WorkBuddy',
+      '/Applications/WorkBuddy.app',
+    ],
     trae: [
       '/Applications/TRAE SOLO CN.app/Contents/Resources/app/bin/trae-solo-cn',
       '/Applications/TRAE.app/Contents/Resources/app/bin/trae',
@@ -106,8 +135,8 @@ export function discoverAiRuntimes({
     const available = Boolean(path) && definition.id !== 'trae';
     let reason = '';
     if (!installedPath) reason = '本机未安装';
-    else if (definition.id === 'trae' && !available) {
-      reason = 'TRAE 已安装，但 App 启动器没有可供后台读取的 headless 输出接口';
+    else if (!available && ['workbuddy', 'trae'].includes(definition.id)) {
+      reason = `${definition.label} 已安装，但未检测到可供后台读取的 headless CLI`;
     }
     return {
       ...definition,
@@ -124,9 +153,7 @@ export function selectAiRuntime(runtimes, preference = 'auto') {
   if (!Array.isArray(runtimes)) throw new Error('AI runtimes are unavailable');
   const requested = String(preference || 'auto');
   if (requested === 'auto') {
-    const selected = ['codex', 'qoder', 'codebuddy', 'trae']
-      .map(id => runtimes.find(item => item.id === id && item.available))
-      .find(Boolean);
+    const selected = runtimes.find(item => item.available);
     if (!selected) throw new Error('No supported headless AI runtime is available');
     return selected;
   }
@@ -149,7 +176,8 @@ export function buildAiRuntimeInvocation(runtime, {
   if (safeImages.length && !runtime.supportsImages) {
     throw new Error(`${runtime.label} does not support image attachments in AIPRO`);
   }
-  if (runtime.id === 'codex') {
+  const adapter = runtime.adapter || runtime.id;
+  if (adapter === 'codex') {
     const args = [
       'exec',
       '--ephemeral',
@@ -164,7 +192,7 @@ export function buildAiRuntimeInvocation(runtime, {
     args.push('-');
     return { command: runtime.path, args };
   }
-  if (runtime.id === 'qoder') {
+  if (adapter === 'qoder') {
     const args = [
       '-p',
       '--permission-mode', 'dont_ask',
@@ -176,7 +204,7 @@ export function buildAiRuntimeInvocation(runtime, {
     for (const image of safeImages) args.push('--attachment', image);
     return { command: runtime.path, args };
   }
-  if (runtime.id === 'codebuddy') {
+  if (adapter === 'codebuddy') {
     const args = [
       '-p',
       '--permission-mode', 'dontAsk',

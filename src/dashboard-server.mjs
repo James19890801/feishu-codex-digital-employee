@@ -773,7 +773,7 @@ async function createConfigurationAssistantPlan(requestText) {
 
 async function createRuntimeSelectionPlan(runtimeId) {
   const requested = String(runtimeId || '');
-  if (!['auto', 'codex', 'qoder', 'codebuddy', 'trae'].includes(requested)) {
+  if (!['auto', 'workbuddy', 'qoder_work', 'qoder', 'codebuddy', 'codex', 'trae'].includes(requested)) {
     throw new Error('Unknown AI runtime selection');
   }
   const runtimeState = currentAiRuntimeState();
@@ -787,7 +787,7 @@ async function createRuntimeSelectionPlan(runtimeId) {
   }
   const documents = await readEffectiveConfigurationDocuments();
   const selectedLabel = requested === 'auto'
-    ? '自动选择（Codex 优先）'
+    ? '自动选择（按可用性）'
     : runtimeState.runtimes.find(item => item.id === requested)?.label || requested;
   const plan = createChangePlan({
     summary: `切换 AI 运行时为 ${selectedLabel}`,

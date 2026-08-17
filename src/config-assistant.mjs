@@ -27,7 +27,7 @@ const CONFIG_RULES = {
   groupHostReplyCooldownMs: { type: 'integer', min: 60000, max: 900000, risk: 'single' },
   aiRuntime: {
     type: 'enum',
-    values: ['auto', 'codex', 'qoder', 'codebuddy', 'trae'],
+    values: ['auto', 'workbuddy', 'qoder_work', 'qoder', 'codebuddy', 'codex', 'trae'],
     risk: 'double',
   },
   enterpriseChatEnabled: { type: 'boolean', risk: 'double' },

@@ -321,8 +321,8 @@ if (config.licensingEnforced) {
 if (!['lark-cli', 'sdk'].includes(config.eventTransport)) {
   throw new Error('eventTransport 只能是 lark-cli 或 sdk');
 }
-if (!['auto', 'codex', 'qoder', 'codebuddy', 'trae'].includes(config.aiRuntime)) {
-  throw new Error('aiRuntime 只能是 auto、codex、qoder、codebuddy 或 trae');
+if (!['auto', 'workbuddy', 'qoder_work', 'qoder', 'codebuddy', 'codex', 'trae'].includes(config.aiRuntime)) {
+  throw new Error('aiRuntime 只能是 auto、workbuddy、qoder_work、qoder、codebuddy、codex 或 trae');
 }
 validateEnterpriseChatConfiguration(config);
 if (config.wecomEnabled && !config.wecomBotId) {

@@ -13,23 +13,27 @@
 ## 环境要求
 
 1. macOS、Windows 10/11 或主流 Linux 发行版。
-2. Node.js `22.5.0` 或更高版本。
-3. Python 3，用于文档解析等可选辅助能力。
-4. AI Coding 工具、PowerShell 或等价终端。
-5. 可无头运行的本地 AI CLI Runtime，推荐 Codex。
+2. WorkBuddy、Qoder Work、Qoder、CodeBuddy、Codex 或其他具备项目操作能力的 AI Coding 工具。
+3. 至少一个可供后台调用的兼容 AI Runtime；Codex 不是前置条件。
+4. Node.js `22.5.0` 或更高版本；缺失时由 AI Coding 工具协助安装。
+5. Python 3，用于文档解析等可选辅助能力。
 6. 如需企业消息能力，由部署者提供符合公开适配器契约的私有连接器可执行文件。
 
 ## 第一步：一键安装
 
-解压发行 ZIP，在终端或 PowerShell 进入解压目录后运行：
+使用已有的 AI Coding 工具打开项目，把下面这句话交给它：
 
-```sh
-node ./install.mjs
-```
+> 帮我安装这个项目。请自动识别操作系统和可用运行时，全程完成安装、验证并打开 Dashboard；企业连接器保持关闭，只有需要我登录、授权或选择时再提醒我。
+
+项目内置的 [AGENTS.md](AGENTS.md) 会指导工具自动检查依赖、运行安装器、验证
+服务并打开本机 Dashboard。普通用户不需要复制命令、切换到终端或理解运行时
+参数。
 
 安装器会校验 payload、安装到当前用户目录、生成不含个人数据的初始配置、注册本机服务并打开 `http://127.0.0.1:17655/`。macOS 使用 LaunchAgent，Windows 使用当前用户计划任务，Linux 使用 systemd user service。升级时保留 `config.local.json`、Persona、Bible 和 `data/`；任一步骤失败时终止或回滚。
 
-macOS 用户仍可运行 `zsh ./install.command`，该包装器与 Windows/Linux 一样调用 `install.mjs`。需要自行托管服务时，可设置 `ACHONG_SKIP_SERVICES=1` 完成文件与依赖安装，再使用 `npm start` 和 `npm run dashboard` 启动两个进程。
+底层统一入口是 `node ./install.mjs`，由 AI Coding 工具在 macOS、Windows 和
+Linux 上代为执行。`install.command`、跳过服务和手动进程启动只保留给维护者
+排障，不属于普通用户安装流程。
 
 ## 第二步：配置自己的数字人
 
@@ -54,11 +58,8 @@ macOS 用户仍可运行 `zsh ./install.command`，该包装器与 Windows/Linux
 
 ## 第三步：连接验收
 
-```sh
-npm run check
-npm test
-npm run health
-```
+AI Coding 工具自动执行项目检查、测试和健康检查，并把需要本人处理的登录或
+系统授权单独提示出来。
 
 至少确认：
 

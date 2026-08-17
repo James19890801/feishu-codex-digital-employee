@@ -133,6 +133,16 @@ const runtimePlan = assistant.createChangePlan({
 }, documents);
 assert.equal(runtimePlan.confirmationLevel, 'double');
 assert.equal(runtimePlan.changes[0].after, 'qoder');
+const qoderWorkPlan = assistant.createChangePlan({
+  summary: 'Switch to Qoder Work',
+  changes: [{
+    target: 'config',
+    key: 'aiRuntime',
+    value: 'qoder_work',
+    reason: 'Use the installed Qoder Work runtime',
+  }],
+}, documents);
+assert.equal(qoderWorkPlan.changes[0].after, 'qoder_work');
 assert.throws(
   () => assistant.createChangePlan({
     summary: 'Unsupported runtime',

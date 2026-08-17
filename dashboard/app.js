@@ -80,6 +80,8 @@ const issueLabelKeys = {
 };
 
 const runtimeDescriptionKeys = {
+  workbuddy: 'runtimeWorkbuddyDescription',
+  qoder_work: 'runtimeQoderWorkDescription',
   codex: 'runtimeCodexDescription',
   qoder: 'runtimeQoderDescription',
   codebuddy: 'runtimeCodebuddyDescription',

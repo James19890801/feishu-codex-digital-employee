@@ -2,15 +2,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-NODE_BIN="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin"
-export PATH="$NODE_BIN:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
+export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
 
 command -v node >/dev/null 2>&1 || { echo "未找到 Node.js"; exit 1; }
 command -v lark-cli >/dev/null 2>&1 || {
   echo "未找到 lark-cli。请先按 README 安装飞书官方 CLI。"; exit 1;
 }
-PYTHON_BIN="$HOME/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3"
-test -x "$PYTHON_BIN" || PYTHON_BIN="$(command -v python3 2>/dev/null || true)"
+PYTHON_BIN="$(command -v python3 2>/dev/null || true)"
 test -x "$PYTHON_BIN" || { echo "未找到 Python 3"; exit 1; }
 
 test -f "$ROOT/config.local.json" || cp "$ROOT/config.example.json" "$ROOT/config.local.json"
@@ -23,7 +21,7 @@ node --input-type=module -e "
   const runtime = selectAiRuntime(discoverAiRuntimes(), 'auto');
   console.log('AI runtime detected:', runtime.label);
 " || {
-  echo "未找到可用的无界面 AI 编码运行时。请安装 Codex CLI、Qoder CLI 或 CodeBuddy CLI。"; exit 1;
+  echo "未找到可用的无界面 AI Coding 运行时。请在 WorkBuddy、Qoder Work、Qoder、CodeBuddy、Codex 或其他兼容工具中启用后台运行能力。"; exit 1;
 }
 
 cd "$ROOT"

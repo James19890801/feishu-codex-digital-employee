@@ -10,6 +10,21 @@ James 不是一个额外加入群聊的机器人账号，也不是只会生成�
 
 公开版不绑定任何公司的消息平台、内部工具或申请流程。企业会话通过可替换的连接器适配器接入，默认关闭；部署者自行选择平台、完成组织管理员授权并提供兼容实现。发行包只保留开发者“阿充”，不携带任何人的账号、Token、聊天、记忆或本机配置。
 
+## 用 AI Coding 工具直接安装
+
+普通用户不需要复制命令、打开终端或预先安装 Codex。用自己已有的 WorkBuddy、
+Qoder Work、Qoder、CodeBuddy、Codex 或其他 AI Coding 工具打开本项目，把下面
+这句话交给它即可：
+
+> 帮我安装这个项目。请自动识别操作系统和可用运行时，全程完成安装、验证并打开 Dashboard；企业连接器保持关闭，只有需要我登录、授权或选择时再提醒我。
+
+工具会结合项目内的 [AGENTS.md](AGENTS.md) 自动检查依赖、运行统一安装器并
+打开本机 Dashboard。只有账号登录、系统授权或运行时选择必须由本人完成时，
+工具才会暂停并给出一步提示。
+
+整个用户流程都留在 AI Coding 工具中；命令行仅作为安装器内部实现和维护者
+排障入口。
+
 ## 为什么做这个项目
 
 大多数 AI 助手擅长回答孤立问题，却很难进入真实工作关系：同事仍在原来的单聊和群聊里沟通，双方已经有称呼、上下文、责任边界和组织语言；新建一个机器人账号会割裂这些关系，也很难判断哪些事可以直接做、哪些必须由本人确认。
@@ -24,7 +39,7 @@ James 试图解决的是另一个问题：
 
 | 能力 | 解决的问题 | James 的实现 |
 |---|---|---|
-| 本地 AI Runtime | 远端黑盒难以治理 | 本机编排、SQLite 状态、受控子进程、超时和输出边界；当前支持 Codex，并保留其他 AI CLI 适配层 |
+| 本地 AI Runtime | 远端黑盒难以治理 | 本机编排、SQLite 状态、受控子进程、超时和输出边界；支持 WorkBuddy、Qoder Work、Qoder、CodeBuddy、Codex 等可用适配器 |
 | 真实企业会话 | 机器人账号割裂关系 | 通过部署者选择并授权的企业连接器接收和发送消息 |
 | 最近 30 条真实上下文 | 只看最后一句容易答非所问 | 回复前按当前会话读取最近 30 条，识别对方最后一句与本人历史表达 |
 | 企业语境理解 | 通用模型不了解组织黑话 | 对企业职级、需求、项目和协作语境做确定性消歧；不确定时优先最短追问 |
@@ -72,7 +87,8 @@ flowchart LR
 James 把模型调用封装为受控的本地子进程，而不是让业务代码依赖某个固定云端 Agent：
 
 - 自动探测已安装并可无头执行的 AI CLI Runtime。
-- 当前发行版优先使用 Codex；配置层保留 Qoder、CodeBuddy 和 Trae 等适配入口。
+- WorkBuddy、Qoder Work、Qoder、CodeBuddy、Codex 与 TRAE 分开展示；Codex 不是前置条件，也没有特殊优先级。
+- 明确选择时始终使用用户选择；自动模式按本机探测结果选取第一个可用的无界面运行时。
 - Prompt 通过标准输入传递，避免把长内容拼进 shell 参数。
 - 每次调用有工作目录、超时、最大输出和终止策略。
 - Runtime 切换需要配置校验、真实冒烟、服务重启与失败回滚。
@@ -84,7 +100,7 @@ James 把模型调用封装为受控的本地子进程，而不是让业务代�
 
 云端兜底默认关闭，启用后仍保持 Local-first：每个模型请求先在本地运行，只有超时、进程故障、网络传输失败或空响应连续 3 次，才把经过脱敏的文本 L0/L1 请求交给 Qoder Cloud Agent。权限拒绝、待本人确认、业务校验失败、文件、图片、邮件、文档、代码仓和本地记忆不会进入云端。
 
-整机离线由 Cloudflare Durable Object 的 30 秒签名心跳判断。连续漏 3 次（约 90 秒）后可启动部署者自建的连接器容器；Mac 恢复后连续 3 个健康心跳才排空交还。云端消息固定显示 `【云端兜底】`，L2/L3 只提示等待本人确认。
+整机离线由 Cloudflare Durable Object 的 30 秒签名心跳判断。连续漏 3 次（约 90 秒）后可启动部署者自建的连接器容器；本机恢复后连续 3 个健康心跳才排空交还。云端消息固定显示 `【云端兜底】`，L2/L3 只提示等待本人确认。
 
 代码已包含 Worker、SQLite-backed Durable Object 和 Qoder SSE 适配，但公开镜像不内置任何企业连接器。部署者需要在私有镜像层或运行时挂载自己的适配器，并完成 OAuth、停机接管与无重复恢复验收；未完成前不应宣称 7x24 已生效。
 
@@ -226,19 +242,17 @@ Dashboard 默认只绑定 `127.0.0.1`，用于观察和配置当前机器：
 
 - macOS、Windows 10/11 或主流 Linux 发行版，以及 Node.js `>= 22.5.0`。
 - Python 3，用于文档解析等可选辅助能力。
-- AI Coding 工具或等价终端环境。
-- 可无头运行的 AI CLI Runtime，推荐 Codex。
+- WorkBuddy、Qoder Work、Qoder、CodeBuddy、Codex 或其他具备项目操作能力的 AI Coding 工具。
+- 至少一个可供后台调用的 AI Runtime；可以是当前工具提供的兼容运行时，不要求 Codex。
 - 如需企业消息能力，由部署者提供符合公开适配器契约的连接器可执行文件。
 
 ### 1. 一键安装
 
-解压发行 ZIP，在终端或 PowerShell 进入目录后执行统一入口：
+使用 AI Coding 工具打开项目，把上面的安装请求交给它即可。工具按
+[AGENTS.md](AGENTS.md) 全程执行：识别系统、检查依赖、调用统一安装器、验证
+结果并打开 Dashboard。用户不需要进入终端或复制安装命令。
 
-```sh
-node ./install.mjs
-```
-
-安装器会校验所有 payload checksum，安装到当前用户目录，并按系统注册用户级后台服务：macOS 使用 LaunchAgent，Windows 使用计划任务，Linux 使用 systemd user service。升级时保留 `config.local.json`、Persona、Bible 和 `data/`。macOS 用户也可继续双击或执行 `install.command`，它调用同一个跨平台安装器。
+底层安装器会校验所有 payload checksum，安装到当前用户目录，并按系统注册用户级后台服务：macOS 使用 LaunchAgent，Windows 使用计划任务，Linux 使用 systemd user service。升级时保留 `config.local.json`、Persona、Bible 和 `data/`。
 
 ### 2. 完成本人配置
 
@@ -253,11 +267,7 @@ node ./install.mjs
 
 ### 3. 验收
 
-```zsh
-npm run check
-npm test
-npm run health
-```
+验收由 AI Coding 工具自动运行项目内的检查、测试和健康检查。
 
 至少确认：
 
