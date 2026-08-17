@@ -116,6 +116,13 @@ function definitelyNotApplied(error) {
     .includes(String(error?.code || ''));
 }
 
+function momentDefinitelyNotApplied(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  return ['ARTICLE_THUMB_UNAVAILABLE', 'VALIDATION_ERROR'].includes(code)
+    || /^GeWe API failed \(HTTP \d+, ret (?!unknown\))/i.test(message);
+}
+
 export class WeChatOwnerArticleSyndication {
   constructor({
     state,
@@ -123,6 +130,7 @@ export class WeChatOwnerArticleSyndication {
     generate,
     commentArticle,
     publishLinkMoment,
+    resolveThumbUrl = async () => '',
     publisherIds,
     ownerWechatIds,
     intervalMs = 60_000,
@@ -139,6 +147,7 @@ export class WeChatOwnerArticleSyndication {
     this.generate = generate;
     this.commentArticle = commentArticle;
     this.publishLinkMoment = publishLinkMoment;
+    this.resolveThumbUrl = typeof resolveThumbUrl === 'function' ? resolveThumbUrl : async () => '';
     this.publisherIds = publisherIds;
     this.ownerWechatIds = ownerWechatIds;
     this.intervalMs = Math.max(60_000, Math.min(15 * 60_000, Number(intervalMs) || 60_000));
@@ -244,6 +253,20 @@ export class WeChatOwnerArticleSyndication {
 
     if (!shared && article.shareStatus !== 'uncertain') {
       try {
+        if (!article.thumbUrl) {
+          const resolvedThumb = boundedText(await this.resolveThumbUrl(article), 4_000);
+          if (!/^https:\/\//i.test(resolvedThumb)) {
+            const error = new Error('Owner article thumbnail is unavailable');
+            error.code = 'ARTICLE_THUMB_UNAVAILABLE';
+            throw error;
+          }
+          article.thumbUrl = resolvedThumb;
+          article.updatedAtMs = this.now();
+          current.articles[index] = article;
+          current = this.writeState(current);
+          index = current.articles.findIndex(item => item.articleKey === articleKey);
+          article = current.articles[index];
+        }
         const execution = await executeMutationOnce({
           state: this.state,
           executionKey: `wechat-owner-article:${article.articleKey}:moment`,
@@ -255,6 +278,7 @@ export class WeChatOwnerArticleSyndication {
             linkUrl: article.url,
             thumbUrl: article.thumbUrl,
           }),
+          definitelyNotApplied: momentDefinitelyNotApplied,
         });
         article.shareStatus = 'succeeded';
         article.momentId = boundedText(execution?.result?.data?.id, 64);
@@ -320,6 +344,13 @@ export class WeChatOwnerArticleSyndication {
         source: eligibility.source,
         messageHash: articleHash(messageId),
       });
+    } else if ((!existing.publisherId && article.publisherId)
+      || (!existing.thumbUrl && article.thumbUrl)) {
+      existing.publisherId ||= article.publisherId;
+      existing.publisherName ||= article.publisherName;
+      existing.thumbUrl ||= article.thumbUrl || '';
+      existing.updatedAtMs = this.now();
+      this.writeState(current);
     }
     return this.process(article.key);
   }

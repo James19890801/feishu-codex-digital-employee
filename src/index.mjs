@@ -5537,6 +5537,11 @@ async function initializeAdditionalImChannels() {
             error.code = 'COMMENT_CONFIRMATION_REQUIRED';
             throw error;
           },
+          resolveThumbUrl: async article => {
+            if (!article.publisherId) return '';
+            const [contact] = await geWeChannel.getContactDetails([article.publisherId]);
+            return contact?.smallHeadImgUrl || contact?.bigHeadImgUrl || '';
+          },
           publishLinkMoment: input => geWeChannel.publishLinkMoment(input),
           publisherIds: config.geweOwnerArticlePublisherIds,
           ownerWechatIds: config.geweOwnerArticleWechatIds,

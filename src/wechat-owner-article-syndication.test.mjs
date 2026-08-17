@@ -146,4 +146,49 @@ try {
   }
 }
 
+{
+  const directory = await mkdtemp(join(tmpdir(), 'aipro-owner-article-thumb-'));
+  try {
+    const state = new AgentState(join(directory, 'state.sqlite'));
+    const shares = [];
+    const worker = new WeChatOwnerArticleSyndication({
+      state,
+      readPage: async () => ({
+        title: '流程管理者做 AI 变革，起点不是技术',
+        text: '这是一篇足够长的公开文章正文，用于检验精确公众号身份能够补齐封面图，并且明确失败不会被误判为已发布。内容还需继续增加一些字符。',
+      }),
+      generate: async () => JSON.stringify({
+        articleComment: '先识别业务判断和责任断点，再让 AI 进入流程，这个顺序能避免把旧问题只是换一层新界面。',
+        momentInsight: '很多 AI 项目像先买了高性能发动机，却没有重新设计道路和交通规则。流程管理者真正要做的，是把人和 AI 的判断、执行与责任边界重新画清楚。',
+      }),
+      commentArticle: async () => ({ submitted: true }),
+      resolveThumbUrl: async article => {
+        assert.equal(article.publisherId, 'gh_07e3d1422f5e');
+        return 'https://wx.qlogo.cn/public-account/132';
+      },
+      publishLinkMoment: async input => {
+        shares.push(input);
+        throw new Error('GeWe API failed (HTTP 200, ret 500): 链接朋友圈发送失败');
+      },
+    });
+    const result = await worker.observe({
+      senderOpenId: 'wechat:gh_07e3d1422f5e',
+      linkCandidate: {
+        url: 'https://mp.weixin.qq.com/s?__biz=MzThumb&mid=2&idx=1&sn=thumbfailure',
+        title: '流程管理者做 AI 变革，起点不是技术',
+      },
+    });
+    assert.equal(result.shared, false);
+    assert.equal(shares[0].thumbUrl, 'https://wx.qlogo.cn/public-account/132');
+    const persisted = state.get('wechat-owner-article-syndication', 'worker', {});
+    assert.equal(persisted.articles[0].shareStatus, 'pending');
+    const mutation = state.db.prepare(`SELECT status FROM mutation_execution
+      WHERE execution_key LIKE '%:moment'`).get();
+    assert.equal(mutation.status, 'failed_safe');
+    state.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 console.log('WECHAT_OWNER_ARTICLE_SYNDICATION_TEST_OK');

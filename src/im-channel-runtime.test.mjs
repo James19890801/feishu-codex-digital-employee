@@ -187,6 +187,14 @@ import {
               ? { fileUrl: 'https://media.example.com/report.pdf' }
             : String(url).endsWith('/personal/getProfile')
               ? { wxid: 'wxid_owner', nickName: '詹老师', mobile: 'private' }
+            : String(url).endsWith('/contacts/getDetailInfo')
+              ? [{
+                  userName: 'gh_07e3d1422f5e',
+                  nickName: '詹生Talk',
+                  smallHeadImgUrl: 'https://wx.qlogo.cn/public-account/132',
+                  bigHeadImgUrl: 'https://wx.qlogo.cn/public-account/0',
+                  phoneNumList: ['private'],
+                }]
             : String(url).endsWith('/sns/snsList')
               ? {
                   firstPageMd5: 'page-md5',
@@ -223,6 +231,19 @@ import {
   assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/login/checkOnline');
   assert.equal(calls[0].options.headers['X-GEWE-TOKEN'], 'super-secret-token');
   assert.deepEqual(JSON.parse(calls[0].options.body), { appId: 'device-a' });
+
+  calls.length = 0;
+  assert.deepEqual(await channel.getContactDetails(['gh_07e3d1422f5e']), [{
+    userName: 'gh_07e3d1422f5e',
+    nickName: '詹生Talk',
+    smallHeadImgUrl: 'https://wx.qlogo.cn/public-account/132',
+    bigHeadImgUrl: 'https://wx.qlogo.cn/public-account/0',
+  }]);
+  assert.equal(calls[0].url, 'https://api.geweapi.com/gewe/v2/api/contacts/getDetailInfo');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    appId: 'device-a', wxids: ['gh_07e3d1422f5e'],
+  });
+  await assert.rejects(channel.getContactDetails(['bad id']), /contact/i);
 
   assert.equal(
     await channel.downloadVoice('<msg><voicemsg /></msg>', { msgId: '1169533812' }),

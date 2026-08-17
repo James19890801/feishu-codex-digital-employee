@@ -336,6 +336,34 @@ export class GeWeChannel {
     return { wxid, nickName };
   }
 
+  async getContactDetails(wxids = []) {
+    const normalizedWxids = [...new Set((Array.isArray(wxids) ? wxids : [])
+      .map(value => String(value || '').trim())
+      .filter(Boolean))];
+    if (!normalizedWxids.length || normalizedWxids.length > 20
+      || normalizedWxids.some(value => value.length > 256 || /[\s\u0000-\u001f\u007f]/.test(value))) {
+      throw new Error('GeWe contact identifiers are invalid');
+    }
+    const result = await this.request('/gewe/v2/api/contacts/getDetailInfo', {
+      appId: this.appId,
+      wxids: normalizedWxids,
+    });
+    const safeUrl = value => {
+      try {
+        const parsed = new URL(String(value || ''));
+        return parsed.protocol === 'https:' && !parsed.username && !parsed.password ? parsed.href : '';
+      } catch { return ''; }
+    };
+    return (Array.isArray(result?.data) ? result.data : []).slice(0, normalizedWxids.length)
+      .map(contact => ({
+        userName: String(contact?.userName || '').trim().slice(0, 256),
+        nickName: String(contact?.nickName || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 100),
+        smallHeadImgUrl: safeUrl(contact?.smallHeadImgUrl),
+        bigHeadImgUrl: safeUrl(contact?.bigHeadImgUrl),
+      }))
+      .filter(contact => normalizedWxids.includes(contact.userName));
+  }
+
   async listMoments({ maxId = 0, firstPageMd5 = '' } = {}) {
     const normalizedMaxId = maxId === 0 ? 0 : String(maxId || '').trim();
     if (normalizedMaxId !== 0 && !/^\d{1,30}$/.test(normalizedMaxId)) {

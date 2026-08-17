@@ -72,9 +72,12 @@ export function eligibleOwnerArticle({
   if (!publisherVerified && !directPublisher) {
     return { eligible: false, reason: 'unverified_publisher' };
   }
+  const verifiedArticle = directPublisher && !article.publisherId
+    ? { ...article, publisherId: senderId }
+    : article;
   return {
     eligible: true,
-    article,
+    article: verifiedArticle,
     source: directPublisher ? 'publisher_callback' : exactOwners.has(senderId) ? 'owner_share' : 'verified_share',
   };
 }

@@ -24,10 +24,12 @@ const duplicateShare = canonicalWechatArticle({
 assert.equal(duplicateShare.key, canonical.key);
 assert.equal(duplicateShare.url, canonical.url);
 
-assert.equal(eligibleOwnerArticle({
+const directPublisher = eligibleOwnerArticle({
   senderOpenId: 'wechat:gh_07e3d1422f5e',
-  linkCandidate: canonical,
-}).eligible, true);
+  linkCandidate: { ...canonical, publisherId: '' },
+});
+assert.equal(directPublisher.eligible, true);
+assert.equal(directPublisher.article.publisherId, 'gh_07e3d1422f5e');
 
 assert.equal(eligibleOwnerArticle({
   senderOpenId: 'wechat:fung5115',
