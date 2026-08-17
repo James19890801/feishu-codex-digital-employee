@@ -8,16 +8,26 @@ import { fileURLToPath } from 'node:url';
 const directory = await mkdtemp(join(tmpdir(), 'aipro-install-service-'));
 const binDirectory = join(directory, 'bin');
 const logPath = join(directory, 'launchctl.log');
+const pathTrapLog = join(directory, 'path-launchctl.log');
 
 try {
   await import('node:fs/promises').then(({ mkdir }) => mkdir(binDirectory));
-  const launchctlPath = join(binDirectory, 'launchctl');
+  const launchctlPath = join(directory, 'launchctl-stub');
   await writeFile(
     launchctlPath,
     '#!/bin/sh\nprintf "%s\\n" "$*" >> "$LAUNCHCTL_LOG"\n[ "$1" = "print" ] && exit 1\nexit 0\n',
     'utf8',
   );
   await chmod(launchctlPath, 0o755);
+  const pathLaunchctl = join(binDirectory, 'launchctl');
+  await writeFile(
+    pathLaunchctl,
+    '#!/bin/sh\nprintf "%s\\n" "$*" >> "$PATH_LAUNCHCTL_LOG"\n[ "$1" = "print" ] && exit 1\nexit 0\n',
+    'utf8',
+  );
+  await chmod(pathLaunchctl, 0o755);
+  await writeFile(logPath, '', 'utf8');
+  await writeFile(pathTrapLog, '', 'utf8');
 
   const result = spawnSync('/bin/zsh', ['scripts/install-service.sh'], {
     cwd: fileURLToPath(new URL('..', import.meta.url)),
@@ -26,7 +36,11 @@ try {
       ...process.env,
       HOME: directory,
       PATH: `${binDirectory}:/usr/local/bin:/usr/bin:/bin`,
+      ACHONG_LAUNCHCTL: launchctlPath,
+      ACHONG_SERVICE_RETRIES: '1',
+      ACHONG_SERVICE_WAIT_SECONDS: '0',
       LAUNCHCTL_LOG: logPath,
+      PATH_LAUNCHCTL_LOG: pathTrapLog,
       AIPRO_SERVICE_LOCK_PATH: join(directory, 'service.lock'),
     },
   });
@@ -42,8 +56,11 @@ try {
   assert.equal(calls.some(call => call.startsWith('print ')), true);
   assert.equal(calls.filter(call => call.startsWith('bootstrap ')).length, 1);
   assert.equal(calls.some(call => call.startsWith('kickstart ')), false);
+  assert.equal((await readFile(pathTrapLog, 'utf8')).trim(), '',
+    'installer tests must never resolve launchctl through PATH');
 
   await writeFile(logPath, '', 'utf8');
+  await writeFile(pathTrapLog, '', 'utf8');
   const retired = spawnSync('/bin/zsh', ['scripts/install-wechat-poc-service.sh'], {
     cwd: fileURLToPath(new URL('..', import.meta.url)),
     encoding: 'utf8',
@@ -52,11 +69,12 @@ try {
       HOME: directory,
       PATH: `${binDirectory}:/usr/local/bin:/usr/bin:/bin`,
       LAUNCHCTL_LOG: logPath,
+      PATH_LAUNCHCTL_LOG: pathTrapLog,
     },
   });
   assert.equal(retired.status, 0, retired.stderr || retired.stdout);
   assert.match(retired.stdout, /RETIRED/);
-  const retiredCalls = (await readFile(logPath, 'utf8')).trim().split('\n').filter(Boolean);
+  const retiredCalls = (await readFile(pathTrapLog, 'utf8')).trim().split('\n').filter(Boolean);
   assert.equal(retiredCalls.some(call => call.startsWith('bootout ')), true);
   assert.equal(retiredCalls.some(call => call.startsWith('bootstrap ')), false);
   assert.equal(retiredCalls.some(call => call.startsWith('kickstart ')), false);
