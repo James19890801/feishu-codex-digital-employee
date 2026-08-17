@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { config } from './config.mjs';
@@ -47,6 +47,10 @@ import { notificationEvent } from './notification-policy.mjs';
 import { runBufferedProcess } from './process-runner.mjs';
 import { SerialKeyQueue } from './serial-key-queue.mjs';
 import {
+  parseLaunchctlPrint,
+  reconcileLaunchAgent,
+} from './service-reconciler.mjs';
+import {
   AiRuntimeClient,
   discoverAiRuntimes,
   selectAiRuntime,
@@ -67,6 +71,14 @@ const CONFIG_ASSISTANT_CODEX_HOME = join(DATA_DIR, 'codex-home');
 const CONFIG_ASSISTANT_SESSION_TOKEN = randomBytes(32).toString('hex');
 const INITIAL_PUBLIC_CONFIGURATION = publicConfiguration(config);
 const SERVICE_LABEL = 'com.local.feishu-codex-digital-employee';
+const SERVICE_DOMAIN = `gui/${process.getuid()}/${SERVICE_LABEL}`;
+const SERVICE_PLIST = join(
+  process.env.HOME || '',
+  'Library',
+  'LaunchAgents',
+  `${SERVICE_LABEL}.plist`,
+);
+const SERVICE_ENTRYPOINT = join(config.workdir, 'src', 'index.mjs');
 const ALLOWED_HOSTS = new Set([`${HOST}:${PORT}`, `localhost:${PORT}`]);
 const licensingStore = new LicensingStore();
 const licensingFetch = createLicensingFetch({ proxyUrl: config.licensingProxyUrl });
@@ -635,13 +647,97 @@ function sendJson(response, statusCode, payload) {
   response.end(JSON.stringify(payload));
 }
 
-async function restartMainService() {
-  await runBufferedProcess('/bin/launchctl', [
-    'kickstart', '-k', `gui/${process.getuid()}/${SERVICE_LABEL}`,
-  ], {
+const SERVICE_COMMAND_OPTIONS = {
     timeoutMs: 20_000,
     maxStdoutBytes: 64 * 1024,
     maxStderrBytes: 128 * 1024,
+};
+
+async function inspectLoadedMainService() {
+  try {
+    const { stdout } = await runBufferedProcess('/bin/launchctl', [
+      'print', SERVICE_DOMAIN,
+    ], SERVICE_COMMAND_OPTIONS);
+    return parseLaunchctlPrint(stdout);
+  } catch (error) {
+    if (error?.code === 'PROCESS_EXIT') return null;
+    throw error;
+  }
+}
+
+async function inspectMainServiceLock() {
+  let lock;
+  try {
+    lock = JSON.parse(await readFile(LOCK_PATH, 'utf8'));
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { present: false };
+    return { present: true, pid: 0, processAlive: false, processCommand: '' };
+  }
+  const pid = Number(lock?.pid || 0);
+  const alive = processAlive(pid);
+  let processCommand = '';
+  if (alive) {
+    try {
+      const { stdout } = await runBufferedProcess('/bin/ps', [
+        '-p', String(pid), '-o', 'command=',
+      ], SERVICE_COMMAND_OPTIONS);
+      processCommand = stdout.trim();
+    } catch {
+      processCommand = '';
+    }
+  }
+  return { present: true, pid, processAlive: alive, processCommand };
+}
+
+async function archiveStaleMainServiceLock() {
+  const archivePath = `${LOCK_PATH}.stale-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  try {
+    await rename(LOCK_PATH, archivePath);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+}
+
+async function waitForServiceRecoveryHealth({ timeoutMs = 35_000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await collectStatus();
+    const wechat = latest?.channels?.wechat || {};
+    const wechatReady = !wechat.enabled || (
+      wechat.callbackListening === true
+      && wechat.callbackRegistered === true
+      && wechat.connected === true
+    );
+    if (latest?.process?.alive && latest?.database?.integrity === 'ok' && wechatReady) {
+      return latest;
+    }
+    await new Promise(resolve => setTimeout(resolve, 1_000));
+  }
+  const issues = latest?.issueLabels?.join('; ') || 'main service did not become ready';
+  throw new Error(`Post-restart health check failed: ${issues}`);
+}
+
+async function restartMainService() {
+  return reconcileLaunchAgent({
+    expected: {
+      plistPath: SERVICE_PLIST,
+      workdir: config.workdir,
+      entrypoint: SERVICE_ENTRYPOINT,
+    },
+    inspect: inspectLoadedMainService,
+    inspectLock: inspectMainServiceLock,
+    archiveStaleLock: archiveStaleMainServiceLock,
+    bootout: () => runBufferedProcess('/bin/launchctl', [
+      'bootout', SERVICE_DOMAIN,
+    ], SERVICE_COMMAND_OPTIONS),
+    bootstrap: () => runBufferedProcess('/bin/launchctl', [
+      'bootstrap', `gui/${process.getuid()}`, SERVICE_PLIST,
+    ], SERVICE_COMMAND_OPTIONS),
+    kickstart: () => runBufferedProcess('/bin/launchctl', [
+      'kickstart', '-k', SERVICE_DOMAIN,
+    ], SERVICE_COMMAND_OPTIONS),
+    verify: () => waitForServiceRecoveryHealth(),
   });
 }
 
@@ -1361,8 +1457,13 @@ const server = createServer(async (request, response) => {
         sendJson(response, 403, { ok: false, error: 'action rejected' });
         return;
       }
-      await restartMainService();
-      sendJson(response, 202, { ok: true, message: 'restart requested' });
+      const recovery = await restartMainService();
+      sendJson(response, 202, {
+        ok: true,
+        message: 'restart completed and verified',
+        action: recovery.action,
+        previousState: recovery.previousState,
+      });
       return;
     }
     sendJson(response, 404, { ok: false, error: 'not found' });
