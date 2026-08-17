@@ -91,6 +91,20 @@ async function runCase({ loaded, lock, verifyError = null } = {}) {
 
 {
   const { calls, result } = await runCase({
+    loaded: parsed,
+    lock: {
+      present: true,
+      pid: parsed.pid,
+      processAlive: true,
+      processCommand: '/path-format-not-recognized-by-ps-inspection',
+    },
+  });
+  assert.deepEqual(calls, ['kickstart', 'verify']);
+  assert.equal(result.action, 'kickstart');
+}
+
+{
+  const { calls, result } = await runCase({
     loaded: drifted,
     lock: { present: true, pid: 44, processAlive: false },
   });
@@ -117,6 +131,19 @@ await assert.rejects(
     },
   }),
   error => error?.code === 'SERVICE_PROCESS_UNMANAGED',
+);
+
+await assert.rejects(
+  runCase({
+    loaded: parsed,
+    lock: {
+      present: true,
+      pid: 55,
+      processAlive: true,
+      processCommand: '/usr/local/bin/node /private/tmp/other/index.mjs',
+    },
+  }),
+  error => error?.code === 'SERVICE_LOCK_FOREIGN',
 );
 
 {

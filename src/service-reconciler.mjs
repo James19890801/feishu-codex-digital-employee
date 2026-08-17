@@ -95,7 +95,13 @@ export async function reconcileLaunchAgent({
   }
   const loaded = await inspect();
   const definition = assessLaunchAgent(loaded, expected);
-  const lock = assessServiceLock(await inspectLock(), expected);
+  let lock = assessServiceLock(await inspectLock(), expected);
+  if (lock.state === 'foreign'
+    && definition.state === 'healthy'
+    && Number(loaded?.pid) > 0
+    && Number(loaded.pid) === lock.pid) {
+    lock = { ...lock, state: 'active_expected' };
+  }
   if (lock.state === 'foreign') {
     throw reconciliationError(
       `Service lock belongs to an unexpected live process (pid ${lock.pid})`,
