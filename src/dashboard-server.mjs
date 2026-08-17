@@ -452,6 +452,7 @@ async function collectStatus() {
       authenticated: false,
       connected: false,
       callbackListening: false,
+      callbackRegistered: false,
       identityMode: 'personal-third-party',
       transport: 'GeWe REST + public webhook',
     },

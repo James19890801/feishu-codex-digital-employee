@@ -48,9 +48,25 @@ PY
 "$LAUNCHCTL" bootout "$SERVICE" 2>/dev/null || true
 stopped=0
 for attempt in $(seq 1 "$SERVICE_RETRIES"); do
-  if ! "$LAUNCHCTL" print "$SERVICE" >/dev/null 2>&1 && ! test -e "$LOCK_PATH"; then
-    stopped=1
-    break
+  if ! "$LAUNCHCTL" print "$SERVICE" >/dev/null 2>&1; then
+    if ! test -e "$LOCK_PATH"; then
+      stopped=1
+      break
+    fi
+    lock_pid="$(/usr/bin/python3 - "$LOCK_PATH" <<'PY' 2>/dev/null || true
+import json, sys
+try:
+    with open(sys.argv[1], encoding='utf-8') as handle:
+        print(int(json.load(handle).get('pid', 0)))
+except Exception:
+    print(0)
+PY
+)"
+    if ! [[ "$lock_pid" == <-> ]] || (( lock_pid < 2 )) || ! kill -0 "$lock_pid" 2>/dev/null; then
+      mv "$LOCK_PATH" "$LOCK_PATH.stale-$(date +%s)-$$"
+      stopped=1
+      break
+    fi
   fi
   sleep "$SERVICE_WAIT_SECONDS"
 done

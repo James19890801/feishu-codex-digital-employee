@@ -59,6 +59,28 @@ try {
   assert.equal((await readFile(pathTrapLog, 'utf8')).trim(), '',
     'installer tests must never resolve launchctl through PATH');
 
+  const staleLockPath = join(directory, 'stale-service.lock');
+  await writeFile(staleLockPath, JSON.stringify({ pid: 99999999 }), 'utf8');
+  const staleLockResult = spawnSync('/bin/zsh', ['scripts/install-service.sh'], {
+    cwd: fileURLToPath(new URL('..', import.meta.url)),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      HOME: directory,
+      PATH: `${binDirectory}:/usr/local/bin:/usr/bin:/bin`,
+      ACHONG_LAUNCHCTL: launchctlPath,
+      ACHONG_SERVICE_RETRIES: '1',
+      ACHONG_SERVICE_WAIT_SECONDS: '0',
+      LAUNCHCTL_LOG: logPath,
+      PATH_LAUNCHCTL_LOG: pathTrapLog,
+      AIPRO_SERVICE_LOCK_PATH: staleLockPath,
+    },
+  });
+  assert.equal(staleLockResult.status, 0, staleLockResult.stderr || staleLockResult.stdout);
+  const archivedLocks = await import('node:fs/promises').then(({ readdir }) => readdir(directory));
+  assert.equal(archivedLocks.some(name => name.startsWith('stale-service.lock.stale-')), true,
+    'a lock owned by a dead pid must not strand the installer after bootout');
+
   await writeFile(logPath, '', 'utf8');
   await writeFile(pathTrapLog, '', 'utf8');
   const retired = spawnSync('/bin/zsh', ['scripts/install-wechat-poc-service.sh'], {
