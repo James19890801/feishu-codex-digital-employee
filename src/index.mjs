@@ -330,6 +330,9 @@ const CODEX_RUNTIME_DIR = join(WORKDIR, 'data', 'codex-runtime');
 const CODEX_HOME_DIR = join(WORKDIR, 'data', 'codex-home');
 const DAILY_LEARNING_RUNTIME_DIR = join(WORKDIR, 'data', 'daily-learning-runtime');
 const LOCAL_WIKI_INDEX_PATH = join(homedir(), 'Library', 'Application Support', 'AIPRO', 'local-wiki', 'index.json');
+const OWNER_ARTICLE_RUNTIME_DIR = join(
+  homedir(), 'Library', 'Application Support', 'AIPRO', 'owner-article-runtime',
+);
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_DOC_CHARS = 40_000;
 const KNOWLEDGE_CATALOG_PATH = join(WORKDIR, 'knowledge-catalog.json');
@@ -337,6 +340,7 @@ const KNOWLEDGE_CATALOG = JSON.parse(await readFile(KNOWLEDGE_CATALOG_PATH, 'utf
 await mkdir(CODEX_RUNTIME_DIR, { recursive: true });
 await mkdir(CODEX_HOME_DIR, { recursive: true, mode: 0o700 });
 await mkdir(DAILY_LEARNING_RUNTIME_DIR, { recursive: true, mode: 0o700 });
+await mkdir(OWNER_ARTICLE_RUNTIME_DIR, { recursive: true, mode: 0o700 });
 await mkdir(MULTICA_ARTIFACT_ROOT, { recursive: true, mode: 0o700 });
 await mkdir(WECHAT_MEDIA_ROOT, { recursive: true, mode: 0o700 });
 const LOCAL_WIKI_RETRIEVER = new LocalWikiRetriever({
@@ -5521,7 +5525,7 @@ async function initializeAdditionalImChannels() {
           }),
           generate: async prompt => {
             const result = await runAiRuntime(prompt, {
-              cwd: WORKDIR,
+              cwd: OWNER_ARTICLE_RUNTIME_DIR,
               model: config.codexModel,
               timeoutMs: 120_000,
               auditErrorCode: 'wechat_owner_article_generation_failed',

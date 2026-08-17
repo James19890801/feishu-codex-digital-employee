@@ -205,6 +205,7 @@ contract('wechat-owner-article-syndication', 'Does the live WeChat runtime detec
   assert.match(runtimeSource, /config\.geweOwnerArticleSyndicationEnabled/);
   assert.match(runtimeSource, /new WeChatOwnerArticleSyndication\(\{/);
   assert.match(runtimeSource, /wechatOwnerArticleSyndication\.observe\(\{/);
+  assert.match(runtimeSource, /cwd: OWNER_ARTICLE_RUNTIME_DIR/);
   assert.match(runtimeSource, /wechatOwnerArticleSyndication\.start\(\)/);
   assert.match(runtimeSource, /wechatOwnerArticleSyndication\.stop\(\)/);
 });
