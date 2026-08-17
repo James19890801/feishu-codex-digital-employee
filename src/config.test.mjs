@@ -204,6 +204,21 @@ try {
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /geweDailyBriefingGroup/);
   }
+
+  const malformedPath = join(directory, 'malformed-config.json');
+  writeFileSync(malformedPath, '{"feishuEnabled": false,}');
+  const malformed = spawnSync(process.execPath, [
+    '--input-type=module',
+    '--eval',
+    "await import('./src/config.mjs')",
+  ], {
+    cwd: new URL('..', import.meta.url),
+    env: { ...process.env, DIGITAL_EMPLOYEE_CONFIG: malformedPath },
+    encoding: 'utf8',
+  });
+  assert.notEqual(malformed.status, 0);
+  assert.match(malformed.stderr, /解析失败/);
+  assert.match(malformed.stderr, new RegExp(malformedPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 } finally {
   rmSync(directory, { recursive: true, force: true });
 }

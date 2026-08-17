@@ -13,7 +13,15 @@ const configPath = process.env.DIGITAL_EMPLOYEE_CONFIG || join(workdir, 'config.
 if (!existsSync(configPath)) {
   throw new Error(`缺少配置文件：${configPath}\n请复制 config.example.json 为 config.local.json 并填写。`);
 }
-const raw = JSON.parse(readFileSync(configPath, 'utf8'));
+let raw;
+try {
+  raw = JSON.parse(readFileSync(configPath, 'utf8'));
+} catch (error) {
+  throw new Error(
+    `配置文件 ${configPath} 解析失败：${error.message}\n请检查 JSON 格式。`,
+    { cause: error },
+  );
+}
 const home = process.env.HOME || '';
 if (!Array.isArray(raw.authorizedChatIds || [])) {
   throw new Error('config.local.json 的 authorizedChatIds 必须是数组');
