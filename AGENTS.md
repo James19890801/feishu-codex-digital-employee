@@ -4,11 +4,11 @@
 或其他 AI Coding 会话中推进到可验收状态。不要让小白用户自己复制命令、
 安装 Homebrew/pnpm/Python，也不要要求管理员权限。
 
-## 唯一学员主路径
+## 唯一小白用户主路径
 
 钉钉 → 项目随包安装的独立 `dingtalk-workspace-cli` (`dws`) → DWS Channel 个人事件流
 → James 本地服务 → 当前可用的 AI Runtime。飞书、企业微信、个人微信和其他通道
-默认关闭，不得作为学员安装的替代路径。禁止使用 Wukong 或 LegacyBridge。
+默认关闭，不得作为小白用户安装的替代路径。禁止使用 Wukong 或 LegacyBridge。
 
 ## 必须完成的流程
 

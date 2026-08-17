@@ -4,11 +4,11 @@
 
 **唯一开发者 / 维护者：阿充（James Feng）**
 
-**学员部署主路径：macOS / Windows / Linux · 钉钉 · 独立 DWS CLI · WorkBuddy / Qoder Work 等 AI Runtime**
+**小白用户部署主路径：macOS / Windows / Linux · 钉钉 · 独立 DWS CLI · WorkBuddy / Qoder Work 等 AI Runtime**
 
 James 不是一个额外加入群聊的机器人账号，也不是只会生成文本的 Demo。它把企业会话、实时上下文、本地 AI Runtime、个人知识、权限治理、Multica 需求闭环和可靠性工程组合成一套长期运行的数字人系统。
 
-学员发行版固定使用项目随包安装的 `dingtalk-workspace-cli` (`dws`)，通过学员本人的钉钉 OAuth 和 DWS 个人事件流接入。飞书、企业微信、个人微信等通道默认关闭，不是小白安装的替代路径。发行包只保留开发者“阿充”，不携带任何人的账号、Token、Profile、Channel 码、聊天、记忆或本机配置。
+小白用户发行版固定使用项目随包安装的 `dingtalk-workspace-cli` (`dws`)，通过小白用户本人的钉钉 OAuth 和 DWS 个人事件流接入。飞书、企业微信、个人微信等通道默认关闭，不是小白安装的替代路径。发行包只保留开发者“阿充”，不携带任何人的账号、Token、Profile、Channel 码、聊天、记忆或本机配置。
 
 ## 用 AI Coding 工具直接安装
 
@@ -244,7 +244,7 @@ Dashboard 默认只绑定 `127.0.0.1`，用于观察和配置当前机器：
 - Python 3 仅用于文档解析等可选能力，不是启动服务的前置。
 - WorkBuddy、Qoder Work、Qoder、CodeBuddy、Codex 或其他具备项目操作能力的 AI Coding 工具。
 - 至少一个可供后台调用的 AI Runtime；可以是当前工具提供的兼容运行时，不要求 Codex。
-- 钉钉客户端和学员自己的钉钉账号；独立 DWS CLI 由项目自动安装。
+- 钉钉客户端和小白用户自己的钉钉账号；独立 DWS CLI 由项目自动安装。
 
 ### 1. 一键安装
 
