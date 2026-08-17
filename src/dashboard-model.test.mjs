@@ -119,6 +119,8 @@ const base = {
       configured: true,
       authenticated: true,
       connected: false,
+      callbackListening: true,
+      callbackRegistered: false,
       identityMode: 'personal-third-party',
       transport: 'GeWe REST + public webhook',
       lastError: { error: 'public callback is unreachable' },
@@ -127,6 +129,8 @@ const base = {
   assert.equal(view.state, 'degraded');
   assert.equal(view.issues.includes('wechat_channel_unavailable'), true);
   assert.equal(view.channels.wechat.healthy, false);
+  assert.equal(view.channels.wechat.callbackListening, true);
+  assert.equal(view.channels.wechat.callbackRegistered, false);
   assert.equal(view.channels.feishu.healthy, true);
   assert.equal(view.channels.wechat.identityMode, 'personal-third-party');
 }

@@ -240,6 +240,8 @@ export function buildOperatorView(input) {
         configured: Boolean(geweChannel.configured),
         authenticated: Boolean(geweChannel.authenticated),
         connected: Boolean(geweChannel.connected),
+        callbackListening: Boolean(geweChannel.callbackListening),
+        callbackRegistered: Boolean(geweChannel.callbackRegistered),
         healthy: !geweChannel.enabled || Boolean(geweChannel.connected),
         identityMode: geweChannel.identityMode || 'personal-third-party',
         transport: geweChannel.transport || 'GeWe REST + public webhook',
