@@ -6,7 +6,7 @@ import {
 
 const identities = {
   ownerOpenId: 'ou_owner',
-  dingtalkOwnerOpenId: 'dt_owner',
+  enterpriseChatOwnerOpenId: 'dt_owner',
 };
 
 assert.equal(isAuthorizedMulticaOwner({
@@ -34,9 +34,9 @@ assert.equal(isAuthorizedMulticaOwner({
 }, identities), false, 'an unknown channel must fail closed even with self-chat metadata');
 
 assert.equal(isAuthorizedMulticaOwner({
-  senderId: 'dingtalk:dt_owner',
+  senderId: 'enterpriseChat:dt_owner',
   chatType: 'p2p',
-  metadata: { channel: 'dingtalk', selfChat: true },
+  metadata: { channel: 'enterpriseChat', selfChat: true },
 }, identities), true);
 
 assert.equal(isAuthorizedMulticaOwner({
@@ -100,18 +100,18 @@ for (const context of [
     chatType: 'p2p',
     metadata: { channel: 'feishu', selfChat: true },
   },
-  { senderId: 'dingtalk:dt_owner', metadata: { channel: 'dingtalk' } },
-  { senderId: 'dingtalk:dt_other', metadata: { channel: 'dingtalk', selfChat: true } },
-  { senderId: 'dingtalk:dt_owner', metadata: { channel: 'feishu', selfChat: true } },
-  { senderId: '', metadata: { channel: 'dingtalk', selfChat: true } },
+  { senderId: 'enterpriseChat:dt_owner', metadata: { channel: 'enterpriseChat' } },
+  { senderId: 'enterpriseChat:dt_other', metadata: { channel: 'enterpriseChat', selfChat: true } },
+  { senderId: 'enterpriseChat:dt_owner', metadata: { channel: 'feishu', selfChat: true } },
+  { senderId: '', metadata: { channel: 'enterpriseChat', selfChat: true } },
 ]) {
   assert.equal(isAuthorizedMulticaOwner(context, identities), false);
 }
 
 assert.equal(isAuthorizedMulticaOwner({
-  senderId: 'dingtalk:dt_owner',
-  metadata: { channel: 'dingtalk', selfChat: true },
-}, { ownerOpenId: 'ou_owner', dingtalkOwnerOpenId: '' }), false);
+  senderId: 'enterpriseChat:dt_owner',
+  metadata: { channel: 'enterpriseChat', selfChat: true },
+}, { ownerOpenId: 'ou_owner', enterpriseChatOwnerOpenId: '' }), false);
 
 assert.doesNotThrow(() => requireAuthorizedMulticaOwner({
   senderId: 'ou_owner',

@@ -25,7 +25,7 @@ assert.match(wechatIdentity, /你是詹老师的助理/);
 assert.match(wechatIdentity, /微信渠道/);
 assert.doesNotMatch(wechatIdentity, /你是阿充的数字人/);
 
-const dingtalkIdentity = buildChannelIdentityInstruction('dingtalk');
-assert.match(dingtalkIdentity, /你是阿充的数字人/);
+const enterpriseChatIdentity = buildChannelIdentityInstruction('enterpriseChat');
+assert.match(enterpriseChatIdentity, /你是阿充的数字人/);
 
 console.log('IDENTITY_POLICY_TEST_OK');

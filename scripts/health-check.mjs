@@ -107,7 +107,7 @@ const lastAiRuntimeSuccessAt = setting('health', 'last_ai_runtime_success_at', '
 const lastAiRuntimeError = setting('health', 'last_ai_runtime_error', null);
 const selfChatCircuitLast = setting('health', 'self_chat_circuit_last', null);
 const groupHostHealth = setting('health', 'group_host', null);
-const dingtalkChannel = setting('channel', 'dingtalk', {});
+const enterpriseChatChannel = setting('channel', 'enterpriseChat', {});
 const wecomChannel = setting('channel', 'wecom', {});
 const geweChannel = setting('channel', 'wechat', {});
 const backupAgeMs = lastBackupAt ? nowMs - new Date(lastBackupAt).getTime() : null;
@@ -126,8 +126,8 @@ if (config.feishuEnabled !== false
 }
 const selfChatCircuitOpen = Number(selfChatCircuitLast?.openUntilMs || 0) > nowMs;
 if (selfChatCircuitOpen) result.issues.push('self_chat_circuit_open');
-if (config.dingtalkEnabled === true && !dingtalkChannel.connected) {
-  result.issues.push('dingtalk_channel_unavailable');
+if (config.enterpriseChatEnabled === true && !enterpriseChatChannel.connected) {
+  result.issues.push('enterpriseChat_channel_unavailable');
 }
 if (config.wecomEnabled === true && !wecomChannel.connected) {
   result.issues.push('wecom_channel_unavailable');
@@ -215,11 +215,11 @@ result.metrics = {
       state: config.feishuEnabled === false ? 'disabled' : 'connected',
       identityMode: 'user',
     },
-    dingtalk: {
-      enabled: config.dingtalkEnabled === true,
-      installed: Boolean(dingtalkChannel.installed),
-      authenticated: Boolean(dingtalkChannel.authenticated),
-      connected: Boolean(dingtalkChannel.connected),
+    enterpriseChat: {
+      enabled: config.enterpriseChatEnabled === true,
+      installed: Boolean(enterpriseChatChannel.installed),
+      authenticated: Boolean(enterpriseChatChannel.authenticated),
+      connected: Boolean(enterpriseChatChannel.connected),
       identityMode: 'user',
     },
     wecom: {

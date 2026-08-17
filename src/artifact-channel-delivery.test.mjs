@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  buildDingTalkArtifactSendArgs,
+  buildEnterpriseChatArtifactSendArgs,
   buildFeishuArtifactSendArgs,
   artifactFormatForPath,
 } from './artifact-channel-delivery.mjs';
@@ -20,14 +20,14 @@ assert.deepEqual(buildFeishuArtifactSendArgs({
   '--idempotency-key', 'artifact-1',
 ]);
 
-assert.deepEqual(buildDingTalkArtifactSendArgs({
-  target: { channel: 'dingtalk', kind: 'user', id: 'open-owner' },
+assert.deepEqual(buildEnterpriseChatArtifactSendArgs({
+  target: { channel: 'enterpriseChat', kind: 'user', id: 'open-owner' },
   path: '/tmp/report.pdf',
   uuid: 'artifact-2',
 }), [
-  'chat', 'message', 'send', '--open-dingtalk-id', 'open-owner',
+  'chat', 'message', 'send', '--user', 'open-owner',
   '--msg-type', 'file', '--file-path', '/tmp/report.pdf',
-  '--ai-tag=false', '--uuid', 'artifact-2', '--yes', '--format', 'json',
+  '--transport-mode=standard', '--uuid', 'artifact-2', '--yes', '--format', 'json',
 ]);
 
 assert.deepEqual(buildFeishuArtifactSendArgs({
@@ -61,8 +61,8 @@ assert.deepEqual(buildFeishuArtifactSendArgs({
 assert.throws(() => buildFeishuArtifactSendArgs({
   chatId: 'oc_owner', relativePath: '../secret.pdf',
 }), /safe relative path/i);
-assert.throws(() => buildDingTalkArtifactSendArgs({
-  target: { channel: 'dingtalk', kind: 'group', id: '' }, path: '/tmp/report.pdf',
+assert.throws(() => buildEnterpriseChatArtifactSendArgs({
+  target: { channel: 'enterpriseChat', kind: 'group', id: '' }, path: '/tmp/report.pdf',
 }), /target/i);
 
 console.log('ARTIFACT_CHANNEL_DELIVERY_TEST_OK');

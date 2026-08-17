@@ -3,9 +3,9 @@ import { buildMultimodalSmokePlan, redactSmokePlan } from './multimodal-smoke.mj
 
 const plan = buildMultimodalSmokePlan({
   workspaceRoot: '/workspace',
-  channels: ['feishu', 'dingtalk'],
+  channels: ['feishu', 'enterpriseChat'],
   feishuChatId: 'oc_test_group',
-  dingtalkChatId: 'dingtalk:group:cid-test',
+  enterpriseChatChatId: 'enterpriseChat:group:cid-test',
   files: [
     '/workspace/outputs/smoke/report.pdf',
     '/workspace/outputs/smoke/chart.png',
@@ -30,8 +30,8 @@ assert.throws(() => buildMultimodalSmokePlan({
 
 assert.throws(() => buildMultimodalSmokePlan({
   workspaceRoot: '/workspace',
-  channels: ['dingtalk'],
-  dingtalkChatId: 'dingtalk:group:cid-test',
+  channels: ['enterpriseChat'],
+  enterpriseChatChatId: 'enterpriseChat:group:cid-test',
   files: ['/tmp/secret.pdf'],
 }), /workspace/i);
 

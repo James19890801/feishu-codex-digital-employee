@@ -41,8 +41,8 @@ export function assessResponseObligation({
 
   const channel = String(metadata.channel || '').trim();
   const structuredMention = metadata.explicitAssistantMention === true
-    || (channel === 'dingtalk'
-      && String(metadata.eventType || '') === 'user_im_message_receive_at')
+    || (channel === 'enterpriseChat'
+      && String(metadata.eventType || '') === 'message.mention.received')
     || (channel === 'feishu'
       && Array.isArray(message.mentions)
       && message.mentions.length > 0);

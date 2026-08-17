@@ -12,28 +12,28 @@ assert.equal(
 );
 
 const groupContext = createReplyContext({
-  message: { chat_id: 'dingtalk:group:cid-1', chat_type: 'group' },
-  senderId: 'dingtalk:requester-1',
+  message: { chat_id: 'enterpriseChat:group:cid-1', chat_type: 'group' },
+  senderId: 'enterpriseChat:requester-1',
 });
 assert.deepEqual(groupContext, {
-  chatId: 'dingtalk:group:cid-1',
+  chatId: 'enterpriseChat:group:cid-1',
   chatType: 'group',
-  senderIds: ['dingtalk:requester-1'],
+  senderIds: ['enterpriseChat:requester-1'],
   mentionRequired: true,
 });
 assert.deepEqual(resolveReplyMentionSenderIds({
-  chatId: 'dingtalk:group:cid-1',
+  chatId: 'enterpriseChat:group:cid-1',
   chatType: 'group',
   context: groupContext,
-}), ['dingtalk:requester-1'], 'a group reply must @ the current requester by default');
+}), ['enterpriseChat:requester-1'], 'a group reply must @ the current requester by default');
 
 assert.deepEqual(resolveReplyMentionSenderIds({
-  chatId: 'dingtalk:user:requester-1',
+  chatId: 'enterpriseChat:user:requester-1',
   chatType: 'p2p',
   context: {
-    chatId: 'dingtalk:user:requester-1',
+    chatId: 'enterpriseChat:user:requester-1',
     chatType: 'p2p',
-    senderIds: ['dingtalk:requester-1'],
+    senderIds: ['enterpriseChat:requester-1'],
   },
 }), [], 'direct replies must not add @ mentions');
 

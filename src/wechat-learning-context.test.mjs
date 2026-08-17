@@ -26,8 +26,8 @@ const conversations = [
     senderId: 'wechat:member-d', role: 'user', content: '降级讨论', createdAt: '2026-08-14T00:00:03.000Z',
   },
   {
-    channel: 'dingtalk', chatType: 'group', chatId: 'dingtalk:group:unchanged',
-    senderId: 'dingtalk:member', role: 'user', content: '钉钉讨论', createdAt: '2026-08-14T00:00:04.000Z',
+    channel: 'enterpriseChat', chatType: 'group', chatId: 'enterpriseChat:group:unchanged',
+    senderId: 'enterpriseChat:member', role: 'user', content: '企业会话讨论', createdAt: '2026-08-14T00:00:04.000Z',
   },
 ];
 const nowMs = Date.parse('2026-08-14T01:00:00.000Z');
@@ -63,7 +63,7 @@ assert.equal(
   'one failed group lookup must degrade without blocking learning',
 );
 assert.equal(
-  enriched.find(item => item.channel === 'dingtalk').groupName,
+  enriched.find(item => item.channel === 'enterpriseChat').groupName,
   undefined,
   'non-WeChat evidence must remain unchanged',
 );

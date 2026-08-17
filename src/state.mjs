@@ -955,7 +955,7 @@ export class AgentState {
       role, content, created_at AS createdAt
       FROM conversation WHERE created_at >= ? AND created_at < ?
       ORDER BY created_at ASC LIMIT ?`).all(fromAt, toAt, conversationLimit).map(row => {
-      const target = String(row.chatId || '').match(/^(feishu|dingtalk|wecom|wechat):(group|user):/);
+      const target = String(row.chatId || '').match(/^(feishu|enterpriseChat|wecom|wechat):(group|user):/);
       const channel = target?.[1] || 'feishu';
       const remembered = channel === 'feishu'
         ? this.get('feishu_chat', row.chatId, {})
@@ -1908,7 +1908,8 @@ export class AgentState {
     createdAt = new Date().toISOString(),
   } = {}) {
     const normalizedIssueId = String(issueId || '').trim();
-    const normalizedChannel = String(channel || '').trim().toLowerCase();
+    const lowerChannel = String(channel || '').trim().toLowerCase();
+    const normalizedChannel = lowerChannel === 'enterprisechat' ? 'enterpriseChat' : lowerChannel;
     const normalizedChatId = String(chatId || '').trim();
     if (!normalizedIssueId || !normalizedChannel || !normalizedChatId) {
       throw new Error('Multica Issue origin requires issue, channel, and chat IDs');

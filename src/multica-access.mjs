@@ -2,7 +2,8 @@ export function isVerifiedMulticaOwner(context = {}, identities = {}) {
   const senderId = String(context.senderId || '').trim();
   if (!senderId) return false;
 
-  const channel = String(context.metadata?.channel || '').trim().toLowerCase();
+  const normalizedChannel = String(context.metadata?.channel || '').trim().toLowerCase();
+  const channel = normalizedChannel === 'enterprisechat' ? 'enterpriseChat' : normalizedChannel;
   const ownerOpenId = String(identities.ownerOpenId || '').trim();
   if (channel === 'feishu' && ownerOpenId && senderId === ownerOpenId) {
     return true;
@@ -12,11 +13,11 @@ export function isVerifiedMulticaOwner(context = {}, identities = {}) {
     return senderId.startsWith('wechat:');
   }
 
-  const dingtalkOwnerOpenId = String(identities.dingtalkOwnerOpenId || '').trim();
+  const enterpriseChatOwnerOpenId = String(identities.enterpriseChatOwnerOpenId || '').trim();
   return Boolean(
-    dingtalkOwnerOpenId
-      && channel === 'dingtalk'
-      && senderId === `dingtalk:${dingtalkOwnerOpenId}`,
+    enterpriseChatOwnerOpenId
+      && channel === 'enterpriseChat'
+      && senderId === `enterpriseChat:${enterpriseChatOwnerOpenId}`,
   );
 }
 

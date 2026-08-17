@@ -1,28 +1,28 @@
 import assert from 'node:assert/strict';
 import {
-  buildDingTalkDriveDownloadArgs,
+  buildEnterpriseChatDriveDownloadArgs,
   buildImageUnderstandingTask,
-  buildDingTalkMediaDownloadArgs,
+  buildEnterpriseChatMediaDownloadArgs,
   buildFeishuMediaDownloadArgs,
   buildTranscriptionInvocation,
-  parseDingTalkFilePlaceholder,
-  parseDingTalkMediaPlaceholder,
+  parseEnterpriseChatFilePlaceholder,
+  parseEnterpriseChatMediaPlaceholder,
   sniffMediaFileExtension,
 } from './multimodal-content.mjs';
 
 assert.deepEqual(
-  parseDingTalkMediaPlaceholder('[语音消息](mediaId=@voice_123) 注意：如需下载使用命令'),
+  parseEnterpriseChatMediaPlaceholder('[语音消息](mediaId=@voice_123) 注意：如需下载使用命令'),
   { kind: 'audio', resourceId: '@voice_123', displayName: '语音消息' },
 );
 assert.deepEqual(
-  parseDingTalkMediaPlaceholder('[图片消息](mediaId=@image_456)'),
+  parseEnterpriseChatMediaPlaceholder('[图片消息](mediaId=@image_456)'),
   { kind: 'image', resourceId: '@image_456', displayName: '图片消息' },
 );
 assert.deepEqual(
-  parseDingTalkMediaPlaceholder('[视频消息] mediaId: @video_789'),
+  parseEnterpriseChatMediaPlaceholder('[视频消息] mediaId: @video_789'),
   { kind: 'video', resourceId: '@video_789', displayName: '视频消息' },
 );
-assert.equal(parseDingTalkMediaPlaceholder('普通文字消息'), null);
+assert.equal(parseEnterpriseChatMediaPlaceholder('普通文字消息'), null);
 
 assert.equal(sniffMediaFileExtension(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), '.png');
 assert.equal(sniffMediaFileExtension(Buffer.from([0xff, 0xd8, 0xff, 0xe0])), '.jpg');
@@ -30,7 +30,7 @@ assert.match(buildImageUnderstandingTask('请打开图里的链接'), /逐字识
 assert.match(buildImageUnderstandingTask('请打开图里的链接'), /看不清时明确说明/);
 
 assert.deepEqual(
-  parseDingTalkFilePlaceholder('[文件] 周报.pdf fileId: 54d69c1f-3f4e 注意：如需下载使用dws drive download命令下载'),
+  parseEnterpriseChatFilePlaceholder('[文件] 周报.pdf fileId: 54d69c1f-3f4e 注意：如需下载使用connector drive download命令下载'),
   {
     kind: 'document',
     resourceId: '54d69c1f-3f4e',
@@ -38,9 +38,9 @@ assert.deepEqual(
     displayName: '周报.pdf',
   },
 );
-assert.equal(parseDingTalkFilePlaceholder('[图片消息](mediaId=@image_456)'), null);
+assert.equal(parseEnterpriseChatFilePlaceholder('[图片消息](mediaId=@image_456)'), null);
 
-assert.deepEqual(buildDingTalkDriveDownloadArgs({
+assert.deepEqual(buildEnterpriseChatDriveDownloadArgs({
   profile: 'corp:user',
   fileId: '54d69c1f-3f4e',
   outputPath: '/tmp/aipro-media/周报.pdf',
@@ -52,7 +52,7 @@ assert.deepEqual(buildDingTalkDriveDownloadArgs({
   '--format', 'json',
 ]);
 
-assert.deepEqual(buildDingTalkMediaDownloadArgs({
+assert.deepEqual(buildEnterpriseChatMediaDownloadArgs({
   profile: 'corp:user',
   resourceId: '@voice_123',
   messageId: 'msg-1',

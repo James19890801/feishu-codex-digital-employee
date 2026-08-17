@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boundedInteger } from './reliability.mjs';
 import {
-  validateDingTalkConfiguration,
+  validateEnterpriseChatConfiguration,
   validateFeishuConfiguration,
 } from './runtime-mode.mjs';
 
@@ -145,12 +145,12 @@ export const config = {
     ? raw.audioTranscriptionArgs.map(value => String(value)).slice(0, 20)
     : ['{input}', 'zh-CN'],
   aiRuntime: raw.aiRuntime || 'auto',
-  dingtalkEnabled: raw.dingtalkEnabled === true,
-  dingtalkTransport: String(raw.dingtalkTransport || 'event-stream').trim(),
-  dingtalkProfile: raw.dingtalkProfile || '',
-  dingtalkChannel: String(raw.dingtalkChannel || '').trim(),
-  dingtalkOwnerOpenId: String(raw.dingtalkOwnerOpenId || '').trim(),
-  dingtalkBin: raw.dingtalkBin || join(home, '.npm-global', 'bin', 'dws'),
+  enterpriseChatEnabled: raw.enterpriseChatEnabled === true,
+  enterpriseChatTransport: String(raw.enterpriseChatTransport || 'event-stream').trim(),
+  enterpriseChatProfile: raw.enterpriseChatProfile || '',
+  enterpriseChatChannel: String(raw.enterpriseChatChannel || '').trim(),
+  enterpriseChatOwnerOpenId: String(raw.enterpriseChatOwnerOpenId || '').trim(),
+  enterpriseChatBin: raw.enterpriseChatBin || join(home, '.npm-global', 'bin', 'connector'),
   wecomEnabled: raw.wecomEnabled === true,
   wecomBotId: raw.wecomBotId || '',
   wecomKeychainService: raw.wecomKeychainService || 'aipro-wecom-bot',
@@ -324,7 +324,7 @@ if (!['lark-cli', 'sdk'].includes(config.eventTransport)) {
 if (!['auto', 'codex', 'qoder', 'codebuddy', 'trae'].includes(config.aiRuntime)) {
   throw new Error('aiRuntime 只能是 auto、codex、qoder、codebuddy 或 trae');
 }
-validateDingTalkConfiguration(config);
+validateEnterpriseChatConfiguration(config);
 if (config.wecomEnabled && !config.wecomBotId) {
   throw new Error('启用 wecomEnabled 时必须填写 wecomBotId');
 }

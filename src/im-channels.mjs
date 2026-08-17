@@ -1,30 +1,30 @@
 import { dirname } from 'node:path';
 import { matchHumanTakeoverCommand } from './human-takeover.mjs';
 import {
-  parseDingTalkFilePlaceholder,
-  parseDingTalkMediaPlaceholder,
+  parseEnterpriseChatFilePlaceholder,
+  parseEnterpriseChatMediaPlaceholder,
 } from './multimodal-content.mjs';
 
-const CHANNEL_TARGET_PATTERN = /^(dingtalk|wecom|wechat):(group|user):(.+)$/;
-const DINGTALK_SELF_FILE_PLACEHOLDER = /^(?:\[文件\]\s*)+.*\bfileId\s*:/i;
-const DINGTALK_ASSISTANT_MENTION_NAMES = ['詹老师', '阿充', '阿充James', 'AIPRO', '数字人', '詹老师助理'];
+const CHANNEL_TARGET_PATTERN = /^(enterpriseChat|wecom|wechat):(group|user):(.+)$/;
+const ENTERPRISE_CHAT_SELF_FILE_PLACEHOLDER = /^(?:\[文件\]\s*)+.*\bfileId\s*:/i;
+const ENTERPRISE_CHAT_ASSISTANT_MENTION_NAMES = ['詹老师', '阿充', '阿充James', 'AIPRO', '数字人', '詹老师助理'];
 
-export function buildDingTalkProcessEnv({
-  dingtalkBin,
-  dingtalkChannel = '',
+export function buildEnterpriseChatProcessEnv({
+  enterpriseChatBin,
+  enterpriseChatChannel = '',
   nodeBin = '',
   pathEnv = '',
   baseEnv = {},
   home = '',
 } = {}) {
-  const executable = String(dingtalkBin || '').trim();
-  if (!executable) throw new Error('DingTalk executable path is required');
-  const channel = String(dingtalkChannel || '').trim();
+  const executable = String(enterpriseChatBin || '').trim();
+  if (!executable) throw new Error('EnterpriseChat executable path is required');
+  const channel = String(enterpriseChatChannel || '').trim();
   const resolvedHome = String(home || baseEnv.HOME || process.env.HOME || '').trim();
   return {
     ...baseEnv,
     ...(resolvedHome ? { HOME: resolvedHome } : {}),
-    ...(channel ? { DWS_CHANNEL: channel } : {}),
+    ...(channel ? { CONNECTOR_CHANNEL: channel } : {}),
     PATH: [dirname(executable), String(nodeBin || ''), String(pathEnv || '')]
       .filter(Boolean)
       .join(':'),
@@ -32,7 +32,7 @@ export function buildDingTalkProcessEnv({
 }
 
 export function formatChannelChatId(channel, kind, id) {
-  if (!['dingtalk', 'wecom', 'wechat'].includes(channel)) {
+  if (!['enterpriseChat', 'wecom', 'wechat'].includes(channel)) {
     throw new Error(`Unsupported IM channel: ${channel}`);
   }
   if (!['group', 'user'].includes(kind)) {
@@ -51,31 +51,31 @@ export function parseChannelChatId(chatId) {
 
 export function prepareGroupMention({ chatId, chatType, senderId, senderIds = [], text }) {
   const content = String(text || '');
-  if (chatType !== 'group') return { text: content, atOpenDingTalkIds: [] };
+  if (chatType !== 'group') return { text: content, mentionUserIds: [] };
   const legacySenderId = String(senderId || '').trim();
   const replySenderIds = [...new Set([
     ...senderIds,
     legacySenderId,
   ].map(value => String(value || '').trim()).filter(Boolean))].slice(0, 20);
   const target = parseChannelChatId(chatId);
-  if (target?.channel === 'dingtalk' && target.kind === 'group') {
-    const openDingTalkIds = [...new Set(replySenderIds
-      .map(value => value.replace(/^dingtalk:/, '').trim())
+  if (target?.channel === 'enterpriseChat' && target.kind === 'group') {
+    const enterpriseUserIds = [...new Set(replySenderIds
+      .map(value => value.replace(/^enterpriseChat:/, '').trim())
       .filter(Boolean))].slice(0, 20);
-    if (!openDingTalkIds.length) return { text: content, atOpenDingTalkIds: [] };
+    if (!enterpriseUserIds.length) return { text: content, mentionUserIds: [] };
     return {
-      text: `${openDingTalkIds.map(id => `<@${id}>`).join(' ')}\n${content}`,
-      atOpenDingTalkIds: openDingTalkIds,
+      text: `${enterpriseUserIds.map(id => `<@${id}>`).join(' ')}\n${content}`,
+      mentionUserIds: enterpriseUserIds,
     };
   }
   if (target?.channel === 'wecom' && target.kind === 'group') {
     const userIds = [...new Set(replySenderIds
       .map(value => value.replace(/^wecom:/, '').trim())
       .filter(Boolean))].slice(0, 20);
-    if (!userIds.length) return { text: content, atOpenDingTalkIds: [] };
+    if (!userIds.length) return { text: content, mentionUserIds: [] };
     return {
       text: `${userIds.map(id => `<@${id}>`).join(' ')}\n${content}`,
-      atOpenDingTalkIds: [],
+      mentionUserIds: [],
     };
   }
   const openIds = replySenderIds.filter(value => /^ou_[A-Za-z0-9]+$/.test(value));
@@ -83,10 +83,10 @@ export function prepareGroupMention({ chatId, chatType, senderId, senderIds = []
     const mentionLabel = senderIds.length ? '回复对象' : '发起人';
     return {
       text: `${openIds.map(openId => `<at user_id="${openId}">${mentionLabel}</at>`).join(' ')}\n${content}`,
-      atOpenDingTalkIds: [],
+      mentionUserIds: [],
     };
   }
-  return { text: content, atOpenDingTalkIds: [] };
+  return { text: content, mentionUserIds: [] };
 }
 
 export function requiredGroupMentionApplied({ chatId, senderIds = [], prepared = {} } = {}) {
@@ -96,10 +96,10 @@ export function requiredGroupMentionApplied({ chatId, senderIds = [], prepared =
   if (!recipients.length) return false;
   const target = parseChannelChatId(chatId);
   const text = String(prepared?.text || '');
-  if (target?.channel === 'dingtalk' && target.kind === 'group') {
-    const ids = recipients.map(value => value.replace(/^dingtalk:/, '').trim()).filter(Boolean);
-    const atIds = Array.isArray(prepared?.atOpenDingTalkIds)
-      ? prepared.atOpenDingTalkIds.map(value => String(value || '').trim())
+  if (target?.channel === 'enterpriseChat' && target.kind === 'group') {
+    const ids = recipients.map(value => value.replace(/^enterpriseChat:/, '').trim()).filter(Boolean);
+    const atIds = Array.isArray(prepared?.mentionUserIds)
+      ? prepared.mentionUserIds.map(value => String(value || '').trim())
       : [];
     return ids.length > 0 && ids.every(id => atIds.includes(id) && text.includes(`<@${id}>`));
   }
@@ -115,19 +115,19 @@ export function requiredGroupMentionApplied({ chatId, senderIds = [], prepared =
   return false;
 }
 
-export function buildDingTalkConsumerArgs(profile = '') {
+export function buildEnterpriseChatConsumerArgs(profile = '') {
   return [
     ...(profile ? ['--profile', profile] : []),
     'event', 'consume',
-    'user_im_message_receive_at',
-    'user_im_message_receive_o2o_all',
-    'user_im_message_receive_group_all',
+    'message.mention.received',
+    'message.direct.received',
+    'message.group.received',
     '--flatten',
     '--format', 'ndjson',
   ];
 }
 
-export function buildDingTalkAuthStatusArgs(profile = '') {
+export function buildEnterpriseChatAuthStatusArgs(profile = '') {
   return [
     ...(profile ? ['--profile', profile] : []),
     'auth', 'status',
@@ -135,10 +135,10 @@ export function buildDingTalkAuthStatusArgs(profile = '') {
   ];
 }
 
-export function buildDingTalkListAllPollingArgs(start, end, cursor = '0') {
+export function buildEnterpriseChatListAllPollingArgs(start, end, cursor = '0') {
   const startTime = String(start || '').trim();
   const endTime = String(end || '').trim();
-  if (!startTime || !endTime) throw new Error('DingTalk polling start and end times are required');
+  if (!startTime || !endTime) throw new Error('EnterpriseChat polling start and end times are required');
   return [
     'chat', 'message', 'list-all',
     '--start', startTime,
@@ -149,7 +149,7 @@ export function buildDingTalkListAllPollingArgs(start, end, cursor = '0') {
   ];
 }
 
-export function buildDingTalkSelfPollingArgs(profile, userId, start) {
+export function buildEnterpriseChatSelfPollingArgs(profile, userId, start) {
   return [
     ...(profile ? ['--profile', profile] : []),
     'chat', 'message', 'list',
@@ -161,15 +161,15 @@ export function buildDingTalkSelfPollingArgs(profile, userId, start) {
   ];
 }
 
-export function buildDingTalkConversationPollingArgs(profile, target, start) {
-  if (target?.channel !== 'dingtalk' || !['group', 'user'].includes(target?.kind)) {
-    throw new Error('A DingTalk group or user target is required for conversation polling');
+export function buildEnterpriseChatConversationPollingArgs(profile, target, start) {
+  if (target?.channel !== 'enterpriseChat' || !['group', 'user'].includes(target?.kind)) {
+    throw new Error('A EnterpriseChat group or user target is required for conversation polling');
   }
   const targetId = String(target.id || '').trim();
-  if (!targetId) throw new Error('DingTalk target ID is required for conversation polling');
+  if (!targetId) throw new Error('EnterpriseChat target ID is required for conversation polling');
   const recipient = target.kind === 'group'
     ? ['--group', targetId]
-    : ['--open-dingtalk-id', targetId];
+    : ['--user', targetId];
   return [
     ...(profile ? ['--profile', profile] : []),
     'chat', 'message', 'list',
@@ -181,11 +181,11 @@ export function buildDingTalkConversationPollingArgs(profile, target, start) {
   ];
 }
 
-export function buildDingTalkGroupHostPollingArgs(profile, groupId, start) {
+export function buildEnterpriseChatGroupHostPollingArgs(profile, groupId, start) {
   const normalizedGroupId = String(groupId || '').trim();
   const normalizedStart = String(start || '').trim();
   if (!normalizedGroupId || !normalizedStart) {
-    throw new Error('DingTalk group host polling requires group ID and start time');
+    throw new Error('EnterpriseChat group host polling requires group ID and start time');
   }
   return [
     ...(profile ? ['--profile', profile] : []),
@@ -198,36 +198,36 @@ export function buildDingTalkGroupHostPollingArgs(profile, groupId, start) {
   ];
 }
 
-export function buildDingTalkSendArgs(target, text, uuid = '', {
-  atOpenDingTalkIds = [],
+export function buildEnterpriseChatSendArgs(target, text, uuid = '', {
+  mentionUserIds = [],
   transport = 'event-stream',
 } = {}) {
-  if (target?.channel !== 'dingtalk') {
-    throw new Error('DingTalk sender received a non-DingTalk target');
+  if (target?.channel !== 'enterpriseChat') {
+    throw new Error('EnterpriseChat sender received a non-EnterpriseChat target');
   }
   const targetId = String(target.id || '').trim();
-  if (!targetId) throw new Error('DingTalk target ID is required for sending');
+  if (!targetId) throw new Error('EnterpriseChat target ID is required for sending');
   const recipient = target.kind === 'group'
     ? ['--group', targetId]
     : target.kind === 'user'
-      ? ['--open-dingtalk-id', targetId]
+      ? ['--user', targetId]
       : null;
-  if (!recipient) throw new Error(`Unsupported DingTalk target kind: ${target?.kind || ''}`);
+  if (!recipient) throw new Error(`Unsupported EnterpriseChat target kind: ${target?.kind || ''}`);
   const content = String(text || '');
   const args = [
     'chat', 'message', 'send',
     ...recipient,
     '--text', content,
   ];
-  if (transport !== 'wukong-polling') args.push('--ai-tag=false');
+  if (transport !== 'legacyBridge-polling') args.push('--transport-mode=standard');
   const mentionIds = target.kind === 'group'
-    ? [...new Set(atOpenDingTalkIds.map(value => String(value || '').trim()).filter(Boolean))]
+    ? [...new Set(mentionUserIds.map(value => String(value || '').trim()).filter(Boolean))]
       .slice(0, 20)
     : [];
   if (mentionIds.some(id => !content.includes(`<@${id}>`))) {
-    throw new Error('DingTalk mention placeholder is required for every mentioned user');
+    throw new Error('EnterpriseChat mention placeholder is required for every mentioned user');
   }
-  if (mentionIds.length) args.push('--at-open-dingtalk-ids', mentionIds.join(','));
+  if (mentionIds.length) args.push('--mentions', mentionIds.join(','));
   if (uuid) args.push('--uuid', String(uuid).slice(0, 128));
   args.push('--yes', '--format', 'json');
   return args;
@@ -243,26 +243,26 @@ function normalizedTimestamp(value) {
   return Number.isFinite(parsed) ? String(parsed) : String(Date.now());
 }
 
-export function normalizeDingTalkEvent(event) {
+export function normalizeEnterpriseChatEvent(event) {
   const type = String(event?.type || '');
-  const explicitGroupMention = type === 'user_im_message_receive_at';
-  const semanticGroup = type === 'user_im_message_receive_group_all';
+  const explicitGroupMention = type === 'message.mention.received';
+  const semanticGroup = type === 'message.group.received';
   const group = explicitGroupMention || semanticGroup;
-  const direct = type === 'user_im_message_receive_o2o_all';
+  const direct = type === 'message.direct.received';
   if (!group && !direct) return null;
-  const senderId = String(event?.sender_open_dingtalk_id || '').trim();
+  const senderId = String(event?.sender_enterprise_user_id || '').trim();
   const targetId = group
     ? String(event?.conversation_id || '').trim()
     : senderId;
   const messageId = String(event?.message_id || event?.event_id || '').trim();
   if (!messageId || !targetId || !senderId) return null;
   const rawContent = String(event?.content || '');
-  const media = parseDingTalkMediaPlaceholder(rawContent);
-  const file = parseDingTalkFilePlaceholder(rawContent);
+  const media = parseEnterpriseChatMediaPlaceholder(rawContent);
+  const file = parseEnterpriseChatFilePlaceholder(rawContent);
   return {
     message: {
-      message_id: `dingtalk:${messageId}`,
-      chat_id: formatChannelChatId('dingtalk', group ? 'group' : 'user', targetId),
+      message_id: `enterpriseChat:${messageId}`,
+      chat_id: formatChannelChatId('enterpriseChat', group ? 'group' : 'user', targetId),
       chat_type: group ? 'group' : 'p2p',
       message_type: file ? 'file' : media?.kind || 'text',
       create_time: normalizedTimestamp(
@@ -273,18 +273,18 @@ export function normalizeDingTalkEvent(event) {
         : media
           ? { text: '', resource_id: media.resourceId, display_name: media.displayName }
           : { text: rawContent }),
-      mentions: explicitGroupMention ? [{ id: 'dingtalk-current-user' }] : [],
+      mentions: explicitGroupMention ? [{ id: 'enterpriseChat-current-user' }] : [],
     },
     sender: {
       sender_type: 'user',
-      sender_id: { open_id: `dingtalk:${senderId}` },
+      sender_id: { open_id: `enterpriseChat:${senderId}` },
     },
     metadata: {
-      channel: 'dingtalk',
+      channel: 'enterpriseChat',
       eventType: type,
       ...(semanticGroup ? {
         semanticCandidate: true,
-        mentionedOther: hasNonAssistantDingTalkMention(rawContent),
+        mentionedOther: hasNonAssistantEnterpriseChatMention(rawContent),
       } : {}),
       ...(media ? {
         media: {
@@ -306,35 +306,35 @@ export function normalizeDingTalkEvent(event) {
   };
 }
 
-function hasNonAssistantDingTalkMention(content) {
+function hasNonAssistantEnterpriseChatMention(content) {
   const mentions = String(content || '').match(/[@＠]\s*([^\s，,。！？!?：:]+)/gu) || [];
   if (!mentions.length) return false;
   return mentions.some(raw => {
     const name = raw.replace(/^[@＠]\s*/u, '').trim();
-    return !DINGTALK_ASSISTANT_MENTION_NAMES.includes(name);
+    return !ENTERPRISE_CHAT_ASSISTANT_MENTION_NAMES.includes(name);
   });
 }
 
-export function normalizeDingTalkSelfMessages(result) {
+export function normalizeEnterpriseChatSelfMessages(result) {
   const root = result?.result || result?.data || result || {};
   const messages = Array.isArray(root) ? root : (root.messages || root.items || []);
   return (Array.isArray(messages) ? messages : []).flatMap(item => {
     const messageId = String(item?.openMessageId || item?.messageId || item?.message_id || '').trim();
     const senderId = String(
-      item?.senderOpenDingTalkId || item?.sender_open_dingtalk_id || '',
+      item?.senderEnterpriseUserId || item?.sender_enterprise_user_id || '',
     ).trim();
     const content = String(item?.content || item?.text || '').trim();
     if (!messageId || !senderId || !content) return [];
-    // DWS represents files in a self-chat as text placeholders and does not
+    // CONNECTOR represents files in a self-chat as text placeholders and does not
     // expose whether they were sent by the human or by AIPRO. AIPRO cannot
     // read these placeholders as files, and treating its own delivered file
     // as a new request creates an unbounded file-reply loop. Fail closed until
-    // DWS exposes a reliable message direction or media-origin field.
-    if (DINGTALK_SELF_FILE_PLACEHOLDER.test(content)) return [];
+    // CONNECTOR exposes a reliable message direction or media-origin field.
+    if (ENTERPRISE_CHAT_SELF_FILE_PLACEHOLDER.test(content)) return [];
     return [{
       message: {
-        message_id: `dingtalk:${messageId}`,
-        chat_id: formatChannelChatId('dingtalk', 'user', senderId),
+        message_id: `enterpriseChat:${messageId}`,
+        chat_id: formatChannelChatId('enterpriseChat', 'user', senderId),
         chat_type: 'p2p',
         message_type: 'text',
         create_time: normalizedTimestamp(item?.createTime || item?.create_time),
@@ -343,10 +343,10 @@ export function normalizeDingTalkSelfMessages(result) {
       },
       sender: {
         sender_type: 'user',
-        sender_id: { open_id: `dingtalk:${senderId}` },
+        sender_id: { open_id: `enterpriseChat:${senderId}` },
       },
       metadata: {
-        channel: 'dingtalk',
+        channel: 'enterpriseChat',
         selfChat: true,
         source: 'self-poll',
         conversationId: String(
@@ -357,7 +357,7 @@ export function normalizeDingTalkSelfMessages(result) {
   });
 }
 
-export function normalizeDingTalkGroupHistoryMessages(result, {
+export function normalizeEnterpriseChatGroupHistoryMessages(result, {
   groupId = '',
   ownerOpenId = '',
 } = {}) {
@@ -369,21 +369,21 @@ export function normalizeDingTalkGroupHistoryMessages(result, {
   return (Array.isArray(messages) ? messages : []).flatMap(item => {
     const messageId = String(item?.openMessageId || item?.messageId || item?.message_id || '').trim();
     const senderId = String(
-      item?.senderOpenDingTalkId || item?.sender_open_dingtalk_id || '',
+      item?.senderEnterpriseUserId || item?.sender_enterprise_user_id || '',
     ).trim();
     const conversationId = String(
       item?.openConversationId || item?.open_conversation_id || expectedGroupId,
     ).trim();
     const content = String(item?.content || item?.text || '').trim();
     if (!messageId || !senderId || !content || conversationId !== expectedGroupId) return [];
-    const media = parseDingTalkMediaPlaceholder(content);
-    const file = parseDingTalkFilePlaceholder(content);
+    const media = parseEnterpriseChatMediaPlaceholder(content);
+    const file = parseEnterpriseChatFilePlaceholder(content);
     if (!media && !file && (/^\[(?:图片|文件|视频)消息\]/.test(content) || /^\[文件\]/.test(content))) return [];
     const ownerActivity = Boolean(normalizedOwnerId && senderId === normalizedOwnerId);
     return [{
       message: {
-        message_id: `dingtalk:${messageId}`,
-        chat_id: formatChannelChatId('dingtalk', 'group', conversationId),
+        message_id: `enterpriseChat:${messageId}`,
+        chat_id: formatChannelChatId('enterpriseChat', 'group', conversationId),
         chat_type: 'group',
         message_type: file ? 'file' : media?.kind || 'text',
         create_time: normalizedTimestamp(item?.createTime || item?.create_time),
@@ -396,10 +396,10 @@ export function normalizeDingTalkGroupHistoryMessages(result, {
       },
       sender: {
         sender_type: 'user',
-        sender_id: { open_id: `dingtalk:${senderId}` },
+        sender_id: { open_id: `enterpriseChat:${senderId}` },
       },
       metadata: {
-        channel: 'dingtalk',
+        channel: 'enterpriseChat',
         source: 'group-host-recovery-poll',
         conversationId,
         semanticCandidate: true,
@@ -426,7 +426,7 @@ export function normalizeDingTalkGroupHistoryMessages(result, {
   });
 }
 
-export function normalizeDingTalkListAllPage(result, {
+export function normalizeEnterpriseChatListAllPage(result, {
   ownerOpenId = '',
   ownerNames = [],
   mentionNames = [],
@@ -455,11 +455,11 @@ export function normalizeDingTalkListAllPage(result, {
     if (!conversationId) continue;
     for (const item of messages) {
       const messageId = String(item?.openMessageId || item?.messageId || '').trim();
-      const senderId = String(item?.senderOpenDingTalkId || '').trim();
+      const senderId = String(item?.senderEnterpriseUserId || '').trim();
       const content = String(item?.content || '').trim();
       if (!messageId || !senderId || !content) continue;
-      const media = parseDingTalkMediaPlaceholder(content);
-      const file = parseDingTalkFilePlaceholder(content);
+      const media = parseEnterpriseChatMediaPlaceholder(content);
+      const file = parseEnterpriseChatFilePlaceholder(content);
       if (!media && !file && (/^\[(?:图片|文件|视频)消息\]/.test(content) || /^\[文件\]/.test(content))) continue;
 
       let targetId = '';
@@ -485,8 +485,8 @@ export function normalizeDingTalkListAllPage(result, {
 
       payloads.push({
         message: {
-          message_id: `dingtalk:${messageId}`,
-          chat_id: formatChannelChatId('dingtalk', singleChat ? 'user' : 'group', targetId),
+          message_id: `enterpriseChat:${messageId}`,
+          chat_id: formatChannelChatId('enterpriseChat', singleChat ? 'user' : 'group', targetId),
           chat_type: singleChat ? 'p2p' : 'group',
           message_type: file ? 'file' : media?.kind || 'text',
           create_time: normalizedTimestamp(item?.createTime),
@@ -495,15 +495,15 @@ export function normalizeDingTalkListAllPage(result, {
             : media
               ? { text: '', resource_id: media.resourceId, display_name: media.displayName }
               : { text: content }),
-          mentions: singleChat || semanticCandidate ? [] : [{ id: 'dingtalk-current-user' }],
+          mentions: singleChat || semanticCandidate ? [] : [{ id: 'enterpriseChat-current-user' }],
         },
         sender: {
           sender_type: 'user',
-          sender_id: { open_id: `dingtalk:${senderId}` },
+          sender_id: { open_id: `enterpriseChat:${senderId}` },
         },
         metadata: {
-          channel: 'dingtalk',
-          source: 'wukong-poll',
+          channel: 'enterpriseChat',
+          source: 'legacyBridge-poll',
           selfChat,
           conversationId,
           conversationTitle,

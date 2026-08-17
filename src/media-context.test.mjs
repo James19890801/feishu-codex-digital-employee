@@ -3,7 +3,7 @@ import {
   refersToRecentFiles,
   refersToRecentImages,
   requestedImageLimit,
-  selectRecentDingTalkMediaRefs,
+  selectRecentEnterpriseChatMediaRefs,
   selectRecentFileRef,
   selectRecentFileRefs,
   selectRecentImageRefs,
@@ -18,7 +18,7 @@ assert.equal(refersToRecentImages('刚才那张图我这边没加载出来'), tr
 assert.equal(refersToRecentImages('我才发了两张，你看看群里聊天信息'), true);
 assert.equal(refersToRecentImages('我发的图是别人 dsh 截图，这是怎么实现'), true);
 
-assert.deepEqual(selectRecentDingTalkMediaRefs([
+assert.deepEqual(selectRecentEnterpriseChatMediaRefs([
   {
     openMessageId: 'image-current',
     openConversationId: 'conversation-a',

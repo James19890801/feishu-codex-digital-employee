@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { collectDwsMinutes, findNodeId } from './nightly-knowledge-sync.mjs';
+import { collectConnectorMinutes, findNodeId } from './nightly-knowledge-sync.mjs';
 
 const fuzzySearchResult = {
   success: true,
@@ -27,25 +27,25 @@ assert.equal(
   'a newly created node response must still be accepted',
 );
 
-const taskUuid = '7632756964343030303932313038313832365f363237333330303235385f35';
-const minutesUrl = `https://shanji.dingtalk.com/app/transcribes/${taskUuid}`;
-const minutesResult = await collectDwsMinutes({
+const recordId = '7632756964343030303932313038313832365f363237333330303235385f35';
+const minutesUrl = `https://meetings.example.com/app/transcribes/${recordId}`;
+const minutesResult = await collectConnectorMinutes({
   profile: 'corp:user',
   state: { cursor: '' },
   now: new Date('2026-08-11T10:00:00.000Z'),
-  runDws: async args => {
+  runConnector: async args => {
     if (args[0] === 'minutes' && args[1] === 'list' && args[2] === 'all') {
       return {
         success: true,
         result: {
           hasMore: false,
-          itemList: [{ startTime: 1786413840000, uuid: taskUuid, title: '技术需求与开发进度同步', shareUrl: minutesUrl }],
+          itemList: [{ startTime: 1786413840000, uuid: recordId, title: '技术需求与开发进度同步', shareUrl: minutesUrl }],
         },
       };
     }
     return {
-      taskUuid,
-      basic: { success: true, result: { taskUuid, title: '技术需求与开发进度同步', url: minutesUrl } },
+      recordId,
+      basic: { success: true, result: { recordId, title: '技术需求与开发进度同步', url: minutesUrl } },
       summary: { success: 'true', result: { fullSummary: '会议结论：本周四开始测试。' } },
       keywords: { success: true, result: { keywords: ['接口对接', '发布排期'] } },
       transcript: {
@@ -57,8 +57,8 @@ const minutesResult = await collectDwsMinutes({
   },
 });
 
-assert.equal(minutesResult.records.length, 1, 'a real DWS taskUuid item must produce a meeting record');
-assert.equal(minutesResult.records[0].id, taskUuid);
+assert.equal(minutesResult.records.length, 1, 'a real CONNECTOR recordId item must produce a meeting record');
+assert.equal(minutesResult.records[0].id, recordId);
 assert.equal(minutesResult.records[0].title, '技术需求与开发进度同步');
 assert.equal(minutesResult.records[0].locator, minutesUrl);
 assert.match(minutesResult.records[0].text, /会议结论：本周四开始测试/);
@@ -69,14 +69,14 @@ assert.match(minutesResult.records[0].text, /待办：发送接口文档/);
 let dailyListCalls = 0;
 const dailyListArgs = [];
 const retryWaits = [];
-const recoveredDailyMinutes = await collectDwsMinutes({
+const recoveredDailyMinutes = await collectConnectorMinutes({
   profile: 'corp:user',
   state: { cursor: 'old-checkpoint' },
   now: new Date('2026-08-11T10:00:00.000Z'),
   retryAttempts: 2,
   retryDelayMs: 1,
   wait: async delayMs => retryWaits.push(delayMs),
-  runDws: async args => {
+  runConnector: async args => {
     if (args[0] === 'minutes' && args[1] === 'list' && args[2] === 'all') {
       dailyListCalls += 1;
       dailyListArgs.push(args);
@@ -87,7 +87,7 @@ const recoveredDailyMinutes = await collectDwsMinutes({
           hasMore: false,
           nextToken: 'unused-final-token',
           itemList: [{
-            uuid: taskUuid,
+            uuid: recordId,
             title: '08-11 技术需求与开发进度同步',
             shareUrl: minutesUrl,
             startTimeISO: '2026-08-11T10:04:00+08:00',
@@ -96,7 +96,7 @@ const recoveredDailyMinutes = await collectDwsMinutes({
       };
     }
     return {
-      basic: { success: true, result: { taskUuid, title: '08-11 技术需求与开发进度同步', url: minutesUrl } },
+      basic: { success: true, result: { recordId, title: '08-11 技术需求与开发进度同步', url: minutesUrl } },
       summary: { success: true, result: { fullSummary: '会议结论：当天听记恢复成功。' } },
       keywords: { success: true, result: { keywords: ['听记', '恢复'] } },
       transcript: { success: true, result: { paragraphList: [] } },
@@ -106,7 +106,7 @@ const recoveredDailyMinutes = await collectDwsMinutes({
 });
 
 assert.equal(recoveredDailyMinutes.records.length, 1, 'an empty first daily list must be retried instead of accepted');
-assert.equal(recoveredDailyMinutes.records[0].id, taskUuid, 'the atomic list uuid must become the minutes record id');
+assert.equal(recoveredDailyMinutes.records[0].id, recordId, 'the atomic list uuid must become the minutes record id');
 assert.equal(recoveredDailyMinutes.records[0].locator, minutesUrl, 'the atomic list shareUrl must be retained');
 assert.equal(dailyListCalls, 2, 'the empty daily read must retry once');
 assert.deepEqual(retryWaits, [1]);
@@ -116,15 +116,15 @@ assert.ok(dailyListArgs[1].includes('--verbose'), 'the diagnostic retry must be 
 assert.ok(dailyListArgs[1].includes('--timeout'), 'the diagnostic retry must use an explicit timeout');
 
 let detailCalls = 0;
-const recoveredDetailMinutes = await collectDwsMinutes({
+const recoveredDetailMinutes = await collectConnectorMinutes({
   profile: 'corp:user',
   now: new Date('2026-08-11T10:00:00.000Z'),
   retryAttempts: 2,
   retryDelayMs: 0,
   wait: async () => {},
-  runDws: async args => {
+  runConnector: async args => {
     if (args[0] === 'minutes' && args[1] === 'list') {
-      return { success: true, result: { hasMore: false, itemList: [{ uuid: taskUuid, title: '08-11 会议', shareUrl: minutesUrl }] } };
+      return { success: true, result: { hasMore: false, itemList: [{ uuid: recordId, title: '08-11 会议', shareUrl: minutesUrl }] } };
     }
     detailCalls += 1;
     if (detailCalls === 1) throw new Error('temporary detail failure');
@@ -143,15 +143,15 @@ assert.match(recoveredDetailMinutes.records[0].text, /详情第二次读取成�
 assert.doesNotMatch(recoveredDetailMinutes.records[0].text, /详情未读取/);
 
 let incompleteDetailCalls = 0;
-const completedDetailMinutes = await collectDwsMinutes({
+const completedDetailMinutes = await collectConnectorMinutes({
   profile: 'corp:user',
   now: new Date('2026-08-11T10:00:00.000Z'),
   retryAttempts: 2,
   retryDelayMs: 0,
   wait: async () => {},
-  runDws: async args => {
+  runConnector: async args => {
     if (args[0] === 'minutes' && args[1] === 'list') {
-      return { success: true, result: { hasMore: false, itemList: [{ uuid: taskUuid, title: '08-11 会议', shareUrl: minutesUrl }] } };
+      return { success: true, result: { hasMore: false, itemList: [{ uuid: recordId, title: '08-11 会议', shareUrl: minutesUrl }] } };
     }
     incompleteDetailCalls += 1;
     if (incompleteDetailCalls === 1) {
@@ -173,13 +173,13 @@ assert.match(completedDetailMinutes.records[0].text, /摘要生成完成后才�
 let emptyListCalls = 0;
 const emptyWaits = [];
 await assert.rejects(
-  collectDwsMinutes({
+  collectConnectorMinutes({
     profile: 'corp:user',
     now: new Date('2026-08-11T10:00:00.000Z'),
     retryAttempts: 3,
     retryDelayMs: 2,
     wait: async delayMs => emptyWaits.push(delayMs),
-    runDws: async () => {
+    runConnector: async () => {
       emptyListCalls += 1;
       return { success: true, result: { hasMore: false, itemList: [] } };
     },
@@ -191,24 +191,24 @@ assert.equal(emptyListCalls, 3);
 assert.deepEqual(emptyWaits, [2, 2]);
 
 let pagedListCalls = 0;
-const secondTaskUuid = `${taskUuid}ff`;
-const pagedMinutes = await collectDwsMinutes({
+const secondRecordId = `${recordId}ff`;
+const pagedMinutes = await collectConnectorMinutes({
   profile: 'corp:user',
   now: new Date('2026-08-11T10:00:00.000Z'),
   retryAttempts: 1,
   wait: async () => {},
-  runDws: async args => {
+  runConnector: async args => {
     if (args[0] === 'minutes' && args[1] === 'list') {
       pagedListCalls += 1;
       if (pagedListCalls === 1) {
-        return { success: true, result: { hasMore: true, nextToken: 'page-2', itemList: [{ uuid: taskUuid, title: '会议 1', shareUrl: minutesUrl }] } };
+        return { success: true, result: { hasMore: true, nextToken: 'page-2', itemList: [{ uuid: recordId, title: '会议 1', shareUrl: minutesUrl }] } };
       }
       assert.ok(args.includes('page-2'), 'the nextToken must be passed to the next daily page');
-      return { success: true, result: { hasMore: false, itemList: [{ uuid: secondTaskUuid, title: '会议 2', shareUrl: `${minutesUrl}ff` }] } };
+      return { success: true, result: { hasMore: false, itemList: [{ uuid: secondRecordId, title: '会议 2', shareUrl: `${minutesUrl}ff` }] } };
     }
     const id = args[args.indexOf('--id') + 1];
     return {
-      basic: { success: true, result: { title: id === taskUuid ? '会议 1' : '会议 2' } },
+      basic: { success: true, result: { title: id === recordId ? '会议 1' : '会议 2' } },
       summary: { success: true, result: { fullSummary: `${id} 摘要` } },
       transcript: { success: true, result: { paragraphList: [] } },
       todos: { success: true, result: { actions: [] } },
@@ -216,6 +216,6 @@ const pagedMinutes = await collectDwsMinutes({
   },
 });
 assert.equal(pagedListCalls, 2);
-assert.deepEqual(pagedMinutes.records.map(record => record.id), [taskUuid, secondTaskUuid]);
+assert.deepEqual(pagedMinutes.records.map(record => record.id), [recordId, secondRecordId]);
 
 console.log('nightly knowledge sync tests passed');

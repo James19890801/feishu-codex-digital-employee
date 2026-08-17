@@ -17,7 +17,7 @@ export function buildInboundContentEnvelope({
   maxItems = 12,
 } = {}) {
   const channel = String(metadata.channel || (
-    String(message.chat_id || '').startsWith('dingtalk:') ? 'dingtalk' : 'feishu'
+    String(message.chat_id || '').startsWith('enterpriseChat:') ? 'enterpriseChat' : 'feishu'
   ));
   const items = [];
   for (const ref of imageRefs) {
@@ -34,7 +34,7 @@ export function buildInboundContentEnvelope({
   }
   if (metadata.file?.resourceId) {
     items.push(compactItem({
-      kind: 'document', source: 'dingtalk',
+      kind: 'document', source: 'enterpriseChat',
       resourceId: metadata.file.resourceId,
       fileName: metadata.file.fileName,
       messageId: metadata.file.messageId,
@@ -43,7 +43,7 @@ export function buildInboundContentEnvelope({
   }
   if (metadata.media?.resourceId) {
     items.push(compactItem({
-      kind: metadata.media.kind || 'file', source: 'dingtalk',
+      kind: metadata.media.kind || 'file', source: 'enterpriseChat',
       resourceId: metadata.media.resourceId,
       fileName: metadata.media.fileName,
       messageId: metadata.media.messageId,

@@ -11,7 +11,7 @@ import {
 } from './communication-blocklist.mjs';
 
 const blocklist = normalizeCommunicationBlocklist([{
-  channel: 'dingtalk',
+  channel: 'enterpriseChat',
   displayName: '受保护联系人',
   userId: '303509',
   openId: 'DZShVINWxiSe70fNkE84kZiiJB41gumdvbO',
@@ -19,21 +19,21 @@ const blocklist = normalizeCommunicationBlocklist([{
 
 assert.equal(blocklist.length, 1);
 assert.equal(automaticCommunicationDecision({
-  senderId: 'dingtalk:DZShVINWxiSe70fNkE84kZiiJB41gumdvbO',
-  chatId: 'dingtalk:user:DZShVINWxiSe70fNkE84kZiiJB41gumdvbO',
+  senderId: 'enterpriseChat:DZShVINWxiSe70fNkE84kZiiJB41gumdvbO',
+  chatId: 'enterpriseChat:user:DZShVINWxiSe70fNkE84kZiiJB41gumdvbO',
 }, blocklist).blocked, true);
 assert.equal(automaticCommunicationDecision({
   senderId: '',
-  chatId: 'dingtalk:user:DZShVINWxiSe70fNkE84kZiiJB41gumdvbO',
+  chatId: 'enterpriseChat:user:DZShVINWxiSe70fNkE84kZiiJB41gumdvbO',
 }, blocklist).blocked, true, 'direct automatic notifications must be blocked by target ID');
 assert.equal(automaticCommunicationDecision({
-  senderId: 'dingtalk:DZShVINWxiSe70fNkE84kZiiJB41gumdvbO',
-  chatId: 'dingtalk:group:cid-group',
+  senderId: 'enterpriseChat:DZShVINWxiSe70fNkE84kZiiJB41gumdvbO',
+  chatId: 'enterpriseChat:group:cid-group',
 }, blocklist).blocked, true, 'a blocked sender must stay blocked inside groups');
 assert.equal(automaticCommunicationDecision({
-  senderId: 'dingtalk:someone-else',
+  senderId: 'enterpriseChat:someone-else',
   senderName: '受保护联系人',
-  chatId: 'dingtalk:user:someone-else',
+  chatId: 'enterpriseChat:user:someone-else',
 }, blocklist).blocked, false, 'display names are labels, never enforcement identities');
 assert.equal(canSendBlockedRecipient({ blocked: true, explicitOwnerAuthorized: false }), false);
 assert.equal(canSendBlockedRecipient({ blocked: true, explicitOwnerAuthorized: true }), true);
@@ -45,13 +45,13 @@ try {
   const payload = {
     message: {
       message_id: 'blocked-message-1',
-      chat_id: 'dingtalk:user:DZShVINWxiSe70fNkE84kZiiJB41gumdvbO',
+      chat_id: 'enterpriseChat:user:DZShVINWxiSe70fNkE84kZiiJB41gumdvbO',
     },
-    sender: { sender_id: { open_id: 'dingtalk:DZShVINWxiSe70fNkE84kZiiJB41gumdvbO' } },
+    sender: { sender_id: { open_id: 'enterpriseChat:DZShVINWxiSe70fNkE84kZiiJB41gumdvbO' } },
   };
   assert.equal(applyAutomaticInboundBlock({
     payload,
-    source: 'websocket-dingtalk-dws',
+    source: 'websocket-enterpriseChat-connector',
     blocklist,
     state,
   }), true);
@@ -65,7 +65,7 @@ try {
   };
   assert.equal(state.enqueueInbound(
     'blocked-message-already-queued',
-    'websocket-dingtalk-dws',
+    'websocket-enterpriseChat-connector',
     queuedPayload,
   ), true);
   assert.equal(applyAutomaticInboundBlock({

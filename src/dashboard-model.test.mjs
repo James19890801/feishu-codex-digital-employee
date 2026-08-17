@@ -43,7 +43,7 @@ const base = {
     audio: false,
     link: false,
   });
-  assert.equal(view.channels.dingtalk.enabled, false);
+  assert.equal(view.channels.enterpriseChat.enabled, false);
   assert.equal(view.channels.wecom.enabled, false);
   assert.equal(view.channels.wechat.enabled, false);
 }
@@ -53,7 +53,7 @@ const base = {
     ...base,
     webReaderEnabled: true,
     audioTranscriberAvailable: true,
-    dingtalkChannel: {
+    enterpriseChatChannel: {
       enabled: true,
       installed: true,
       authenticated: true,
@@ -61,7 +61,7 @@ const base = {
       identityMode: 'user',
     },
   });
-  assert.deepEqual(view.channels.dingtalk.capabilities, {
+  assert.deepEqual(view.channels.enterpriseChat.capabilities, {
     text: true,
     image: true,
     audio: true,
@@ -134,7 +134,7 @@ const base = {
 {
   const view = buildOperatorView({
     ...base,
-    dingtalkChannel: {
+    enterpriseChatChannel: {
       enabled: true,
       installed: true,
       authenticated: true,
@@ -153,8 +153,8 @@ const base = {
     },
   });
   assert.equal(view.state, 'online');
-  assert.equal(view.channels.dingtalk.healthy, true);
-  assert.equal(view.channels.dingtalk.identityMode, 'user');
+  assert.equal(view.channels.enterpriseChat.healthy, true);
+  assert.equal(view.channels.enterpriseChat.identityMode, 'user');
   assert.equal(view.channels.wecom.healthy, true);
   assert.equal(view.channels.wecom.identityMode, 'bot');
 }
@@ -165,7 +165,7 @@ const base = {
     feishuEnabled: false,
     pollCursorMs: Number.NaN,
     websocketActive: true,
-    dingtalkChannel: {
+    enterpriseChatChannel: {
       enabled: true,
       installed: true,
       authenticated: true,
@@ -179,7 +179,7 @@ const base = {
   assert.equal(view.channels.feishu.enabled, false);
   assert.equal(view.channels.feishu.healthy, true);
   assert.equal(view.channels.feishu.transport, 'disabled');
-  assert.equal(view.channels.dingtalk.healthy, true);
+  assert.equal(view.channels.enterpriseChat.healthy, true);
 }
 
 {
@@ -188,27 +188,27 @@ const base = {
     feishuEnabled: false,
     pollCursorMs: Number.NaN,
     websocketActive: false,
-    dingtalkChannel: {
+    enterpriseChatChannel: {
       enabled: true,
       installed: true,
       configured: true,
       authenticated: true,
       connected: true,
       identityMode: 'user',
-      transport: 'Wukong DWS polling',
+      transport: 'LegacyBridge CONNECTOR polling',
       lastReadyAt: '2026-07-30T00:59:58.000Z',
     },
   });
   assert.equal(view.state, 'online');
   assert.equal(view.issues.includes('websocket_consumer_missing'), false);
-  assert.equal(view.channels.dingtalk.transport, 'Wukong DWS polling');
-  assert.equal(view.channels.dingtalk.lastReadyAt, '2026-07-30T00:59:58.000Z');
+  assert.equal(view.channels.enterpriseChat.transport, 'LegacyBridge CONNECTOR polling');
+  assert.equal(view.channels.enterpriseChat.lastReadyAt, '2026-07-30T00:59:58.000Z');
 }
 
 {
   const view = buildOperatorView({
     ...base,
-    dingtalkChannel: {
+    enterpriseChatChannel: {
       enabled: true,
       installed: true,
       authenticated: false,
@@ -218,8 +218,8 @@ const base = {
     },
   });
   assert.equal(view.state, 'degraded');
-  assert.equal(view.issues.includes('dingtalk_channel_unavailable'), true);
-  assert.equal(view.channels.dingtalk.healthy, false);
+  assert.equal(view.issues.includes('enterpriseChat_channel_unavailable'), true);
+  assert.equal(view.channels.enterpriseChat.healthy, false);
   assert.equal(view.channels.feishu.healthy, true);
 }
 
@@ -333,9 +333,9 @@ const base = {
       activeTopics: 3,
       totalSuppressed: 7,
       latestSuppression: {
-        channel: 'dingtalk',
-        chatId: 'dingtalk:group:test',
-        senderId: 'dingtalk:sender',
+        channel: 'enterpriseChat',
+        chatId: 'enterpriseChat:group:test',
+        senderId: 'enterpriseChat:sender',
         at: '2026-07-30T00:59:59.000Z',
         count: 3,
         suppressedCount: 4,
@@ -363,8 +363,8 @@ const base = {
       coolingSessions: 1,
       closedSessions: 8,
       latestClosure: {
-        channel: 'dingtalk',
-        chatId: 'dingtalk:group:test',
+        channel: 'enterpriseChat',
+        chatId: 'enterpriseChat:group:test',
         sessionNo: 4,
         replyCount: 37,
         reason: 'low_value_streak',

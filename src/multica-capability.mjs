@@ -49,7 +49,7 @@ function previewValue(key, value) {
 function requireContext(context) {
   if (!context?.chatId) throw new Error('IM chat context is required');
   const configuredChannel = String(context.metadata?.channel || '').trim().toLowerCase();
-  const prefixedChannel = String(context.chatId).match(/^(dingtalk|wecom|wechat):/)?.[1];
+  const prefixedChannel = String(context.chatId).match(/^(enterpriseChat|wecom|wechat):/)?.[1];
   return {
     chatId: String(context.chatId),
     senderId: String(context.senderId || ''),

@@ -11,12 +11,12 @@ export function buildHeartbeatSnapshot(status, {
   at,
   serviceStartId,
 } = {}) {
-  const dingtalk = status?.channels?.dingtalk || {};
+  const enterpriseChat = status?.channels?.enterpriseChat || {};
   return {
     sequence: Number(sequence),
     at: String(at),
     serviceStartId: String(serviceStartId),
-    dwsConnected: dingtalk.authenticated === true && dingtalk.connected === true,
+    connectorConnected: enterpriseChat.authenticated === true && enterpriseChat.connected === true,
     runtimeHealthy: status?.healthy === true
       && status?.process?.alive === true
       && status?.aiRuntime?.healthy === true,

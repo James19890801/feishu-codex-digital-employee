@@ -2,15 +2,10 @@ FROM docker.m.daocloud.io/library/node:20-bookworm-slim@sha256:2cf067cfed83d5ea9
 
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends ca-certificates \
-  && rm -rf /var/lib/apt/lists/* \
-  && npm install --global --ignore-scripts dingtalk-workspace-cli@1.0.56 \
-  && dws_arch="$(dpkg --print-architecture)" \
-  && case "$dws_arch" in amd64|arm64) ;; *) exit 2 ;; esac \
-  && mkdir -p /usr/local/lib/node_modules/dingtalk-workspace-cli/vendor \
-  && tar -xzf "/usr/local/lib/node_modules/dingtalk-workspace-cli/assets/dws-linux-${dws_arch}.tar.gz" \
-    -C /usr/local/lib/node_modules/dingtalk-workspace-cli/vendor --strip-components=0 dws \
-  && chmod 0755 /usr/local/lib/node_modules/dingtalk-workspace-cli/vendor/dws \
-  && npm cache clean --force
+  && rm -rf /var/lib/apt/lists/*
+
+# The public image is provider-neutral. Supply a compatible connector executable
+# through the deployment's private image layer or runtime mount.
 
 WORKDIR /app
 COPY --chown=node:node package.json ./

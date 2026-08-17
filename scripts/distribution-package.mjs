@@ -27,7 +27,7 @@ const SCRIPT_FILES = new Set([
   'scripts/check-config.mjs',
   'scripts/check-python.mjs',
   'scripts/cloud-failover-smoke.mjs',
-  'scripts/dws-deployment-policy.mjs',
+  'scripts/connector-deployment-policy.mjs',
   'scripts/health-check.mjs',
   'scripts/install-aicoding.mjs',
   'scripts/install-dashboard-service.sh',
@@ -62,7 +62,7 @@ const SECRET_PATTERNS = [
   /\b(?:ghp|github_pat)_[A-Za-z0-9_]{20,}\b/u,
   /\bBearer\s+[A-Za-z0-9._~+\/-]{20,}/iu,
   /\bAKID[A-Za-z0-9]{12,}\b/u,
-  /\b(?:QODER_PAT|AIPROS_HMAC_SECRET|DINGTALK_CLIENT_SECRET|CLOUDFLARE_CONSOLE_PASSWORD)[ \t]*=[ \t]*[^\s#]{8,}/u,
+  /\b(?:QODER_PAT|AIPROS_HMAC_SECRET|ENTERPRISE_CHAT_CLIENT_SECRET|CLOUDFLARE_CONSOLE_PASSWORD)[ \t]*=[ \t]*[^\s#]{8,}/u,
 ];
 
 const PUBLIC_DEVELOPER_IDENTIFIERS = new Set([
@@ -172,8 +172,8 @@ async function localForbiddenValues(root) {
     const sensitiveKeys = new Set([
       'ownerDisplayName', 'ownerAliases', 'digitalHumanBrand',
       'feishuAppId', 'ownerOpenId', 'authorizedChatIds', 'ownerContactPhone',
-      'actionItemDocumentToken', 'dingtalkProfile', 'dingtalkChannel',
-      'dingtalkOwnerOpenId', 'wecomBotId', 'geweAppId',
+      'actionItemDocumentToken', 'enterpriseChatProfile', 'enterpriseChatChannel',
+      'enterpriseChatOwnerOpenId', 'wecomBotId', 'geweAppId',
       'gewePublicCallbackBaseUrl', 'geweMentionNames', 'multicaDefaultWorkspaceId',
       'multicaOwnerSquad', 'codexProxyUrl', 'licensingServiceUrl', 'licensingPublicKey',
     ]);

@@ -10,11 +10,11 @@ const result = await resolveInboundContent({
   messageId: 'msg-1',
   items: [
     { kind: 'image', source: 'feishu', resourceId: 'img-1' },
-    { kind: 'document', source: 'dingtalk', resourceId: 'doc-1', fileName: '报告.pdf' },
+    { kind: 'document', source: 'enterpriseChat', resourceId: 'doc-1', fileName: '报告.pdf' },
     { kind: 'web', source: 'url', url: 'https://example.com/slides.pptx' },
-    { kind: 'audio', source: 'dingtalk', resourceId: 'audio-1' },
-    { kind: 'video', source: 'dingtalk', resourceId: 'video-1' },
-    { kind: 'document', source: 'dingtalk', resourceId: 'broken' },
+    { kind: 'audio', source: 'enterpriseChat', resourceId: 'audio-1' },
+    { kind: 'video', source: 'enterpriseChat', resourceId: 'video-1' },
+    { kind: 'document', source: 'enterpriseChat', resourceId: 'broken' },
   ],
 }, {
   tempRoot: root,

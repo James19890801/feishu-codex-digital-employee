@@ -1,4 +1,4 @@
-const CHANNELS = new Set(['feishu', 'dingtalk', 'wecom', 'wechat']);
+const CHANNELS = new Set(['feishu', 'enterpriseChat', 'wecom', 'wechat']);
 
 function maskedIdentity(value) {
   const source = String(value || '');
@@ -18,7 +18,7 @@ function requiredString(value, label, { maxLength = 200 } = {}) {
 function optionalProfile(value) {
   const normalized = String(value || '').trim();
   if (normalized.length > 200 || /[\u0000-\u001f\u007f]/.test(normalized)) {
-    throw new Error('DingTalk profile must be at most 200 characters');
+    throw new Error('EnterpriseChat profile must be at most 200 characters');
   }
   return normalized;
 }
@@ -80,11 +80,11 @@ export function channelConfigurationView(configuration, credentialStates = {}) {
         : maskedIdentity(configuration.feishuAppId),
       credentialStored: configuration.feishuEnabled !== false,
     },
-    dingtalk: {
-      id: 'dingtalk',
+    enterpriseChat: {
+      id: 'enterpriseChat',
       protected: false,
-      enabled: configuration.dingtalkEnabled === true,
-      profile: String(configuration.dingtalkProfile || ''),
+      enabled: configuration.enterpriseChatEnabled === true,
+      profile: String(configuration.enterpriseChatProfile || ''),
       credentialStored: true,
     },
     wecom: {
@@ -116,12 +116,12 @@ export function normalizeChannelConfigurationRequest(channel, payload = {}) {
     throw new Error('Channel configuration must be an object');
   }
   const enabled = payload.enabled === true;
-  if (channel === 'dingtalk') {
+  if (channel === 'enterpriseChat') {
     return {
       channel,
       changes: {
-        dingtalkEnabled: enabled,
-        dingtalkProfile: optionalProfile(payload.profile),
+        enterpriseChatEnabled: enabled,
+        enterpriseChatProfile: optionalProfile(payload.profile),
       },
       credential: null,
     };

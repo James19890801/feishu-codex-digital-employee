@@ -52,7 +52,7 @@ export class FailoverCoordinatorService {
     const at = Number(input.at);
     if (!Number.isFinite(at)) throw new DomainError('invalid_heartbeat', 'Heartbeat time is invalid');
     const current = await this.repository.read();
-    const healthy = input.dwsConnected === true && input.runtimeHealthy === true;
+    const healthy = input.connectorConnected === true && input.runtimeHealthy === true;
     const recovered = ['TAKING_OVER', 'CLOUD_ACTIVE', 'DRAINING', 'DEGRADED'].includes(current.state)
       && healthy;
     const next = {

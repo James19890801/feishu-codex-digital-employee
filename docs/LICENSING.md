@@ -44,7 +44,7 @@ only after the remote recovery succeeds.
 ## Availability and network behavior
 
 Licensed startup is offline and fail-safe: an activation-service outage does
-not interrupt Feishu, DingTalk, WeCom, Multica, memory, or audit. New activation
+not interrupt Feishu, EnterpriseChat, WeCom, Multica, memory, or audit. New activation
 and invite generation need the Worker. `licensingProxyUrl` may specify a local
 HTTP or HTTPS proxy when direct Cloudflare access is unavailable. Credentials,
 query strings, paths, and fragments are rejected in that configuration value.

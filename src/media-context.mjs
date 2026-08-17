@@ -1,4 +1,4 @@
-import { parseDingTalkMediaPlaceholder } from './multimodal-content.mjs';
+import { parseEnterpriseChatMediaPlaceholder } from './multimodal-content.mjs';
 
 const LOOKBACK_MS = 30 * 60 * 1000;
 
@@ -30,7 +30,7 @@ export function refersToRecentImages(text = '') {
   ].some(pattern => pattern.test(text));
 }
 
-export function selectRecentDingTalkMediaRefs(items, {
+export function selectRecentEnterpriseChatMediaRefs(items, {
   currentTime,
   parseTime = value => Date.parse(value || ''),
   conversationId = '',
@@ -46,7 +46,7 @@ export function selectRecentDingTalkMediaRefs(items, {
         item?.openConversationId || item?.open_conversation_id || conversationId,
       ).trim();
       const occurredAtMs = Number(parseTime(item?.createTime || item?.create_time || ''));
-      const media = parseDingTalkMediaPlaceholder(item?.content || item?.text || '');
+      const media = parseEnterpriseChatMediaPlaceholder(item?.content || item?.text || '');
       if (!messageId || !itemConversationId || !media
         || itemConversationId !== String(conversationId || itemConversationId)
         || !Number.isFinite(occurredAtMs)

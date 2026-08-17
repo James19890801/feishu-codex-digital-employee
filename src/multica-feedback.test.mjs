@@ -68,7 +68,7 @@ function fixture({ failDispatch = false, existingIssues = [] } = {}) {
     maxDispatchAttempts: 3,
     authorizeOwner: context => isAuthorizedMulticaOwner(context, {
       ownerOpenId: 'ou_owner',
-      dingtalkOwnerOpenId: 'dt_owner',
+      enterpriseChatOwnerOpenId: 'dt_owner',
     }),
   });
   return {
@@ -87,10 +87,10 @@ function fixture({ failDispatch = false, existingIssues = [] } = {}) {
 }
 
 const nonOwnerContext = {
-  chatId: 'dingtalk:user:reporter',
-  senderId: 'dingtalk:reporter',
+  chatId: 'enterpriseChat:user:reporter',
+  senderId: 'enterpriseChat:reporter',
   chatType: 'p2p',
-  metadata: { channel: 'dingtalk' },
+  metadata: { channel: 'enterpriseChat' },
 };
 const ownerContext = {
   chatId: 'oc_owner_self',
@@ -145,8 +145,8 @@ const forgedSelfChatContext = {
     assert.equal(test.creates.length, 1);
     assert.equal(test.creates[0].assignee, undefined);
     assert.equal(test.creates[0].assigneeId, undefined);
-    assert.match(test.creates[0].description, /来源渠道：dingtalk/);
-    assert.match(test.creates[0].description, /原会话：dingtalk:user:reporter/);
+    assert.match(test.creates[0].description, /来源渠道：enterpriseChat/);
+    assert.match(test.creates[0].description, /原会话：enterpriseChat:user:reporter/);
     assert.match(test.creates[0].description, /原始需求：AIPRO 发消息时偶尔报错/);
     assert.match(test.creates[0].description, /验收标准：连续发送 20 次均成功/);
     assert.match(registered.text, /MYS-1/);
@@ -155,7 +155,7 @@ const forgedSelfChatContext = {
       chatId: nonOwnerContext.chatId,
       senderId: nonOwnerContext.senderId,
       chatType: 'p2p',
-      channel: 'dingtalk',
+      channel: 'enterpriseChat',
     }]);
     const origin = test.state.multicaIssueOrigin('issue-1');
     assert.ok(origin, 'feedback-created Issue must retain its originating IM route');
@@ -170,7 +170,7 @@ const forgedSelfChatContext = {
       chatId: nonOwnerContext.chatId,
       senderId: nonOwnerContext.senderId,
       chatType: 'p2p',
-      channel: 'dingtalk',
+      channel: 'enterpriseChat',
     });
     assert.equal(
       test.state.conversationIssue(nonOwnerContext.chatId, nonOwnerContext.senderId)?.identifier,

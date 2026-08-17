@@ -24,7 +24,7 @@ assert.equal(looksLikeKnowledgeRequest('上面两张照片包含什么内容'), 
 assert.equal(looksLikeKnowledgeRequest('帮我查一下飞书里的会议纪要'), true);
 assert.equal(looksLikeKnowledgeRequest('怎么让他学习，喂资料权限'), false);
 assert.equal(looksLikeKnowledgeRequest('怎么配置资料权限'), false);
-for (const channel of ['wechat', 'wecom', 'dingtalk', 'feishu']) {
+for (const channel of ['wechat', 'wecom', 'enterpriseChat', 'feishu']) {
   assert.equal(shouldSearchFeishuKnowledge({
     channel,
     text: '请你根据这个回答提供端到端流程架构模板\n引用消息：接口责任人对上下游资料、时效和质量负责',

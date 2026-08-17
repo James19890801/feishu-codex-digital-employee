@@ -81,14 +81,14 @@ const feishuContext = await retriever.contextFor({
 const wechatContext = await retriever.contextFor({
   channel: 'wechat', query: 'AI进入流程后如何划分人的责任？',
 });
-const dingTalkContext = await retriever.contextFor({
-  channel: 'dingtalk', query: 'AI进入流程后如何划分人的责任？',
+const enterpriseChatContext = await retriever.contextFor({
+  channel: 'enterpriseChat', query: 'AI进入流程后如何划分人的责任？',
 });
 const weComContext = await retriever.contextFor({
   channel: 'wecom', query: 'AI进入流程后如何划分人的责任？',
 });
 assert.equal(feishuContext, wechatContext);
-assert.equal(feishuContext, dingTalkContext);
+assert.equal(feishuContext, enterpriseChatContext);
 assert.equal(feishuContext, weComContext);
 assert.match(feishuContext, /最终责任/);
 assert.equal(retriever.health().lastUsed, true);

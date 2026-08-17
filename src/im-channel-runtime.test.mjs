@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import {
-  DingTalkChannel,
+  EnterpriseChatChannel,
   GeWeChannel,
   WeComChannel,
 } from './im-channel-runtime.mjs';
@@ -10,8 +10,8 @@ import {
   const calls = [];
   const statuses = [];
   const messages = [];
-  const channel = new DingTalkChannel({
-    bin: '/opt/dws',
+  const channel = new EnterpriseChatChannel({
+    bin: '/opt/connector',
     profile: 'corp:user',
     run: async (bin, args) => {
       calls.push({ bin, args });
@@ -22,72 +22,72 @@ import {
   assert.deepEqual(channel.consumerArgs(), [
     '--profile', 'corp:user',
     'event', 'consume',
-    'user_im_message_receive_at',
-    'user_im_message_receive_o2o_all',
-    'user_im_message_receive_group_all',
+    'message.mention.received',
+    'message.direct.received',
+    'message.group.received',
     '--flatten',
     '--format', 'ndjson',
   ]);
   assert.equal(channel.handleStderr('[event] ready event_count=2 bus_pid=123'), true);
   assert.equal(statuses.at(-1).connected, true);
   assert.equal(channel.handleLine(JSON.stringify({
-    type: 'user_im_message_receive_o2o_all',
+    type: 'message.direct.received',
     event_id: 'event-1',
-    sender_open_dingtalk_id: 'user-1',
+    sender_enterprise_user_id: 'user-1',
     content: '测试',
   }), payload => messages.push(payload)), true);
-  assert.equal(messages[0].message.chat_id, 'dingtalk:user:user-1');
+  assert.equal(messages[0].message.chat_id, 'enterpriseChat:user:user-1');
   assert.equal(channel.handleLine('not-json', () => {}), false);
 
   await channel.send(
-    { channel: 'dingtalk', kind: 'group', id: 'group-1' },
+    { channel: 'enterpriseChat', kind: 'group', id: 'group-1' },
     '回复内容',
     'uuid-1',
   );
-  assert.equal(calls[0].bin, '/opt/dws');
+  assert.equal(calls[0].bin, '/opt/connector');
   assert.deepEqual(calls[0].args.slice(0, 5), [
     '--profile', 'corp:user', 'chat', 'message', 'send',
   ]);
-  assert.ok(calls[0].args.includes('--ai-tag=false'));
+  assert.ok(calls[0].args.includes('--transport-mode=standard'));
 
   await channel.send(
-    { channel: 'dingtalk', kind: 'group', id: 'group-1' },
+    { channel: 'enterpriseChat', kind: 'group', id: 'group-1' },
     '<@user-1>\nIssue 已更新',
     'uuid-mention',
-    { atOpenDingTalkIds: ['user-1'] },
+    { mentionUserIds: ['user-1'] },
   );
   assert.equal(
-    calls[1].args[calls[1].args.indexOf('--at-open-dingtalk-ids') + 1],
+    calls[1].args[calls[1].args.indexOf('--mentions') + 1],
     'user-1',
   );
 }
 
 {
   const calls = [];
-  const channel = new DingTalkChannel({
-    bin: '/opt/wukong/dws',
+  const channel = new EnterpriseChatChannel({
+    bin: '/opt/legacyBridge/connector',
     profile: 'corp:user',
-    transport: 'wukong-polling',
+    transport: 'legacyBridge-polling',
     run: async (bin, args) => {
       calls.push({ bin, args });
       return {
         stdout: JSON.stringify({
           success: true,
-          result: { openTaskId: 'task-wukong-1' },
+          result: { deliveryTaskId: 'task-legacyBridge-1' },
         }),
         stderr: '',
       };
     },
   });
   await channel.send(
-    { channel: 'dingtalk', kind: 'user', id: 'open-colleague' },
+    { channel: 'enterpriseChat', kind: 'user', id: 'open-colleague' },
     '阿充稍后回复你。',
-    'wukong-send-1',
+    'legacyBridge-send-1',
   );
-  assert.equal(calls[0].bin, '/opt/wukong/dws');
+  assert.equal(calls[0].bin, '/opt/legacyBridge/connector');
   assert.equal(calls[0].args.includes('--profile'), false);
-  assert.equal(calls[0].args.includes('--ai-tag=false'), false);
-  assert.equal(calls[0].args.includes('--open-dingtalk-id'), true);
+  assert.equal(calls[0].args.includes('--transport-mode=standard'), false);
+  assert.equal(calls[0].args.includes('--user'), true);
 }
 
 {

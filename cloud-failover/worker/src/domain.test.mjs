@@ -9,7 +9,7 @@ assert.equal(initialLease.generation, 1);
 
 const repository = new InMemoryFailoverRepository();
 const service = new FailoverCoordinatorService({ repository });
-await service.heartbeat({ at: 0, serviceStartId: 'start-1', dwsConnected: true, runtimeHealthy: true });
+await service.heartbeat({ at: 0, serviceStartId: 'start-1', connectorConnected: true, runtimeHealthy: true });
 assert.equal((await service.evaluate(89_999)).state, 'LOCAL_PRIMARY');
 assert.equal((await service.evaluate(90_000)).state, 'TAKING_OVER');
 assert.equal((await service.evaluate(90_000)).generation, 1, 'alarm replay must be idempotent');
@@ -17,10 +17,10 @@ assert.equal((await service.evaluate(90_000)).generation, 1, 'alarm replay must 
 const unhealthyRepository = new InMemoryFailoverRepository();
 const unhealthyService = new FailoverCoordinatorService({ repository: unhealthyRepository });
 await unhealthyService.heartbeat({
-  at: 0, serviceStartId: 'unhealthy-local', dwsConnected: true, runtimeHealthy: true,
+  at: 0, serviceStartId: 'unhealthy-local', connectorConnected: true, runtimeHealthy: true,
 });
 await unhealthyService.heartbeat({
-  at: 60_000, serviceStartId: 'unhealthy-local', dwsConnected: false, runtimeHealthy: true,
+  at: 60_000, serviceStartId: 'unhealthy-local', connectorConnected: false, runtimeHealthy: true,
 });
 assert.equal((await unhealthyService.evaluate(90_000)).state, 'TAKING_OVER',
   'an unhealthy heartbeat must not postpone takeover from the last healthy heartbeat');
@@ -32,9 +32,9 @@ assert.equal((await service.claim({ generation: 1, messageDigest: digest })).acc
 assert.equal((await service.claim({ generation: 1, messageDigest: digest })).accepted, false);
 await assert.rejects(() => service.claim({ generation: 0, messageDigest: 'b'.repeat(64) }),
   error => error.code === 'stale_generation');
-await service.heartbeat({ at: 100_000, serviceStartId: 'start-2', dwsConnected: true, runtimeHealthy: true });
-await service.heartbeat({ at: 130_000, serviceStartId: 'start-2', dwsConnected: true, runtimeHealthy: true });
-assert.equal((await service.heartbeat({ at: 160_000, serviceStartId: 'start-2', dwsConnected: true, runtimeHealthy: true })).state,
+await service.heartbeat({ at: 100_000, serviceStartId: 'start-2', connectorConnected: true, runtimeHealthy: true });
+await service.heartbeat({ at: 130_000, serviceStartId: 'start-2', connectorConnected: true, runtimeHealthy: true });
+assert.equal((await service.heartbeat({ at: 160_000, serviceStartId: 'start-2', connectorConnected: true, runtimeHealthy: true })).state,
   'DRAINING');
 await assert.rejects(() => service.claim({ generation: 1, messageDigest: 'c'.repeat(64) }),
   error => error.code === 'claims_closed');
@@ -46,12 +46,12 @@ const degradedService = new FailoverCoordinatorService({ repository: degradedRep
 await degradedService.degrade('container_start_failed');
 await degradedService.heartbeat({ at: 190_000 });
 assert.equal((await degradedService.status(190_000)).state, 'DEGRADED');
-await degradedService.heartbeat({ at: 200_000, dwsConnected: true, runtimeHealthy: true });
+await degradedService.heartbeat({ at: 200_000, connectorConnected: true, runtimeHealthy: true });
 assert.equal((await degradedService.heartbeat({
-  at: 230_000, dwsConnected: true, runtimeHealthy: true,
+  at: 230_000, connectorConnected: true, runtimeHealthy: true,
 })).state, 'DEGRADED');
 assert.equal((await degradedService.heartbeat({
-  at: 260_000, dwsConnected: true, runtimeHealthy: true,
+  at: 260_000, connectorConnected: true, runtimeHealthy: true,
 })).state, 'DRAINING');
 const recoveredStatus = await degradedService.evaluate(260_001);
 assert.equal(recoveredStatus.state, 'LOCAL_PRIMARY');

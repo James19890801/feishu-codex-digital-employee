@@ -10,10 +10,10 @@ const build = spawnSync('docker', ['build', '--platform', platform, '--tag', ima
 assert.equal(build.status, 0, `container build failed:\n${build.stderr.slice(-4_000)}`);
 
 const version = spawnSync('docker', [
-  'run', '--rm', '--platform', platform, '--entrypoint', 'dws', image, '--version',
+  'run', '--rm', '--platform', platform, '--entrypoint', 'connector', image, '--version',
 ], { encoding: 'utf8', timeout: 60_000 });
-assert.equal(version.status, 0, `dws failed to start:\n${version.stderr.slice(-4_000)}`);
-assert.match(version.stdout, /dws version/i);
+assert.equal(version.status, 0, `connector failed to start:\n${version.stderr.slice(-4_000)}`);
+assert.match(version.stdout, /connector version/i);
 
 const caBundle = spawnSync('docker', [
   'run', '--rm', '--platform', platform, '--entrypoint', 'sh', image,
@@ -22,10 +22,10 @@ const caBundle = spawnSync('docker', [
 assert.equal(caBundle.status, 0, 'container is missing the system CA certificate bundle');
 
 const authImport = spawnSync('docker', [
-  'run', '--rm', '--platform', platform, '--entrypoint', 'dws', image,
+  'run', '--rm', '--platform', platform, '--entrypoint', 'connector', image,
   'auth', 'import', '--help',
 ], { encoding: 'utf8', timeout: 60_000 });
-assert.equal(authImport.status, 0, `dws auth import is unavailable:\n${authImport.stderr.slice(-4_000)}`);
+assert.equal(authImport.status, 0, `connector auth import is unavailable:\n${authImport.stderr.slice(-4_000)}`);
 assert.match(authImport.stdout, /--base64/);
 
-console.log('FAILOVER_CONTAINER_DWS_RUNTIME_TEST_OK');
+console.log('FAILOVER_CONTAINER_CONNECTOR_RUNTIME_TEST_OK');

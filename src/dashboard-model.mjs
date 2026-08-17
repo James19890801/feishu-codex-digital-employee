@@ -15,7 +15,7 @@ const ISSUE_LABELS = {
   multica_sync_error: 'Multica 最近一次同步失败',
   multica_delivery_pending: 'Multica 变化通知正在等待重试',
   multica_delivery_dead: 'Multica 变化通知已进入死信，需要人工处理',
-  dingtalk_channel_unavailable: '钉钉通道已启用但未连接',
+  enterpriseChat_channel_unavailable: '企业会话通道已启用但未连接',
   wecom_channel_unavailable: '企业微信通道已启用但未连接',
   wechat_channel_unavailable: '个人微信通道已启用但未连接',
   self_chat_circuit_open: '自聊防循环熔断器已开启，当前正在静默冷却',
@@ -31,7 +31,7 @@ export function buildOperatorView(input) {
     : null;
   const issues = [];
   const feishuEnabled = input.feishuEnabled !== false;
-  const dingtalkChannel = input.dingtalkChannel || {};
+  const enterpriseChatChannel = input.enterpriseChatChannel || {};
   const wecomChannel = input.wecomChannel || {};
   const geweChannel = input.geweChannel || {};
   const multicaSyncAgeMs = input.multicaEnabled && input.lastMulticaSyncAt
@@ -108,9 +108,9 @@ export function buildOperatorView(input) {
     issues.push('database_backup_stale');
   }
   if (input.backupRequired && input.lastBackupError) issues.push('database_backup_error');
-  const dingtalkNeedsWebsocket = dingtalkChannel.enabled
-    && dingtalkChannel.transport !== 'Wukong DWS polling';
-  if ((feishuEnabled || dingtalkNeedsWebsocket) && !input.websocketActive) {
+  const enterpriseChatNeedsWebsocket = enterpriseChatChannel.enabled
+    && enterpriseChatChannel.transport !== 'LegacyBridge CONNECTOR polling';
+  if ((feishuEnabled || enterpriseChatNeedsWebsocket) && !input.websocketActive) {
     issues.push('websocket_consumer_missing');
   }
   if (!input.codexProxyReachable) issues.push('codex_proxy_unreachable');
@@ -135,8 +135,8 @@ export function buildOperatorView(input) {
   if (input.multicaEnabled && Number(input.multicaDeadCount || 0) > 0) {
     issues.push('multica_delivery_dead');
   }
-  if (dingtalkChannel.enabled && !dingtalkChannel.connected) {
-    issues.push('dingtalk_channel_unavailable');
+  if (enterpriseChatChannel.enabled && !enterpriseChatChannel.connected) {
+    issues.push('enterpriseChat_channel_unavailable');
   }
   if (wecomChannel.enabled && !wecomChannel.connected) {
     issues.push('wecom_channel_unavailable');
@@ -195,23 +195,23 @@ export function buildOperatorView(input) {
           link: feishuEnabled && Boolean(input.processAlive) && webReaderAvailable,
         },
       },
-      dingtalk: {
-        enabled: Boolean(dingtalkChannel.enabled),
-        installed: Boolean(dingtalkChannel.installed),
-        configured: Boolean(dingtalkChannel.configured ?? dingtalkChannel.installed),
-        authenticated: Boolean(dingtalkChannel.authenticated),
-        connected: Boolean(dingtalkChannel.connected),
-        healthy: !dingtalkChannel.enabled || Boolean(dingtalkChannel.connected),
-        identityMode: dingtalkChannel.identityMode || 'user',
-        transport: dingtalkChannel.transport || 'websocket',
-        lastReadyAt: dingtalkChannel.lastReadyAt || '',
-        lastError: dingtalkChannel.lastError || null,
+      enterpriseChat: {
+        enabled: Boolean(enterpriseChatChannel.enabled),
+        installed: Boolean(enterpriseChatChannel.installed),
+        configured: Boolean(enterpriseChatChannel.configured ?? enterpriseChatChannel.installed),
+        authenticated: Boolean(enterpriseChatChannel.authenticated),
+        connected: Boolean(enterpriseChatChannel.connected),
+        healthy: !enterpriseChatChannel.enabled || Boolean(enterpriseChatChannel.connected),
+        identityMode: enterpriseChatChannel.identityMode || 'user',
+        transport: enterpriseChatChannel.transport || 'websocket',
+        lastReadyAt: enterpriseChatChannel.lastReadyAt || '',
+        lastError: enterpriseChatChannel.lastError || null,
         capabilities: {
-          text: Boolean(dingtalkChannel.enabled && dingtalkChannel.connected),
-          image: Boolean(dingtalkChannel.enabled && dingtalkChannel.connected),
-          audio: Boolean(dingtalkChannel.enabled && dingtalkChannel.connected
+          text: Boolean(enterpriseChatChannel.enabled && enterpriseChatChannel.connected),
+          image: Boolean(enterpriseChatChannel.enabled && enterpriseChatChannel.connected),
+          audio: Boolean(enterpriseChatChannel.enabled && enterpriseChatChannel.connected
             && audioTranscriberAvailable),
-          link: Boolean(dingtalkChannel.enabled && dingtalkChannel.connected
+          link: Boolean(enterpriseChatChannel.enabled && enterpriseChatChannel.connected
             && webReaderAvailable),
         },
       },

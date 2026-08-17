@@ -18,7 +18,7 @@ assert.deepEqual(
   validateMemoryCandidate({
     kind: 'product_method',
     subject: '需求写入',
-    content: '需求写入后必须回读 1A 工作项',
+    content: '需求写入后必须回读 Multica 工作项',
     sourceRefs: ['user:confirmed'],
   }),
   { accepted: true, reason: '' },
@@ -49,8 +49,8 @@ try {
     sourceId: 'repo:webagent',
     type: 'code_repository',
     title: 'WebAgent 代码仓库',
-    locator: 'enterprise-development/ai-lab-agent',
-    ownerId: '384351',
+    locator: 'example-org/example-repository',
+    ownerId: 'owner-demo',
     status: 'active',
     sensitivity: 'internal',
   });

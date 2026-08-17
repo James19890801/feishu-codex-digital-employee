@@ -1,6 +1,6 @@
 function channelProvider(chatId) {
   const value = String(chatId || '');
-  if (value.startsWith('dingtalk:')) return 'dingtalk';
+  if (value.startsWith('enterpriseChat:')) return 'enterpriseChat';
   if (value.startsWith('wecom:')) return 'wecom';
   if (value.startsWith('wechat:')) return 'wechat';
   return 'feishu';

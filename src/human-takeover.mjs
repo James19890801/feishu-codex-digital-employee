@@ -108,7 +108,7 @@ export function rememberSuppressedTakeoverContext({
   }));
 }
 
-export function rememberDingTalkConversationContext(messages, {
+export function rememberEnterpriseChatConversationContext(messages, {
   state,
   chatId,
   parseTime = value => Date.parse(value || ''),
@@ -118,8 +118,8 @@ export function rememberDingTalkConversationContext(messages, {
   let inserted = 0;
   for (const message of Array.isArray(messages) ? messages : []) {
     const sender = String(
-      message?.senderOpenDingTalkId
-      || message?.sender_open_dingtalk_id
+      message?.senderEnterpriseUserId
+      || message?.sender_enterprise_user_id
       || message?.sender?.id
       || '',
     ).trim();
@@ -131,13 +131,13 @@ export function rememberDingTalkConversationContext(messages, {
     const occurredAtMs = Number(parseTime(message?.createTime || message?.create_time || ''));
     const remembered = state.remember(
       chatId,
-      sender.startsWith('dingtalk:') ? sender : `dingtalk:${sender}`,
+      sender.startsWith('enterpriseChat:') ? sender : `enterpriseChat:${sender}`,
       isAssistantMessage(message) ? 'assistant' : 'user',
       content,
       {
-        sourceMessageId: rawMessageId.startsWith('dingtalk:')
+        sourceMessageId: rawMessageId.startsWith('enterpriseChat:')
           ? rawMessageId
-          : `dingtalk:${rawMessageId}`,
+          : `enterpriseChat:${rawMessageId}`,
         createdAt: Number.isFinite(occurredAtMs) ? new Date(occurredAtMs).toISOString() : '',
       },
     );
@@ -165,8 +165,8 @@ function orderedOwnerControls(messages, {
   return (Array.isArray(messages) ? messages : [])
     .flatMap(message => {
       const senderId = String(
-        message?.senderOpenDingTalkId
-        || message?.sender_open_dingtalk_id
+        message?.senderEnterpriseUserId
+        || message?.sender_enterprise_user_id
         || message?.sender?.id
         || '',
       ).trim();
@@ -240,8 +240,8 @@ export function applyOwnerActivityHistory(messages, {
   const activities = (Array.isArray(messages) ? messages : [])
     .flatMap(message => {
       const senderId = String(
-        message?.senderOpenDingTalkId
-        || message?.sender_open_dingtalk_id
+        message?.senderEnterpriseUserId
+        || message?.sender_enterprise_user_id
         || message?.sender?.id
         || '',
       ).trim();

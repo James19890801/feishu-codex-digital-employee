@@ -38,7 +38,7 @@ assert.equal(cappedGroups[0].messages.at(-1).content, '大群消息-1099');
 const contested = [];
 for (const [channel, chatId, senderId, groupName] of [
   ['feishu', 'oc_private_feishu_group', 'ou_private_feishu_member', '普通飞书群'],
-  ['dingtalk', 'dingtalk:group:private-ding-group', 'dingtalk:private-member', '普通钉钉群'],
+  ['enterpriseChat', 'enterpriseChat:group:private-ding-group', 'enterpriseChat:private-member', '普通企业会话群'],
   ['wechat', 'wechat:group:private-wechat-room@chatroom', 'wechat:private-member', 'AI流程与组织变革交流群'],
 ]) {
   for (let index = 0; index < 20; index += 1) {
@@ -64,7 +64,7 @@ const balancedByChannel = Object.fromEntries(
   balancedGroups.map(group => [group.channel, group.messages.length]),
 );
 assert.equal(balancedByChannel.wechat > balancedByChannel.feishu, true);
-assert.equal(balancedByChannel.wechat > balancedByChannel.dingtalk, true);
+assert.equal(balancedByChannel.wechat > balancedByChannel.enterpriseChat, true);
 for (const group of balancedGroups) {
   assert.equal(group.messages.every((message, index, messages) => (
     index === 0 || message.at >= messages[index - 1].at
@@ -172,7 +172,7 @@ assert.equal(
 );
 assert.deepEqual(
   new Set(groupedEvidence.conversationGroups.map(group => group.channel)),
-  new Set(['feishu', 'dingtalk', 'wechat']),
+  new Set(['feishu', 'enterpriseChat', 'wechat']),
 );
 assert.equal(groupedEvidence.conversationGroups.every(group => (
   group.messages.every(message => message.speaker)

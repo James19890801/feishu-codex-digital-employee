@@ -2,27 +2,27 @@ import assert from 'node:assert/strict';
 import {
   ReplyContextService,
   ReplyContextUnavailableError,
-  buildDingTalkReplyHistoryRequest,
+  buildEnterpriseChatReplyHistoryRequest,
   buildReplyContextInstruction,
 } from './reply-context.mjs';
 
-const directRequest = buildDingTalkReplyHistoryRequest({
+const directRequest = buildEnterpriseChatReplyHistoryRequest({
   message: {
-    message_id: 'dingtalk:msg-2', chat_id: 'dingtalk:user:colleague-open', chat_type: 'p2p',
+    message_id: 'enterpriseChat:msg-2', chat_id: 'enterpriseChat:user:colleague-open', chat_type: 'p2p',
     create_time: String(Date.parse('2026-08-03T07:00:00.000Z')),
   },
-  senderOpenId: 'dingtalk:colleague-open',
+  senderOpenId: 'enterpriseChat:colleague-open',
   cleanText: '这个岗位招一个6，你怎么看',
-  metadata: { channel: 'dingtalk', senderName: '同事甲' },
+  metadata: { channel: 'enterpriseChat', senderName: '同事甲' },
 });
 assert.deepEqual(directRequest, {
   kind: 'direct',
   targetId: 'colleague-open',
   beforeTime: '2026-08-03 15:00:01',
-  conversationId: 'dingtalk:user:colleague-open',
+  conversationId: 'enterpriseChat:user:colleague-open',
   currentMessage: {
-    messageId: 'dingtalk:msg-2',
-    conversationId: 'dingtalk:user:colleague-open',
+    messageId: 'enterpriseChat:msg-2',
+    conversationId: 'enterpriseChat:user:colleague-open',
     senderId: 'colleague-open',
     senderName: '同事甲',
     content: '这个岗位招一个6，你怎么看',
@@ -30,25 +30,25 @@ assert.deepEqual(directRequest, {
   },
 });
 
-const groupRequest = buildDingTalkReplyHistoryRequest({
+const groupRequest = buildEnterpriseChatReplyHistoryRequest({
   message: {
-    message_id: 'dingtalk:group-msg', chat_id: 'dingtalk:group:cid-group', chat_type: 'group',
+    message_id: 'enterpriseChat:group-msg', chat_id: 'enterpriseChat:group:cid-group', chat_type: 'group',
     create_time: String(Date.parse('2026-08-03T07:00:00.000Z')),
   },
-  senderOpenId: 'dingtalk:member-open',
+  senderOpenId: 'enterpriseChat:member-open',
   cleanText: '@阿充 看一下',
-  metadata: { channel: 'dingtalk', senderName: '群友乙' },
+  metadata: { channel: 'enterpriseChat', senderName: '群友乙' },
 });
 assert.equal(groupRequest.kind, 'group');
 assert.equal(groupRequest.targetId, 'cid-group');
 assert.equal(groupRequest.currentMessage.senderId, 'member-open');
 
 assert.throws(
-  () => buildDingTalkReplyHistoryRequest({
+  () => buildEnterpriseChatReplyHistoryRequest({
     message: { message_id: 'x', chat_id: 'wecom:user:u1', chat_type: 'p2p', create_time: '1' },
     senderOpenId: 'u1', cleanText: 'x', metadata: {},
   }),
-  /DingTalk/i,
+  /EnterpriseChat/i,
 );
 
 const normalizedContext = {
@@ -100,14 +100,14 @@ assert.match(instruction, /模仿表达方式但不复制承诺、隐私或历�
 assert.match(instruction, /风格样本只来自新用户本人/);
 
 const failingService = new ReplyContextService({
-  contextClient: { fetch: async () => { throw new Error('DWS auth expired'); } },
+  contextClient: { fetch: async () => { throw new Error('CONNECTOR auth expired'); } },
   ownerLabel: '新用户',
 });
 await assert.rejects(
   failingService.prepare({ task: '你好', historyRequest: {} }),
   error => error instanceof ReplyContextUnavailableError
     && error.code === 'CONVERSATION_HISTORY_UNAVAILABLE'
-    && /DWS auth expired/.test(error.message),
+    && /CONNECTOR auth expired/.test(error.message),
 );
 
 console.log('REPLY_CONTEXT_TEST_OK');

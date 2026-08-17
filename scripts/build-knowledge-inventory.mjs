@@ -7,8 +7,8 @@ const ALLOWED_DOMAINS = new Set([
   'webagent', 'ai-collaboration', 'digital-employee', 'ai-product-management',
 ]);
 const ALLOWED_TYPES = new Set([
-  'dingtalk_doc', 'dingtalk_minutes', 'local_document', 'local_repository',
-  'a1_workitem', 'code_repository',
+  'enterpriseChat_doc', 'enterpriseChat_minutes', 'local_document', 'local_repository',
+  'multica_issue', 'code_repository',
 ]);
 const CREDENTIAL_PATTERN = /(?:sk-[A-Za-z0-9_-]{20,}|(?:(?:access|refresh|api)[_-]?token)\s*[:=]\s*["']?[A-Za-z0-9._-]{12,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|app[_ -]?secret\s*[:=]\s*["']?[^\s"']{8,})/i;
 

@@ -20,8 +20,8 @@ const groupMessage = {
 };
 
 assert.deepEqual(assessResponseObligation({
-  message: { ...groupMessage, mentions: [{ id: 'dingtalk-current-user' }] },
-  metadata: { channel: 'dingtalk', eventType: 'user_im_message_receive_at' },
+  message: { ...groupMessage, mentions: [{ id: 'enterpriseChat-current-user' }] },
+  metadata: { channel: 'enterpriseChat', eventType: 'message.mention.received' },
   text: '@James 看一下',
   aliases: ['James', '詹老师'],
 }), {
@@ -43,7 +43,7 @@ assert.deepEqual(assessResponseObligation({
 
 assert.deepEqual(assessResponseObligation({
   message: groupMessage,
-  metadata: { channel: 'dingtalk', admittedGroupMessage: true },
+  metadata: { channel: 'enterpriseChat', admittedGroupMessage: true },
   text: '回头有能落地的规则再同步你。 @詹老师',
   aliases: ['James', '詹老师'],
 }), {
@@ -54,7 +54,7 @@ assert.deepEqual(assessResponseObligation({
 
 assert.deepEqual(assessResponseObligation({
   message: groupMessage,
-  metadata: { channel: 'dingtalk', admittedGroupMessage: true },
+  metadata: { channel: 'enterpriseChat', admittedGroupMessage: true },
   text: '@小王 这个结论你看看',
   aliases: ['James', '詹老师'],
 }), {
@@ -65,7 +65,7 @@ assert.deepEqual(assessResponseObligation({
 
 assert.deepEqual(assessResponseObligation({
   message: groupMessage,
-  metadata: { channel: 'dingtalk', admittedGroupMessage: true },
+  metadata: { channel: 'enterpriseChat', admittedGroupMessage: true },
   text: '@小王 你也看看。 @詹老师',
   aliases: ['James', '詹老师'],
 }), {
@@ -76,7 +76,7 @@ assert.deepEqual(assessResponseObligation({
 
 assert.deepEqual(assessResponseObligation({
   message: { ...groupMessage, chat_type: 'p2p' },
-  metadata: { channel: 'dingtalk', eventType: 'user_im_message_receive_o2o_all' },
+  metadata: { channel: 'enterpriseChat', eventType: 'message.direct.received' },
   text: '@詹老师 你好',
   aliases: ['詹老师'],
 }), {
@@ -87,7 +87,7 @@ assert.deepEqual(assessResponseObligation({
 
 assert.deepEqual(assessResponseObligation({
   message: groupMessage,
-  metadata: { channel: 'dingtalk', admittedGroupMessage: true },
+  metadata: { channel: 'enterpriseChat', admittedGroupMessage: true },
   text: '我们在讨论詹老师的观点',
   aliases: ['詹老师'],
 }), {

@@ -49,10 +49,10 @@ export function buildFeishuArtifactSendArgs({
   return args;
 }
 
-export function buildDingTalkArtifactSendArgs({ target, path, uuid = '' }) {
+export function buildEnterpriseChatArtifactSendArgs({ target, path, uuid = '' }) {
   const targetId = String(target?.id || '').trim();
-  if (target?.channel !== 'dingtalk' || !targetId || !['user', 'group'].includes(target?.kind)) {
-    throw new Error('A valid DingTalk artifact target is required');
+  if (target?.channel !== 'enterpriseChat' || !targetId || !['user', 'group'].includes(target?.kind)) {
+    throw new Error('A valid EnterpriseChat artifact target is required');
   }
   const filePath = String(path || '').trim();
   if (!filePath || !artifactFormatForPath(filePath)) {
@@ -60,11 +60,11 @@ export function buildDingTalkArtifactSendArgs({ target, path, uuid = '' }) {
   }
   const recipient = target.kind === 'group'
     ? ['--group', targetId]
-    : ['--open-dingtalk-id', targetId];
+    : ['--user', targetId];
   const args = [
     'chat', 'message', 'send', ...recipient,
     '--msg-type', 'file', '--file-path', filePath,
-    '--ai-tag=false',
+    '--transport-mode=standard',
   ];
   if (uuid) args.push('--uuid', String(uuid).slice(0, 128));
   args.push('--yes', '--format', 'json');

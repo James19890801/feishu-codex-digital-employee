@@ -34,10 +34,10 @@ else
 fi
 "$PYTHON_BIN" -m pip install --disable-pip-version-check -r "$ROOT/requirements.txt"
 
-if command -v dws >/dev/null 2>&1; then
-  echo "DingTalk runtime detected: $(dws version | head -n 1)"
+if command -v connector >/dev/null 2>&1; then
+  echo "EnterpriseChat runtime detected: $(connector version | head -n 1)"
 else
-  echo "DingTalk optional runtime not detected. Install dingtalk-workspace-cli@1.0.55 before enabling that channel."
+  echo "Optional enterprise connector not detected. Keep the channel disabled or configure a compatible adapter executable."
 fi
 
 echo "初始文件已生成。现在请填写 config.local.json、PERSONA.md 和 BIBLE.md。"

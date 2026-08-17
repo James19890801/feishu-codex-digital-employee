@@ -1,16 +1,16 @@
 import {
-  buildDingTalkHistoryArgs,
+  buildEnterpriseChatHistoryArgs,
   normalizeConversationHistory,
 } from './conversation-context.mjs';
 import { basename, isAbsolute } from 'node:path';
 
-export function isSupportedDwsExecutable(value) {
+export function isSupportedConnectorExecutable(value) {
   const executable = String(value || '').trim();
-  if (!isAbsolute(executable) || basename(executable) !== 'dws') return false;
+  if (!isAbsolute(executable) || basename(executable) !== 'connector') return false;
   const normalized = executable.replaceAll('\\', '/').toLowerCase();
-  if (normalized.includes('wukong')) return false;
+  if (normalized.includes('legacyBridge')) return false;
   if (/(?:^|\/)\.real(?:\/|$)/u.test(normalized)) return false;
-  if (/\/\.bin\/dws\/bin\/dws$/u.test(normalized)) return false;
+  if (/\/\.bin\/connector\/bin\/connector$/u.test(normalized)) return false;
   return true;
 }
 
@@ -40,8 +40,8 @@ function providerMessage(root, fallback) {
 function safeErrorCategory(error) {
   if (error instanceof ConversationHistoryError) return error.code;
   const detail = String(error?.message || error || '').toLowerCase();
-  if (/timeout|timed out/.test(detail)) return 'DWS_HISTORY_TIMEOUT';
-  return 'DWS_HISTORY_PROCESS_FAILED';
+  if (/timeout|timed out/.test(detail)) return 'CONNECTOR_HISTORY_TIMEOUT';
+  return 'CONNECTOR_HISTORY_PROCESS_FAILED';
 }
 
 export class ConversationContextClient {
@@ -69,7 +69,7 @@ export class ConversationContextClient {
     this.audit = typeof audit === 'function' ? audit : () => {};
   }
 
-  async runDws(args) {
+  async runConnector(args) {
     return this.runner(this.bin, args, {
       cwd: this.cwd,
       env: this.env,
@@ -82,31 +82,31 @@ export class ConversationContextClient {
   async fetch(context = {}) {
     const startedAt = Date.now();
     try {
-      if (!isSupportedDwsExecutable(this.bin)) {
+      if (!isSupportedConnectorExecutable(this.bin)) {
         throw new ConversationHistoryError(
-          'Conversation history must use the original DWS installation',
-          'DWS_PATH_REJECTED',
+          'Conversation history must use the original CONNECTOR installation',
+          'CONNECTOR_PATH_REJECTED',
         );
       }
       if (this.transport !== 'event-stream') {
         throw new ConversationHistoryError(
-          'Conversation history requires the existing DWS event-stream transport',
-          'DWS_TRANSPORT_REJECTED',
+          'Conversation history requires the existing CONNECTOR event-stream transport',
+          'CONNECTOR_TRANSPORT_REJECTED',
         );
       }
       if (typeof this.runner !== 'function') {
-        throw new ConversationHistoryError('DWS history runner is unavailable');
+        throw new ConversationHistoryError('CONNECTOR history runner is unavailable');
       }
-      const args = buildDingTalkHistoryArgs(
+      const args = buildEnterpriseChatHistoryArgs(
         { kind: context.kind, targetId: context.targetId },
         { beforeTime: context.beforeTime, profile: this.profile },
       );
       let processResult;
       try {
-        processResult = await this.runDws(args);
+        processResult = await this.runConnector(args);
       } catch (error) {
         throw new ConversationHistoryError(
-          `DWS history process failed: ${String(error?.message || error)}`,
+          `CONNECTOR history process failed: ${String(error?.message || error)}`,
           'CONVERSATION_HISTORY_UNAVAILABLE',
           { cause: error },
         );
@@ -115,15 +115,15 @@ export class ConversationContextClient {
       try {
         root = JSON.parse(String(processResult?.stdout || ''));
       } catch (error) {
-        throw new ConversationHistoryError('DWS history returned invalid JSON', undefined, { cause: error });
+        throw new ConversationHistoryError('CONNECTOR history returned invalid JSON', undefined, { cause: error });
       }
       if (root?.success === false || root?.error) {
         throw new ConversationHistoryError(
-          `DWS history failed: ${providerMessage(root, 'provider rejected the request')}`,
+          `CONNECTOR history failed: ${providerMessage(root, 'provider rejected the request')}`,
         );
       }
       if (!hasMessageList(root)) {
-        throw new ConversationHistoryError('DWS history response has no message list');
+        throw new ConversationHistoryError('CONNECTOR history response has no message list');
       }
       const normalized = normalizeConversationHistory(root, {
         conversationId: context.conversationId,
@@ -132,7 +132,7 @@ export class ConversationContextClient {
         currentMessage: context.currentMessage,
       });
       if (!normalized.currentMessage || !normalized.latestCounterpartyMessage) {
-        throw new ConversationHistoryError('DWS history could not validate the current message');
+        throw new ConversationHistoryError('CONNECTOR history could not validate the current message');
       }
       this.audit('conversation_history_read', {
         durationMs: Date.now() - startedAt,
@@ -144,7 +144,7 @@ export class ConversationContextClient {
       const wrapped = error instanceof ConversationHistoryError
         ? error
         : new ConversationHistoryError(
-            `DWS history unavailable: ${String(error?.message || error)}`,
+            `CONNECTOR history unavailable: ${String(error?.message || error)}`,
             'CONVERSATION_HISTORY_UNAVAILABLE',
             { cause: error },
           );

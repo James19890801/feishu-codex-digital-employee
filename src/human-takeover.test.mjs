@@ -18,7 +18,7 @@ assert.equal(MINIMUM_TAKEOVER_MS, 5 * 60_000);
 assert.equal(
   typeof humanTakeoverModule.takeoverSyncFailurePolicy,
   'function',
-  'DingTalk takeover sync failures must have an explicit durable retry policy',
+  'EnterpriseChat takeover sync failures must have an explicit durable retry policy',
 );
 assert.equal(humanTakeoverModule.takeoverSyncFailurePolicy({
   current: null,
@@ -99,49 +99,49 @@ assert.equal(humanTakeoverModule.rememberSuppressedTakeoverContext({
   state: {
     remember: (...args) => rememberedDuringTakeover.push(args),
   },
-  chatId: 'dingtalk:group:test',
-  senderId: 'dingtalk:other-bot',
+  chatId: 'enterpriseChat:group:test',
+  senderId: 'enterpriseChat:other-bot',
   text: 'AI 会把流程管理从事后复盘推到事中干预',
   messageType: 'text',
   messageId: 'paused-context-1',
 }), true);
 assert.deepEqual(rememberedDuringTakeover, [[
-  'dingtalk:group:test',
-  'dingtalk:other-bot',
+  'enterpriseChat:group:test',
+  'enterpriseChat:other-bot',
   'user',
   'AI 会把流程管理从事后复盘推到事中干预',
   { sourceMessageId: 'paused-context-1' },
 ]]);
 
 assert.equal(
-  typeof humanTakeoverModule.rememberDingTalkConversationContext,
+  typeof humanTakeoverModule.rememberEnterpriseChatConversationContext,
   'function',
-  'DingTalk conversation snapshots must preserve every participant, not only the current sender',
+  'EnterpriseChat conversation snapshots must preserve every participant, not only the current sender',
 );
 const rememberedGroupSnapshot = [];
-assert.equal(humanTakeoverModule.rememberDingTalkConversationContext([
+assert.equal(humanTakeoverModule.rememberEnterpriseChatConversationContext([
   {
     content: 'AI 会把流程管理推向事中干预',
     createTime: '2026-08-08 20:00:00',
     openMessageId: 'group-message-1',
-    senderOpenDingTalkId: 'member-a',
+    senderEnterpriseUserId: 'member-a',
   },
   {
     content: '价值重心会从画流程转向解释 AI 判断',
     createTime: '2026-08-08 20:00:01',
     openMessageId: 'group-message-2',
-    senderOpenDingTalkId: 'member-b',
+    senderEnterpriseUserId: 'member-b',
   },
 ], {
   state: { remember: (...args) => { rememberedGroupSnapshot.push(args); return true; } },
-  chatId: 'dingtalk:group:test',
+  chatId: 'enterpriseChat:group:test',
   parseTime: value => Date.parse(String(value).replace(' ', 'T') + '+08:00'),
 }), 2);
 assert.deepEqual(
   rememberedGroupSnapshot.map(args => [args[1], args[3], args[4].sourceMessageId]),
   [
-    ['dingtalk:member-a', 'AI 会把流程管理推向事中干预', 'dingtalk:group-message-1'],
-    ['dingtalk:member-b', '价值重心会从画流程转向解释 AI 判断', 'dingtalk:group-message-2'],
+    ['enterpriseChat:member-a', 'AI 会把流程管理推向事中干预', 'enterpriseChat:group-message-1'],
+    ['enterpriseChat:member-b', '价值重心会从画流程转向解释 AI 判断', 'enterpriseChat:group-message-2'],
   ],
 );
 
@@ -191,15 +191,15 @@ assert.equal(acceptedResume.state, null);
 const latest = latestOwnerControl([
   {
     content: '数字人请退场', createTime: '2026-08-01 15:59:00',
-    openMessageId: 'owner-pause', senderOpenDingTalkId: 'owner-id',
+    openMessageId: 'owner-pause', senderEnterpriseUserId: 'owner-id',
   },
   {
     content: '数字人停止', createTime: '2026-08-01 16:00:00',
-    openMessageId: 'attacker-pause', senderOpenDingTalkId: 'other-id',
+    openMessageId: 'attacker-pause', senderEnterpriseUserId: 'other-id',
   },
   {
     content: '数字人停止后会怎么样', createTime: '2026-08-01 16:01:00',
-    openMessageId: 'owner-question', senderOpenDingTalkId: 'owner-id',
+    openMessageId: 'owner-question', senderEnterpriseUserId: 'owner-id',
   },
 ], {
   ownerId: 'owner-id',
@@ -214,11 +214,11 @@ assert.deepEqual(latest, {
 const historyApplied = applyOwnerControlHistory([
   {
     content: '数字人请退场', createTime: '2026-08-01 16:00:00',
-    openMessageId: 'pause-first', senderOpenDingTalkId: 'owner-id',
+    openMessageId: 'pause-first', senderEnterpriseUserId: 'owner-id',
   },
   {
     content: '恢复接管', createTime: '2026-08-01 16:01:00',
-    openMessageId: 'resume-too-soon', senderOpenDingTalkId: 'owner-id',
+    openMessageId: 'resume-too-soon', senderEnterpriseUserId: 'owner-id',
   },
 ], {
   ownerId: 'owner-id',
@@ -234,11 +234,11 @@ assert.equal(historyApplied.active, true);
 const noReplay = applyOwnerControlHistory([
   {
     content: '数字人请退场', createTime: '2026-08-01 16:00:00',
-    openMessageId: 'pause-first', senderOpenDingTalkId: 'owner-id',
+    openMessageId: 'pause-first', senderEnterpriseUserId: 'owner-id',
   },
   {
     content: '恢复接管', createTime: '2026-08-01 16:01:00',
-    openMessageId: 'resume-too-soon', senderOpenDingTalkId: 'owner-id',
+    openMessageId: 'resume-too-soon', senderEnterpriseUserId: 'owner-id',
   },
 ], {
   ownerId: 'owner-id',
@@ -252,11 +252,11 @@ assert.equal(noReplay.active, true);
 const activityApplied = applyOwnerActivityHistory([
   {
     content: '我先来跟你说', createTime: '2026-08-01 16:10:00',
-    openMessageId: 'owner-manual-1', senderOpenDingTalkId: 'owner-id',
+    openMessageId: 'owner-manual-1', senderEnterpriseUserId: 'owner-id',
   },
   {
     content: '数字人的发送', createTime: '2026-08-01 16:10:30',
-    openMessageId: 'assistant-echo-1', senderOpenDingTalkId: 'owner-id',
+    openMessageId: 'assistant-echo-1', senderEnterpriseUserId: 'owner-id',
   },
 ], {
   ownerId: 'owner-id',
@@ -273,7 +273,7 @@ assert.equal(activityApplied.state.pausedUntilMs, Date.parse('2026-08-01T16:15:0
 const activityNoReplay = applyOwnerActivityHistory([
   {
     content: '我先来跟你说', createTime: '2026-08-01 16:10:00',
-    openMessageId: 'owner-manual-1', senderOpenDingTalkId: 'owner-id',
+    openMessageId: 'owner-manual-1', senderEnterpriseUserId: 'owner-id',
   },
 ], {
   ownerId: 'owner-id',
@@ -286,11 +286,11 @@ assert.equal(activityNoReplay.changed, false);
 const rollingActivity = applyOwnerActivityHistory([
   {
     content: '第一句真人消息', createTime: '2026-08-01 16:20:00',
-    openMessageId: 'owner-rolling-1', senderOpenDingTalkId: 'owner-id',
+    openMessageId: 'owner-rolling-1', senderEnterpriseUserId: 'owner-id',
   },
   {
     content: '第二句真人消息', createTime: '2026-08-01 16:24:30',
-    openMessageId: 'owner-rolling-2', senderOpenDingTalkId: 'owner-id',
+    openMessageId: 'owner-rolling-2', senderEnterpriseUserId: 'owner-id',
   },
 ], {
   ownerId: 'owner-id',
@@ -332,7 +332,7 @@ assert.equal(
 
 const groupOwnerHistory = applyVerifiedOwnerHistory([{
   content: '我在群里正常说话', createTime: '2026-08-01 16:30:00',
-  openMessageId: 'owner-group-normal', senderOpenDingTalkId: 'owner-id',
+  openMessageId: 'owner-group-normal', senderEnterpriseUserId: 'owner-id',
 }], {
   chatType: 'group',
   ownerId: 'owner-id',
@@ -343,7 +343,7 @@ const groupOwnerHistory = applyVerifiedOwnerHistory([{
 assert.equal(groupOwnerHistory.changed, false, 'group conversations require an explicit stop command');
 const directOwnerHistory = applyVerifiedOwnerHistory([{
   content: '我真人来回复', createTime: '2026-08-01 16:30:00',
-  openMessageId: 'owner-direct-normal', senderOpenDingTalkId: 'owner-id',
+  openMessageId: 'owner-direct-normal', senderEnterpriseUserId: 'owner-id',
 }], {
   chatType: 'p2p',
   ownerId: 'owner-id',

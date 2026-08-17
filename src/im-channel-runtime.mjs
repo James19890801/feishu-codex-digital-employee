@@ -5,10 +5,10 @@ import { lstat, realpath } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { basename, extname } from 'node:path';
 import {
-  buildDingTalkConsumerArgs,
-  buildDingTalkSendArgs,
+  buildEnterpriseChatConsumerArgs,
+  buildEnterpriseChatSendArgs,
   normalizeGeWeWebhook,
-  normalizeDingTalkEvent,
+  normalizeEnterpriseChatEvent,
   normalizeWeComFrame,
 } from './im-channels.mjs';
 
@@ -77,7 +77,7 @@ function stringifyGeWeBody(body) {
   return output;
 }
 
-export class DingTalkChannel {
+export class EnterpriseChatChannel {
   constructor({
     bin,
     profile = '',
@@ -93,7 +93,7 @@ export class DingTalkChannel {
   }
 
   consumerArgs() {
-    return buildDingTalkConsumerArgs(this.profile);
+    return buildEnterpriseChatConsumerArgs(this.profile);
   }
 
   handleStderr(text) {
@@ -114,7 +114,7 @@ export class DingTalkChannel {
     } catch {
       return false;
     }
-    const payload = normalizeDingTalkEvent(event);
+    const payload = normalizeEnterpriseChatEvent(event);
     if (!payload) return false;
     onMessage(payload);
     return true;
@@ -123,7 +123,7 @@ export class DingTalkChannel {
   async send(target, text, uuid = '', options = {}) {
     const args = [
       ...(this.transport === 'event-stream' && this.profile ? ['--profile', this.profile] : []),
-      ...buildDingTalkSendArgs(target, text, uuid, {
+      ...buildEnterpriseChatSendArgs(target, text, uuid, {
         ...options,
         transport: this.transport,
       }),
@@ -133,13 +133,13 @@ export class DingTalkChannel {
     try {
       payload = JSON.parse(result.stdout || '{}');
     } catch {
-      throw new Error(`dws returned invalid JSON: ${(result.stderr || result.stdout || '').slice(-500)}`);
+      throw new Error(`connector returned invalid JSON: ${(result.stderr || result.stdout || '').slice(-500)}`);
     }
     if (payload.success === false || payload.error) {
-      throw new Error(`dws send failed: ${JSON.stringify(payload.error || payload).slice(0, 800)}`);
+      throw new Error(`connector send failed: ${JSON.stringify(payload.error || payload).slice(0, 800)}`);
     }
-    if (this.transport === 'wukong-polling' && !payload?.result?.openTaskId) {
-      throw new Error(`dws send returned no openTaskId: ${JSON.stringify(payload).slice(0, 800)}`);
+    if (this.transport === 'legacyBridge-polling' && !payload?.result?.deliveryTaskId) {
+      throw new Error(`connector send returned no deliveryTaskId: ${JSON.stringify(payload).slice(0, 800)}`);
     }
     return payload;
   }

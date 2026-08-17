@@ -7,8 +7,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import {
-  buildDwsEnv,
-  buildDwsSourceCommands,
+  buildConnectorEnv,
+  buildConnectorSourceCommands,
   collectCodexSessions,
   redactKnowledgeText,
   runNightlyKnowledgeSync,
@@ -17,7 +17,7 @@ import {
 const execFileAsync = promisify(execFile);
 const WORKDIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_WIKI_ROOT = join(WORKDIR, 'data', 'knowledge-wiki');
-const DEFAULT_DWS = join(homedir(), '.npm-global', 'bin', 'dws');
+const DEFAULT_CONNECTOR = join(homedir(), '.npm-global', 'bin', 'connector');
 const SOURCE_ORDER = ['chat', 'minutes', 'documents', 'codex', 'artifacts'];
 
 function parseArgs(argv) {
@@ -35,26 +35,26 @@ function parseArgs(argv) {
   return args;
 }
 
-function assertStandaloneDwsPath(path) {
+function assertStandaloneConnectorPath(path) {
   const value = String(path || '');
-  if (!value.endsWith('/.npm-global/bin/dws') || value.includes('/.real/') || /wukong/iu.test(value)) {
-    throw new Error(`Nightly sync requires standalone DWS Channel CLI, got: ${value || '(empty)'}`);
+  if (!value.endsWith('/.npm-global/bin/connector') || value.includes('/.real/') || /legacyBridge/iu.test(value)) {
+    throw new Error(`Nightly sync requires standalone CONNECTOR Channel CLI, got: ${value || '(empty)'}`);
   }
 }
 
-function parseDwsJson(stdout) {
+function parseConnectorJson(stdout) {
   const text = String(stdout || '').trim();
   try { return JSON.parse(text); } catch {}
   const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     try { return JSON.parse(lines.slice(i).join('\n')); } catch {}
   }
-  throw new Error('DWS returned non-JSON output');
+  throw new Error('CONNECTOR returned non-JSON output');
 }
 
 function unwrap(payload) {
   if (payload?.success === false || payload?.error) {
-    throw new Error(payload?.error?.message || payload?.message || 'DWS request failed');
+    throw new Error(payload?.error?.message || payload?.message || 'CONNECTOR request failed');
   }
   return payload?.result ?? payload;
 }
@@ -72,16 +72,16 @@ function arrayValue(object, keys) {
   return [];
 }
 
-async function runDwsFactory({ dwsBin, profile, channel }) {
-  assertStandaloneDwsPath(dwsBin);
-  const env = buildDwsEnv({ baseEnv: process.env, channel });
+async function runConnectorFactory({ connectorBin, profile, channel }) {
+  assertStandaloneConnectorPath(connectorBin);
+  const env = buildConnectorEnv({ baseEnv: process.env, channel });
   return async args => {
     const withProfile = args.includes('--profile') ? args : [...args, '--profile', profile];
     const finalArgs = withProfile.includes('--format') ? withProfile : [...withProfile, '--format', 'json'];
-    const { stdout } = await execFileAsync(dwsBin, finalArgs, {
+    const { stdout } = await execFileAsync(connectorBin, finalArgs, {
       cwd: WORKDIR, env, timeout: 120000, maxBuffer: 16 * 1024 * 1024,
     });
-    return parseDwsJson(stdout);
+    return parseConnectorJson(stdout);
   };
 }
 
@@ -101,9 +101,9 @@ function chatRecords(result) {
   const conversations = arrayValue(result, ['conversationMessagesList', 'conversations', 'items']);
   return conversations.flatMap(conversation => arrayValue(conversation, ['messages', 'messageList']).map(message => ({
     id: String(firstValue(message, ['openMessageId', 'messageId', 'id'])),
-    title: `${conversation.title || '钉钉会话'} · ${message.sender || '未知发送者'}`,
+    title: `${conversation.title || '企业会话会话'} · ${message.sender || '未知发送者'}`,
     text: firstValue(message, ['content', 'text', 'message']),
-    locator: `dingtalk:message:${firstValue(message, ['openMessageId', 'messageId', 'id'])}`,
+    locator: `enterpriseChat:message:${firstValue(message, ['openMessageId', 'messageId', 'id'])}`,
     metadata: {
       conversationId: firstValue(conversation, ['openConversationId', 'conversationId']),
       sender: message.sender || '', createTime: firstValue(message, ['createTime', 'createdAt']),
@@ -111,12 +111,12 @@ function chatRecords(result) {
   })).filter(record => record.id && record.text));
 }
 
-async function collectDwsChat({ runDws, profile, state, now, lookbackDays, maxPages }) {
+async function collectConnectorChat({ runConnector, profile, state, now, lookbackDays, maxPages }) {
   let window = decodeWindow(state.cursor, now.getTime(), lookbackDays);
   const records = [];
   let page = 0;
   while (page < maxPages) {
-    const result = unwrap(await runDws(buildDwsSourceCommands({ profile, ...window }).chat));
+    const result = unwrap(await runConnector(buildConnectorSourceCommands({ profile, ...window }).chat));
     records.push(...chatRecords(result));
     page += 1;
     if (!result.hasMore) {
@@ -158,8 +158,8 @@ function shanghaiDayWindow(now) {
   };
 }
 
-async function collectDwsMinutes({
-  runDws,
+async function collectConnectorMinutes({
+  runConnector,
   profile,
   now = new Date(),
   maxPages = 10,
@@ -181,7 +181,7 @@ async function collectDwsMinutes({
         ];
         if (cursor) args.push('--cursor', cursor);
         if (attempt > 0) args.push('--timeout', '60', '--verbose');
-        const result = unwrap(await runDws([...args, '--profile', profile, '--format', 'json']));
+        const result = unwrap(await runConnector([...args, '--profile', profile, '--format', 'json']));
         listed.push(...arrayValue(result, ['itemList', 'minutes', 'items', 'list']));
         if (!result.hasMore) {
           completed = true;
@@ -205,7 +205,7 @@ async function collectDwsMinutes({
   }
   const records = [];
   for (const item of items) {
-    const id = firstValue(item, ['taskUuid', 'uuid', 'id', 'minutesId', 'recordId', 'objectId']);
+    const id = firstValue(item, ['recordId', 'uuid', 'id', 'minutesId', 'recordId', 'objectId']);
     if (!id) continue;
     let detail;
     let detailError;
@@ -213,7 +213,7 @@ async function collectDwsMinutes({
       try {
         const args = ['minutes', '+detail', '--id', String(id), '--artifacts', 'basic,summary,keywords,transcript,todos'];
         if (attempt > 0) args.push('--timeout', '60', '--verbose');
-        detail = unwrap(await runDws(args));
+        detail = unwrap(await runConnector(args));
         if (!minutesDetailHasContent(detail)) throw new Error('AI 听记纪要内容尚未生成');
         detailError = null;
         break;
@@ -247,16 +247,16 @@ async function collectDwsMinutes({
       id: String(id),
       title: firstValue(basic, ['title', 'subject', 'name'], firstValue(item, ['title', 'subject', 'name'], `AI 听记 ${id}`)),
       text: text || JSON.stringify(detail).slice(0, 12000),
-      locator: firstValue(basic, ['url'], firstValue(item, ['shareUrl', 'url'], `dingtalk:minutes:${id}`)),
+      locator: firstValue(basic, ['url'], firstValue(item, ['shareUrl', 'url'], `enterpriseChat:minutes:${id}`)),
     });
   }
   return { status: 'ok', cursor: now.toISOString(), records };
 }
 
-async function collectDwsDocuments({ runDws, profile, state }) {
+async function collectConnectorDocuments({ runConnector, profile, state }) {
   const args = ['drive', 'recent', '--operate-type', '0,1', '--limit', '5'];
   if (state.cursor) args.push('--cursor', state.cursor);
-  const result = unwrap(await runDws([...args, '--profile', profile, '--format', 'json']));
+  const result = unwrap(await runConnector([...args, '--profile', profile, '--format', 'json']));
   const items = arrayValue(result, ['recentItems', 'items', 'documents']);
   const records = [];
   for (const item of items) {
@@ -266,14 +266,14 @@ async function collectDwsDocuments({ runDws, profile, state }) {
     const extension = String(firstValue(item, ['extension', 'ext'])).toLowerCase();
     if (!extension || extension === 'adoc') {
       try {
-        const read = unwrap(await runDws(['doc', 'read', '--node', String(node)]));
+        const read = unwrap(await runConnector(['doc', 'read', '--node', String(node)]));
         body = firstValue(read, ['markdown', 'content', 'text']);
       } catch (error) { body = `正文未读取：${error.message}`; }
     }
     records.push({
-      id: String(node), title: firstValue(item, ['name', 'title'], `钉钉文档 ${node}`),
+      id: String(node), title: firstValue(item, ['name', 'title'], `企业会话文档 ${node}`),
       text: body || `文档类型：${extension || firstValue(item, ['contentType'], '未知')}；更新时间：${firstValue(item, ['updateTime', 'accessTime'], '未知')}`,
-      locator: firstValue(item, ['docUrl', 'url'], `dingtalk:doc:${node}`),
+      locator: firstValue(item, ['docUrl', 'url'], `enterpriseChat:doc:${node}`),
     });
   }
   return { status: 'ok', cursor: firstValue(result, ['nextCursor'], ''), records };
@@ -330,7 +330,7 @@ function findNodeId(payload, name) {
   return firstValue(match || data, ['nodeId', 'fileId', 'id', 'dentryUuid']);
 }
 
-export { collectDwsMinutes, findNodeId };
+export { collectConnectorMinutes, findNodeId };
 
 function buildRemoteWikiDigest(result) {
   const records = result.index.records.filter(record => record.date === result.date).slice(-100);
@@ -357,30 +357,30 @@ function buildRemoteWikiDigest(result) {
     if (record.locator) lines.push('', `来源：${record.locator}`);
     lines.push('');
   }
-  lines.push('> 完整正文保存在账号本机的 owner 私有知识库中，数字人按需检索，不在钉钉镜像中复制全部原文。');
+  lines.push('> 完整正文保存在账号本机的 owner 私有知识库中，数字人按需检索，不在企业会话镜像中复制全部原文。');
   return `${lines.join('\n').trim()}\n`;
 }
 
-async function publishWiki({ runDws, result, wikiRoot }) {
+async function publishWiki({ runConnector, result, wikiRoot }) {
   const spaceName = 'AIPR0S 数字人知识库';
   const remotePath = join(wikiRoot, 'remote.json');
   let remote = {};
   try { remote = JSON.parse(await readFile(remotePath, 'utf8')); } catch {}
   let workspaceId = remote.workspaceId;
-  if (!workspaceId) workspaceId = findWorkspaceId(await runDws(['wiki', 'space', 'search', '--query', spaceName, '--limit', '10']), spaceName);
-  if (!workspaceId) workspaceId = findWorkspaceId(await runDws(['wiki', 'space', 'create', '--name', spaceName, '--desc', 'AIPR0S 每晚自动更新的 owner 私有知识库']), spaceName);
-  if (!workspaceId) throw new Error('DingTalk Wiki space creation returned no workspaceId');
+  if (!workspaceId) workspaceId = findWorkspaceId(await runConnector(['wiki', 'space', 'search', '--query', spaceName, '--limit', '10']), spaceName);
+  if (!workspaceId) workspaceId = findWorkspaceId(await runConnector(['wiki', 'space', 'create', '--name', spaceName, '--desc', 'AIPR0S 每晚自动更新的 owner 私有知识库']), spaceName);
+  if (!workspaceId) throw new Error('EnterpriseChat Wiki space creation returned no workspaceId');
   const nodeName = `知识日报 ${result.date}`;
   let nodeId = remote.nodes?.[result.date];
-  if (!nodeId) nodeId = findNodeId(await runDws(['wiki', 'node', 'search', '--workspace', workspaceId, '--query', nodeName, '--extensions', 'adoc', '--limit', '10']), nodeName);
-  if (!nodeId) nodeId = findNodeId(await runDws(['wiki', 'node', 'create', '--workspace', workspaceId, '--name', nodeName, '--type', 'adoc']), nodeName);
-  if (!nodeId) throw new Error('DingTalk Wiki node creation returned no nodeId');
+  if (!nodeId) nodeId = findNodeId(await runConnector(['wiki', 'node', 'search', '--workspace', workspaceId, '--query', nodeName, '--extensions', 'adoc', '--limit', '10']), nodeName);
+  if (!nodeId) nodeId = findNodeId(await runConnector(['wiki', 'node', 'create', '--workspace', workspaceId, '--name', nodeName, '--type', 'adoc']), nodeName);
+  if (!nodeId) throw new Error('EnterpriseChat Wiki node creation returned no nodeId');
   const digest = buildRemoteWikiDigest(result);
   const hash = createHash('sha256').update(digest).digest('hex');
   if (remote.published?.[result.date] !== hash) {
     const contentPath = join(wikiRoot, '.publish.md');
     await writeFile(contentPath, `\n\n<!-- aipros-sync:${hash} -->\n${digest}`, { mode: 0o600 });
-    await runDws(['doc', 'update', '--node', nodeId, '--content-file', contentPath, '--mode', 'overwrite', '--yes']);
+    await runConnector(['doc', 'update', '--node', nodeId, '--content-file', contentPath, '--mode', 'overwrite', '--yes']);
     remote.published = { ...(remote.published || {}), [result.date]: hash };
   }
   remote.workspaceId = workspaceId;
@@ -392,21 +392,21 @@ async function publishWiki({ runDws, result, wikiRoot }) {
 export async function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   const config = JSON.parse(await readFile(join(WORKDIR, 'config.local.json'), 'utf8'));
-  const dwsBin = config.dingtalkBin || DEFAULT_DWS;
-  const profile = config.dingtalkProfile;
-  const channel = config.dingtalkChannel;
-  if (!profile || !channel) throw new Error('dingtalkProfile and dingtalkChannel are required');
-  const runDws = await runDwsFactory({ dwsBin, profile, channel });
+  const connectorBin = config.enterpriseChatBin || DEFAULT_CONNECTOR;
+  const profile = config.enterpriseChatProfile;
+  const channel = config.enterpriseChatChannel;
+  if (!profile || !channel) throw new Error('enterpriseChatProfile and enterpriseChatChannel are required');
+  const runConnector = await runConnectorFactory({ connectorBin, profile, channel });
   const wikiRoot = options.wikiRoot || DEFAULT_WIKI_ROOT;
   const collectors = {
-    chat: context => collectDwsChat({ ...context, runDws, profile, lookbackDays: options.lookbackDays, maxPages: options.maxPages }),
-    minutes: context => collectDwsMinutes({ ...context, runDws, profile }),
-    documents: context => collectDwsDocuments({ ...context, runDws, profile }),
+    chat: context => collectConnectorChat({ ...context, runConnector, profile, lookbackDays: options.lookbackDays, maxPages: options.maxPages }),
+    minutes: context => collectConnectorMinutes({ ...context, runConnector, profile }),
+    documents: context => collectConnectorDocuments({ ...context, runConnector, profile }),
     codex: ({ state }) => collectCodexSessions({ codexHome: process.env.CODEX_HOME || join(homedir(), '.codex'), sinceMs: Number(state.cursor || 0), maxFiles: 20 }),
     artifacts: context => collectArtifacts({ ...context, roots: [WORKDIR] }),
   };
   const result = await runNightlyKnowledgeSync({ wikiRoot, collectors, dryRun: options.dryRun });
-  const remote = options.publish && !options.dryRun ? await publishWiki({ runDws, result, wikiRoot }) : null;
+  const remote = options.publish && !options.dryRun ? await publishWiki({ runConnector, result, wikiRoot }) : null;
   const report = {
     success: true, date: result.date, dryRun: options.dryRun, newRecordCount: result.newRecordCount,
     sources: Object.fromEntries(SOURCE_ORDER.filter(source => result.sources[source]).map(source => [source, {

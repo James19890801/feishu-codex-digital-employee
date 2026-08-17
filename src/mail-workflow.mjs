@@ -15,7 +15,7 @@ function normalizedIds(values) {
 export function isAuthorizedMailOwner(context, ownerIds) {
   const ids = normalizedIds(ownerIds);
   return context?.chatType === 'p2p'
-    && context?.metadata?.channel === 'dingtalk'
+    && context?.metadata?.channel === 'enterpriseChat'
     && context?.metadata?.selfChat === true
     && ids.has(String(context?.senderId || '').trim());
 }
@@ -76,7 +76,7 @@ export class MailWorkflow {
   }
 
   async _mailbox() {
-    const mailboxes = (await this.client.listMailboxes()).filter(mailbox => mailbox.type === 'ORG' || !mailbox.email.endsWith('@dingtalk.com'));
+    const mailboxes = (await this.client.listMailboxes()).filter(mailbox => mailbox.type === 'ORG' || !mailbox.email.endsWith('@enterpriseChat.com'));
     if (mailboxes.length !== 1) return null;
     return mailboxes[0].email;
   }
@@ -237,7 +237,7 @@ export class MailWorkflow {
     const looksLikeMail = intent.kind || /邮件|收件箱|已发送/u.test(text) || ((confirmation || cancellation) && pending);
     if (!looksLikeMail) return { handled: false };
     if (!isAuthorizedMailOwner(context, this.ownerIds)) {
-      return { handled: true, text: '邮件能力仅能在本人钉钉私聊的数字人会话中使用。' };
+      return { handled: true, text: '邮件能力仅能在本人企业会话私聊的数字人会话中使用。' };
     }
     if (cancellation && pending) {
       this.pendingStore.delete('mail_write', context.chatId, context.senderId);

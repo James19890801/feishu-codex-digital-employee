@@ -45,16 +45,16 @@ try {
       semanticRepeatWindowMs: 30 * 60_000,
       semanticRepeatMaxReplies: 2,
     },
-    channel: 'dingtalk',
-    senderId: 'dingtalk:peer',
+    channel: 'enterpriseChat',
+    senderId: 'enterpriseChat:peer',
     message: {
       message_id: 'inbound-1',
-      chat_id: 'dingtalk:group:test',
+      chat_id: 'enterpriseChat:group:test',
       chat_type: 'group',
       message_type: 'text',
-      mentions: [{ id: 'dingtalk-current-user' }],
+      mentions: [{ id: 'enterpriseChat-current-user' }],
     },
-    metadata: { channel: 'dingtalk', eventType: 'user_im_message_receive_at' },
+    metadata: { channel: 'enterpriseChat', eventType: 'message.mention.received' },
     text: '这个需要本人确认后再推进 @James',
     nowMs: 1_000,
     sendClose: async (text, idempotencyKey) => sent.push({ text, idempotencyKey }),
@@ -109,10 +109,10 @@ try {
     state,
     message: {
       message_id: 'generated-1',
-      chat_id: 'dingtalk:group:generated',
+      chat_id: 'enterpriseChat:group:generated',
       chat_type: 'group',
     },
-    senderId: 'dingtalk:requester',
+    senderId: 'enterpriseChat:requester',
     text: '这是一条基于资料得出的结论',
     responseRequired: true,
     nowMs: 10_000,
@@ -140,7 +140,7 @@ try {
   for (const messageId of ['direct-1', 'direct-2']) {
     const direct = await sendStableGeneratedReply({
       ...sendBase,
-      message: { message_id: messageId, chat_id: 'dingtalk:user:one', chat_type: 'p2p' },
+      message: { message_id: messageId, chat_id: 'enterpriseChat:user:one', chat_type: 'p2p' },
       text: '私聊相同回复',
       send: async text => { directSent.push(text); return { ok: true }; },
     });

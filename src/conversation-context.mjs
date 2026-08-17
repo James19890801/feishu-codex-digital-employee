@@ -1,26 +1,26 @@
 import { createHash } from 'node:crypto';
-import { isPassiveDingTalkSystemNotice } from './dingtalk-system-notice.mjs';
+import { isPassiveEnterpriseChatSystemNotice } from './enterpriseChat-system-notice.mjs';
 
 const MAX_HISTORY_MESSAGES = 30;
 const MAX_STYLE_SAMPLES = 8;
 
 function requiredText(value, label) {
   const text = String(value || '').trim();
-  if (!text) throw new Error(`DingTalk history ${label} is required`);
+  if (!text) throw new Error(`EnterpriseChat history ${label} is required`);
   return text;
 }
 
-export function buildDingTalkHistoryArgs(context = {}, options = {}) {
+export function buildEnterpriseChatHistoryArgs(context = {}, options = {}) {
   const kind = requiredText(context.kind, 'kind');
   const targetId = requiredText(context.targetId, 'target');
   const beforeTime = requiredText(options.beforeTime, 'time');
   const profile = requiredText(options.profile, 'profile');
   if (!['direct', 'group'].includes(kind)) {
-    throw new Error(`Unsupported DingTalk history kind: ${kind}`);
+    throw new Error(`Unsupported EnterpriseChat history kind: ${kind}`);
   }
   return [
     'chat', 'message', 'list',
-    kind === 'direct' ? '--open-dingtalk-id' : '--group', targetId,
+    kind === 'direct' ? '--user' : '--group', targetId,
     '--time', beforeTime,
     '--direction', 'older',
     '--limit', String(MAX_HISTORY_MESSAGES),
@@ -53,7 +53,7 @@ function messageText(value) {
 
 function usableText(text) {
   if (!text) return false;
-  if (isPassiveDingTalkSystemNotice(text)) return false;
+  if (isPassiveEnterpriseChatSystemNotice(text)) return false;
   return !/^\s*(?:\[(?:图片|文件|视频|语音|合并转发)消息\]|\[文件\]|消息已撤回|该消息已撤回)\s*$/u.test(text);
 }
 
@@ -75,7 +75,7 @@ function normalizeMessage(raw, { conversationId, ownerIds, ownerNames }) {
   const content = messageText(raw?.content ?? raw?.text ?? raw?.messageContent);
   if (!usableText(content)) return null;
   const senderId = String(
-    raw?.senderOpenDingTalkId ?? raw?.senderId ?? raw?.senderUserId ?? raw?.userId ?? '',
+    raw?.senderEnterpriseUserId ?? raw?.senderId ?? raw?.senderUserId ?? raw?.userId ?? '',
   ).trim();
   const senderName = String(raw?.sender ?? raw?.senderName ?? raw?.nickName ?? '').trim();
   const createdAtRaw = raw?.createTime ?? raw?.createdAt ?? raw?.sendTime ?? raw?.timestamp ?? '';
@@ -107,7 +107,7 @@ function normalizeTrustedCurrent(raw, options) {
   return normalizeMessage({
     openMessageId: raw.messageId,
     openConversationId: raw.conversationId,
-    senderOpenDingTalkId: raw.senderId,
+    senderEnterpriseUserId: raw.senderId,
     sender: raw.senderName,
     content: raw.content,
     createTime: raw.createdAt,
@@ -121,7 +121,7 @@ export function normalizeConversationHistory(root, {
   currentMessage = null,
 } = {}) {
   const normalizedConversationId = String(conversationId || '').trim();
-  if (!normalizedConversationId) throw new Error('DingTalk conversation ID is required');
+  if (!normalizedConversationId) throw new Error('EnterpriseChat conversation ID is required');
   const normalizedOwnerIds = new Set(
     (Array.isArray(ownerIds) ? ownerIds : [ownerIds]).map(value => String(value || '').trim()).filter(Boolean),
   );
@@ -196,7 +196,7 @@ export function formatConversationContext(context = {}, { ownerLabel = '账号�
   const target = context.latestCounterpartyMessage;
   const styles = Array.isArray(context.styleSamples) ? context.styleSamples : [];
   return [
-    `当前钉钉会话最近 30 条真实消息（实际读取 ${messages.length} 条）：`,
+    `当前企业会话会话最近 30 条真实消息（实际读取 ${messages.length} 条）：`,
     messages.length
       ? messages.map(item => `[${displayTime(item)}] ${speaker(item, ownerLabel)}：${item.content}`).join('\n')
       : '（当前会话没有可用历史）',

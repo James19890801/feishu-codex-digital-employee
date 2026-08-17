@@ -47,8 +47,8 @@ const sent = [];
 
 const first = await handleAutomationPeerInbound({
   guard,
-  chatId: 'dingtalk:user:peer',
-  senderId: 'dingtalk:peer',
+  chatId: 'enterpriseChat:user:peer',
+  senderId: 'enterpriseChat:peer',
   chatType: 'p2p',
   text: '你好，我是凤小楼，凤楼的AI助理。',
   messageId: 'm1',
@@ -67,8 +67,8 @@ const reopenedState = new AgentState(databasePath);
 const reopenedGuard = new AutomationPeerGuard({ state: reopenedState });
 const again = await handleAutomationPeerInbound({
   guard: reopenedGuard,
-  chatId: 'dingtalk:user:peer',
-  senderId: 'dingtalk:peer',
+  chatId: 'enterpriseChat:user:peer',
+  senderId: 'enterpriseChat:peer',
   chatType: 'p2p',
   text: '你好，我还能继续帮你。',
   messageId: 'm2',
@@ -81,8 +81,8 @@ assert.equal(sent.length, 1, 'a blocked automation peer must never receive a sec
 
 const human = await handleAutomationPeerInbound({
   guard,
-  chatId: 'dingtalk:user:human',
-  senderId: 'dingtalk:human',
+  chatId: 'enterpriseChat:user:human',
+  senderId: 'enterpriseChat:human',
   chatType: 'p2p',
   text: '我是做数字人产品的，想多体验几轮。',
   messageId: 'human-1',
@@ -93,8 +93,8 @@ assert.equal(human.decision.action, 'allow');
 
 const groupBot = await handleAutomationPeerInbound({
   guard,
-  chatId: 'dingtalk:group:team',
-  senderId: 'dingtalk:bot',
+  chatId: 'enterpriseChat:group:team',
+  senderId: 'enterpriseChat:bot',
   chatType: 'group',
   text: '我是团队的AI助理。',
   messageId: 'group-1',
@@ -117,12 +117,12 @@ assert.equal(platformKnown.handled, true, 'platform app identity must terminate 
 assert.equal(platformKnown.notified, true);
 assert.deepEqual(platformKnownSent, [AUTOMATION_PEER_TERMINATION_TEXT]);
 
-const failedChatId = 'dingtalk:user:send-failed';
+const failedChatId = 'enterpriseChat:user:send-failed';
 await assert.rejects(
   handleAutomationPeerInbound({
     guard,
     chatId: failedChatId,
-    senderId: 'dingtalk:send-failed',
+    senderId: 'enterpriseChat:send-failed',
     chatType: 'p2p',
     text: '我是账号的数字人。',
     messageId: 'failed-1',
@@ -132,7 +132,7 @@ await assert.rejects(
 );
 const retryAfterFailure = guard.evaluateInbound({
   chatId: failedChatId,
-  senderId: 'dingtalk:send-failed',
+  senderId: 'enterpriseChat:send-failed',
   chatType: 'p2p',
   text: '我是账号的数字人。',
 });
@@ -140,8 +140,8 @@ assert.equal(retryAfterFailure.action, 'terminate', 'a failed notice must remain
 
 let nowMs = Date.parse('2026-08-04T14:00:00+08:00');
 const rapidGuard = new AutomationPeerGuard({ state, now: () => nowMs });
-const rapidChat = 'dingtalk:user:rapid-peer';
-const rapidSender = 'dingtalk:rapid-peer';
+const rapidChat = 'enterpriseChat:user:rapid-peer';
+const rapidSender = 'enterpriseChat:rapid-peer';
 for (let round = 1; round <= 9; round += 1) {
   rapidGuard.recordOutbound({ chatId: rapidChat, text: `reply-${round}` });
   nowMs += 1_000;
@@ -175,19 +175,19 @@ assert.equal(reopenedRapidGuard.evaluateInbound({
   text: '第 11 条',
 }).action, 'suppress', 'rapid loop block must survive restart');
 
-const resetChat = 'dingtalk:user:slow-human';
+const resetChat = 'enterpriseChat:user:slow-human';
 rapidGuard.recordOutbound({ chatId: resetChat, text: '上一条回复' });
 nowMs += 31_001;
 const afterHumanPause = rapidGuard.evaluateInbound({
   chatId: resetChat,
-  senderId: 'dingtalk:slow-human',
+  senderId: 'enterpriseChat:slow-human',
   chatType: 'p2p',
   text: '过了一会继续聊',
 });
 assert.equal(afterHumanPause.action, 'allow');
 assert.equal(afterHumanPause.rapidRounds, 0, 'a human-sized pause must reset rapid rounds');
 
-const trackedChat = 'dingtalk:user:tracked-send';
+const trackedChat = 'enterpriseChat:user:tracked-send';
 await sendWithAutomationPeerTracking({
   guard: rapidGuard,
   chatId: trackedChat,
@@ -197,12 +197,12 @@ await sendWithAutomationPeerTracking({
 nowMs += 1_000;
 assert.equal(rapidGuard.evaluateInbound({
   chatId: trackedChat,
-  senderId: 'dingtalk:tracked-send',
+  senderId: 'enterpriseChat:tracked-send',
   chatType: 'p2p',
   text: '快速回复',
 }).rapidRounds, 1, 'a successful send must start the rapid-round clock');
 
-const suppressedChat = 'dingtalk:user:suppressed-send';
+const suppressedChat = 'enterpriseChat:user:suppressed-send';
 await sendWithAutomationPeerTracking({
   guard: rapidGuard,
   chatId: suppressedChat,
@@ -212,12 +212,12 @@ await sendWithAutomationPeerTracking({
 nowMs += 1_000;
 assert.equal(rapidGuard.evaluateInbound({
   chatId: suppressedChat,
-  senderId: 'dingtalk:suppressed-send',
+  senderId: 'enterpriseChat:suppressed-send',
   chatType: 'p2p',
   text: '不应计数',
 }).rapidRounds, 0, 'a suppressed send must not start the rapid-round clock');
 
-const rejectedChat = 'dingtalk:user:rejected-send';
+const rejectedChat = 'enterpriseChat:user:rejected-send';
 await assert.rejects(sendWithAutomationPeerTracking({
   guard: rapidGuard,
   chatId: rejectedChat,
@@ -227,7 +227,7 @@ await assert.rejects(sendWithAutomationPeerTracking({
 nowMs += 1_000;
 assert.equal(rapidGuard.evaluateInbound({
   chatId: rejectedChat,
-  senderId: 'dingtalk:rejected-send',
+  senderId: 'enterpriseChat:rejected-send',
   chatType: 'p2p',
   text: '不应计数',
 }).rapidRounds, 0, 'a failed send must not start the rapid-round clock');

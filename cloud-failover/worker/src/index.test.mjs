@@ -49,12 +49,12 @@ const oldUsernameResponse = await worker.fetch(new Request('https://failover.tes
 }), env);
 assert.equal(oldUsernameResponse.status, 401);
 const response = await worker.fetch(request('/v1/heartbeat', JSON.stringify({
-  at: '2026-08-07T00:00:00Z', dwsConnected: true, runtimeHealthy: true,
+  at: '2026-08-07T00:00:00Z', connectorConnected: true, runtimeHealthy: true,
 })), env);
 assert.equal(response.status, 200);
 assert.equal(response.headers.get('cache-control'), 'no-store');
 assert.deepEqual(calls[0], {
-  at: '2026-08-07T00:00:00Z', dwsConnected: true, runtimeHealthy: true,
+  at: '2026-08-07T00:00:00Z', connectorConnected: true, runtimeHealthy: true,
 });
 const unauthorizedLease = await worker.fetch(new Request('https://failover.test/internal/runtime/lease', {
   method: 'POST', body: '{}', headers: { 'content-type': 'application/json' },

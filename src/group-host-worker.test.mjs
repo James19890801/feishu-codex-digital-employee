@@ -68,8 +68,8 @@ assert.deepEqual(await runGroupHostWorkerIteration({
 
 const candidate = {
   messageId: 'host-worker-1',
-  chatId: 'dingtalk:group:test',
-  senderId: 'dingtalk:member-a',
+  chatId: 'enterpriseChat:group:test',
+  senderId: 'enterpriseChat:member-a',
   text: privateText,
   attempts: 1,
 };
@@ -83,8 +83,8 @@ assert.deepEqual(await runGroupHostWorkerIteration({
   waitMs: 0,
   candidate: {
     messageId: 'host-worker-1',
-    chatId: 'dingtalk:group:test',
-    senderId: 'dingtalk:member-a',
+    chatId: 'enterpriseChat:group:test',
+    senderId: 'enterpriseChat:member-a',
     attempts: 1,
   },
   handledAction: 'observe',
@@ -124,8 +124,8 @@ assert.deepEqual(retryOutcome, {
   waitMs: 0,
   candidate: {
     messageId: 'host-worker-1',
-    chatId: 'dingtalk:group:test',
-    senderId: 'dingtalk:member-a',
+    chatId: 'enterpriseChat:group:test',
+    senderId: 'enterpriseChat:member-a',
     attempts: 1,
   },
   errorCode: 'process_timeout',
@@ -154,8 +154,8 @@ assert.deepEqual(await runGroupHostWorkerIteration({
   waitMs: 2_000,
   candidate: {
     messageId: 'host-worker-1',
-    chatId: 'dingtalk:group:test',
-    senderId: 'dingtalk:member-a',
+    chatId: 'enterpriseChat:group:test',
+    senderId: 'enterpriseChat:member-a',
     attempts: 1,
   },
   errorCode: 'state_retry_error',

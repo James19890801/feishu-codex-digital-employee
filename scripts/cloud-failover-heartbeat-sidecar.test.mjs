@@ -8,7 +8,7 @@ const healthyStatus = {
   healthy: true,
   process: { alive: true },
   aiRuntime: { healthy: true },
-  channels: { dingtalk: { authenticated: true, connected: true } },
+  channels: { enterpriseChat: { authenticated: true, connected: true } },
 };
 assert.deepEqual(buildHeartbeatSnapshot(healthyStatus, {
   sequence: 2,
@@ -18,7 +18,7 @@ assert.deepEqual(buildHeartbeatSnapshot(healthyStatus, {
   sequence: 2,
   at: '2026-08-12T00:00:00.000Z',
   serviceStartId: 'sidecar-1',
-  dwsConnected: true,
+  connectorConnected: true,
   runtimeHealthy: true,
   lastMessageDigest: '',
   appVersion: '1.0.0-sidecar',
@@ -29,7 +29,7 @@ const unhealthy = buildHeartbeatSnapshot({
   ...healthyStatus,
   aiRuntime: { healthy: false },
 }, { sequence: 3, at: '2026-08-12T00:00:30.000Z', serviceStartId: 'sidecar-1' });
-assert.equal(unhealthy.dwsConnected, true);
+assert.equal(unhealthy.connectorConnected, true);
 assert.equal(unhealthy.runtimeHealthy, false);
 
 const calls = [];

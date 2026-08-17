@@ -1,9 +1,9 @@
-# Internal Use Notice
+# Project Notice
 
-James is distributed for Alibaba-internal development and collaboration use.
+James is an organization-neutral local-first digital-human reference implementation.
 
 Sole developer and maintainer: **Achong (James Feng)**.
 
-This repository does not grant a public open-source license. Ownership, access, reuse, and external distribution remain subject to Alibaba policies and the permissions of the relevant code, data, account, and service owners.
+Use, reuse, and distribution remain subject to this repository's license and to the policies of each connector, model, data source, account, and organization selected by the deployer.
 
 Do not copy credentials, private enterprise data, personal identifiers, chats, local databases, recovery material, or proprietary third-party content into derivative distributions.

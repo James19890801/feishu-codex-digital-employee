@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-  buildDingTalkArtifactSendArgs,
+  buildEnterpriseChatArtifactSendArgs,
   buildFeishuArtifactSendArgs,
 } from '../src/artifact-channel-delivery.mjs';
 import { parseChannelChatId } from '../src/im-channels.mjs';
@@ -21,17 +21,20 @@ export function buildMultimodalSmokePlan({
   workspaceRoot,
   channels = [],
   feishuChatId = '',
-  dingtalkChatId = '',
+  enterpriseChatChatId = '',
   files = [],
 } = {}) {
-  const providers = [...new Set(channels.map(value => String(value).trim().toLowerCase()))];
+  const providers = [...new Set(channels.map(value => {
+    const normalized = String(value).trim().toLowerCase();
+    return normalized === 'enterprisechat' ? 'enterpriseChat' : normalized;
+  }))];
   if (providers.includes('feishu') && !/^oc_[A-Za-z0-9_=-]+$/.test(feishuChatId)) {
     throw new Error('A configured Feishu test chat is required');
   }
-  const dingTarget = parseChannelChatId(dingtalkChatId);
-  if (providers.includes('dingtalk')
-    && (dingTarget?.channel !== 'dingtalk' || dingTarget.kind !== 'group')) {
-    throw new Error('A configured DingTalk test group is required');
+  const dingTarget = parseChannelChatId(enterpriseChatChatId);
+  if (providers.includes('enterpriseChat')
+    && (dingTarget?.channel !== 'enterpriseChat' || dingTarget.kind !== 'group')) {
+    throw new Error('A configured EnterpriseChat test group is required');
   }
   const normalizedFiles = files.map(path => resolve(String(path || '')));
   if (normalizedFiles.some(path => !insideWorkspace(path, workspaceRoot))) {
@@ -53,12 +56,12 @@ export function buildMultimodalSmokePlan({
             uuid: idempotencyKey,
           }),
         });
-      } else if (channel === 'dingtalk') {
+      } else if (channel === 'enterpriseChat') {
         plans.push({
           channel,
-          target: dingtalkChatId,
+          target: enterpriseChatChatId,
           path,
-          args: buildDingTalkArtifactSendArgs({
+          args: buildEnterpriseChatArtifactSendArgs({
             target: dingTarget,
             path,
             uuid: idempotencyKey,
@@ -88,14 +91,14 @@ function option(name) {
 
 async function main() {
   const { config } = await import('../src/config.mjs');
-  const channels = (option('--channels') || 'feishu,dingtalk').split(',').filter(Boolean);
+  const channels = (option('--channels') || 'feishu,enterpriseChat').split(',').filter(Boolean);
   const files = option('--files').split(',').filter(Boolean);
   const plan = buildMultimodalSmokePlan({
     workspaceRoot: config.workdir,
     channels,
     feishuChatId: option('--feishu-chat') || process.env.AIPRO_FEISHU_TEST_CHAT_ID || '',
-    dingtalkChatId: option('--dingtalk-chat')
-      || process.env.AIPRO_DINGTALK_TEST_CHAT_ID
+    enterpriseChatChatId: option('--enterpriseChat-chat')
+      || process.env.AIPRO_ENTERPRISE_CHAT_TEST_CHAT_ID
       || config.groupHostChatIds?.[0]
       || '',
     files,
@@ -106,9 +109,9 @@ async function main() {
   }
   const results = [];
   for (const item of plan) {
-    const command = item.channel === 'feishu' ? config.larkCli : config.dingtalkBin;
-    const args = item.channel === 'dingtalk' && config.dingtalkProfile
-      ? ['--profile', config.dingtalkProfile, ...item.args]
+    const command = item.channel === 'feishu' ? config.larkCli : config.enterpriseChatBin;
+    const args = item.channel === 'enterpriseChat' && config.enterpriseChatProfile
+      ? ['--profile', config.enterpriseChatProfile, ...item.args]
       : item.args;
     await runBufferedProcess(command, args, {
       cwd: config.workdir,

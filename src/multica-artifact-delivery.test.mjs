@@ -95,9 +95,9 @@ try {
   state.upsertMulticaDeliveryContract({
     issueId: 'issue-9',
     workspaceId: 'ws-1',
-    channel: 'dingtalk',
-    chatId: 'dingtalk:user:owner',
-    senderId: 'dingtalk:owner',
+    channel: 'enterpriseChat',
+    chatId: 'enterpriseChat:user:owner',
+    senderId: 'enterpriseChat:owner',
     chatType: 'p2p',
     formats: ['pdf'],
     request: '最终交付 PDF',

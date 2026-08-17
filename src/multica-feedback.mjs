@@ -13,8 +13,10 @@ function requiredText(value, name, max = 10_000) {
 
 function sourceChannel(context) {
   const configured = String(context?.metadata?.channel || '').trim();
-  if (configured) return configured;
-  const match = String(context?.chatId || '').match(/^(dingtalk|wecom|wechat):/);
+  if (configured) {
+    return configured.toLowerCase() === 'enterprisechat' ? 'enterpriseChat' : configured;
+  }
+  const match = String(context?.chatId || '').match(/^(enterpriseChat|wecom|wechat):/);
   return match?.[1] || 'feishu';
 }
 

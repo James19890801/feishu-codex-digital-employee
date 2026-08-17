@@ -1,4 +1,4 @@
-const CHANNELS = new Set(['dingtalk', 'feishu', 'wecom', 'wechat']);
+const CHANNELS = new Set(['enterpriseChat', 'feishu', 'wecom', 'wechat']);
 
 function bounded(value, maximum = 160) {
   return String(value || '').trim().slice(0, maximum);
@@ -6,12 +6,12 @@ function bounded(value, maximum = 160) {
 
 function channelIdentity(value) {
   const text = bounded(value, 300);
-  const match = text.match(/^(dingtalk|feishu|wecom|wechat):(.+)$/u);
+  const match = text.match(/^(enterpriseChat|feishu|wecom|wechat):(.+)$/u);
   return match ? { channel: match[1], id: match[2] } : { channel: '', id: text };
 }
 
 function directTarget(chatId) {
-  const match = bounded(chatId, 500).match(/^(dingtalk|feishu|wecom|wechat):user:(.+)$/u);
+  const match = bounded(chatId, 500).match(/^(enterpriseChat|feishu|wecom|wechat):user:(.+)$/u);
   return match ? { channel: match[1], id: match[2] } : null;
 }
 

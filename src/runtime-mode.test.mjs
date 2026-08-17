@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 
 const runtime = await import('./runtime-mode.mjs');
 
-assert.deepEqual(runtime.runtimeMode({ feishuEnabled: false, dingtalkEnabled: true }), {
+assert.deepEqual(runtime.runtimeMode({ feishuEnabled: false, enterpriseChatEnabled: true }), {
   feishuEnabled: false,
-  primaryChannel: 'dingtalk',
+  primaryChannel: 'enterpriseChat',
   pollingRequired: false,
   websocketRequired: false,
 });
@@ -34,39 +34,39 @@ assert.doesNotThrow(() => runtime.validateFeishuConfiguration({
   ownerOpenId: 'ou_abc123',
 }));
 
-assert.doesNotThrow(() => runtime.validateDingTalkConfiguration({
-  dingtalkEnabled: true,
+assert.doesNotThrow(() => runtime.validateEnterpriseChatConfiguration({
+  enterpriseChatEnabled: true,
   multicaEnabled: false,
-  dingtalkTransport: 'wukong-polling',
-  dingtalkOwnerOpenId: '',
+  enterpriseChatTransport: 'legacyBridge-polling',
+  enterpriseChatOwnerOpenId: '',
 }));
-assert.doesNotThrow(() => runtime.validateDingTalkConfiguration({
-  dingtalkEnabled: true,
+assert.doesNotThrow(() => runtime.validateEnterpriseChatConfiguration({
+  enterpriseChatEnabled: true,
   multicaEnabled: false,
-  dingtalkTransport: 'event-stream',
-  dingtalkOwnerOpenId: '',
+  enterpriseChatTransport: 'event-stream',
+  enterpriseChatOwnerOpenId: '',
 }));
 assert.throws(
-  () => runtime.validateDingTalkConfiguration({
-    dingtalkEnabled: true,
+  () => runtime.validateEnterpriseChatConfiguration({
+    enterpriseChatEnabled: true,
     multicaEnabled: false,
-    dingtalkTransport: 'automatic-fallback',
-    dingtalkOwnerOpenId: '',
+    enterpriseChatTransport: 'automatic-fallback',
+    enterpriseChatOwnerOpenId: '',
   }),
-  /dingtalkTransport/,
+  /enterpriseChatTransport/,
 );
 assert.throws(
-  () => runtime.validateDingTalkConfiguration({
-    dingtalkEnabled: true,
+  () => runtime.validateEnterpriseChatConfiguration({
+    enterpriseChatEnabled: true,
     multicaEnabled: true,
-    dingtalkOwnerOpenId: '',
+    enterpriseChatOwnerOpenId: '',
   }),
-  /dingtalkOwnerOpenId/,
+  /enterpriseChatOwnerOpenId/,
 );
-assert.doesNotThrow(() => runtime.validateDingTalkConfiguration({
-  dingtalkEnabled: true,
+assert.doesNotThrow(() => runtime.validateEnterpriseChatConfiguration({
+  enterpriseChatEnabled: true,
   multicaEnabled: true,
-  dingtalkOwnerOpenId: 'open-id-owner-123',
+  enterpriseChatOwnerOpenId: 'open-id-owner-123',
 }));
 
 console.log('RUNTIME_MODE_TEST_OK');

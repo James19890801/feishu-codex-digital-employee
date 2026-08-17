@@ -2,12 +2,12 @@ import {
   formatConversationContext,
 } from './conversation-context.mjs';
 import {
-  annotateAlibabaLanguage,
-  formatAlibabaLanguageAnnotations,
-} from './alibaba-language.mjs';
+  annotateOrganizationLanguage,
+  formatOrganizationLanguageAnnotations,
+} from './organization-language.mjs';
 import { parseChannelChatId } from './im-channels.mjs';
 
-function dingTalkTime(timestampMs) {
+function enterpriseChatTime(timestampMs) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',
     year: 'numeric', month: '2-digit', day: '2-digit',
@@ -17,24 +17,24 @@ function dingTalkTime(timestampMs) {
   return `${value('year')}-${value('month')}-${value('day')} ${value('hour')}:${value('minute')}:${value('second')}`;
 }
 
-export function buildDingTalkReplyHistoryRequest({
+export function buildEnterpriseChatReplyHistoryRequest({
   message = {}, senderOpenId = '', cleanText = '', metadata = {},
 } = {}) {
   const target = parseChannelChatId(message.chat_id);
-  if (target?.channel !== 'dingtalk' || !['user', 'group'].includes(target.kind)) {
-    throw new Error('A DingTalk message target is required for live reply context');
+  if (target?.channel !== 'enterpriseChat' || !['user', 'group'].includes(target.kind)) {
+    throw new Error('A EnterpriseChat message target is required for live reply context');
   }
   const createdAtMs = Number(message.create_time);
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) {
-    throw new Error('A valid DingTalk message create time is required');
+    throw new Error('A valid EnterpriseChat message create time is required');
   }
-  const normalizedSenderId = String(senderOpenId || '').replace(/^dingtalk:/, '').trim();
-  if (!normalizedSenderId) throw new Error('A DingTalk sender ID is required');
+  const normalizedSenderId = String(senderOpenId || '').replace(/^enterpriseChat:/, '').trim();
+  if (!normalizedSenderId) throw new Error('A EnterpriseChat sender ID is required');
   const conversationId = String(message.chat_id || '');
   return {
     kind: target.kind === 'group' ? 'group' : 'direct',
     targetId: target.id,
-    beforeTime: dingTalkTime(createdAtMs + 1_000),
+    beforeTime: enterpriseChatTime(createdAtMs + 1_000),
     conversationId,
     currentMessage: {
       messageId: String(message.message_id || ''),
@@ -42,7 +42,7 @@ export function buildDingTalkReplyHistoryRequest({
       senderId: normalizedSenderId,
       senderName: String(metadata.senderName || metadata.conversationTitle || '').trim(),
       content: String(cleanText || '').trim(),
-      createdAt: dingTalkTime(createdAtMs),
+      createdAt: enterpriseChatTime(createdAtMs),
     },
   };
 }
@@ -79,7 +79,7 @@ export class ReplyContextService {
       throw new ReplyContextUnavailableError('Current conversation has no validated reply target');
     }
     const styles = Array.isArray(context.styleSamples) ? context.styleSamples : [];
-    const language = annotateAlibabaLanguage(task, context.messages);
+    const language = annotateOrganizationLanguage(task, context.messages);
     return {
       context,
       historyPrompt: formatConversationContext(context, { ownerLabel: this.ownerLabel }),
@@ -87,7 +87,7 @@ export class ReplyContextService {
       stylePrompt: styles.length
         ? styles.map(item => `${this.ownerLabel}：${item.content}`).join('\n')
         : '（无，使用 Persona 默认风格）',
-      languagePrompt: formatAlibabaLanguageAnnotations(language),
+      languagePrompt: formatOrganizationLanguageAnnotations(language),
       languageAmbiguous: language.ambiguous,
       ownerLabel: this.ownerLabel,
     };

@@ -77,7 +77,7 @@ import {
   refersToRecentFiles,
   refersToRecentImages,
   requestedImageLimit,
-  selectRecentDingTalkMediaRefs,
+  selectRecentEnterpriseChatMediaRefs,
   selectRecentFileRef,
   selectRecentFileRefs,
   selectRecentImageRefs,
@@ -123,7 +123,7 @@ import {
 } from './multica-artifact-delivery.mjs';
 import {
   artifactFormatForPath,
-  buildDingTalkArtifactSendArgs,
+  buildEnterpriseChatArtifactSendArgs,
   buildFeishuArtifactSendArgs,
 } from './artifact-channel-delivery.mjs';
 import { buildChannelArtifactDeliveryPlan } from './channel-artifact-delivery.mjs';
@@ -168,13 +168,13 @@ import {
   selectAiRuntime,
 } from './ai-runtime.mjs';
 import {
-  buildDingTalkAuthStatusArgs,
-  buildDingTalkConversationPollingArgs,
-  buildDingTalkGroupHostPollingArgs,
-  buildDingTalkProcessEnv,
-  buildDingTalkSelfPollingArgs,
-  normalizeDingTalkGroupHistoryMessages,
-  normalizeDingTalkSelfMessages,
+  buildEnterpriseChatAuthStatusArgs,
+  buildEnterpriseChatConversationPollingArgs,
+  buildEnterpriseChatGroupHostPollingArgs,
+  buildEnterpriseChatProcessEnv,
+  buildEnterpriseChatSelfPollingArgs,
+  normalizeEnterpriseChatGroupHistoryMessages,
+  normalizeEnterpriseChatSelfMessages,
   parseChannelChatId,
   prepareGroupMention,
   requiredGroupMentionApplied,
@@ -203,7 +203,7 @@ import {
   applyVerifiedOwnerHistory,
   evaluateHumanTakeover,
   humanTakeoverStatus,
-  rememberDingTalkConversationContext,
+  rememberEnterpriseChatConversationContext,
   rememberSuppressedTakeoverContext,
   takeoverSyncFailurePolicy,
 } from './human-takeover.mjs';
@@ -222,20 +222,20 @@ import {
 } from './discussion-budget-controller.mjs';
 import { formatConversationHistory } from './conversation-history.mjs';
 import {
-  DingTalkChannel,
+  EnterpriseChatChannel,
   GeWeChannel,
   GeWeWebhookServer,
   WeComChannel,
 } from './im-channel-runtime.mjs';
 import {
-  fetchDingTalkWukongWindow,
+  fetchEnterpriseChatLegacyBridgeWindow,
   semanticObserverFailureRecord,
-  shouldRunDingTalkSemanticObserver,
-} from './dingtalk-wukong-poller.mjs';
+  shouldRunEnterpriseChatSemanticObserver,
+} from './enterpriseChat-legacyBridge-poller.mjs';
 import {
-  buildDingTalkDriveDownloadArgs,
+  buildEnterpriseChatDriveDownloadArgs,
   buildImageUnderstandingTask,
-  buildDingTalkMediaDownloadArgs,
+  buildEnterpriseChatMediaDownloadArgs,
   buildFeishuMediaDownloadArgs,
   buildTranscriptionInvocation,
   mediaFileExtension,
@@ -276,8 +276,8 @@ import {
 } from './feishu-external-bot-fallback.mjs';
 import {
   assertOwnerFileRecipient,
-  buildDingTalkCalendarCreateArgs,
-  buildDingTalkCalendarListArgs,
+  buildEnterpriseChatCalendarCreateArgs,
+  buildEnterpriseChatCalendarListArgs,
   buildFeishuCalendarCreateArgs,
   buildFeishuFreebusyArgs,
   calendarAccessPolicy,
@@ -285,7 +285,7 @@ import {
   hasCalendarConflict,
   looksLikeAvailabilityQuery,
   looksLikeMeetingBookingRequest,
-  normalizeDingTalkCalendarEvents,
+  normalizeEnterpriseChatCalendarEvents,
   normalizeFeishuBusyIntervals,
   normalizeFeishuCalendarEvents,
 } from './calendar-access.mjs';
@@ -376,7 +376,7 @@ const POLL_OVERLAP_MS = config.pollOverlapMs;
 const POLL_INITIAL_LOOKBACK_MS = config.pollInitialLookbackMs;
 const POLL_MAX_CATCHUP_MS = config.pollMaxCatchupMs;
 const POLL_WINDOW_MS = config.pollWindowMs;
-const DINGTALK_AUTH_HEALTH_INTERVAL_MS = 30 * 60_000;
+const ENTERPRISE_CHAT_AUTH_HEALTH_INTERVAL_MS = 30 * 60_000;
 const MAX_CONCURRENT_REPLIES = config.maxConcurrentReplies;
 const GROUP_HOST_CHAT_IDS = new Set(config.groupHostChatIds || []);
 const DASHBOARD_URL = `http://127.0.0.1:${config.dashboardPort}`;
@@ -391,7 +391,7 @@ const MULTICA_CLIENT = config.multicaEnabled
   : null;
 const MULTICA_OWNER_IDENTITIES = {
   ownerOpenId: config.ownerOpenId,
-  dingtalkOwnerOpenId: config.dingtalkOwnerOpenId,
+  enterpriseChatOwnerOpenId: config.enterpriseChatOwnerOpenId,
 };
 const authorizeMulticaWrite = context => isAuthorizedMulticaOwner(
   context,
@@ -449,33 +449,33 @@ const MULTICA_SYNCHRONIZER = MULTICA_CLIENT
       audit: (event, detail) => state.audit(event, { detail }),
       appUrl: config.multicaAppUrl,
       artifactDelivery: MULTICA_ARTIFACT_DELIVERY,
-      ownerRecipient: config.dingtalkEnabled && config.dingtalkOwnerOpenId
+      ownerRecipient: config.enterpriseChatEnabled && config.enterpriseChatOwnerOpenId
         ? {
-            chatId: `dingtalk:user:${config.dingtalkOwnerOpenId}`,
-            senderId: `dingtalk:${config.dingtalkOwnerOpenId}`,
+            chatId: `enterpriseChat:user:${config.enterpriseChatOwnerOpenId}`,
+            senderId: `enterpriseChat:${config.enterpriseChatOwnerOpenId}`,
             chatType: 'p2p',
-            channel: 'dingtalk',
+            channel: 'enterpriseChat',
           }
         : null,
     })
   : null;
 let stopping = false;
 let activeEventChild = null;
-let activeDingTalkChild = null;
+let activeEnterpriseChatChild = null;
 let activeSdkWsClient = null;
 let drainPromise = null;
 let multicaSyncPromise = null;
-let dingTalkSupervisorPromise = null;
-let dingTalkSelfPollingPromise = null;
-let dingTalkSemanticPollingPromise = null;
-let dingTalkGroupHostRecoveryPromise = null;
+let enterpriseChatSupervisorPromise = null;
+let enterpriseChatSelfPollingPromise = null;
+let enterpriseChatSemanticPollingPromise = null;
+let enterpriseChatGroupHostRecoveryPromise = null;
 let geWeMonitorPromise = null;
 let dailyLearningPromise = null;
 let groupHostPromise = null;
 let localWikiRefreshPromise = null;
 let businessClient = null;
 let sdkAppSecret = '';
-let dingTalkChannel = null;
+let enterpriseChatChannel = null;
 let weComChannel = null;
 let geWeChannel = null;
 let geWeWebhookServer = null;
@@ -989,10 +989,10 @@ async function sendTextUnchecked(client, chatId, text, uuid, {
     error.code = 'REQUIRED_REPLY_MENTION_NOT_APPLIED';
     throw error;
   }
-  if (target?.channel === 'dingtalk') {
-    if (!dingTalkChannel) throw new Error('DingTalk channel is not available');
-    return sendWithEchoGuard(chatId, outboundText, () => dingTalkChannel.send(target, outboundText, uuid, {
-        atOpenDingTalkIds: mention.atOpenDingTalkIds,
+  if (target?.channel === 'enterpriseChat') {
+    if (!enterpriseChatChannel) throw new Error('EnterpriseChat channel is not available');
+    return sendWithEchoGuard(chatId, outboundText, () => enterpriseChatChannel.send(target, outboundText, uuid, {
+        mentionUserIds: mention.mentionUserIds,
       }));
   }
   if (target?.channel === 'wecom') {
@@ -1107,26 +1107,26 @@ async function deliverMulticaArtifact(payload) {
     }
     return result;
   }
-  if (effectiveChannel === 'dingtalk') {
-    const args = buildDingTalkArtifactSendArgs({
+  if (effectiveChannel === 'enterpriseChat') {
+    const args = buildEnterpriseChatArtifactSendArgs({
       target,
       path: artifactPath,
       uuid: payload.idempotencyKey,
     });
     const result = await sendWithEchoGuard(chatId, payload.name || artifactPath, async () => {
-      const { stdout, stderr } = await runBufferedProcess(config.dingtalkBin, args, {
+      const { stdout, stderr } = await runBufferedProcess(config.enterpriseChatBin, args, {
         cwd: WORKDIR,
-        env: dingtalkProcessEnv(),
+        env: enterpriseChatProcessEnv(),
         timeoutMs: config.larkCliTimeoutMs,
         maxStdoutBytes: 8 * 1024 * 1024,
         maxStderrBytes: 1024 * 1024,
       });
       let result;
       try { result = JSON.parse(stdout); } catch {
-        throw new Error(`dws file send returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
+        throw new Error(`connector file send returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
       }
       if (result.success === false || result.error) {
-        throw new Error(`dws file send failed: ${JSON.stringify(result.error || result).slice(0, 1000)}`);
+        throw new Error(`connector file send failed: ${JSON.stringify(result.error || result).slice(0, 1000)}`);
       }
       return result;
     });
@@ -1239,27 +1239,27 @@ async function queryCalendarEvents(client, senderOpenId, window) {
   return (response.data?.items || []).filter(event => event.status !== 'cancelled');
 }
 
-async function runDingTalkCalendarList(window) {
-  const args = buildDingTalkCalendarListArgs({
-    profile: config.dingtalkProfile,
+async function runEnterpriseChatCalendarList(window) {
+  const args = buildEnterpriseChatCalendarListArgs({
+    profile: config.enterpriseChatProfile,
     start: window.start.toISOString(),
     end: window.end.toISOString(),
   });
-  const { stdout, stderr } = await runBufferedProcess(config.dingtalkBin, args, {
+  const { stdout, stderr } = await runBufferedProcess(config.enterpriseChatBin, args, {
     cwd: WORKDIR,
-    env: dingtalkProcessEnv(),
+    env: enterpriseChatProcessEnv(),
     timeoutMs: config.larkCliTimeoutMs,
     maxStdoutBytes: 4 * 1024 * 1024,
     maxStderrBytes: 512 * 1024,
   });
   let payload;
   try { payload = JSON.parse(stdout); } catch {
-    throw new Error(`dws calendar list returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
+    throw new Error(`connector calendar list returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
   }
   if (payload?.success === false || payload?.error) {
-    throw new Error(`dws calendar list failed: ${JSON.stringify(payload.error || payload).slice(0, 1000)}`);
+    throw new Error(`connector calendar list failed: ${JSON.stringify(payload.error || payload).slice(0, 1000)}`);
   }
-  return normalizeDingTalkCalendarEvents(payload);
+  return normalizeEnterpriseChatCalendarEvents(payload);
 }
 
 async function queryChannelCalendar(client, message, senderOpenId, window, metadata = {}) {
@@ -1269,8 +1269,8 @@ async function queryChannelCalendar(client, message, senderOpenId, window, metad
     senderId: senderOpenId,
     identities: MULTICA_OWNER_IDENTITIES,
   });
-  if (channel === 'dingtalk') {
-    return { policy, events: await runDingTalkCalendarList(window) };
+  if (channel === 'enterpriseChat') {
+    return { policy, events: await runEnterpriseChatCalendarList(window) };
   }
   if (channel !== 'feishu') throw new Error(`Calendar is not available for ${channel}`);
   if (policy.canViewDetails) {
@@ -1347,23 +1347,23 @@ async function createChannelCalendarEvent(message, draft, metadata = {}) {
       summary: common.summary,
     };
   }
-  const args = buildDingTalkCalendarCreateArgs({
+  const args = buildEnterpriseChatCalendarCreateArgs({
     ...common,
-    profile: config.dingtalkProfile,
+    profile: config.enterpriseChatProfile,
   });
-  const { stdout, stderr } = await runBufferedProcess(config.dingtalkBin, args, {
+  const { stdout, stderr } = await runBufferedProcess(config.enterpriseChatBin, args, {
     cwd: WORKDIR,
-    env: dingtalkProcessEnv(),
+    env: enterpriseChatProcessEnv(),
     timeoutMs: config.larkCliTimeoutMs,
     maxStdoutBytes: 2 * 1024 * 1024,
     maxStderrBytes: 512 * 1024,
   });
   let payload;
   try { payload = JSON.parse(stdout); } catch {
-    throw new Error(`dws calendar create returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
+    throw new Error(`connector calendar create returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
   }
   if (payload?.success === false || payload?.error) {
-    throw new Error(`dws calendar create failed: ${JSON.stringify(payload.error || payload).slice(0, 1000)}`);
+    throw new Error(`connector calendar create failed: ${JSON.stringify(payload.error || payload).slice(0, 1000)}`);
   }
   const event = payload?.result?.event || payload?.result || payload?.data || payload || {};
   return {
@@ -1757,7 +1757,7 @@ async function applyPendingMultica(message, senderOpenId, cleanText, metadata = 
     await sendText(
       null,
       message.chat_id,
-      '只有经过验证的 Owner 在飞书、钉钉 self-chat 或微信文件传输助手中才能确认 Multica 写入；本次操作未执行。',
+      '只有经过验证的 Owner 在飞书、企业会话 self-chat 或微信文件传输助手中才能确认 Multica 写入；本次操作未执行。',
       `multica-owner-required-${message.message_id}`,
     );
     audit('multica_write_denied', message, senderOpenId, {
@@ -2198,7 +2198,7 @@ async function handleMulticaArtifactFollowup(message, senderOpenId, cleanText, m
   state.upsertMulticaIssue(updated);
   pendingActions.delete('multica_create_route', message.chat_id, senderOpenId);
   const run = await MULTICA_CLIENT.rerunIssue(updated.id, updated.workspace_id);
-  const channelLabel = channel === 'dingtalk' ? '钉钉' : channel === 'wechat' ? '微信' : '飞书';
+  const channelLabel = channel === 'enterpriseChat' ? '企业会话' : channel === 'wechat' ? '微信' : '飞书';
   const answer = `已经在 ${updated.identifier} 补上真实文件交付契约并重新启动。${deliveryPlan.formats.map(item => item.toUpperCase()).join('、')} 生成后会自动上传、下载校验，再回传到这个${channelLabel}对话。`;
   remember(message.chat_id, senderOpenId, 'assistant', answer);
   await sendText(null, message.chat_id, answer, `multica-artifact-rerun-${message.message_id}`);
@@ -2457,7 +2457,7 @@ async function handleMulticaRequest(
     await sendText(
       null,
       message.chat_id,
-      '只有经过验证的 Owner 在飞书、钉钉 self-chat 或微信文件传输助手中才能创建、更新、评论或派发 Multica Issue。当前会话仍可查询，或反馈 AIPRO 的 Bug、整改意见和功能需求；反馈会先追问并仅登记为未指派 backlog。',
+      '只有经过验证的 Owner 在飞书、企业会话 self-chat 或微信文件传输助手中才能创建、更新、评论或派发 Multica Issue。当前会话仍可查询，或反馈 AIPRO 的 Bug、整改意见和功能需求；反馈会先追问并仅登记为未指派 backlog。',
       `multica-owner-required-${message.message_id}`,
     );
     audit('multica_write_denied', message, senderOpenId, {
@@ -2494,7 +2494,7 @@ async function handleMulticaWorkRequest(message, senderOpenId, request, decision
     await sendText(
       null,
       message.chat_id,
-      '只有经过验证的 Owner 在飞书、钉钉 self-chat 或微信文件传输助手中才能执行 Multica Issue；本次没有修改状态或启动任务。',
+      '只有经过验证的 Owner 在飞书、企业会话 self-chat 或微信文件传输助手中才能执行 Multica Issue；本次没有修改状态或启动任务。',
       `multica-work-owner-required-${message.message_id}`,
     );
     audit('multica_work_denied', message, senderOpenId, { issue: request.issue });
@@ -2587,7 +2587,7 @@ function writeHumanTakeover(chatId, value) {
   else state.unset(chatId, 'human_takeover');
 }
 
-function dingTalkMessageTime(value) {
+function enterpriseChatMessageTime(value) {
   const raw = String(value || '').trim();
   if (!raw) return Number.NaN;
   const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)
@@ -2596,23 +2596,23 @@ function dingTalkMessageTime(value) {
   return Date.parse(normalized);
 }
 
-async function syncRecentDingTalkTakeover(message, metadata = {}) {
+async function syncRecentEnterpriseChatTakeover(message, metadata = {}) {
   const target = parseChannelChatId(message?.chat_id);
-  if (target?.channel !== 'dingtalk'
-    || config.dingtalkTransport === 'wukong-polling'
-    || !config.dingtalkOwnerOpenId
+  if (target?.channel !== 'enterpriseChat'
+    || config.enterpriseChatTransport === 'legacyBridge-polling'
+    || !config.enterpriseChatOwnerOpenId
     || metadata.selfChat === true) return null;
   const nowMs = Date.now();
   const { stdout, stderr } = await runBufferedProcess(
-    config.dingtalkBin,
-    buildDingTalkConversationPollingArgs(
-      config.dingtalkProfile,
+    config.enterpriseChatBin,
+    buildEnterpriseChatConversationPollingArgs(
+      config.enterpriseChatProfile,
       target,
-      dingTalkPollingTime(nowMs),
+      enterpriseChatPollingTime(nowMs),
     ),
     {
       cwd: WORKDIR,
-      env: dingtalkProcessEnv(),
+      env: enterpriseChatProcessEnv(),
       timeoutMs: config.larkCliTimeoutMs,
       maxStdoutBytes: 4 * 1024 * 1024,
       maxStderrBytes: 512 * 1024,
@@ -2620,23 +2620,23 @@ async function syncRecentDingTalkTakeover(message, metadata = {}) {
   );
   let result;
   try { result = JSON.parse(stdout); } catch {
-    throw new Error(`dws conversation control poll returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
+    throw new Error(`connector conversation control poll returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
   }
   if (result.success === false || result.error) {
-    throw new Error(`dws conversation control poll failed: ${JSON.stringify(result.error || result).slice(0, 1000)}`);
+    throw new Error(`connector conversation control poll failed: ${JSON.stringify(result.error || result).slice(0, 1000)}`);
   }
   const root = result?.result || result?.data || result || {};
   const messages = Array.isArray(root) ? root : (root.messages || root.items || []);
-  const recentMedia = selectRecentDingTalkMediaRefs(messages, {
+  const recentMedia = selectRecentEnterpriseChatMediaRefs(messages, {
     currentTime: Number(message.create_time || nowMs),
-    parseTime: dingTalkMessageTime,
+    parseTime: enterpriseChatMessageTime,
     conversationId: target.id,
     limit: 4,
   });
-  const rememberedContext = rememberDingTalkConversationContext(messages, {
+  const rememberedContext = rememberEnterpriseChatConversationContext(messages, {
     state,
     chatId: message.chat_id,
-    parseTime: dingTalkMessageTime,
+    parseTime: enterpriseChatMessageTime,
     isAssistantMessage: item => state.hasOutboundEcho(
       message.chat_id,
       String(item?.content || item?.text || ''),
@@ -2648,15 +2648,15 @@ async function syncRecentDingTalkTakeover(message, metadata = {}) {
       chatId: message.chat_id,
       senderId: '',
       messageId: message.message_id,
-      detail: { channel: 'dingtalk', remembered: rememberedContext },
+      detail: { channel: 'enterpriseChat', remembered: rememberedContext },
     });
   }
   const applied = applyVerifiedOwnerHistory(messages, {
     chatType: target.kind === 'user' ? 'p2p' : 'group',
-    ownerId: config.dingtalkOwnerOpenId,
+    ownerId: config.enterpriseChatOwnerOpenId,
     current: readHumanTakeover(message.chat_id, nowMs),
     nowMs,
-    parseTime: dingTalkMessageTime,
+    parseTime: enterpriseChatMessageTime,
     isAssistantMessage: item => state.hasOutboundEcho(
       message.chat_id,
       String(item?.content || item?.text || ''),
@@ -2670,10 +2670,10 @@ async function syncRecentDingTalkTakeover(message, metadata = {}) {
     ? 'takeover_paused'
     : latest?.command === 'resume' ? 'takeover_resume_requested' : 'owner_manual_activity', {
     chatId: message.chat_id,
-    senderId: `dingtalk:${config.dingtalkOwnerOpenId}`,
+    senderId: `enterpriseChat:${config.enterpriseChatOwnerOpenId}`,
     messageId: latest?.messageId || '',
     detail: {
-      channel: 'dingtalk',
+      channel: 'enterpriseChat',
       active: applied.active,
       pausedUntilMs: Number(applied.state?.pausedUntilMs || 0),
     },
@@ -2692,10 +2692,10 @@ async function processIncoming(client, message, sender, metadata = {}) {
   let text = '';
   let imageKeys = [];
   let imageRefs = [];
-  let dingTalkImageRefs = [];
+  let enterpriseChatImageRefs = [];
   let weChatImagePaths = [];
   let weChatImageResolutionFailed = false;
-  let recentDingTalkMediaRefs = [];
+  let recentEnterpriseChatMediaRefs = [];
   let fileKey = '';
   let fileName = '';
   let fileRef = null;
@@ -2859,10 +2859,10 @@ async function processIncoming(client, message, sender, metadata = {}) {
     return;
   }
 
-  if (parseChannelChatId(message.chat_id)?.channel === 'dingtalk') {
+  if (parseChannelChatId(message.chat_id)?.channel === 'enterpriseChat') {
     try {
-      const synchronized = await syncRecentDingTalkTakeover(message, metadata);
-      recentDingTalkMediaRefs = Array.isArray(synchronized?.recentMedia)
+      const synchronized = await syncRecentEnterpriseChatTakeover(message, metadata);
+      recentEnterpriseChatMediaRefs = Array.isArray(synchronized?.recentMedia)
         ? synchronized.recentMedia : [];
     } catch (error) {
       const failurePolicy = takeoverSyncFailurePolicy({
@@ -2870,7 +2870,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
         attemptNumber: metadata.inboundAttemptNumber,
       });
       audit('takeover_control_check_failed', message, senderOpenId, {
-        channel: 'dingtalk',
+        channel: 'enterpriseChat',
         failurePolicy,
         attemptNumber: Number(metadata.inboundAttemptNumber || 1),
         error: processFailureSummary(error),
@@ -3084,8 +3084,8 @@ async function processIncoming(client, message, sender, metadata = {}) {
     || parseChannelChatId(message.chat_id)?.channel
     || 'feishu';
   const discussionOwnerAuthorized = senderOpenId === OWNER_OPEN_ID
-    || (discussionChannel === 'dingtalk'
-      && senderOpenId === `dingtalk:${config.dingtalkOwnerOpenId}`)
+    || (discussionChannel === 'enterpriseChat'
+      && senderOpenId === `enterpriseChat:${config.enterpriseChatOwnerOpenId}`)
     || metadata.ownerControlAuthenticated === true;
   if (multicaRequestRoute(cleanText) === 'artifact_followup') {
     try {
@@ -3261,12 +3261,12 @@ async function processIncoming(client, message, sender, metadata = {}) {
     return;
   }
   if (!imageRefs.length && ['text', 'post'].includes(message.message_type) && refersToRecentImages(cleanText)) {
-    const dingtalkTarget = parseChannelChatId(message.chat_id);
-    if (dingtalkTarget?.channel === 'dingtalk') {
-      dingTalkImageRefs = recentDingTalkMediaRefs
+    const enterpriseChatTarget = parseChannelChatId(message.chat_id);
+    if (enterpriseChatTarget?.channel === 'enterpriseChat') {
+      enterpriseChatImageRefs = recentEnterpriseChatMediaRefs
         .filter(ref => ref.kind === 'image')
         .slice(-requestedImageLimit(cleanText));
-    } else if (dingtalkTarget?.channel === 'wechat') {
+    } else if (enterpriseChatTarget?.channel === 'wechat') {
       weChatImagePaths = recentWeChatImages(state, message.chat_id, {
         nowMs: Number(message.create_time || Date.now()),
         limit: requestedImageLimit(cleanText),
@@ -3522,7 +3522,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
       console.error(`[calendar-create-error] ${message.message_id}:`, error);
       pendingActions.delete('calendar', message.chat_id, senderOpenId);
       const answer = error instanceof MutationOutcomeAmbiguousError
-        ? `这个日程的创建结果不确定。为了避免重复创建，我已经停止自动重试。请先在${calendarChannel === 'dingtalk' ? '钉钉' : '飞书'}日历中核对；确认没有创建后，再重新发起。`
+        ? `这个日程的创建结果不确定。为了避免重复创建，我已经停止自动重试。请先在${calendarChannel === 'enterpriseChat' ? '企业会话' : '飞书'}日历中核对；确认没有创建后，再重新发起。`
         : '日程没有创建成功，请重新发起一次。';
       await sendText(client, message.chat_id, answer, `xiaozhao-event-error-${message.message_id}`);
       return;
@@ -3625,7 +3625,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
     ? await searchFeishuKnowledge(client, cleanText, senderOpenId)
     : null;
   const inboundMediaKind = metadata.media?.kind || message.message_type;
-  let task = imageRefs.length || dingTalkImageRefs.length || weChatImagePaths.length
+  let task = imageRefs.length || enterpriseChatImageRefs.length || weChatImagePaths.length
     || inboundMediaKind === 'image'
     ? buildImageUnderstandingTask(cleanText)
     : cleanText;
@@ -3656,7 +3656,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
   console.log(
     `[receive] ${message.message_id}: ${message.message_type}`
       + ` request=${cleanText.slice(0, 100)}`
-      + ` files=${fileRefs.length || (fileRef ? 1 : 0)} images=${imageRefs.length + dingTalkImageRefs.length + weChatImagePaths.length}`
+      + ` files=${fileRefs.length || (fileRef ? 1 : 0)} images=${imageRefs.length + enterpriseChatImageRefs.length + weChatImagePaths.length}`
       + ` documents=${knowledgeResult?.documents?.length || 0}`,
   );
 
@@ -3769,24 +3769,24 @@ async function processIncoming(client, message, sender, metadata = {}) {
     }
     if (metadata.file?.resourceId) {
       await ensureTempDir();
-      const safeName = basename(metadata.file.fileName || 'dingtalk-attachment.bin');
+      const safeName = basename(metadata.file.fileName || 'enterpriseChat-attachment.bin');
       const filePath = join(tempDir, safeName);
-      await runBufferedProcess(config.dingtalkBin, buildDingTalkDriveDownloadArgs({
-        profile: config.dingtalkProfile,
+      await runBufferedProcess(config.enterpriseChatBin, buildEnterpriseChatDriveDownloadArgs({
+        profile: config.enterpriseChatProfile,
         fileId: metadata.file.resourceId,
         outputPath: filePath,
       }), {
         cwd: WORKDIR,
-        env: dingtalkProcessEnv(),
+        env: enterpriseChatProcessEnv(),
         timeoutMs: config.larkCliTimeoutMs,
         maxStdoutBytes: 512 * 1024,
         maxStderrBytes: 512 * 1024,
       });
       await assertMediaFile(filePath);
       const extracted = await extractFileText(filePath);
-      if (!extracted) throw new Error('No readable text found in DingTalk file');
+      if (!extracted) throw new Error('No readable text found in EnterpriseChat file');
       task += `\n\n文件内容：\n${extracted}`;
-      audit('media_downloaded', message, senderOpenId, { channel: 'dingtalk', kind: 'file' });
+      audit('media_downloaded', message, senderOpenId, { channel: 'enterpriseChat', kind: 'file' });
     }
     if (audioRef) {
       await ensureTempDir();
@@ -3904,28 +3904,28 @@ async function processIncoming(client, message, sender, metadata = {}) {
         });
       }
     }
-    const dingTalkMediaRefs = [
+    const enterpriseChatMediaRefs = [
       ...(metadata.media?.resourceId ? [metadata.media] : []),
-      ...dingTalkImageRefs,
+      ...enterpriseChatImageRefs,
     ].filter((ref, index, refs) => refs.findIndex(candidate => (
       candidate.resourceId === ref.resourceId && candidate.messageId === ref.messageId
     )) === index);
-    for (const [mediaIndex, media] of dingTalkMediaRefs.entries()) {
+    for (const [mediaIndex, media] of enterpriseChatMediaRefs.entries()) {
       await ensureTempDir();
       const kind = media.kind;
       let mediaPath = join(
         tempDir,
-        `dingtalk-${kind}-${mediaIndex + 1}${kind === 'image' ? '.bin' : mediaFileExtension(kind)}`,
+        `enterpriseChat-${kind}-${mediaIndex + 1}${kind === 'image' ? '.bin' : mediaFileExtension(kind)}`,
       );
-      await runBufferedProcess(config.dingtalkBin, buildDingTalkMediaDownloadArgs({
-        profile: config.dingtalkProfile,
+      await runBufferedProcess(config.enterpriseChatBin, buildEnterpriseChatMediaDownloadArgs({
+        profile: config.enterpriseChatProfile,
         resourceId: media.resourceId,
         messageId: media.messageId,
         conversationId: media.conversationId,
         outputPath: mediaPath,
       }), {
         cwd: WORKDIR,
-        env: dingtalkProcessEnv(),
+        env: enterpriseChatProcessEnv(),
         timeoutMs: config.larkCliTimeoutMs,
         maxStdoutBytes: 512 * 1024,
         maxStderrBytes: 512 * 1024,
@@ -3933,8 +3933,8 @@ async function processIncoming(client, message, sender, metadata = {}) {
       await assertMediaFile(mediaPath);
       if (kind === 'image') {
         const detectedExtension = sniffMediaFileExtension((await readFile(mediaPath)).subarray(0, 16));
-        if (!detectedExtension) throw new Error('DingTalk image format is unsupported');
-        const typedMediaPath = join(tempDir, `dingtalk-image-${mediaIndex + 1}${detectedExtension}`);
+        if (!detectedExtension) throw new Error('EnterpriseChat image format is unsupported');
+        const typedMediaPath = join(tempDir, `enterpriseChat-image-${mediaIndex + 1}${detectedExtension}`);
         await rename(mediaPath, typedMediaPath);
         mediaPath = typedMediaPath;
         imagePaths.push(mediaPath);
@@ -3943,7 +3943,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
           task += `\n\n语音转写：\n${await transcribeAudio(mediaPath)}`;
         } catch (error) {
           audit('audio_transcription_unavailable', message, senderOpenId, {
-            channel: 'dingtalk',
+            channel: 'enterpriseChat',
             error: processFailureSummary(error),
           });
           await sendText(null, message.chat_id, '语音收到了，但这次没有转写成功。你可以再发一次，或者补一句文字。', `aipro-audio-unavailable-${message.message_id}`);
@@ -3976,7 +3976,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
         if (transcript) task += `\n\n视频音频转写：\n${transcript}`;
         if (!transcript && !imagePaths.length) throw new Error('Video contains no readable frame or transcript');
       }
-      audit('media_downloaded', message, senderOpenId, { channel: 'dingtalk', kind });
+      audit('media_downloaded', message, senderOpenId, { channel: 'enterpriseChat', kind });
     }
     const inboundLinkUrls = resolveInboundLinkUrls({
       text: cleanText,
@@ -4065,7 +4065,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
         ? `${cleanText || '请求读取文件'}：${fileRef?.fileName
           || weChatFileContext.files.at(-1)?.fileName
           || weChatFileContext.sources.at(-1)?.fileName || '未命名文件'}`
-        : imageRefs.length || dingTalkImageRefs.length || weChatImagePaths.length
+        : imageRefs.length || enterpriseChatImageRefs.length || weChatImagePaths.length
           ? `${cleanText || '发送了图片'}（含图片）` : task;
     let relationshipContext = '';
     if (metadata.channel === 'wechat' && wechatRelationshipMemory) {
@@ -4169,7 +4169,7 @@ function enqueueInbound(payload, source) {
     return false;
   }
   const echoGuardEnabled = ownerActivity || (payload.message.chat_type === 'p2p'
-    && (selfChat || payload.metadata?.channel === 'dingtalk'));
+    && (selfChat || payload.metadata?.channel === 'enterpriseChat'));
   if (echoGuardEnabled) {
     let text = '';
     try { text = String(JSON.parse(payload.message.content || '{}').text || ''); } catch {}
@@ -4634,13 +4634,13 @@ async function runUserPollingLoop() {
   }
 }
 
-function dingTalkSelfUserId() {
-  const profile = String(config.dingtalkProfile || '');
+function enterpriseChatSelfUserId() {
+  const profile = String(config.enterpriseChatProfile || '');
   const separator = profile.indexOf(':');
   return separator >= 0 ? profile.slice(separator + 1).trim() : '';
 }
 
-function dingTalkPollingTime(timestampMs) {
+function enterpriseChatPollingTime(timestampMs) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',
     year: 'numeric', month: '2-digit', day: '2-digit',
@@ -4650,19 +4650,19 @@ function dingTalkPollingTime(timestampMs) {
   return `${value('year')}-${value('month')}-${value('day')} ${value('hour')}:${value('minute')}:${value('second')}`;
 }
 
-async function fetchDingTalkSelfMessages(startMs, endMs) {
-  const userId = dingTalkSelfUserId();
-  if (!config.dingtalkEnabled || !userId) return [];
+async function fetchEnterpriseChatSelfMessages(startMs, endMs) {
+  const userId = enterpriseChatSelfUserId();
+  if (!config.enterpriseChatEnabled || !userId) return [];
   const { stdout, stderr } = await runBufferedProcess(
-    config.dingtalkBin,
-    buildDingTalkSelfPollingArgs(
-      config.dingtalkProfile,
+    config.enterpriseChatBin,
+    buildEnterpriseChatSelfPollingArgs(
+      config.enterpriseChatProfile,
       userId,
-      dingTalkPollingTime(startMs),
+      enterpriseChatPollingTime(startMs),
     ),
     {
       cwd: WORKDIR,
-      env: dingtalkProcessEnv(),
+      env: enterpriseChatProcessEnv(),
       timeoutMs: config.larkCliTimeoutMs,
       maxStdoutBytes: 8 * 1024 * 1024,
       maxStderrBytes: 1024 * 1024,
@@ -4670,79 +4670,79 @@ async function fetchDingTalkSelfMessages(startMs, endMs) {
   );
   let result;
   try { result = JSON.parse(stdout); } catch {
-    throw new Error(`dws self-chat poll returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
+    throw new Error(`connector self-chat poll returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
   }
   if (result.success === false || result.error) {
-    throw new Error(`dws self-chat poll failed: ${JSON.stringify(result.error || result).slice(0, 1000)}`);
+    throw new Error(`connector self-chat poll failed: ${JSON.stringify(result.error || result).slice(0, 1000)}`);
   }
-  return normalizeDingTalkSelfMessages(result)
+  return normalizeEnterpriseChatSelfMessages(result)
     .filter(payload => Number(payload.message.create_time || 0) <= endMs);
 }
 
-async function initializeDingTalkSelfPolling() {
-  if (!config.dingtalkEnabled || !dingTalkSelfUserId()) return false;
+async function initializeEnterpriseChatSelfPolling() {
+  if (!config.enterpriseChatEnabled || !enterpriseChatSelfUserId()) return false;
   const nowMs = Date.now();
-  if (!state.get('dingtalk_self_poller', 'initialized_v1', false)) {
-    const snapshot = await fetchDingTalkSelfMessages(nowMs - POLL_INITIAL_LOOKBACK_MS, nowMs);
+  if (!state.get('enterpriseChat_self_poller', 'initialized_v1', false)) {
+    const snapshot = await fetchEnterpriseChatSelfMessages(nowMs - POLL_INITIAL_LOOKBACK_MS, nowMs);
     const seededAt = new Date().toISOString();
     let seeded = 0;
     for (const payload of snapshot) {
-      if (state.seedInbound(payload.message.message_id, 'dingtalk-self-baseline', payload, seededAt)) {
+      if (state.seedInbound(payload.message.message_id, 'enterpriseChat-self-baseline', payload, seededAt)) {
         seeded += 1;
       }
     }
-    state.set('dingtalk_self_poller', 'cursor_ms', nowMs);
-    state.set('dingtalk_self_poller', 'initialized_v1', true);
-    state.audit('dingtalk_self_poller_baseline_seeded', { detail: { seeded } });
-    console.log(`[dingtalk-self-poll] baseline ready; seeded ${seeded} existing message(s)`);
+    state.set('enterpriseChat_self_poller', 'cursor_ms', nowMs);
+    state.set('enterpriseChat_self_poller', 'initialized_v1', true);
+    state.audit('enterpriseChat_self_poller_baseline_seeded', { detail: { seeded } });
+    console.log(`[enterpriseChat-self-poll] baseline ready; seeded ${seeded} existing message(s)`);
     return true;
   }
-  if (!state.get('dingtalk_self_poller', 'cursor_ms', 0)) {
-    state.set('dingtalk_self_poller', 'cursor_ms', nowMs);
+  if (!state.get('enterpriseChat_self_poller', 'cursor_ms', 0)) {
+    state.set('enterpriseChat_self_poller', 'cursor_ms', nowMs);
   }
   return true;
 }
 
-async function pollDingTalkSelfMessagesOnce() {
+async function pollEnterpriseChatSelfMessagesOnce() {
   const nowMs = Date.now();
-  const cursorMs = Number(state.get('dingtalk_self_poller', 'cursor_ms', nowMs));
+  const cursorMs = Number(state.get('enterpriseChat_self_poller', 'cursor_ms', nowMs));
   const { startMs, endMs } = planPollWindow(cursorMs, nowMs, {
     overlapMs: POLL_OVERLAP_MS,
     maxCatchupMs: POLL_MAX_CATCHUP_MS,
     maxWindowMs: POLL_WINDOW_MS,
   });
-  const payloads = await fetchDingTalkSelfMessages(startMs, endMs);
+  const payloads = await fetchEnterpriseChatSelfMessages(startMs, endMs);
   let enqueued = 0;
   for (const payload of payloads) {
-    if (enqueueInbound(payload, 'dingtalk-self-poll')) enqueued += 1;
+    if (enqueueInbound(payload, 'enterpriseChat-self-poll')) enqueued += 1;
   }
-  state.set('dingtalk_self_poller', 'cursor_ms', endMs);
-  state.set('health', 'last_dingtalk_self_poll_success_at', new Date().toISOString());
-  state.unset('health', 'last_dingtalk_self_poll_error');
+  state.set('enterpriseChat_self_poller', 'cursor_ms', endMs);
+  state.set('health', 'last_enterpriseChat_self_poll_success_at', new Date().toISOString());
+  state.unset('health', 'last_enterpriseChat_self_poll_error');
   if (enqueued) {
-    console.log(`[dingtalk-self-poll] enqueued ${enqueued} new message(s)`);
+    console.log(`[enterpriseChat-self-poll] enqueued ${enqueued} new message(s)`);
     triggerDrain();
   }
   return enqueued;
 }
 
-async function runDingTalkSelfPollingLoop() {
+async function runEnterpriseChatSelfPollingLoop() {
   let failures = 0;
   while (!stopping) {
     const startedAt = Date.now();
     try {
-      await pollDingTalkSelfMessagesOnce();
+      await pollEnterpriseChatSelfMessagesOnce();
       failures = 0;
     } catch (error) {
       if (stopping) break;
       failures += 1;
       const delayMs = pollFailureDelayMs(error, failures, { baseIntervalMs: POLL_INTERVAL_MS });
       const summary = processFailureSummary(error);
-      state.set('health', 'last_dingtalk_self_poll_error', {
+      state.set('health', 'last_enterpriseChat_self_poll_error', {
         at: new Date().toISOString(), error: summary,
       });
-      state.audit('dingtalk_self_poll_error', { detail: { failures, delayMs, error: summary } });
-      console.error(`[dingtalk-self-poll-error] retry in ${delayMs}ms:`, error);
+      state.audit('enterpriseChat_self_poll_error', { detail: { failures, delayMs, error: summary } });
+      console.error(`[enterpriseChat-self-poll-error] retry in ${delayMs}ms:`, error);
       await wait(delayMs);
       continue;
     }
@@ -4750,19 +4750,19 @@ async function runDingTalkSelfPollingLoop() {
   }
 }
 
-async function fetchDingTalkGroupHostRecoveryMessages(chatId, startMs, endMs) {
+async function fetchEnterpriseChatGroupHostRecoveryMessages(chatId, startMs, endMs) {
   const target = parseChannelChatId(chatId);
-  if (target?.channel !== 'dingtalk' || target.kind !== 'group') return [];
+  if (target?.channel !== 'enterpriseChat' || target.kind !== 'group') return [];
   const { stdout, stderr } = await runBufferedProcess(
-    config.dingtalkBin,
-    buildDingTalkGroupHostPollingArgs(
-      config.dingtalkProfile,
+    config.enterpriseChatBin,
+    buildEnterpriseChatGroupHostPollingArgs(
+      config.enterpriseChatProfile,
       target.id,
-      dingTalkPollingTime(startMs),
+      enterpriseChatPollingTime(startMs),
     ),
     {
       cwd: WORKDIR,
-      env: dingtalkProcessEnv(),
+      env: enterpriseChatProcessEnv(),
       timeoutMs: config.larkCliTimeoutMs,
       maxStdoutBytes: 8 * 1024 * 1024,
       maxStderrBytes: 1024 * 1024,
@@ -4770,37 +4770,37 @@ async function fetchDingTalkGroupHostRecoveryMessages(chatId, startMs, endMs) {
   );
   let result;
   try { result = JSON.parse(stdout); } catch {
-    throw new Error(`dws group host recovery returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
+    throw new Error(`connector group host recovery returned invalid JSON: ${(stderr || stdout).slice(-800)}`);
   }
   if (result.success === false || result.error) {
-    throw new Error(`dws group host recovery failed: ${JSON.stringify(result.error || result).slice(0, 1000)}`);
+    throw new Error(`connector group host recovery failed: ${JSON.stringify(result.error || result).slice(0, 1000)}`);
   }
-  return normalizeDingTalkGroupHistoryMessages(result, {
+  return normalizeEnterpriseChatGroupHistoryMessages(result, {
     groupId: target.id,
-    ownerOpenId: config.dingtalkOwnerOpenId,
+    ownerOpenId: config.enterpriseChatOwnerOpenId,
   }).filter(payload => {
     const occurredAtMs = Number(payload.message.create_time || 0);
     return occurredAtMs >= startMs && occurredAtMs <= endMs;
   });
 }
 
-async function initializeDingTalkGroupHostRecovery() {
-  if (!config.dingtalkEnabled || !config.dingtalkOwnerOpenId
+async function initializeEnterpriseChatGroupHostRecovery() {
+  if (!config.enterpriseChatEnabled || !config.enterpriseChatOwnerOpenId
     || !config.groupHostModeEnabled || !GROUP_HOST_CHAT_IDS.size) {
     return false;
   }
   const nowMs = Date.now();
-  if (!state.get('dingtalk_group_host_poller', 'initialized_v1', false)) {
+  if (!state.get('enterpriseChat_group_host_poller', 'initialized_v1', false)) {
     const lookbackMs = Math.min(POLL_MAX_CATCHUP_MS, 10 * 60_000);
-    state.set('dingtalk_group_host_poller', 'cursor_ms', nowMs - lookbackMs);
-    state.set('dingtalk_group_host_poller', 'initialized_v1', true);
+    state.set('enterpriseChat_group_host_poller', 'cursor_ms', nowMs - lookbackMs);
+    state.set('enterpriseChat_group_host_poller', 'initialized_v1', true);
   }
   return true;
 }
 
-async function pollDingTalkGroupHostRecoveryOnce() {
+async function pollEnterpriseChatGroupHostRecoveryOnce() {
   const nowMs = Date.now();
-  const cursorMs = Number(state.get('dingtalk_group_host_poller', 'cursor_ms', nowMs));
+  const cursorMs = Number(state.get('enterpriseChat_group_host_poller', 'cursor_ms', nowMs));
   const { startMs, endMs } = planPollWindow(cursorMs, nowMs, {
     overlapMs: POLL_OVERLAP_MS,
     maxCatchupMs: Math.min(POLL_MAX_CATCHUP_MS, 10 * 60_000),
@@ -4808,40 +4808,40 @@ async function pollDingTalkGroupHostRecoveryOnce() {
   });
   let enqueued = 0;
   for (const chatId of GROUP_HOST_CHAT_IDS) {
-    const payloads = await fetchDingTalkGroupHostRecoveryMessages(chatId, startMs, endMs);
+    const payloads = await fetchEnterpriseChatGroupHostRecoveryMessages(chatId, startMs, endMs);
     for (const payload of payloads) {
-      if (enqueueInbound(payload, 'dingtalk-group-host-recovery')) enqueued += 1;
+      if (enqueueInbound(payload, 'enterpriseChat-group-host-recovery')) enqueued += 1;
     }
   }
-  state.set('dingtalk_group_host_poller', 'cursor_ms', endMs);
-  state.set('health', 'last_dingtalk_group_host_recovery_success_at', new Date().toISOString());
-  state.unset('health', 'last_dingtalk_group_host_recovery_error');
+  state.set('enterpriseChat_group_host_poller', 'cursor_ms', endMs);
+  state.set('health', 'last_enterpriseChat_group_host_recovery_success_at', new Date().toISOString());
+  state.unset('health', 'last_enterpriseChat_group_host_recovery_error');
   if (enqueued) {
-    console.log(`[dingtalk-group-host-recovery] enqueued ${enqueued} missed message(s)`);
+    console.log(`[enterpriseChat-group-host-recovery] enqueued ${enqueued} missed message(s)`);
     triggerDrain();
   }
   return enqueued;
 }
 
-async function runDingTalkGroupHostRecoveryLoop() {
+async function runEnterpriseChatGroupHostRecoveryLoop() {
   let failures = 0;
   while (!stopping) {
     const startedAt = Date.now();
     try {
-      await pollDingTalkGroupHostRecoveryOnce();
+      await pollEnterpriseChatGroupHostRecoveryOnce();
       failures = 0;
     } catch (error) {
       if (stopping) break;
       failures += 1;
       const delayMs = pollFailureDelayMs(error, failures, { baseIntervalMs: POLL_INTERVAL_MS });
       const summary = processFailureSummary(error);
-      state.set('health', 'last_dingtalk_group_host_recovery_error', {
+      state.set('health', 'last_enterpriseChat_group_host_recovery_error', {
         at: new Date().toISOString(), error: summary,
       });
-      state.audit('dingtalk_group_host_recovery_error', {
+      state.audit('enterpriseChat_group_host_recovery_error', {
         detail: { failures, delayMs, error: summary },
       });
-      console.error(`[dingtalk-group-host-recovery-error] retry in ${delayMs}ms:`, error);
+      console.error(`[enterpriseChat-group-host-recovery-error] retry in ${delayMs}ms:`, error);
       await wait(delayMs);
       continue;
     }
@@ -4849,20 +4849,20 @@ async function runDingTalkGroupHostRecoveryLoop() {
   }
 }
 
-async function fetchDingTalkWukongMessages(startMs, endMs) {
-  if (!config.dingtalkEnabled || config.dingtalkTransport !== 'wukong-polling') return [];
-  return fetchDingTalkWukongWindow({
-    bin: config.dingtalkBin,
-    start: dingTalkPollingTime(startMs),
-    end: dingTalkPollingTime(endMs),
-    ownerOpenId: config.dingtalkOwnerOpenId,
+async function fetchEnterpriseChatLegacyBridgeMessages(startMs, endMs) {
+  if (!config.enterpriseChatEnabled || config.enterpriseChatTransport !== 'legacyBridge-polling') return [];
+  return fetchEnterpriseChatLegacyBridgeWindow({
+    bin: config.enterpriseChatBin,
+    start: enterpriseChatPollingTime(startMs),
+    end: enterpriseChatPollingTime(endMs),
+    ownerOpenId: config.enterpriseChatOwnerOpenId,
     ownerNames: ['阿充', '阿充James', '冯周充'],
     mentionNames: ['阿充', '阿充James'],
     includeUnmentionedGroups: config.semanticGroupEngagementEnabled !== false,
     run: runBufferedProcess,
     runOptions: {
       cwd: WORKDIR,
-      env: dingtalkProcessEnv(),
+      env: enterpriseChatProcessEnv(),
       timeoutMs: config.larkCliTimeoutMs,
       maxStdoutBytes: 16 * 1024 * 1024,
       maxStderrBytes: 1024 * 1024,
@@ -4870,28 +4870,28 @@ async function fetchDingTalkWukongMessages(startMs, endMs) {
   });
 }
 
-function dingTalkSemanticObserverEnabled() {
-  return shouldRunDingTalkSemanticObserver({
-    dingtalkEnabled: config.dingtalkEnabled,
+function enterpriseChatSemanticObserverEnabled() {
+  return shouldRunEnterpriseChatSemanticObserver({
+    enterpriseChatEnabled: config.enterpriseChatEnabled,
     semanticGroupEngagementEnabled: config.semanticGroupEngagementEnabled !== false,
-    dingtalkTransport: config.dingtalkTransport,
+    enterpriseChatTransport: config.enterpriseChatTransport,
   });
 }
 
-async function fetchDingTalkSemanticGroupMessages(startMs, endMs) {
-  if (!dingTalkSemanticObserverEnabled()) return [];
-  const payloads = await fetchDingTalkWukongWindow({
-    bin: config.dingtalkBin,
-    start: dingTalkPollingTime(startMs),
-    end: dingTalkPollingTime(endMs),
-    ownerOpenId: config.dingtalkOwnerOpenId,
+async function fetchEnterpriseChatSemanticGroupMessages(startMs, endMs) {
+  if (!enterpriseChatSemanticObserverEnabled()) return [];
+  const payloads = await fetchEnterpriseChatLegacyBridgeWindow({
+    bin: config.enterpriseChatBin,
+    start: enterpriseChatPollingTime(startMs),
+    end: enterpriseChatPollingTime(endMs),
+    ownerOpenId: config.enterpriseChatOwnerOpenId,
     ownerNames: ['阿充', '阿充James', '冯周充'],
     mentionNames: ['阿充', '阿充James'],
     includeUnmentionedGroups: true,
     run: runBufferedProcess,
     runOptions: {
       cwd: WORKDIR,
-      env: dingtalkProcessEnv(),
+      env: enterpriseChatProcessEnv(),
       timeoutMs: config.larkCliTimeoutMs,
       maxStdoutBytes: 16 * 1024 * 1024,
       maxStderrBytes: 1024 * 1024,
@@ -4900,67 +4900,67 @@ async function fetchDingTalkSemanticGroupMessages(startMs, endMs) {
   return payloads.filter(payload => payload.message?.chat_type === 'group');
 }
 
-async function initializeDingTalkSemanticPolling() {
-  if (!dingTalkSemanticObserverEnabled()) return false;
+async function initializeEnterpriseChatSemanticPolling() {
+  if (!enterpriseChatSemanticObserverEnabled()) return false;
   const nowMs = Date.now();
-  if (!state.get('dingtalk_semantic_poller', 'initialized_v1', false)) {
-    const snapshot = await fetchDingTalkSemanticGroupMessages(
+  if (!state.get('enterpriseChat_semantic_poller', 'initialized_v1', false)) {
+    const snapshot = await fetchEnterpriseChatSemanticGroupMessages(
       nowMs - POLL_INITIAL_LOOKBACK_MS,
       nowMs,
     );
     const seededAt = new Date().toISOString();
     let seeded = 0;
     for (const payload of snapshot) {
-      if (state.seedInbound(payload.message.message_id, 'dingtalk-semantic-baseline', payload, seededAt)) {
+      if (state.seedInbound(payload.message.message_id, 'enterpriseChat-semantic-baseline', payload, seededAt)) {
         seeded += 1;
       }
     }
-    state.set('dingtalk_semantic_poller', 'initialized_v1', true);
-    state.set('dingtalk_semantic_poller', 'cursor_ms', nowMs);
-    state.audit('dingtalk_semantic_poller_baseline_seeded', { detail: { seeded } });
-  } else if (!state.get('dingtalk_semantic_poller', 'cursor_ms', 0)) {
-    state.set('dingtalk_semantic_poller', 'cursor_ms', nowMs);
+    state.set('enterpriseChat_semantic_poller', 'initialized_v1', true);
+    state.set('enterpriseChat_semantic_poller', 'cursor_ms', nowMs);
+    state.audit('enterpriseChat_semantic_poller_baseline_seeded', { detail: { seeded } });
+  } else if (!state.get('enterpriseChat_semantic_poller', 'cursor_ms', 0)) {
+    state.set('enterpriseChat_semantic_poller', 'cursor_ms', nowMs);
   }
-  state.set('health', 'last_dingtalk_semantic_poll_success_at', new Date().toISOString());
-  state.unset('health', 'last_dingtalk_semantic_poll_error');
+  state.set('health', 'last_enterpriseChat_semantic_poll_success_at', new Date().toISOString());
+  state.unset('health', 'last_enterpriseChat_semantic_poll_error');
   return true;
 }
 
-async function pollDingTalkSemanticMessagesOnce() {
+async function pollEnterpriseChatSemanticMessagesOnce() {
   const nowMs = Date.now();
-  const cursorMs = Number(state.get('dingtalk_semantic_poller', 'cursor_ms', nowMs));
+  const cursorMs = Number(state.get('enterpriseChat_semantic_poller', 'cursor_ms', nowMs));
   const { startMs, endMs } = planPollWindow(cursorMs, nowMs, {
     overlapMs: POLL_OVERLAP_MS,
     maxCatchupMs: POLL_MAX_CATCHUP_MS,
     maxWindowMs: POLL_WINDOW_MS,
   });
-  const payloads = await fetchDingTalkSemanticGroupMessages(startMs, endMs);
+  const payloads = await fetchEnterpriseChatSemanticGroupMessages(startMs, endMs);
   let enqueued = 0;
   for (const payload of payloads) {
-    if (enqueueInbound(payload, 'dingtalk-semantic-poll')) enqueued += 1;
+    if (enqueueInbound(payload, 'enterpriseChat-semantic-poll')) enqueued += 1;
   }
-  state.set('dingtalk_semantic_poller', 'cursor_ms', endMs);
-  state.set('health', 'last_dingtalk_semantic_poll_success_at', new Date().toISOString());
-  state.unset('health', 'last_dingtalk_semantic_poll_error');
+  state.set('enterpriseChat_semantic_poller', 'cursor_ms', endMs);
+  state.set('health', 'last_enterpriseChat_semantic_poll_success_at', new Date().toISOString());
+  state.unset('health', 'last_enterpriseChat_semantic_poll_error');
   if (enqueued) triggerDrain();
   return enqueued;
 }
 
-async function runDingTalkSemanticPollingLoop() {
+async function runEnterpriseChatSemanticPollingLoop() {
   let failures = 0;
-  while (!stopping && dingTalkSemanticObserverEnabled()) {
+  while (!stopping && enterpriseChatSemanticObserverEnabled()) {
     const startedAt = Date.now();
     try {
-      await pollDingTalkSemanticMessagesOnce();
+      await pollEnterpriseChatSemanticMessagesOnce();
       failures = 0;
     } catch (error) {
       if (stopping) break;
       failures += 1;
       const delayMs = pollFailureDelayMs(error, failures, { baseIntervalMs: POLL_INTERVAL_MS });
       const failure = semanticObserverFailureRecord(error, { failures, delayMs });
-      state.set('health', 'last_dingtalk_semantic_poll_error', failure);
-      state.audit('dingtalk_semantic_poll_error', { detail: failure });
-      console.error(`[dingtalk-semantic-poll-error] retry in ${delayMs}ms:`, error);
+      state.set('health', 'last_enterpriseChat_semantic_poll_error', failure);
+      state.audit('enterpriseChat_semantic_poll_error', { detail: failure });
+      console.error(`[enterpriseChat-semantic-poll-error] retry in ${delayMs}ms:`, error);
       await wait(delayMs);
       continue;
     }
@@ -4968,32 +4968,32 @@ async function runDingTalkSemanticPollingLoop() {
   }
 }
 
-async function initializeDingTalkWukongPolling() {
-  if (!config.dingtalkEnabled || config.dingtalkTransport !== 'wukong-polling') return false;
+async function initializeEnterpriseChatLegacyBridgePolling() {
+  if (!config.enterpriseChatEnabled || config.enterpriseChatTransport !== 'legacyBridge-polling') return false;
   const nowMs = Date.now();
-  if (!state.get('dingtalk_wukong_poller', 'initialized_v1', false)) {
-    const snapshot = await fetchDingTalkWukongMessages(
+  if (!state.get('enterpriseChat_legacyBridge_poller', 'initialized_v1', false)) {
+    const snapshot = await fetchEnterpriseChatLegacyBridgeMessages(
       nowMs - POLL_INITIAL_LOOKBACK_MS,
       nowMs,
     );
     const seededAt = new Date().toISOString();
     let seeded = 0;
     for (const payload of snapshot) {
-      if (state.seedInbound(payload.message.message_id, 'dingtalk-wukong-baseline', payload, seededAt)) {
+      if (state.seedInbound(payload.message.message_id, 'enterpriseChat-legacyBridge-baseline', payload, seededAt)) {
         seeded += 1;
       }
     }
-    state.set('dingtalk_wukong_poller', 'cursor_ms', nowMs);
-    state.set('dingtalk_wukong_poller', 'initialized_v1', true);
-    state.audit('dingtalk_wukong_poller_baseline_seeded', { detail: { seeded } });
-    console.log(`[dingtalk-wukong-poll] baseline ready; seeded ${seeded} existing message(s)`);
-  } else if (!state.get('dingtalk_wukong_poller', 'cursor_ms', 0)) {
-    state.set('dingtalk_wukong_poller', 'cursor_ms', nowMs);
+    state.set('enterpriseChat_legacyBridge_poller', 'cursor_ms', nowMs);
+    state.set('enterpriseChat_legacyBridge_poller', 'initialized_v1', true);
+    state.audit('enterpriseChat_legacyBridge_poller_baseline_seeded', { detail: { seeded } });
+    console.log(`[enterpriseChat-legacyBridge-poll] baseline ready; seeded ${seeded} existing message(s)`);
+  } else if (!state.get('enterpriseChat_legacyBridge_poller', 'cursor_ms', 0)) {
+    state.set('enterpriseChat_legacyBridge_poller', 'cursor_ms', nowMs);
   }
   const readyAt = new Date().toISOString();
-  state.set('health', 'last_dingtalk_wukong_poll_success_at', readyAt);
-  state.unset('health', 'last_dingtalk_wukong_poll_error');
-  updateImChannelStatus('dingtalk', {
+  state.set('health', 'last_enterpriseChat_legacyBridge_poll_success_at', readyAt);
+  state.unset('health', 'last_enterpriseChat_legacyBridge_poll_error');
+  updateImChannelStatus('enterpriseChat', {
     authenticated: true,
     connected: true,
     lastReadyAt: readyAt,
@@ -5002,42 +5002,42 @@ async function initializeDingTalkWukongPolling() {
   return true;
 }
 
-async function pollDingTalkWukongMessagesOnce() {
+async function pollEnterpriseChatLegacyBridgeMessagesOnce() {
   const nowMs = Date.now();
-  const cursorMs = Number(state.get('dingtalk_wukong_poller', 'cursor_ms', nowMs));
+  const cursorMs = Number(state.get('enterpriseChat_legacyBridge_poller', 'cursor_ms', nowMs));
   const { startMs, endMs } = planPollWindow(cursorMs, nowMs, {
     overlapMs: POLL_OVERLAP_MS,
     maxCatchupMs: POLL_MAX_CATCHUP_MS,
     maxWindowMs: POLL_WINDOW_MS,
   });
-  const payloads = await fetchDingTalkWukongMessages(startMs, endMs);
+  const payloads = await fetchEnterpriseChatLegacyBridgeMessages(startMs, endMs);
   let enqueued = 0;
   for (const payload of payloads) {
-    if (enqueueInbound(payload, 'dingtalk-wukong-poll')) enqueued += 1;
+    if (enqueueInbound(payload, 'enterpriseChat-legacyBridge-poll')) enqueued += 1;
   }
-  state.set('dingtalk_wukong_poller', 'cursor_ms', endMs);
+  state.set('enterpriseChat_legacyBridge_poller', 'cursor_ms', endMs);
   const readyAt = new Date().toISOString();
-  state.set('health', 'last_dingtalk_wukong_poll_success_at', readyAt);
-  state.unset('health', 'last_dingtalk_wukong_poll_error');
-  updateImChannelStatus('dingtalk', {
+  state.set('health', 'last_enterpriseChat_legacyBridge_poll_success_at', readyAt);
+  state.unset('health', 'last_enterpriseChat_legacyBridge_poll_error');
+  updateImChannelStatus('enterpriseChat', {
     authenticated: true,
     connected: true,
     lastReadyAt: readyAt,
     lastError: null,
   });
   if (enqueued) {
-    console.log(`[dingtalk-wukong-poll] enqueued ${enqueued} new message(s)`);
+    console.log(`[enterpriseChat-legacyBridge-poll] enqueued ${enqueued} new message(s)`);
     triggerDrain();
   }
   return enqueued;
 }
 
-async function runDingTalkWukongPollingLoop() {
+async function runEnterpriseChatLegacyBridgePollingLoop() {
   let failures = 0;
   while (!stopping) {
     const startedAt = Date.now();
     try {
-      await pollDingTalkWukongMessagesOnce();
+      await pollEnterpriseChatLegacyBridgeMessagesOnce();
       failures = 0;
     } catch (error) {
       if (stopping) break;
@@ -5045,10 +5045,10 @@ async function runDingTalkWukongPollingLoop() {
       const delayMs = pollFailureDelayMs(error, failures, { baseIntervalMs: POLL_INTERVAL_MS });
       const summary = processFailureSummary(error);
       const lastError = { at: new Date().toISOString(), error: summary };
-      state.set('health', 'last_dingtalk_wukong_poll_error', lastError);
-      state.audit('dingtalk_wukong_poll_error', { detail: { failures, delayMs, error: summary } });
-      updateImChannelStatus('dingtalk', { connected: false, failures, lastError });
-      console.error(`[dingtalk-wukong-poll-error] retry in ${delayMs}ms:`, error);
+      state.set('health', 'last_enterpriseChat_legacyBridge_poll_error', lastError);
+      state.audit('enterpriseChat_legacyBridge_poll_error', { detail: { failures, delayMs, error: summary } });
+      updateImChannelStatus('enterpriseChat', { connected: false, failures, lastError });
+      console.error(`[enterpriseChat-legacyBridge-poll-error] retry in ${delayMs}ms:`, error);
       await wait(delayMs);
       continue;
     }
@@ -5131,10 +5131,10 @@ function updateImChannelStatus(channel, patch) {
   }
 }
 
-function dingtalkProcessEnv() {
-  return buildDingTalkProcessEnv({
-    dingtalkBin: config.dingtalkBin,
-    dingtalkChannel: config.dingtalkChannel,
+function enterpriseChatProcessEnv() {
+  return buildEnterpriseChatProcessEnv({
+    enterpriseChatBin: config.enterpriseChatBin,
+    enterpriseChatChannel: config.enterpriseChatChannel,
     nodeBin: BUNDLED_NODE_BIN,
     pathEnv: process.env.PATH || '',
     baseEnv: process.env,
@@ -5142,14 +5142,14 @@ function dingtalkProcessEnv() {
   });
 }
 
-async function checkDingTalkAuthHealthOnce() {
-  if (!config.dingtalkEnabled || !existsSync(config.dingtalkBin)) return null;
+async function checkEnterpriseChatAuthHealthOnce() {
+  if (!config.enterpriseChatEnabled || !existsSync(config.enterpriseChatBin)) return null;
   const { stdout } = await runBufferedProcess(
-    config.dingtalkBin,
-    buildDingTalkAuthStatusArgs(config.dingtalkProfile),
+    config.enterpriseChatBin,
+    buildEnterpriseChatAuthStatusArgs(config.enterpriseChatProfile),
     {
       cwd: WORKDIR,
-      env: dingtalkProcessEnv(),
+      env: enterpriseChatProcessEnv(),
       timeoutMs: config.larkCliTimeoutMs,
       maxStdoutBytes: 512 * 1024,
       maxStderrBytes: 256 * 1024,
@@ -5159,12 +5159,12 @@ async function checkDingTalkAuthHealthOnce() {
   try {
     status = JSON.parse(stdout || '{}');
   } catch {
-    throw new Error(`DWS auth status returned non-JSON output: ${String(stdout || '').slice(0, 500)}`);
+    throw new Error(`CONNECTOR auth status returned non-JSON output: ${String(stdout || '').slice(0, 500)}`);
   }
   const authenticated = status.authenticated === true && status.token_valid === true;
   const refreshTokenValid = status.refresh_token_valid !== false;
   const checkedAt = new Date().toISOString();
-  updateImChannelStatus('dingtalk', {
+  updateImChannelStatus('enterpriseChat', {
     authenticated,
     refreshTokenValid,
     tokenExpiresAt: status.expires_at || '',
@@ -5176,12 +5176,12 @@ async function checkDingTalkAuthHealthOnce() {
           lastError: {
             at: checkedAt,
             error: refreshTokenValid
-              ? 'DWS access token is not currently valid'
-              : 'DWS refresh token is invalid; manual dws auth login is required',
+              ? 'CONNECTOR access token is not currently valid'
+              : 'CONNECTOR refresh token is invalid; manual connector auth login is required',
           },
         }),
   });
-  state.set('health', 'last_dingtalk_auth_status', {
+  state.set('health', 'last_enterpriseChat_auth_status', {
     at: checkedAt,
     authenticated,
     tokenValid: status.token_valid === true,
@@ -5189,94 +5189,94 @@ async function checkDingTalkAuthHealthOnce() {
     expiresAt: status.expires_at || '',
     refreshExpiresAt: status.refresh_expires_at || '',
   });
-  state.unset('health', 'last_dingtalk_auth_error');
+  state.unset('health', 'last_enterpriseChat_auth_error');
   return status;
 }
 
-async function runDingTalkAuthHealthLoop() {
+async function runEnterpriseChatAuthHealthLoop() {
   let failures = 0;
   while (!stopping) {
     const startedAt = Date.now();
     try {
-      await checkDingTalkAuthHealthOnce();
+      await checkEnterpriseChatAuthHealthOnce();
       failures = 0;
     } catch (error) {
       failures += 1;
       const summary = processFailureSummary(error);
       const authenticationFailure = /auth|login|token|ciphertext|keychain|授权|登录态/i.test(summary);
       const lastError = { at: new Date().toISOString(), failures, error: summary };
-      state.set('health', 'last_dingtalk_auth_error', lastError);
-      updateImChannelStatus('dingtalk', {
+      state.set('health', 'last_enterpriseChat_auth_error', lastError);
+      updateImChannelStatus('enterpriseChat', {
         ...(authenticationFailure ? { authenticated: false, refreshTokenValid: false } : {}),
         lastAuthCheckAt: lastError.at,
         lastError,
       });
-      state.audit('dingtalk_auth_health_error', { detail: lastError });
-      console.error('[dingtalk-auth-health-error]', error);
+      state.audit('enterpriseChat_auth_health_error', { detail: lastError });
+      console.error('[enterpriseChat-auth-health-error]', error);
     }
-    await wait(Math.max(1_000, DINGTALK_AUTH_HEALTH_INTERVAL_MS - (Date.now() - startedAt)));
+    await wait(Math.max(1_000, ENTERPRISE_CHAT_AUTH_HEALTH_INTERVAL_MS - (Date.now() - startedAt)));
   }
 }
 
-function createDingTalkChannel() {
-  return new DingTalkChannel({
-    bin: config.dingtalkBin,
-    profile: config.dingtalkProfile,
-    transport: config.dingtalkTransport,
+function createEnterpriseChatChannel() {
+  return new EnterpriseChatChannel({
+    bin: config.enterpriseChatBin,
+    profile: config.enterpriseChatProfile,
+    transport: config.enterpriseChatTransport,
     run: (bin, args) => runBufferedProcess(bin, args, {
       cwd: WORKDIR,
-      env: dingtalkProcessEnv(),
+      env: enterpriseChatProcessEnv(),
       timeoutMs: config.larkCliTimeoutMs,
       maxStdoutBytes: 8 * 1024 * 1024,
       maxStderrBytes: 1024 * 1024,
     }),
-    onStatus: patch => updateImChannelStatus('dingtalk', patch),
+    onStatus: patch => updateImChannelStatus('enterpriseChat', patch),
   });
 }
 
-async function runDingTalkEventConsumerOnce() {
-  console.log('[dingtalk] starting official DWS personal event consumer');
-  const child = spawn(config.dingtalkBin, dingTalkChannel.consumerArgs(), {
+async function runEnterpriseChatEventConsumerOnce() {
+  console.log('[enterpriseChat] starting official CONNECTOR personal event consumer');
+  const child = spawn(config.enterpriseChatBin, enterpriseChatChannel.consumerArgs(), {
     cwd: WORKDIR,
-    env: dingtalkProcessEnv(),
+    env: enterpriseChatProcessEnv(),
     stdio: ['pipe', 'pipe', 'pipe'],
   });
-  activeDingTalkChild = child;
+  activeEnterpriseChatChild = child;
   let stderrTail = '';
   child.stderr.on('data', chunk => {
     const text = chunk.toString();
     stderrTail = `${stderrTail}${text}`.slice(-4_000);
-    dingTalkChannel.handleStderr(text);
+    enterpriseChatChannel.handleStderr(text);
     process.stderr.write(chunk);
   });
   try {
     const exitCode = await consumeLinesUntilExit(child, line => {
       try {
-        const accepted = dingTalkChannel.handleLine(line, payload => {
-          if (enqueueInbound(payload, 'websocket-dingtalk-dws')) triggerDrain();
+        const accepted = enterpriseChatChannel.handleLine(line, payload => {
+          if (enqueueInbound(payload, 'websocket-enterpriseChat-connector')) triggerDrain();
         });
-        if (!accepted) console.error('[dingtalk-event-parse-error]', line.slice(0, 500));
+        if (!accepted) console.error('[enterpriseChat-event-parse-error]', line.slice(0, 500));
       } catch (error) {
         const summary = processFailureSummary(error);
-        state.audit('dingtalk_event_rejected', { detail: { error: summary } });
-        console.error('[dingtalk-event-error]', error);
+        state.audit('enterpriseChat_event_rejected', { detail: { error: summary } });
+        console.error('[enterpriseChat-event-error]', error);
       }
     });
     if (stopping) return;
     throw new Error(
-      `DWS event consumer stopped with exit code ${exitCode}: ${stderrTail.trim().slice(-1000)}`,
+      `CONNECTOR event consumer stopped with exit code ${exitCode}: ${stderrTail.trim().slice(-1000)}`,
     );
   } finally {
-    if (activeDingTalkChild === child) activeDingTalkChild = null;
-    updateImChannelStatus('dingtalk', { connected: false });
+    if (activeEnterpriseChatChild === child) activeEnterpriseChatChild = null;
+    updateImChannelStatus('enterpriseChat', { connected: false });
   }
 }
 
-async function superviseDingTalkEvents() {
+async function superviseEnterpriseChatEvents() {
   let failures = 0;
   while (!stopping) {
     try {
-      await runDingTalkEventConsumerOnce();
+      await runEnterpriseChatEventConsumerOnce();
       failures = 0;
     } catch (error) {
       if (!shouldRetrySupervisor(stopping)) break;
@@ -5284,32 +5284,32 @@ async function superviseDingTalkEvents() {
       const summary = processFailureSummary(error);
       const authenticationFailure = /auth|login|token|ciphertext|keychain/i.test(summary);
       const delayMs = Math.min(5 * 60_000, 2_000 * (2 ** Math.min(failures, 8)));
-      dingTalkChannel.reportError(error);
-      updateImChannelStatus('dingtalk', {
+      enterpriseChatChannel.reportError(error);
+      updateImChannelStatus('enterpriseChat', {
         ...(authenticationFailure ? { authenticated: false } : {}),
         failures,
         lastError: { at: new Date().toISOString(), error: summary },
       });
-      state.audit('dingtalk_channel_error', {
+      state.audit('enterpriseChat_channel_error', {
         detail: { failures, delayMs, error: summary },
       });
-      console.error(`[dingtalk-error] retry in ${delayMs}ms:`, error);
+      console.error(`[enterpriseChat-error] retry in ${delayMs}ms:`, error);
       await wait(delayMs);
     }
   }
 }
 
 async function initializeAdditionalImChannels() {
-  updateImChannelStatus('dingtalk', {
-    enabled: config.dingtalkEnabled,
-    installed: existsSync(config.dingtalkBin),
-    configured: existsSync(config.dingtalkBin),
+  updateImChannelStatus('enterpriseChat', {
+    enabled: config.enterpriseChatEnabled,
+    installed: existsSync(config.enterpriseChatBin),
+    configured: existsSync(config.enterpriseChatBin),
     authenticated: false,
     connected: false,
     identityMode: 'user',
-    transport: config.dingtalkTransport === 'wukong-polling'
-      ? 'Wukong DWS polling'
-      : 'DWS personal event stream',
+    transport: config.enterpriseChatTransport === 'legacyBridge-polling'
+      ? 'LegacyBridge CONNECTOR polling'
+      : 'CONNECTOR personal event stream',
   });
   updateImChannelStatus('wecom', {
     enabled: config.wecomEnabled,
@@ -5333,22 +5333,22 @@ async function initializeAdditionalImChannels() {
     providerOfficial: false,
   });
 
-  if (config.dingtalkEnabled) {
-    if (!existsSync(config.dingtalkBin)) {
-      updateImChannelStatus('dingtalk', {
+  if (config.enterpriseChatEnabled) {
+    if (!existsSync(config.enterpriseChatBin)) {
+      updateImChannelStatus('enterpriseChat', {
         lastError: {
           at: new Date().toISOString(),
-          error: `DWS executable not found: ${config.dingtalkBin}`,
+          error: `CONNECTOR executable not found: ${config.enterpriseChatBin}`,
         },
       });
     } else {
-      dingTalkChannel = createDingTalkChannel();
-      runDingTalkAuthHealthLoop()
-        .catch(error => console.error('[dingtalk-auth-health-fatal]', error));
-      if (config.dingtalkTransport === 'event-stream') {
-        state.unset('health', 'last_dingtalk_semantic_poll_error');
-        dingTalkSupervisorPromise = superviseDingTalkEvents()
-          .catch(error => console.error('[dingtalk-supervisor-fatal]', error));
+      enterpriseChatChannel = createEnterpriseChatChannel();
+      runEnterpriseChatAuthHealthLoop()
+        .catch(error => console.error('[enterpriseChat-auth-health-fatal]', error));
+      if (config.enterpriseChatTransport === 'event-stream') {
+        state.unset('health', 'last_enterpriseChat_semantic_poll_error');
+        enterpriseChatSupervisorPromise = superviseEnterpriseChatEvents()
+          .catch(error => console.error('[enterpriseChat-supervisor-fatal]', error));
       }
     }
   }
@@ -5838,7 +5838,7 @@ function stopGracefully(signal) {
   shutdownDelay.stop();
   console.log(`[bridge] stopping on ${signal}`);
   if (activeEventChild && !activeEventChild.killed) activeEventChild.kill('SIGTERM');
-  if (activeDingTalkChild && !activeDingTalkChild.killed) activeDingTalkChild.kill('SIGTERM');
+  if (activeEnterpriseChatChild && !activeEnterpriseChatChild.killed) activeEnterpriseChatChild.kill('SIGTERM');
   if (weComChannel) {
     weComChannel.stop();
     weComChannel = null;
@@ -5916,56 +5916,56 @@ async function main() {
     if (config.groupHostModeEnabled && GROUP_HOST_CHAT_IDS.size > 0) {
       console.log(`[group-host] active for ${GROUP_HOST_CHAT_IDS.size} allowlisted group(s); silence=${config.groupHostSilenceMs}ms`);
     }
-    const dingTalkSelfPolling = await initializeOptionalPoller(
-      config.dingtalkTransport === 'wukong-polling'
-        ? initializeDingTalkWukongPolling
-        : initializeDingTalkSelfPolling,
+    const enterpriseChatSelfPolling = await initializeOptionalPoller(
+      config.enterpriseChatTransport === 'legacyBridge-polling'
+        ? initializeEnterpriseChatLegacyBridgePolling
+        : initializeEnterpriseChatSelfPolling,
     );
-    if (dingTalkSelfPolling.error) {
-      const summary = processFailureSummary(dingTalkSelfPolling.error);
-      const healthKey = config.dingtalkTransport === 'wukong-polling'
-        ? 'last_dingtalk_wukong_poll_error'
-        : 'last_dingtalk_self_poll_error';
+    if (enterpriseChatSelfPolling.error) {
+      const summary = processFailureSummary(enterpriseChatSelfPolling.error);
+      const healthKey = config.enterpriseChatTransport === 'legacyBridge-polling'
+        ? 'last_enterpriseChat_legacyBridge_poll_error'
+        : 'last_enterpriseChat_self_poll_error';
       state.set('health', healthKey, {
         at: new Date().toISOString(), error: summary,
       });
-      state.audit('dingtalk_self_poll_unavailable', { detail: { error: summary } });
-      console.error('[dingtalk-self-poll-unavailable]', dingTalkSelfPolling.error);
+      state.audit('enterpriseChat_self_poll_unavailable', { detail: { error: summary } });
+      console.error('[enterpriseChat-self-poll-unavailable]', enterpriseChatSelfPolling.error);
     }
-    if (dingTalkSelfPolling.active) {
-      const runPollingLoop = config.dingtalkTransport === 'wukong-polling'
-        ? runDingTalkWukongPollingLoop
-        : runDingTalkSelfPollingLoop;
-      dingTalkSelfPollingPromise = runPollingLoop()
-        .catch(error => console.error('[dingtalk-poll-fatal]', error));
+    if (enterpriseChatSelfPolling.active) {
+      const runPollingLoop = config.enterpriseChatTransport === 'legacyBridge-polling'
+        ? runEnterpriseChatLegacyBridgePollingLoop
+        : runEnterpriseChatSelfPollingLoop;
+      enterpriseChatSelfPollingPromise = runPollingLoop()
+        .catch(error => console.error('[enterpriseChat-poll-fatal]', error));
     }
-    const dingTalkGroupHostRecovery = await initializeOptionalPoller(
-      initializeDingTalkGroupHostRecovery,
+    const enterpriseChatGroupHostRecovery = await initializeOptionalPoller(
+      initializeEnterpriseChatGroupHostRecovery,
     );
-    if (dingTalkGroupHostRecovery.error) {
-      const summary = processFailureSummary(dingTalkGroupHostRecovery.error);
-      state.set('health', 'last_dingtalk_group_host_recovery_error', {
+    if (enterpriseChatGroupHostRecovery.error) {
+      const summary = processFailureSummary(enterpriseChatGroupHostRecovery.error);
+      state.set('health', 'last_enterpriseChat_group_host_recovery_error', {
         at: new Date().toISOString(), error: summary,
       });
-      state.audit('dingtalk_group_host_recovery_unavailable', { detail: { error: summary } });
-      console.error('[dingtalk-group-host-recovery-unavailable]', dingTalkGroupHostRecovery.error);
+      state.audit('enterpriseChat_group_host_recovery_unavailable', { detail: { error: summary } });
+      console.error('[enterpriseChat-group-host-recovery-unavailable]', enterpriseChatGroupHostRecovery.error);
     }
-    if (dingTalkGroupHostRecovery.active) {
-      dingTalkGroupHostRecoveryPromise = runDingTalkGroupHostRecoveryLoop()
-        .catch(error => console.error('[dingtalk-group-host-recovery-fatal]', error));
+    if (enterpriseChatGroupHostRecovery.active) {
+      enterpriseChatGroupHostRecoveryPromise = runEnterpriseChatGroupHostRecoveryLoop()
+        .catch(error => console.error('[enterpriseChat-group-host-recovery-fatal]', error));
     }
-    const dingTalkSemanticPolling = await initializeOptionalPoller(
-      initializeDingTalkSemanticPolling,
+    const enterpriseChatSemanticPolling = await initializeOptionalPoller(
+      initializeEnterpriseChatSemanticPolling,
     );
-    if (dingTalkSemanticPolling.error) {
-      const failure = semanticObserverFailureRecord(dingTalkSemanticPolling.error);
-      state.set('health', 'last_dingtalk_semantic_poll_error', failure);
-      state.audit('dingtalk_semantic_poll_unavailable', { detail: failure });
-      console.error('[dingtalk-semantic-poll-unavailable]', dingTalkSemanticPolling.error);
+    if (enterpriseChatSemanticPolling.error) {
+      const failure = semanticObserverFailureRecord(enterpriseChatSemanticPolling.error);
+      state.set('health', 'last_enterpriseChat_semantic_poll_error', failure);
+      state.audit('enterpriseChat_semantic_poll_unavailable', { detail: failure });
+      console.error('[enterpriseChat-semantic-poll-unavailable]', enterpriseChatSemanticPolling.error);
     }
-    if (dingTalkSemanticPolling.active) {
-      dingTalkSemanticPollingPromise = runDingTalkSemanticPollingLoop()
-        .catch(error => console.error('[dingtalk-semantic-poll-fatal]', error));
+    if (enterpriseChatSemanticPolling.active) {
+      enterpriseChatSemanticPollingPromise = runEnterpriseChatSemanticPollingLoop()
+        .catch(error => console.error('[enterpriseChat-semantic-poll-fatal]', error));
     }
     if (MULTICA_SYNCHRONIZER) {
       multicaSyncPromise = runMulticaSyncLoop()
@@ -5990,10 +5990,10 @@ async function main() {
     }
     if (drainPromise) await drainPromise.catch(() => {});
     if (multicaSyncPromise) await multicaSyncPromise.catch(() => {});
-    if (dingTalkSupervisorPromise) await dingTalkSupervisorPromise.catch(() => {});
-    if (dingTalkSelfPollingPromise) await dingTalkSelfPollingPromise.catch(() => {});
-    if (dingTalkGroupHostRecoveryPromise) await dingTalkGroupHostRecoveryPromise.catch(() => {});
-    if (dingTalkSemanticPollingPromise) await dingTalkSemanticPollingPromise.catch(() => {});
+    if (enterpriseChatSupervisorPromise) await enterpriseChatSupervisorPromise.catch(() => {});
+    if (enterpriseChatSelfPollingPromise) await enterpriseChatSelfPollingPromise.catch(() => {});
+    if (enterpriseChatGroupHostRecoveryPromise) await enterpriseChatGroupHostRecoveryPromise.catch(() => {});
+    if (enterpriseChatSemanticPollingPromise) await enterpriseChatSemanticPollingPromise.catch(() => {});
     if (geWeMonitorPromise) await geWeMonitorPromise.catch(() => {});
     if (dailyLearningPromise) await dailyLearningPromise.catch(() => {});
     if (groupHostPromise) await groupHostPromise.catch(() => {});

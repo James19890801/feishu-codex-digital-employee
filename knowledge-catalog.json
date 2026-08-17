@@ -1,1 +1,21 @@
-[]
+{
+  "version": 2,
+  "sources": [
+    {
+      "sourceId": "local:project-readme",
+      "type": "local_document",
+      "title": "James project overview",
+      "locator": "README.md",
+      "ownerId": "",
+      "readerIds": [],
+      "aliases": [
+        "James",
+        "local-first digital human"
+      ],
+      "sensitivity": "public",
+      "status": "active",
+      "freshnessAt": "2026-08-17",
+      "summary": "Public architecture, safety boundaries, connector contract, and deployment guidance."
+    }
+  ]
+}

@@ -103,12 +103,12 @@ assert.deepEqual(await readPublicWebContext('https://docs.example.test/one', {
 
 const internalDocumentReads = [];
 assert.deepEqual(await readPublicWebContext(
-  'https://alidocs.dingtalk.com/i/nodes/nodeABC123',
+  'https://docs.example.com/i/nodes/nodeABC123',
   {
     enabled: true,
     readPage: async url => {
       internalDocumentReads.push(url);
-      throw new Error('DingTalk document must use DWS');
+      throw new Error('EnterpriseChat document must use CONNECTOR');
     },
   },
 ), { context: '', pages: [], failures: [] });

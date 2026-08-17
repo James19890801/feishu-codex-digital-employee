@@ -4,7 +4,7 @@ export function runtimeMode(configuration = {}) {
     feishuEnabled,
     primaryChannel: feishuEnabled
       ? 'feishu'
-      : (configuration.dingtalkEnabled === true ? 'dingtalk' : 'none'),
+      : (configuration.enterpriseChatEnabled === true ? 'enterpriseChat' : 'none'),
     pollingRequired: feishuEnabled,
     websocketRequired: feishuEnabled,
   };
@@ -22,18 +22,18 @@ export function validateFeishuConfiguration(configuration = {}) {
   }
 }
 
-export function validateDingTalkConfiguration(configuration = {}) {
-  const transport = String(configuration.dingtalkTransport || 'event-stream').trim();
-  if (!['event-stream', 'wukong-polling'].includes(transport)) {
-    throw new Error('dingtalkTransport 只能是 event-stream 或 wukong-polling');
+export function validateEnterpriseChatConfiguration(configuration = {}) {
+  const transport = String(configuration.enterpriseChatTransport || 'event-stream').trim();
+  if (!['event-stream', 'legacyBridge-polling'].includes(transport)) {
+    throw new Error('enterpriseChatTransport 只能是 event-stream 或 legacyBridge-polling');
   }
-  const ownerOpenId = String(configuration.dingtalkOwnerOpenId || '').trim();
+  const ownerOpenId = String(configuration.enterpriseChatOwnerOpenId || '').trim();
   if (ownerOpenId && !/^[A-Za-z0-9_-]{8,256}$/.test(ownerOpenId)) {
-    throw new Error('dingtalkOwnerOpenId 格式无效');
+    throw new Error('enterpriseChatOwnerOpenId 格式无效');
   }
-  if (configuration.dingtalkEnabled === true
+  if (configuration.enterpriseChatEnabled === true
     && configuration.multicaEnabled === true
     && !ownerOpenId) {
-    throw new Error('启用钉钉 Multica Owner 写入时必须填写 dingtalkOwnerOpenId');
+    throw new Error('启用企业会话 Multica Owner 写入时必须填写 enterpriseChatOwnerOpenId');
   }
 }

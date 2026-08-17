@@ -3,8 +3,8 @@ import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  buildDwsEnv,
-  buildDwsSourceCommands,
+  buildConnectorEnv,
+  buildConnectorSourceCommands,
   collectCodexSessions,
   isKnowledgeRecordSafe,
   redactKnowledgeText,
@@ -12,14 +12,14 @@ import {
   runNightlyKnowledgeSync,
 } from './nightly-knowledge.mjs';
 
-const env = buildDwsEnv({
-  baseEnv: { PATH: '/usr/bin', DWS_CHANNEL: 'wrong' },
+const env = buildConnectorEnv({
+  baseEnv: { PATH: '/usr/bin', CONNECTOR_CHANNEL: 'wrong' },
   channel: 'channel-1',
 });
-assert.equal(env.DWS_CHANNEL, 'channel-1');
+assert.equal(env.CONNECTOR_CHANNEL, 'channel-1');
 assert.equal(env.PATH, '/usr/bin');
 
-const commands = buildDwsSourceCommands({
+const commands = buildConnectorSourceCommands({
   profile: 'corp:user',
   startMs: 1000,
   endMs: 2000,
@@ -45,15 +45,15 @@ const markdown = renderDailyWiki({
   date: '2026-08-04',
   generatedAt: '2026-08-04T10:00:00.000Z',
   sources: {
-    chat: { status: 'ok', records: [{ id: 'm1', title: '群聊', text: '确认方案', locator: 'dingtalk:chat:m1' }] },
+    chat: { status: 'ok', records: [{ id: 'm1', title: '群聊', text: '确认方案', locator: 'enterpriseChat:chat:m1' }] },
     minutes: { status: 'unread', error: 'not_authenticated', records: [] },
   },
 });
 assert.match(markdown, /# AIPR0S 知识日报 · 2026-08-04/);
-assert.match(markdown, /钉钉聊天.*已读取/s);
+assert.match(markdown, /企业会话聊天.*已读取/s);
 assert.match(markdown, /AI 听记.*未读取/s);
 assert.match(markdown, /确认方案/);
-assert.match(markdown, /dingtalk:chat:m1/);
+assert.match(markdown, /enterpriseChat:chat:m1/);
 
 const codexHome = await mkdtemp(join(tmpdir(), 'aipros-codex-'));
 const sessionDir = join(codexHome, 'sessions', '2026', '08', '04');
@@ -75,7 +75,7 @@ let chatCalls = 0;
 const fakeCollectors = {
   chat: async () => {
     chatCalls += 1;
-    return { status: 'ok', cursor: 'cursor-2', records: [{ id: 'same', title: '私聊', text: '一个结论', locator: 'dingtalk:message:same' }] };
+    return { status: 'ok', cursor: 'cursor-2', records: [{ id: 'same', title: '私聊', text: '一个结论', locator: 'enterpriseChat:message:same' }] };
   },
   minutes: async () => ({ status: 'unread', error: 'permission denied', records: [] }),
   documents: async () => ({ status: 'ok', cursor: 'docs-2', records: [] }),

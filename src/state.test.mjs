@@ -132,7 +132,7 @@ try {
   state.remember('oc_learning_group', 'ou_feishu_member', 'user', '飞书学习上下文', {
     createdAt: '2026-08-06T14:00:01.000Z',
   });
-  state.remember('dingtalk:group:cid_learning', 'dingtalk:member', 'user', '钉钉学习上下文', {
+  state.remember('enterpriseChat:group:cid_learning', 'enterpriseChat:member', 'user', '企业会话学习上下文', {
     createdAt: '2026-08-06T14:00:02.000Z',
   });
   state.remember('wechat:user:wxid_learning', 'wechat:friend', 'user', '微信学习上下文', {
@@ -166,10 +166,10 @@ try {
         chatType: 'group',
       },
       {
-        content: '钉钉学习上下文',
-        chatId: 'dingtalk:group:cid_learning',
-        senderId: 'dingtalk:member',
-        channel: 'dingtalk',
+        content: '企业会话学习上下文',
+        chatId: 'enterpriseChat:group:cid_learning',
+        senderId: 'enterpriseChat:member',
+        channel: 'enterpriseChat',
         chatType: 'group',
       },
       {
@@ -271,9 +271,9 @@ try {
   assert.equal(state.claimSelfChatOutbound('oc_other_self', 4_000, guardOptions).allowed, true);
 
   const semanticOptions = {
-    channel: 'dingtalk',
-    chatId: 'dingtalk:group:test',
-    senderId: 'dingtalk:other-bot',
+    channel: 'enterpriseChat',
+    chatId: 'enterpriseChat:group:test',
+    senderId: 'enterpriseChat:other-bot',
     windowMs: 30 * 60_000,
     maxReplies: 2,
   };
@@ -307,13 +307,13 @@ try {
   }).action, 'process', 'materially new information must reset the topic');
   assert.equal(state.claimSemanticRepeat({
     ...semanticOptions,
-    chatId: 'dingtalk:group:other',
+    chatId: 'enterpriseChat:group:other',
     topic: semanticTopic('等杨红宝确认后再推进'),
     nowMs: 5_000,
   }).action, 'process', 'different chats must be isolated');
   assert.equal(state.claimSemanticRepeat({
     ...semanticOptions,
-    senderId: 'dingtalk:human',
+    senderId: 'enterpriseChat:human',
     topic: semanticTopic('等杨红宝确认后再推进'),
     nowMs: 6_000,
   }).action, 'process', 'different senders must be isolated');
@@ -328,8 +328,8 @@ try {
   assert.equal('topic' in (semanticStats.latestSuppression || {}), false);
 
   const discussionOptions = {
-    channel: 'dingtalk',
-    chatId: 'dingtalk:group:debate',
+    channel: 'enterpriseChat',
+    chatId: 'enterpriseChat:group:debate',
     maxReplies: 100,
     lowValueLimit: 3,
     cooldownMs: 30 * 60_000,
@@ -393,9 +393,9 @@ try {
   });
   assert.equal(finalDiscussion.action, 'final');
   assert.equal(finalDiscussion.replyCount, 100);
-  assert.equal(state.discussionSession('dingtalk', discussionOptions.chatId).status, 'finalizing');
+  assert.equal(state.discussionSession('enterpriseChat', discussionOptions.chatId).status, 'finalizing');
   assert.equal(state.completeDiscussionFinalReply({
-    channel: 'dingtalk', chatId: discussionOptions.chatId, nowMs: 10_101,
+    channel: 'enterpriseChat', chatId: discussionOptions.chatId, nowMs: 10_101,
     cooldownMs: discussionOptions.cooldownMs,
   }), true);
   assert.equal(state.claimDiscussionTurn({
@@ -412,7 +412,7 @@ try {
     nowMs: 10_103,
   }).sessionNo, 2, 'verified owner continuation must start a fresh bounded session');
 
-  const staleFinalChat = 'dingtalk:group:stale-final';
+  const staleFinalChat = 'enterpriseChat:group:stale-final';
   for (let replyCount = 1; replyCount <= 100; replyCount += 1) {
     state.claimDiscussionTurn({
       ...discussionOptions,
@@ -422,7 +422,7 @@ try {
       nowMs: 30_000 + replyCount,
     });
   }
-  assert.equal(state.discussionSession('dingtalk', staleFinalChat).status, 'finalizing');
+  assert.equal(state.discussionSession('enterpriseChat', staleFinalChat).status, 'finalizing');
   const recoveredFinal = state.claimDiscussionTurn({
     ...discussionOptions,
     chatId: staleFinalChat,
@@ -434,7 +434,7 @@ try {
   assert.equal(recoveredFinal.sessionNo, 2);
   assert.equal(recoveredFinal.replyCount, 1);
 
-  const lowValueChat = 'dingtalk:group:low-value';
+  const lowValueChat = 'enterpriseChat:group:low-value';
   for (let turn = 1; turn <= 2; turn += 1) {
     assert.equal(state.claimDiscussionTurn({
       ...discussionOptions,
@@ -480,21 +480,21 @@ try {
     now: '2026-07-29T14:00:02.000Z',
   }), false);
 
-  const messageEchoId = state.recordOutboundEcho('dingtalk:user:self', '钉钉回复', {
+  const messageEchoId = state.recordOutboundEcho('enterpriseChat:user:self', '企业会话回复', {
     now,
     ttlMs: 120_000,
   });
-  state.attachOutboundMessageId(messageEchoId, 'dingtalk-message-1');
-  assert.equal(state.hasOutboundEcho('dingtalk:user:self', '内容可能被平台重写', {
-    messageId: 'dingtalk-message-1',
+  state.attachOutboundMessageId(messageEchoId, 'enterpriseChat-message-1');
+  assert.equal(state.hasOutboundEcho('enterpriseChat:user:self', '内容可能被平台重写', {
+    messageId: 'enterpriseChat-message-1',
     now: '2026-07-29T14:00:01.000Z',
   }), true);
-  assert.equal(state.consumeOutboundEcho('dingtalk:user:self', '内容可能被平台重写', {
-    messageId: 'dingtalk-message-1',
+  assert.equal(state.consumeOutboundEcho('enterpriseChat:user:self', '内容可能被平台重写', {
+    messageId: 'enterpriseChat-message-1',
     now: '2026-07-29T14:00:01.000Z',
   }), true);
-  assert.equal(state.hasOutboundEcho('dingtalk:user:self', '钉钉回复', {
-    messageId: 'dingtalk-message-1',
+  assert.equal(state.hasOutboundEcho('enterpriseChat:user:self', '企业会话回复', {
+    messageId: 'enterpriseChat-message-1',
     now: '2026-07-29T14:00:02.000Z',
   }), false);
 
@@ -565,18 +565,18 @@ try {
   assert.deepEqual(state.multicaIssueSubscribers(issue.id), []);
 
   state.subscribeMulticaGlobal('chat-2', 'user-2', {
-    channel: 'dingtalk',
+    channel: 'enterpriseChat',
     createdAt: now,
   });
   state.subscribeMulticaGlobal('chat-2', 'user-2', {
-    channel: 'dingtalk',
+    channel: 'enterpriseChat',
     createdAt: now,
   });
   assert.deepEqual(state.multicaGlobalSubscribers(), [{
     chatId: 'chat-2',
     senderId: 'user-2',
     chatType: '',
-    channel: 'dingtalk',
+    channel: 'enterpriseChat',
   }]);
   state.unsubscribeMulticaGlobal('chat-2', 'user-2');
   assert.deepEqual(state.multicaGlobalSubscribers(), []);
@@ -589,10 +589,10 @@ try {
     createdAt: now,
   }), true);
   assert.equal(state.bindMulticaIssueOrigin(issue.id, {
-    chatId: 'dingtalk:user:owner',
-    senderId: 'dingtalk:owner',
+    chatId: 'enterpriseChat:user:owner',
+    senderId: 'enterpriseChat:owner',
     chatType: 'p2p',
-    channel: 'dingtalk',
+    channel: 'enterpriseChat',
     createdAt: now,
   }), false);
   assert.deepEqual(state.multicaIssueOrigin(issue.id), {

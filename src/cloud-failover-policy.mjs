@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 const SENSITIVE_SOURCE_KINDS = new Set([
   'attachment',
-  'dingtalk_document',
+  'enterpriseChat_document',
   'document',
   'file',
   'mail',

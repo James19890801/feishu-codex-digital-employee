@@ -1,5 +1,5 @@
 import {
-  buildDingTalkArtifactSendArgs,
+  buildEnterpriseChatArtifactSendArgs,
   buildFeishuArtifactSendArgs,
 } from './artifact-channel-delivery.mjs';
 
@@ -15,7 +15,8 @@ export function buildChannelArtifactDeliveryPlan({
   caption = '',
   idempotencyKey = '',
 } = {}) {
-  const provider = String(channel || '').trim().toLowerCase();
+  const normalizedProvider = String(channel || '').trim().toLowerCase();
+  const provider = normalizedProvider === 'enterprisechat' ? 'enterpriseChat' : normalizedProvider;
   let attachmentArgs;
   let file;
   let image;
@@ -26,8 +27,8 @@ export function buildChannelArtifactDeliveryPlan({
       videoCoverRelativePath,
       uuid: idempotencyKey,
     });
-  } else if (provider === 'dingtalk') {
-    attachmentArgs = buildDingTalkArtifactSendArgs({
+  } else if (provider === 'enterpriseChat') {
+    attachmentArgs = buildEnterpriseChatArtifactSendArgs({
       target,
       path,
       uuid: idempotencyKey,

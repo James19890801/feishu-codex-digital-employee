@@ -97,7 +97,7 @@ export function groupLearningConversations(conversations = [], {
   for (const item of Array.isArray(conversations) ? conversations : []) {
     const chatId = String(item?.chatId || '').trim();
     if (!chatId) continue;
-    const channel = ['feishu', 'dingtalk', 'wecom', 'wechat'].includes(item?.channel)
+    const channel = ['feishu', 'enterpriseChat', 'wecom', 'wechat'].includes(item?.channel)
       ? item.channel : 'feishu';
     const chatType = item?.chatType === 'group' ? 'group' : 'p2p';
     const key = `${channel}\0${chatId}`;
@@ -310,7 +310,7 @@ export function buildDailyLearningPrompt({
   const evidence = {
     previousMemory: redactLearningText(previousMemory).slice(0, 12_000),
     conversationGroups: grouped.slice(0, 1_000).map(group => {
-      const safeConversation = /^(?:feishu|dingtalk|wecom|wechat)-(?:group|p2p)-[a-f0-9]{10}$/
+      const safeConversation = /^(?:feishu|enterpriseChat|wecom|wechat)-(?:group|p2p)-[a-f0-9]{10}$/
         .test(String(group?.conversation || ''))
         ? group.conversation
         : learningAlias('conversation', group?.conversation || 'unknown');
@@ -330,7 +330,7 @@ export function buildDailyLearningPrompt({
       remainingMessages -= messages.length;
       return {
         conversation: safeConversation,
-        channel: ['feishu', 'dingtalk', 'wecom', 'wechat'].includes(group?.channel)
+        channel: ['feishu', 'enterpriseChat', 'wecom', 'wechat'].includes(group?.channel)
           ? group.channel : 'feishu',
         chatType: group?.chatType === 'group' ? 'group' : 'p2p',
         messages,

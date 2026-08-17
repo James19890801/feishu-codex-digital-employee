@@ -18,7 +18,7 @@ try {
   const audits = [];
   const baseMessage = {
     message_id: 'discussion-message-1',
-    chat_id: 'dingtalk:group:discussion',
+    chat_id: 'enterpriseChat:group:discussion',
     chat_type: 'group',
     message_type: 'text',
   };
@@ -28,7 +28,7 @@ try {
     maxReplies: 100,
     lowValueLimit: 3,
     cooldownMs: 30 * 60_000,
-    channel: 'dingtalk',
+    channel: 'enterpriseChat',
     ownerAuthorized: false,
     message: baseMessage,
     sendClose: async (text, idempotencyKey) => sent.push({ text, idempotencyKey }),
@@ -68,7 +68,7 @@ try {
 
   for (let replyCount = 2; replyCount <= 19; replyCount += 1) {
     state.claimDiscussionTurn({
-      channel: 'dingtalk', chatId: baseMessage.chat_id,
+      channel: 'enterpriseChat', chatId: baseMessage.chat_id,
       messageId: `prefill-${replyCount}`,
       value: { substantive: true, score: 3, topic: semanticTopic(`第 ${replyCount} 轮新观点`) },
       nowMs: 4_000 + replyCount,
@@ -84,7 +84,7 @@ try {
   assert.match(checkpoint.checkpointPrompt, /阶段总结/);
   assert.equal(checkpoint.finalizeAfterReply, false);
 
-  const lowChat = 'dingtalk:group:low-discussion';
+  const lowChat = 'enterpriseChat:group:low-discussion';
   await applyDiscussionBudgetGate({
     ...base,
     message: { ...baseMessage, chat_id: lowChat, message_id: 'low-start' },

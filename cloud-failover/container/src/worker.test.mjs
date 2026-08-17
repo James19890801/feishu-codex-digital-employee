@@ -3,16 +3,16 @@ import { access, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises
 import { EventEmitter, once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CoordinatorClient, StandbyDwsWorker, createHealthServer } from './worker.mjs';
+import { CoordinatorClient, StandbyConnectorWorker, createHealthServer } from './worker.mjs';
 
 const calls = [];
 const coordinatorCalls = [];
-const credentialDir = await mkdtemp(join(tmpdir(), 'aipros-dws-worker-test-'));
-const dwsHome = join(credentialDir, 'home');
-const portableBundle = Buffer.from('dws-1.0.56-portable-auth-tarball').toString('base64');
+const credentialDir = await mkdtemp(join(tmpdir(), 'aipros-connector-worker-test-'));
+const connectorHome = join(credentialDir, 'home');
+const portableBundle = Buffer.from('connector-1.0.56-portable-auth-tarball').toString('base64');
 const env = {
-  DINGTALK_DWS_AUTH_BUNDLE_B64: portableBundle, AIPROS_DWS_HOME: dwsHome,
-  AIPROS_CLOUD_DWS_CHANNEL: 'cloud-channel',
+  ENTERPRISE_CHAT_CONNECTOR_AUTH_BUNDLE_B64: portableBundle, AIPROS_CONNECTOR_HOME: connectorHome,
+  AIPROS_CLOUD_CONNECTOR_CHANNEL: 'cloud-channel',
   AIPROS_COORDINATOR_URL: 'https://internal.test',
   AIPROS_CONTAINER_TOKEN: 'token', AIPROS_ACCESS_MODE: 'blacklist',
   AIPROS_BLOCKED_CHAT_IDS: 'blocked-chat', AIPROS_BLOCKED_SENDER_IDS: 'blocked-user',
@@ -22,21 +22,21 @@ const runner = async (_bin, args, options = {}) => {
   calls.push(args);
   if (args[0] === 'auth' && args[1] === 'import') {
     importedPath = args[args.indexOf('-i') + 1];
-    assert.equal(options.env?.HOME, dwsHome);
-    assert.equal(options.env?.DWS_CHANNEL, 'cloud-channel');
+    assert.equal(options.env?.HOME, connectorHome);
+    assert.equal(options.env?.CONNECTOR_CHANNEL, 'cloud-channel');
     assert.equal((await stat(importedPath)).mode & 0o777, 0o600);
     assert.equal(await readFile(importedPath, 'utf8'), portableBundle);
   }
   if (args[0] === 'auth' && args[1] === 'status') {
-    assert.equal(options.env?.HOME, dwsHome);
-    assert.equal(options.env?.DWS_CHANNEL, 'cloud-channel');
+    assert.equal(options.env?.HOME, connectorHome);
+    assert.equal(options.env?.CONNECTOR_CHANNEL, 'cloud-channel');
     return { stdout: '{"authenticated":true}' };
   }
   if (args[0] === 'chat' && args[1] === 'message' && args[2] === 'send') {
-    return { stdout: '{"result":{"openTaskId":"task-1"}}' };
+    return { stdout: '{"result":{"deliveryTaskId":"task-1"}}' };
   }
-  if (args[0] === 'chat' && args[1] === 'message' && args[2] === 'query-send-status') {
-    return { stdout: '{"result":{"sendStatus":"SUCCESS"}}' };
+  if (args[0] === 'chat' && args[1] === 'message' && args[2] === 'delivery-status') {
+    return { stdout: '{"result":{"deliveryStatus":"SUCCESS"}}' };
   }
   if (args[0] === 'chat' && args[1] === 'message' && args[2] === 'download-media') {
     const output = args[args.indexOf('--output') + 1];
@@ -54,12 +54,12 @@ const coordinator = {
 };
 const eventCalls = [];
 const eventChildren = [];
-const worker = new StandbyDwsWorker({
+const worker = new StandbyConnectorWorker({
   env, runner, coordinator, now: () => 1_786_060_800_000,
   eventConsumer: async (_bin, args, _onMessage, options = {}) => {
     eventCalls.push(args);
-    assert.equal(options.env?.HOME, dwsHome);
-    assert.equal(options.env?.DWS_CHANNEL, 'cloud-channel');
+    assert.equal(options.env?.HOME, connectorHome);
+    assert.equal(options.env?.CONNECTOR_CHANNEL, 'cloud-channel');
     const child = new EventEmitter();
     eventChildren.push(child);
     return child;
@@ -68,7 +68,7 @@ const worker = new StandbyDwsWorker({
 await worker.initialize();
 await worker.initialize();
 await assert.rejects(() => access(importedPath));
-await access(join(dwsHome, '.aipros-auth-bootstrap-complete'));
+await access(join(connectorHome, '.aipros-auth-bootstrap-complete'));
 assert.equal(eventCalls.length, 1);
 assert.equal(calls.filter(args => args[0] === 'auth' && args[1] === 'import').length, 1);
 assert.equal(calls.some(args => args.includes('--profile')), false);
@@ -76,8 +76,8 @@ assert.equal(calls.some(args => args.includes('--client-id') || args.includes('-
 assert.equal(eventCalls[0].includes('--flatten'), true);
 assert.deepEqual(eventCalls[0].slice(0, 5), [
   'event', 'consume',
-  'user_im_message_receive_at',
-  'user_im_message_receive_o2o_all',
+  'message.mention.received',
+  'message.direct.received',
   '--flatten',
 ]);
 assert.deepEqual(await worker.processMessage({ messageId: 'standby' }), { skipped: 'standby' });
@@ -98,13 +98,13 @@ const send = calls.find(args => args[0] === 'chat' && args[2] === 'send');
 assert.equal(send[send.indexOf('--text') + 1], '云端回答');
 assert.match(send[send.indexOf('--uuid') + 1], /^[a-f0-9-]{36}$/);
 assert.equal(send.includes('--format'), true);
-const sendStatus = calls.find(args => args[0] === 'chat' && args[2] === 'query-send-status');
-assert.equal(sendStatus[sendStatus.indexOf('--open-task-id') + 1], 'task-1');
+const deliveryStatus = calls.find(args => args[0] === 'chat' && args[2] === 'delivery-status');
+assert.equal(deliveryStatus[deliveryStatus.indexOf('--delivery-task-id') + 1], 'task-1');
 assert.equal(coordinatorCalls.at(-1)[0], 'complete');
 
 const imageResult = await worker.processMessage({
-  type: 'user_im_message_receive_o2o_all',
-  message_id: 'm-image', conversation_id: 'chat-1', sender_open_dingtalk_id: 'user-1',
+  type: 'message.direct.received',
+  message_id: 'm-image', conversation_id: 'chat-1', sender_enterprise_user_id: 'user-1',
   content: '[图片消息](mediaId=image-resource-1) 这是什么？', create_time: 1_786_060_800_000,
 });
 assert.equal(imageResult.sent, true);
@@ -149,13 +149,13 @@ await new Promise(resolve => server.close(resolve));
 await rm(credentialDir, { recursive: true, force: true });
 
 const overrideCalls = [];
-const overrideHome = join(await mkdtemp(join(tmpdir(), 'aipros-dws-worker-override-test-')), 'home');
-const overrideWorker = new StandbyDwsWorker({
+const overrideHome = join(await mkdtemp(join(tmpdir(), 'aipros-connector-worker-override-test-')), 'home');
+const overrideWorker = new StandbyConnectorWorker({
   env: {
     ...env,
-    AIPROS_DWS_HOME: overrideHome,
-    DINGTALK_CLIENT_ID: 'cloud-app',
-    DINGTALK_CLIENT_SECRET: 'cloud-secret',
+    AIPROS_CONNECTOR_HOME: overrideHome,
+    ENTERPRISE_CHAT_CLIENT_ID: 'cloud-app',
+    ENTERPRISE_CHAT_CLIENT_SECRET: 'cloud-secret',
   },
   coordinator,
   runner: async (_bin, args) => {

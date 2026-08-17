@@ -9,7 +9,7 @@ const indexPath = join(root, 'index.json');
 await writeFile(indexPath, JSON.stringify({ records: [{
   id: 'doc-1',
   title: '夜间知识同步方案',
-  text: '每天十八点通过 DWS Channel 增量更新知识库。',
+  text: '每天十八点通过 CONNECTOR Channel 增量更新知识库。',
   locator: 'local-wiki:2026-08-04#doc-1',
   date: '2026-08-04',
 }] }));
@@ -21,7 +21,7 @@ const denied = await searchLocalWiki('知识同步', {
 });
 assert.deepEqual(denied, []);
 
-const results = await searchLocalWiki('DWS 知识库', {
+const results = await searchLocalWiki('CONNECTOR 知识库', {
   indexPath,
   senderId: 'owner',
   ownerId: 'owner',

@@ -1,25 +1,25 @@
 import { basename, extname } from 'node:path';
 
-const DINGTALK_MEDIA_KIND = new Map([
+const ENTERPRISE_CHAT_MEDIA_KIND = new Map([
   ['图片', 'image'],
   ['语音', 'audio'],
   ['音频', 'audio'],
   ['视频', 'video'],
 ]);
 
-export function parseDingTalkMediaPlaceholder(content = '') {
+export function parseEnterpriseChatMediaPlaceholder(content = '') {
   const text = String(content || '').trim();
   const kindMatch = text.match(/^\[?(图片|语音|音频|视频)消息\]?/);
   const resourceMatch = text.match(/mediaId\s*(?:=|:)\s*([^\s)]+)/i);
   if (!kindMatch || !resourceMatch) return null;
   return {
-    kind: DINGTALK_MEDIA_KIND.get(kindMatch[1]),
+    kind: ENTERPRISE_CHAT_MEDIA_KIND.get(kindMatch[1]),
     resourceId: resourceMatch[1].trim(),
     displayName: `${kindMatch[1]}消息`,
   };
 }
 
-export function parseDingTalkFilePlaceholder(content = '') {
+export function parseEnterpriseChatFilePlaceholder(content = '') {
   const text = String(content || '').trim();
   const match = text.match(/^(?:\[文件\]\s*)+(.+?)\s+fileId\s*:\s*([^\s]+)/i);
   if (!match) return null;
@@ -59,13 +59,13 @@ export function buildImageUnderstandingTask(requestText = '') {
     + '如果图片里有网址或链接文字，要逐字识别清晰可见的链接；看不清时明确说明，不得猜测或补全。';
 }
 
-export function buildDingTalkDriveDownloadArgs({
+export function buildEnterpriseChatDriveDownloadArgs({
   profile = '',
   fileId,
   outputPath,
 } = {}) {
   if (!String(fileId || '').trim() || !String(outputPath || '').trim()) {
-    throw new Error('DingTalk drive fileId and outputPath are required');
+    throw new Error('EnterpriseChat drive fileId and outputPath are required');
   }
   return [
     ...(String(profile || '').trim() ? ['--profile', String(profile).trim()] : []),
@@ -76,7 +76,7 @@ export function buildDingTalkDriveDownloadArgs({
   ];
 }
 
-export function buildDingTalkMediaDownloadArgs({
+export function buildEnterpriseChatMediaDownloadArgs({
   profile = '',
   resourceId,
   messageId,
@@ -85,7 +85,7 @@ export function buildDingTalkMediaDownloadArgs({
 } = {}) {
   const required = { resourceId, messageId, conversationId, outputPath };
   for (const [name, value] of Object.entries(required)) {
-    if (!String(value || '').trim()) throw new Error(`DingTalk media ${name} is required`);
+    if (!String(value || '').trim()) throw new Error(`EnterpriseChat media ${name} is required`);
   }
   return [
     ...(String(profile || '').trim() ? ['--profile', String(profile).trim()] : []),

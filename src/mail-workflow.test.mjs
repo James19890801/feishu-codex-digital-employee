@@ -30,21 +30,21 @@ try {
     async verifyDelivery(input) { calls.push(['verify', input]); return 'success'; },
   };
   const workflow = new MailWorkflow({
-    client, state, pendingStore, ownerIds: ['dingtalk:owner'], now: () => 10_000,
+    client, state, pendingStore, ownerIds: ['enterpriseChat:owner'], now: () => 10_000,
     delay: async () => {},
   });
   const owner = {
-    chatId: 'dingtalk:user:owner', chatType: 'p2p', senderId: 'dingtalk:owner',
-    messageId: 'msg-1', metadata: { channel: 'dingtalk', selfChat: true },
+    chatId: 'enterpriseChat:user:owner', chatType: 'p2p', senderId: 'enterpriseChat:owner',
+    messageId: 'msg-1', metadata: { channel: 'enterpriseChat', selfChat: true },
   };
 
-  assert.equal(isAuthorizedMailOwner(owner, ['dingtalk:owner']), true);
-  assert.equal(isAuthorizedMailOwner({ ...owner, chatType: 'group' }, ['dingtalk:owner']), false);
-  assert.equal(isAuthorizedMailOwner({ ...owner, metadata: { channel: 'dingtalk', selfChat: false } }, ['dingtalk:owner']), false);
+  assert.equal(isAuthorizedMailOwner(owner, ['enterpriseChat:owner']), true);
+  assert.equal(isAuthorizedMailOwner({ ...owner, chatType: 'group' }, ['enterpriseChat:owner']), false);
+  assert.equal(isAuthorizedMailOwner({ ...owner, metadata: { channel: 'enterpriseChat', selfChat: false } }, ['enterpriseChat:owner']), false);
 
-  const denied = await workflow.handle({ ...owner, senderId: 'dingtalk:other', text: '看看未读邮件' });
+  const denied = await workflow.handle({ ...owner, senderId: 'enterpriseChat:other', text: '看看未读邮件' });
   assert.equal(denied.handled, true);
-  assert.match(denied.text, /仅能在本人钉钉私聊/);
+  assert.match(denied.text, /仅能在本人企业会话私聊/);
   assert.equal(calls.length, 0);
 
   const searched = await workflow.handle({ ...owner, text: '看看未读邮件' });

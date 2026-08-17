@@ -19,11 +19,11 @@ try {
     enabled: true,
     windowMs: 30 * 60_000,
     maxReplies: 2,
-    channel: 'dingtalk',
-    senderId: 'dingtalk:other-bot',
+    channel: 'enterpriseChat',
+    senderId: 'enterpriseChat:other-bot',
     message: {
       message_id: 'message-1',
-      chat_id: 'dingtalk:group:test',
+      chat_id: 'enterpriseChat:group:test',
       chat_type: 'group',
       message_type: 'text',
     },
@@ -110,7 +110,7 @@ try {
 
   const retryBase = {
     ...base,
-    senderId: 'dingtalk:retry-bot',
+    senderId: 'enterpriseChat:retry-bot',
     message: { ...base.message, message_id: 'retry-first' },
     text: '同一个重复发送问题需要确认',
     nowMs: 10_000,

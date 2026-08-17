@@ -36,21 +36,21 @@ try {
     'create',
   );
 
-  pending.set('multica_feedback', 'dingtalk:user:owner', 'dingtalk:owner', {
+  pending.set('multica_feedback', 'enterpriseChat:user:owner', 'enterpriseChat:owner', {
     originalRequest: '创建一个培训课件 Issue',
     sourceMessageId: 'message-feedback-1',
     context: {
-      chatId: 'dingtalk:user:owner',
-      senderId: 'dingtalk:owner',
+      chatId: 'enterpriseChat:user:owner',
+      senderId: 'enterpriseChat:owner',
       chatType: 'p2p',
-      metadata: { channel: 'dingtalk', selfChat: true },
+      metadata: { channel: 'enterpriseChat', selfChat: true },
     },
   }, 4_000);
   assert.equal(
     pending.get(
       'multica_feedback',
-      'dingtalk:user:owner',
-      'dingtalk:owner',
+      'enterpriseChat:user:owner',
+      'enterpriseChat:owner',
       4_001,
     ).originalRequest,
     '创建一个培训课件 Issue',

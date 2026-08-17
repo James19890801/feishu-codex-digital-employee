@@ -15,24 +15,24 @@ assert.equal(packageMetadata.author, '阿充');
 
 for (const key of [
   'feishuEnabled', 'wecomEnabled', 'geweEnabled',
-  'a1Enabled', 'multicaEnabled', 'licensingEnforced',
+  'multicaEnabled', 'licensingEnforced',
 ]) {
   assert.equal(defaults[key], false, `${key} must fail closed`);
 }
-assert.equal(defaults.dingtalkEnabled, true);
-assert.equal(defaults.dingtalkTransport, 'event-stream');
-assert.equal(defaults.dingtalkProfile, '');
-assert.equal(defaults.dingtalkChannel, '');
-assert.equal(defaults.dingtalkBin, '');
-assert.equal(example.dingtalkEnabled, true);
-assert.equal(example.dingtalkTransport, 'event-stream');
+assert.equal(defaults.enterpriseChatEnabled, true);
+assert.equal(defaults.enterpriseChatTransport, 'event-stream');
+assert.equal(defaults.enterpriseChatProfile, '');
+assert.equal(defaults.enterpriseChatChannel, '');
+assert.equal(defaults.enterpriseChatBin, '');
+assert.equal(example.enterpriseChatEnabled, true);
+assert.equal(example.enterpriseChatTransport, 'event-stream');
 assert.equal(example.feishuEnabled, false);
 assert.equal(example.feishuAppId, '');
 assert.equal(example.ownerOpenId, '');
 assert.equal(defaults.allowAllChats, false);
 assert.deepEqual(defaults.authorizedChatIds, ['__SETUP_REQUIRED__']);
 assert.equal(defaults.ownerOpenId, '');
-assert.equal(defaults.dingtalkOwnerOpenId, '');
+assert.equal(defaults.enterpriseChatOwnerOpenId, '');
 assert.equal(defaults.aiRuntime, 'auto');
 for (const candidate of [defaults, example]) {
   assert.equal(candidate.cloudFailoverEnabled, false);
@@ -85,8 +85,8 @@ const result = spawnSync('/bin/zsh', [join(fixture, 'scripts', 'setup.sh')], {
 assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 const installed = JSON.parse(await readFile(join(fixture, 'config.local.json'), 'utf8'));
 assert.equal(installed.feishuEnabled, false);
-assert.equal(installed.dingtalkEnabled, true);
-assert.equal(installed.dingtalkTransport, 'event-stream');
+assert.equal(installed.enterpriseChatEnabled, true);
+assert.equal(installed.enterpriseChatTransport, 'event-stream');
 assert.equal(installed.allowAllChats, false);
 assert.deepEqual(
   JSON.parse(await readFile(join(fixture, 'knowledge-catalog.json'), 'utf8')),

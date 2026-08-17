@@ -4,11 +4,11 @@ import { buildInboundContentEnvelope } from './inbound-content.mjs';
 const envelope = buildInboundContentEnvelope({
   message: {
     message_id: 'msg-1',
-    chat_id: 'dingtalk:group:cid-1',
+    chat_id: 'enterpriseChat:group:cid-1',
     chat_type: 'group',
     message_type: 'file',
   },
-  senderId: 'dingtalk:sender-1',
+  senderId: 'enterpriseChat:sender-1',
   text: '请结合 https://example.com/a 和 https://example.com/b 看一下',
   imageRefs: [
     { messageId: 'img-msg-1', fileKey: 'img-1' },
@@ -18,7 +18,7 @@ const envelope = buildInboundContentEnvelope({
     { messageId: 'file-msg-1', fileKey: 'file-1', fileName: '方案.pdf' },
   ],
   metadata: {
-    channel: 'dingtalk',
+    channel: 'enterpriseChat',
     file: {
       resourceId: 'drive-file-1', fileName: '复盘.pptx',
       messageId: 'msg-1', conversationId: 'cid-1',
@@ -27,14 +27,14 @@ const envelope = buildInboundContentEnvelope({
   maxUrls: 2,
 });
 
-assert.equal(envelope.channel, 'dingtalk');
+assert.equal(envelope.channel, 'enterpriseChat');
 assert.equal(envelope.items.length, 6);
 assert.deepEqual(envelope.items.map(item => item.kind), [
   'image', 'image', 'document', 'document', 'web', 'web',
 ]);
 assert.deepEqual(envelope.items[3], {
   kind: 'document',
-  source: 'dingtalk',
+  source: 'enterpriseChat',
   resourceId: 'drive-file-1',
   fileName: '复盘.pptx',
   messageId: 'msg-1',

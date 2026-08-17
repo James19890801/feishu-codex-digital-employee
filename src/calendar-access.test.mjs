@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import {
   assertOwnerFileRecipient,
-  buildDingTalkCalendarCreateArgs,
-  buildDingTalkCalendarListArgs,
+  buildEnterpriseChatCalendarCreateArgs,
+  buildEnterpriseChatCalendarListArgs,
   buildFeishuCalendarCreateArgs,
   buildFeishuFreebusyArgs,
   calendarAccessPolicy,
@@ -10,14 +10,14 @@ import {
   hasCalendarConflict,
   looksLikeAvailabilityQuery,
   looksLikeMeetingBookingRequest,
-  normalizeDingTalkCalendarEvents,
+  normalizeEnterpriseChatCalendarEvents,
   normalizeFeishuBusyIntervals,
   normalizeFeishuCalendarEvents,
 } from './calendar-access.mjs';
 
 const identities = {
   ownerOpenId: 'ou_james',
-  dingtalkOwnerOpenId: 'dt_james',
+  enterpriseChatOwnerOpenId: 'dt_james',
 };
 const events = [{
   summary: '董事会私密会议',
@@ -37,8 +37,8 @@ assert.deepEqual(calendarAccessPolicy({
 });
 
 assert.deepEqual(calendarAccessPolicy({
-  channel: 'dingtalk',
-  senderId: 'dingtalk:dt_guest',
+  channel: 'enterpriseChat',
+  senderId: 'enterpriseChat:dt_guest',
   identities,
 }), {
   isOwner: false,
@@ -48,8 +48,8 @@ assert.deepEqual(calendarAccessPolicy({
 });
 
 assert.equal(calendarAccessPolicy({
-  channel: 'dingtalk',
-  senderId: 'dingtalk:dt_james',
+  channel: 'enterpriseChat',
+  senderId: 'enterpriseChat:dt_james',
   identities,
 }).isOwner, true);
 
@@ -78,7 +78,7 @@ assert.equal(hasCalendarConflict(events, {
   end: '2026-08-07T17:00:00+08:00',
 }), false);
 assert.throws(() => assertOwnerFileRecipient({
-  channel: 'dingtalk', senderId: 'dingtalk:dt_guest', identities,
+  channel: 'enterpriseChat', senderId: 'enterpriseChat:dt_guest', identities,
 }), error => error?.code === 'OWNER_FILE_RECIPIENT_REQUIRED');
 
 const externalReply = formatCalendarAnswer({
@@ -102,7 +102,7 @@ assert.equal(formatCalendarAnswer({
   canViewDetails: false,
 }), '明天上午目前空闲，可以发起预约。');
 
-assert.deepEqual(buildDingTalkCalendarListArgs({
+assert.deepEqual(buildEnterpriseChatCalendarListArgs({
   profile: 'corp:user',
   start: '2026-08-07T09:00:00+08:00',
   end: '2026-08-07T18:00:00+08:00',
@@ -127,19 +127,19 @@ assert.deepEqual(buildFeishuCalendarCreateArgs({
   '--attendee-ids', 'ou_guest', '--format', 'json',
 ]);
 
-assert.deepEqual(buildDingTalkCalendarCreateArgs({
+assert.deepEqual(buildEnterpriseChatCalendarCreateArgs({
   profile: 'corp:user',
   summary: '与詹老师沟通',
   start: '2026-08-08T09:00:00+08:00',
   end: '2026-08-08T10:00:00+08:00',
-  attendeeId: 'dingtalk:dt_guest',
+  attendeeId: 'enterpriseChat:dt_guest',
 }), [
   '--profile', 'corp:user',
   'calendar', 'event', 'create',
   '--title', '与詹老师沟通',
   '--start', '2026-08-08T09:00:00+08:00',
   '--end', '2026-08-08T10:00:00+08:00',
-  '--open-dingtalk-ids', 'dt_guest',
+  '--open-enterpriseChat-ids', 'dt_guest',
   '--free-busy', 'busy', '--yes', '--format', 'json',
 ]);
 
@@ -182,7 +182,7 @@ assert.deepEqual(normalizeFeishuCalendarEvents([{
   end: '2026-08-07T08:00:00.000Z',
 }]);
 
-assert.deepEqual(normalizeDingTalkCalendarEvents({
+assert.deepEqual(normalizeEnterpriseChatCalendarEvents({
   success: true,
   result: {
     events: [{

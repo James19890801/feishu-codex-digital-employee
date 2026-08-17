@@ -1,5 +1,6 @@
 function normalizedChannel(value) {
-  return String(value || '').trim().toLowerCase();
+  const channel = String(value || '').trim().toLowerCase();
+  return channel === 'enterprisechat' ? 'enterpriseChat' : channel;
 }
 
 function normalizedSender(value) {
@@ -11,15 +12,15 @@ export function calendarAccessPolicy({ channel, senderId, identities = {} } = {}
   const sender = normalizedSender(senderId);
   const owner = provider === 'feishu'
     ? normalizedSender(identities.ownerOpenId)
-    : provider === 'dingtalk'
-      ? `dingtalk:${normalizedSender(identities.dingtalkOwnerOpenId)}`
+    : provider === 'enterpriseChat'
+      ? `enterpriseChat:${normalizedSender(identities.enterpriseChatOwnerOpenId)}`
       : '';
   const isOwner = Boolean(sender && owner && sender === owner);
   return {
     isOwner,
     canViewDetails: isOwner,
     canReceiveFiles: isOwner,
-    canRequestMeeting: ['feishu', 'dingtalk'].includes(provider),
+    canRequestMeeting: ['feishu', 'enterpriseChat'].includes(provider),
   };
 }
 
@@ -90,10 +91,10 @@ export function formatCalendarAnswer({ label, events = [], canViewDetails = fals
     : `${period}的忙闲情况：\n${lines.join('\n')}\n其他时间可以发起预约。`;
 }
 
-export function buildDingTalkCalendarListArgs({ profile = '', start, end } = {}) {
+export function buildEnterpriseChatCalendarListArgs({ profile = '', start, end } = {}) {
   const startTime = String(start || '').trim();
   const endTime = String(end || '').trim();
-  if (!startTime || !endTime) throw new Error('DingTalk calendar query requires start and end');
+  if (!startTime || !endTime) throw new Error('EnterpriseChat calendar query requires start and end');
   return [
     ...(profile ? ['--profile', String(profile)] : []),
     'calendar', 'event', 'list',
@@ -126,17 +127,17 @@ export function buildFeishuCalendarCreateArgs(input = {}) {
   ];
 }
 
-export function buildDingTalkCalendarCreateArgs(input = {}) {
+export function buildEnterpriseChatCalendarCreateArgs(input = {}) {
   const { title, startTime, endTime } = calendarCreateFields(input);
   const profile = String(input.profile || '').trim();
-  const attendeeId = String(input.attendeeId || '').replace(/^dingtalk:/, '').trim();
+  const attendeeId = String(input.attendeeId || '').replace(/^enterpriseChat:/, '').trim();
   return [
     ...(profile ? ['--profile', profile] : []),
     'calendar', 'event', 'create',
     '--title', title,
     '--start', startTime,
     '--end', endTime,
-    ...(attendeeId ? ['--open-dingtalk-ids', attendeeId] : []),
+    ...(attendeeId ? ['--open-enterpriseChat-ids', attendeeId] : []),
     '--free-busy', 'busy', '--yes', '--format', 'json',
   ];
 }
@@ -186,7 +187,7 @@ function eventDateTime(value) {
   return eventTime(value?.dateTime || value?.date_time || value?.startTime || value?.endTime);
 }
 
-export function normalizeDingTalkCalendarEvents(payload) {
+export function normalizeEnterpriseChatCalendarEvents(payload) {
   const root = payload?.result || payload?.data || payload || {};
   const items = Array.isArray(root) ? root : (root.events || root.items || []);
   return (Array.isArray(items) ? items : []).flatMap(item => {

@@ -9,7 +9,7 @@ export async function runCloudFailoverSmoke(client, now = () => new Date()) {
     sequence: 1,
     at,
     serviceStartId: 'manual-smoke',
-    dwsConnected: true,
+    connectorConnected: true,
     runtimeHealthy: true,
     lastMessageDigest: '',
     appVersion: '1.0.0',

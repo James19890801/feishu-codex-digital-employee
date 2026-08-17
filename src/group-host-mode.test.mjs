@@ -46,13 +46,13 @@ for (const input of [
 
 const candidate = {
   messageId: 'message-1',
-  chatId: 'dingtalk:group:test',
-  senderId: 'dingtalk:member-a',
+  chatId: 'enterpriseChat:group:test',
+  senderId: 'enterpriseChat:member-a',
   text: '大家怎么看 AI Agent 对项目协作的影响？',
   createdAtMs: 1_000,
 };
 const laterMessages = [{
-  role: 'user', senderId: 'dingtalk:member-b',
+  role: 'user', senderId: 'enterpriseChat:member-b',
   content: '我认为最大的变化是协调成本下降。',
   sourceMessageId: 'message-2', createdAt: new Date(2_000).toISOString(),
 }];

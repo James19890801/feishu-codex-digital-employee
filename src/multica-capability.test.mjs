@@ -99,7 +99,7 @@ const capability = new MulticaCapability({
   state,
   authorizeWrite: candidate => isAuthorizedMulticaOwner(candidate, {
     ownerOpenId: 'ou_owner',
-    dingtalkOwnerOpenId: 'dt_owner',
+    enterpriseChatOwnerOpenId: 'dt_owner',
   }),
 });
 const context = {

@@ -29,7 +29,7 @@ for (const [name, path] of [
   ...(config.feishuEnabled ? [['larkCli', config.larkCli]] : []),
   ['pythonBin', config.pythonBin],
   ['node', join(config.nodeBin, 'node')],
-  ...(config.dingtalkEnabled ? [['dingtalkBin', config.dingtalkBin]] : []),
+  ...(config.enterpriseChatEnabled ? [['enterpriseChatBin', config.enterpriseChatBin]] : []),
   ...(config.multicaEnabled ? [['multicaBin', config.multicaBin]] : []),
 ]) {
   if (!existsSync(path)) throw new Error(`${name} 不存在：${path}`);

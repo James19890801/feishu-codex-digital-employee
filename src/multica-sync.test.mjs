@@ -52,10 +52,10 @@ try {
     },
     state,
     ownerRecipient: {
-      chatId: 'dingtalk:user:owner-open-id',
-      senderId: 'dingtalk:owner-open-id',
+      chatId: 'enterpriseChat:user:owner-open-id',
+      senderId: 'enterpriseChat:owner-open-id',
       chatType: 'p2p',
-      channel: 'dingtalk',
+      channel: 'enterpriseChat',
     },
     notify: async (chatId, text, idempotencyKey, recipient) => {
       if (chatId === failChat) throw new Error('temporary Feishu failure');
@@ -113,7 +113,7 @@ try {
     notices.find(item => item.chatId === 'chat-issue').recipient,
     { senderId: 'user', chatType: 'group' },
   );
-  assert.equal(notices.some(item => item.chatId === 'dingtalk:user:owner-open-id'), false);
+  assert.equal(notices.some(item => item.chatId === 'enterpriseChat:user:owner-open-id'), false);
 
   notices.length = 0;
   const unchanged = await synchronizer.cycle();
@@ -169,7 +169,7 @@ try {
   state.enqueueMulticaNotification({
     notificationKey: 'temporarily-suppressed-notification',
     issueId: 'issue-1',
-    chatId: 'dingtalk:user:owner-open-id',
+    chatId: 'enterpriseChat:user:owner-open-id',
     content: 'Retry after the self-chat circuit closes',
     availableAt: new Date().toISOString(),
   });
@@ -205,7 +205,7 @@ try {
       identifier: 'MYS-2',
       title: 'New external issue',
       description: [
-        '来源渠道：钉钉',
+        '来源渠道：企业会话',
         '来源发送者：陈菲',
         '原始需求：修复自动回复偶发中断。',
         '补充说明：影响客户测试，需要确保秒级回复。',
@@ -223,14 +223,14 @@ try {
   assert.equal(created.changes, 1);
   assert.equal(created.notified, 1);
   assert.deepEqual(notices.map(item => item.chatId).sort(), [
-    'dingtalk:user:owner-open-id',
+    'enterpriseChat:user:owner-open-id',
   ]);
-  const ownerNotice = notices.find(item => item.chatId === 'dingtalk:user:owner-open-id');
+  const ownerNotice = notices.find(item => item.chatId === 'enterpriseChat:user:owner-open-id');
   assert.match(ownerNotice.text, /新 Issue/);
   assert.match(ownerNotice.text, /做什么：修复自动回复偶发中断/);
   assert.match(ownerNotice.text, /为什么：影响客户测试，需要确保秒级回复/);
   assert.match(ownerNotice.text, /谁提出：陈菲/);
-  assert.match(ownerNotice.text, /来源：钉钉/);
+  assert.match(ownerNotice.text, /来源：企业会话/);
   assert.match(ownerNotice.text, /https:\/\/multica\.ai\/my-space\/issues\/MYS-2/);
   assert.equal(audits.some(item => item.event === 'multica_sync_change'), true);
 

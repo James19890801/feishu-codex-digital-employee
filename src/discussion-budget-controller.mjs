@@ -29,7 +29,7 @@ export function discussionBudgetEligibility({
 } = {}) {
   if (!enabled) return { eligible: false, reason: 'disabled' };
   if (chatType !== 'group') return { eligible: false, reason: 'direct_message_bypass' };
-  if (!['feishu', 'dingtalk'].includes(channel)) {
+  if (!['feishu', 'enterpriseChat'].includes(channel)) {
     return { eligible: false, reason: 'channel_bypass' };
   }
   if (!['text', 'post'].includes(messageType) || !String(text || '').trim()) {

@@ -1,17 +1,17 @@
 import assert from 'node:assert/strict';
 import * as imChannelHelpers from './im-channels.mjs';
 import {
-  buildDingTalkAuthStatusArgs,
-  buildDingTalkConversationPollingArgs,
-  buildDingTalkSelfPollingArgs,
-  buildDingTalkConsumerArgs,
-  buildDingTalkListAllPollingArgs,
-  buildDingTalkSendArgs,
+  buildEnterpriseChatAuthStatusArgs,
+  buildEnterpriseChatConversationPollingArgs,
+  buildEnterpriseChatSelfPollingArgs,
+  buildEnterpriseChatConsumerArgs,
+  buildEnterpriseChatListAllPollingArgs,
+  buildEnterpriseChatSendArgs,
   formatChannelChatId,
   normalizeGeWeWebhook,
-  normalizeDingTalkEvent,
-  normalizeDingTalkListAllPage,
-  normalizeDingTalkSelfMessages,
+  normalizeEnterpriseChatEvent,
+  normalizeEnterpriseChatListAllPage,
+  normalizeEnterpriseChatSelfMessages,
   normalizeWeComFrame,
   parseChannelChatId,
   prepareGroupMention,
@@ -24,42 +24,42 @@ assert.equal(
 );
 
 assert.equal(
-  typeof imChannelHelpers.buildDingTalkProcessEnv,
+  typeof imChannelHelpers.buildEnterpriseChatProcessEnv,
   'function',
-  'DingTalk process environment must be built by a tested helper',
+  'EnterpriseChat process environment must be built by a tested helper',
 );
 assert.equal(
-  typeof imChannelHelpers.normalizeDingTalkGroupHistoryMessages,
+  typeof imChannelHelpers.normalizeEnterpriseChatGroupHistoryMessages,
   'function',
   '测试群的历史恢复轮询需要专用标准化入口',
 );
 assert.equal(
-  typeof imChannelHelpers.buildDingTalkGroupHostPollingArgs,
+  typeof imChannelHelpers.buildEnterpriseChatGroupHostPollingArgs,
   'function',
   '群主持恢复轮询需要从游标时间向后拉取',
 );
-if (typeof imChannelHelpers.buildDingTalkProcessEnv === 'function') {
-  assert.deepEqual(imChannelHelpers.buildDingTalkProcessEnv({
-    dingtalkBin: '/opt/dws/bin/dws',
-    dingtalkChannel: 'channel-code',
+if (typeof imChannelHelpers.buildEnterpriseChatProcessEnv === 'function') {
+  assert.deepEqual(imChannelHelpers.buildEnterpriseChatProcessEnv({
+    enterpriseChatBin: '/opt/connector/bin/connector',
+    enterpriseChatChannel: 'channel-code',
     nodeBin: '/opt/node/bin',
     pathEnv: '/usr/bin:/bin',
     baseEnv: { LANG: 'zh_CN.UTF-8' },
     home: '/Users/example',
   }), {
-    DWS_CHANNEL: 'channel-code',
+    CONNECTOR_CHANNEL: 'channel-code',
     HOME: '/Users/example',
     LANG: 'zh_CN.UTF-8',
-    PATH: '/opt/dws/bin:/opt/node/bin:/usr/bin:/bin',
+    PATH: '/opt/connector/bin:/opt/node/bin:/usr/bin:/bin',
   });
 }
 
 assert.equal(
-  formatChannelChatId('dingtalk', 'group', 'cidABC'),
-  'dingtalk:group:cidABC',
+  formatChannelChatId('enterpriseChat', 'group', 'cidABC'),
+  'enterpriseChat:group:cidABC',
 );
-assert.deepEqual(parseChannelChatId('dingtalk:user:userABC'), {
-  channel: 'dingtalk',
+assert.deepEqual(parseChannelChatId('enterpriseChat:user:userABC'), {
+  channel: 'enterpriseChat',
   kind: 'user',
   id: 'userABC',
 });
@@ -72,37 +72,37 @@ assert.deepEqual(prepareGroupMention({
   text: 'MYS-4 状态已更新',
 }), {
   text: '<at user_id="ou_requester">发起人</at>\nMYS-4 状态已更新',
-  atOpenDingTalkIds: [],
+  mentionUserIds: [],
 });
 if (typeof imChannelHelpers.requiredGroupMentionApplied === 'function') {
   assert.equal(imChannelHelpers.requiredGroupMentionApplied({
     chatId: 'wecom:group:groupABC',
     senderIds: ['wecom:user-a'],
-    prepared: { text: '<@user-a>\n回复', atOpenDingTalkIds: [] },
+    prepared: { text: '<@user-a>\n回复', mentionUserIds: [] },
   }), true);
   assert.equal(imChannelHelpers.requiredGroupMentionApplied({
     chatId: 'wecom:group:groupABC',
     senderIds: ['wecom:user-a'],
-    prepared: { text: '回复', atOpenDingTalkIds: [] },
+    prepared: { text: '回复', mentionUserIds: [] },
   }), false);
 }
 assert.deepEqual(prepareGroupMention({
-  chatId: 'dingtalk:group:cidABC',
+  chatId: 'enterpriseChat:group:cidABC',
   chatType: 'group',
-  senderId: 'dingtalk:open-requester',
+  senderId: 'enterpriseChat:open-requester',
   text: 'MYS-4 状态已更新',
 }), {
   text: '<@open-requester>\nMYS-4 状态已更新',
-  atOpenDingTalkIds: ['open-requester'],
+  mentionUserIds: ['open-requester'],
 });
 assert.deepEqual(prepareGroupMention({
-  chatId: 'dingtalk:group:cidABC',
+  chatId: 'enterpriseChat:group:cidABC',
   chatType: 'group',
-  senderIds: ['dingtalk:open-a', 'dingtalk:open-b', 'dingtalk:open-a'],
+  senderIds: ['enterpriseChat:open-a', 'enterpriseChat:open-b', 'enterpriseChat:open-a'],
   text: '需要两位数字人继续处理',
 }), {
   text: '<@open-a> <@open-b>\n需要两位数字人继续处理',
-  atOpenDingTalkIds: ['open-a', 'open-b'],
+  mentionUserIds: ['open-a', 'open-b'],
 });
 assert.deepEqual(prepareGroupMention({
   chatId: 'wecom:group:groupABC',
@@ -111,7 +111,7 @@ assert.deepEqual(prepareGroupMention({
   text: '我来回答这个问题',
 }), {
   text: '<@user-a> <@user-b>\n我来回答这个问题',
-  atOpenDingTalkIds: [],
+  mentionUserIds: [],
 });
 assert.deepEqual(prepareGroupMention({
   chatId: 'oc_feishu_group',
@@ -120,7 +120,7 @@ assert.deepEqual(prepareGroupMention({
   text: '需要两位数字人继续处理',
 }), {
   text: '<at user_id="ou_a">回复对象</at> <at user_id="ou_b">回复对象</at>\n需要两位数字人继续处理',
-  atOpenDingTalkIds: [],
+  mentionUserIds: [],
 });
 assert.deepEqual(prepareGroupMention({
   chatId: 'oc_feishu_direct',
@@ -129,7 +129,7 @@ assert.deepEqual(prepareGroupMention({
   text: 'MYS-4 状态已更新',
 }), {
   text: 'MYS-4 状态已更新',
-  atOpenDingTalkIds: [],
+  mentionUserIds: [],
 });
 assert.equal(
   formatChannelChatId('wechat', 'group', 'room-1@chatroom'),
@@ -168,30 +168,30 @@ assert.deepEqual(parseChannelChatId('wechat:user:wxid_friend'), {
   assert.equal(ownerActivity.metadata.operatorControl, undefined);
 }
 
-assert.deepEqual(buildDingTalkConsumerArgs(), [
+assert.deepEqual(buildEnterpriseChatConsumerArgs(), [
   'event', 'consume',
-  'user_im_message_receive_at',
-  'user_im_message_receive_o2o_all',
-  'user_im_message_receive_group_all',
+  'message.mention.received',
+  'message.direct.received',
+  'message.group.received',
   '--flatten',
   '--format', 'ndjson',
 ]);
-assert.deepEqual(buildDingTalkConsumerArgs('corp:user'), [
+assert.deepEqual(buildEnterpriseChatConsumerArgs('corp:user'), [
   '--profile', 'corp:user',
   'event', 'consume',
-  'user_im_message_receive_at',
-  'user_im_message_receive_o2o_all',
-  'user_im_message_receive_group_all',
+  'message.mention.received',
+  'message.direct.received',
+  'message.group.received',
   '--flatten',
   '--format', 'ndjson',
 ]);
-assert.deepEqual(buildDingTalkAuthStatusArgs('corp:user'), [
+assert.deepEqual(buildEnterpriseChatAuthStatusArgs('corp:user'), [
   '--profile', 'corp:user',
   'auth', 'status',
   '--format', 'json',
 ]);
 
-assert.deepEqual(buildDingTalkListAllPollingArgs(
+assert.deepEqual(buildEnterpriseChatListAllPollingArgs(
   '2026-08-03 11:20:00',
   '2026-08-03 11:25:00',
   'cursor-2',
@@ -205,7 +205,7 @@ assert.deepEqual(buildDingTalkListAllPollingArgs(
 ]);
 
 {
-  const page = normalizeDingTalkListAllPage({
+  const page = normalizeEnterpriseChatListAllPage({
     success: true,
     result: {
       conversationMessagesList: [{
@@ -218,14 +218,14 @@ assert.deepEqual(buildDingTalkListAllPollingArgs(
           openConversationId: 'cid-direct',
           openMessageId: 'msg-direct',
           sender: '同事甲',
-          senderOpenDingTalkId: 'open-colleague',
+          senderEnterpriseUserId: 'open-colleague',
         }, {
           content: '这是阿充已发出的回复',
           createTime: '2026-08-03 11:21:05',
           openConversationId: 'cid-direct',
           openMessageId: 'msg-outbound',
           sender: '阿充James',
-          senderOpenDingTalkId: 'open-owner',
+          senderEnterpriseUserId: 'open-owner',
         }],
       }, {
         openConversationId: 'cid-self',
@@ -237,7 +237,7 @@ assert.deepEqual(buildDingTalkListAllPollingArgs(
           openConversationId: 'cid-self',
           openMessageId: 'msg-self',
           sender: '阿充James',
-          senderOpenDingTalkId: 'open-owner',
+          senderEnterpriseUserId: 'open-owner',
         }],
       }, {
         openConversationId: 'cid-group',
@@ -249,21 +249,21 @@ assert.deepEqual(buildDingTalkListAllPollingArgs(
           openConversationId: 'cid-group',
           openMessageId: 'msg-at',
           sender: '同事乙',
-          senderOpenDingTalkId: 'open-colleague-2',
+          senderEnterpriseUserId: 'open-colleague-2',
         }, {
           content: '这是普通群消息',
           createTime: '2026-08-03 11:23:05',
           openConversationId: 'cid-group',
           openMessageId: 'msg-no-at',
           sender: '同事乙',
-          senderOpenDingTalkId: 'open-colleague-2',
+          senderEnterpriseUserId: 'open-colleague-2',
         }, {
           content: '@阿充 这是本人发的',
           createTime: '2026-08-03 11:23:10',
           openConversationId: 'cid-group',
           openMessageId: 'msg-owner-group',
           sender: '阿充James',
-          senderOpenDingTalkId: 'open-owner',
+          senderEnterpriseUserId: 'open-owner',
         }],
       }],
       hasMore: true,
@@ -277,20 +277,20 @@ assert.deepEqual(buildDingTalkListAllPollingArgs(
   assert.equal(page.hasMore, true);
   assert.equal(page.nextCursor, 'next-page');
   assert.deepEqual(page.payloads.map(item => item.message.message_id), [
-    'dingtalk:msg-direct',
-    'dingtalk:msg-self',
-    'dingtalk:msg-at',
+    'enterpriseChat:msg-direct',
+    'enterpriseChat:msg-self',
+    'enterpriseChat:msg-at',
   ]);
-  assert.equal(page.payloads[0].message.chat_id, 'dingtalk:user:open-colleague');
+  assert.equal(page.payloads[0].message.chat_id, 'enterpriseChat:user:open-colleague');
   assert.equal(page.payloads[0].metadata.selfChat, false);
-  assert.equal(page.payloads[1].message.chat_id, 'dingtalk:user:open-owner');
+  assert.equal(page.payloads[1].message.chat_id, 'enterpriseChat:user:open-owner');
   assert.equal(page.payloads[1].metadata.selfChat, true);
-  assert.equal(page.payloads[2].message.chat_id, 'dingtalk:group:cid-group');
+  assert.equal(page.payloads[2].message.chat_id, 'enterpriseChat:group:cid-group');
   assert.equal(page.payloads[2].message.mentions.length, 1);
 }
 
 {
-  const page = normalizeDingTalkListAllPage({
+  const page = normalizeEnterpriseChatListAllPage({
     success: true,
     result: {
       conversationMessagesList: [{
@@ -301,12 +301,12 @@ assert.deepEqual(buildDingTalkListAllPollingArgs(
           content: 'AI 对流程管理的影响应该怎么评估？',
           createTime: '2026-08-03 11:30:00',
           openMessageId: 'msg-semantic-no-at',
-          senderOpenDingTalkId: 'open-colleague',
+          senderEnterpriseUserId: 'open-colleague',
         }, {
           content: '@其他人 这个数据你怎么看？',
           createTime: '2026-08-03 11:30:01',
           openMessageId: 'msg-semantic-other-at',
-          senderOpenDingTalkId: 'open-colleague-2',
+          senderEnterpriseUserId: 'open-colleague-2',
         }],
       }],
       hasMore: false,
@@ -317,8 +317,8 @@ assert.deepEqual(buildDingTalkListAllPollingArgs(
     includeUnmentionedGroups: true,
   });
   assert.deepEqual(page.payloads.map(item => item.message.message_id), [
-    'dingtalk:msg-semantic-no-at',
-    'dingtalk:msg-semantic-other-at',
+    'enterpriseChat:msg-semantic-no-at',
+    'enterpriseChat:msg-semantic-other-at',
   ]);
   assert.deepEqual(page.payloads[0].message.mentions, []);
   assert.equal(page.payloads[0].metadata.semanticCandidate, true);
@@ -327,7 +327,7 @@ assert.deepEqual(buildDingTalkListAllPollingArgs(
 }
 
 {
-  const page = normalizeDingTalkListAllPage({
+  const page = normalizeEnterpriseChatListAllPage({
     success: true,
     result: {
       conversationMessagesList: [{
@@ -338,7 +338,7 @@ assert.deepEqual(buildDingTalkListAllPollingArgs(
           content: '[图片消息](mediaId=@image_poll_1)',
           createTime: '2026-08-03 11:24:00',
           openMessageId: 'msg-image-poll',
-          senderOpenDingTalkId: 'open-media-sender',
+          senderEnterpriseUserId: 'open-media-sender',
         }],
       }],
       hasMore: false,
@@ -350,7 +350,7 @@ assert.deepEqual(buildDingTalkListAllPollingArgs(
   assert.equal(page.payloads[0].metadata.media.conversationId, 'cid-media');
 }
 
-assert.deepEqual(buildDingTalkSelfPollingArgs('corp:user', 'user', '2026-08-01 13:50:00'), [
+assert.deepEqual(buildEnterpriseChatSelfPollingArgs('corp:user', 'user', '2026-08-01 13:50:00'), [
   '--profile', 'corp:user',
   'chat', 'message', 'list',
   '--user', 'user',
@@ -360,9 +360,9 @@ assert.deepEqual(buildDingTalkSelfPollingArgs('corp:user', 'user', '2026-08-01 1
   '--format', 'json',
 ]);
 
-assert.deepEqual(buildDingTalkConversationPollingArgs(
+assert.deepEqual(buildEnterpriseChatConversationPollingArgs(
   'corp:user',
-  { channel: 'dingtalk', kind: 'group', id: 'cid-group' },
+  { channel: 'enterpriseChat', kind: 'group', id: 'cid-group' },
   '2026-08-01 13:50:00',
 ), [
   '--profile', 'corp:user',
@@ -373,8 +373,8 @@ assert.deepEqual(buildDingTalkConversationPollingArgs(
   '--limit', '50',
   '--format', 'json',
 ]);
-if (typeof imChannelHelpers.buildDingTalkGroupHostPollingArgs === 'function') {
-  assert.deepEqual(imChannelHelpers.buildDingTalkGroupHostPollingArgs(
+if (typeof imChannelHelpers.buildEnterpriseChatGroupHostPollingArgs === 'function') {
+  assert.deepEqual(imChannelHelpers.buildEnterpriseChatGroupHostPollingArgs(
     'corp:user',
     'cid-host-group',
     '2026-08-09 13:00:00',
@@ -388,30 +388,30 @@ if (typeof imChannelHelpers.buildDingTalkGroupHostPollingArgs === 'function') {
     '--format', 'json',
   ]);
 }
-assert.deepEqual(buildDingTalkConversationPollingArgs(
+assert.deepEqual(buildEnterpriseChatConversationPollingArgs(
   'corp:user',
-  { channel: 'dingtalk', kind: 'user', id: 'open-friend' },
+  { channel: 'enterpriseChat', kind: 'user', id: 'open-friend' },
   '2026-08-01 13:50:00',
 ), [
   '--profile', 'corp:user',
   'chat', 'message', 'list',
-  '--open-dingtalk-id', 'open-friend',
+  '--user', 'open-friend',
   '--time', '2026-08-01 13:50:00',
   '--direction', 'older',
   '--limit', '50',
   '--format', 'json',
 ]);
 assert.throws(
-  () => buildDingTalkConversationPollingArgs(
+  () => buildEnterpriseChatConversationPollingArgs(
     'corp:user',
-    { channel: 'dingtalk', kind: 'group', id: '  ' },
+    { channel: 'enterpriseChat', kind: 'group', id: '  ' },
     '2026-08-01 13:50:00',
   ),
   /target ID/i,
 );
 
 {
-  const payloads = normalizeDingTalkSelfMessages({
+  const payloads = normalizeEnterpriseChatSelfMessages({
     success: true,
     result: {
       messages: [{
@@ -419,27 +419,27 @@ assert.throws(
         createTime: '2026-08-01 13:54:54',
         openConversationId: 'cid-self',
         openMessageId: 'msg-self-1',
-        senderOpenDingTalkId: 'open-self',
+        senderEnterpriseUserId: 'open-self',
       }, {
-        content: '[文件] 周报.pdf fileId: outbound-file-id 注意：如需下载使用dws drive download命令下载',
+        content: '[文件] 周报.pdf fileId: outbound-file-id 注意：如需下载使用connector drive download命令下载',
         createTime: '2026-08-01 13:54:55',
         openConversationId: 'cid-self',
         openMessageId: 'msg-self-file',
-        senderOpenDingTalkId: 'open-self',
+        senderEnterpriseUserId: 'open-self',
       }],
     },
   });
   assert.equal(payloads.length, 1);
-  assert.equal(payloads[0].message.message_id, 'dingtalk:msg-self-1');
-  assert.equal(payloads[0].message.chat_id, 'dingtalk:user:open-self');
+  assert.equal(payloads[0].message.message_id, 'enterpriseChat:msg-self-1');
+  assert.equal(payloads[0].message.chat_id, 'enterpriseChat:user:open-self');
   assert.equal(payloads[0].message.chat_type, 'p2p');
   assert.equal(JSON.parse(payloads[0].message.content).text, '自聊测试');
-  assert.equal(payloads[0].sender.sender_id.open_id, 'dingtalk:open-self');
+  assert.equal(payloads[0].sender.sender_id.open_id, 'enterpriseChat:open-self');
   assert.equal(payloads[0].metadata.selfChat, true);
 }
 
-if (typeof imChannelHelpers.normalizeDingTalkGroupHistoryMessages === 'function') {
-  const payloads = imChannelHelpers.normalizeDingTalkGroupHistoryMessages({
+if (typeof imChannelHelpers.normalizeEnterpriseChatGroupHistoryMessages === 'function') {
+  const payloads = imChannelHelpers.normalizeEnterpriseChatGroupHistoryMessages({
     success: true,
     result: {
       messages: [{
@@ -447,13 +447,13 @@ if (typeof imChannelHelpers.normalizeDingTalkGroupHistoryMessages === 'function'
         createTime: '2026-08-09 11:56:29',
         openConversationId: 'cid-host-group',
         openMessageId: 'msg-owner-topic',
-        senderOpenDingTalkId: 'open-owner',
+        senderEnterpriseUserId: 'open-owner',
       }, {
         content: '我也关心它在复杂任务里的稳定性。',
         createTime: '2026-08-09 11:57:00',
         openConversationId: 'cid-host-group',
         openMessageId: 'msg-member-reply',
-        senderOpenDingTalkId: 'open-member',
+        senderEnterpriseUserId: 'open-member',
       }],
     },
   }, {
@@ -461,10 +461,10 @@ if (typeof imChannelHelpers.normalizeDingTalkGroupHistoryMessages === 'function'
     ownerOpenId: 'open-owner',
   });
   assert.deepEqual(payloads.map(item => item.message.message_id), [
-    'dingtalk:msg-owner-topic',
-    'dingtalk:msg-member-reply',
+    'enterpriseChat:msg-owner-topic',
+    'enterpriseChat:msg-member-reply',
   ]);
-  assert.equal(payloads[0].message.chat_id, 'dingtalk:group:cid-host-group');
+  assert.equal(payloads[0].message.chat_id, 'enterpriseChat:group:cid-host-group');
   assert.equal(payloads[0].message.chat_type, 'group');
   assert.equal(payloads[0].metadata.ownerActivity, true);
   assert.equal(payloads[0].metadata.semanticCandidate, true);
@@ -472,32 +472,32 @@ if (typeof imChannelHelpers.normalizeDingTalkGroupHistoryMessages === 'function'
 }
 
 {
-  const payload = normalizeDingTalkEvent({
-    type: 'user_im_message_receive_at',
+  const payload = normalizeEnterpriseChatEvent({
+    type: 'message.mention.received',
     event_id: 'event-1',
     message_id: 'msg-1',
     conversation_id: 'cid-group',
-    sender_open_dingtalk_id: 'sender-1',
+    sender_enterprise_user_id: 'sender-1',
     content: '@James 请给我项目状态',
     create_time: '2026-07-31T10:00:00+08:00',
   });
-  assert.equal(payload.message.message_id, 'dingtalk:msg-1');
-  assert.equal(payload.message.chat_id, 'dingtalk:group:cid-group');
+  assert.equal(payload.message.message_id, 'enterpriseChat:msg-1');
+  assert.equal(payload.message.chat_id, 'enterpriseChat:group:cid-group');
   assert.equal(payload.message.chat_type, 'group');
   assert.equal(payload.message.message_type, 'text');
-  assert.equal(payload.sender.sender_id.open_id, 'dingtalk:sender-1');
+  assert.equal(payload.sender.sender_id.open_id, 'enterpriseChat:sender-1');
   assert.equal(JSON.parse(payload.message.content).text, '@James 请给我项目状态');
   assert.equal(payload.message.mentions.length, 1);
-  assert.equal(payload.metadata.channel, 'dingtalk');
+  assert.equal(payload.metadata.channel, 'enterpriseChat');
 }
 
 {
-  const payload = normalizeDingTalkEvent({
-    type: 'user_im_message_receive_o2o_all',
+  const payload = normalizeEnterpriseChatEvent({
+    type: 'message.direct.received',
     event_id: 'event-voice',
     message_id: 'msg-voice',
     conversation_id: 'cid-direct',
-    sender_open_dingtalk_id: 'sender-voice',
+    sender_enterprise_user_id: 'sender-voice',
     content: '[语音消息](mediaId=@voice_123) 注意：如需下载使用命令',
   });
   assert.equal(payload.message.message_type, 'audio');
@@ -511,13 +511,13 @@ if (typeof imChannelHelpers.normalizeDingTalkGroupHistoryMessages === 'function'
 }
 
 {
-  const payload = normalizeDingTalkEvent({
-    type: 'user_im_message_receive_group_all',
+  const payload = normalizeEnterpriseChatEvent({
+    type: 'message.group.received',
     event_id: 'event-file',
     message_id: 'msg-file',
     conversation_id: 'cid-files',
-    sender_open_dingtalk_id: 'sender-file',
-    content: '[文件] 季度复盘.pptx fileId: file-node-123 注意：如需下载使用dws drive download命令下载',
+    sender_enterprise_user_id: 'sender-file',
+    content: '[文件] 季度复盘.pptx fileId: file-node-123 注意：如需下载使用connector drive download命令下载',
   });
   assert.equal(payload.message.message_type, 'file');
   assert.deepEqual(JSON.parse(payload.message.content), {
@@ -534,38 +534,38 @@ if (typeof imChannelHelpers.normalizeDingTalkGroupHistoryMessages === 'function'
 }
 
 {
-  const payload = normalizeDingTalkEvent({
-    type: 'user_im_message_receive_o2o_all',
+  const payload = normalizeEnterpriseChatEvent({
+    type: 'message.direct.received',
     event_id: 'event-2',
     conversation_id: 'cid-direct',
-    sender_open_dingtalk_id: 'sender-2',
+    sender_enterprise_user_id: 'sender-2',
     content: '你好',
     timestamp: 1785463200000,
   });
-  assert.equal(payload.message.message_id, 'dingtalk:event-2');
-  assert.equal(payload.message.chat_id, 'dingtalk:user:sender-2');
+  assert.equal(payload.message.message_id, 'enterpriseChat:event-2');
+  assert.equal(payload.message.chat_id, 'enterpriseChat:user:sender-2');
   assert.equal(payload.message.chat_type, 'p2p');
   assert.deepEqual(payload.message.mentions, []);
 }
 
 {
-  const payload = normalizeDingTalkEvent({
-    type: 'user_im_message_receive_group_all',
+  const payload = normalizeEnterpriseChatEvent({
+    type: 'message.group.received',
     event_id: 'event-group-all',
     message_id: 'message-group-all',
     conversation_id: 'cid-group-all',
-    sender_open_dingtalk_id: 'sender-group-all',
+    sender_enterprise_user_id: 'sender-group-all',
     content: 'AI 对流程管理有什么影响？',
     timestamp: 1785463200000,
   });
-  assert.equal(payload.message.chat_id, 'dingtalk:group:cid-group-all');
+  assert.equal(payload.message.chat_id, 'enterpriseChat:group:cid-group-all');
   assert.deepEqual(payload.message.mentions, []);
   assert.equal(payload.metadata.semanticCandidate, true);
 }
 
 {
-  const args = buildDingTalkSendArgs(
-    { channel: 'dingtalk', kind: 'group', id: 'cid-group' },
+  const args = buildEnterpriseChatSendArgs(
+    { channel: 'enterpriseChat', kind: 'group', id: 'cid-group' },
     '收到，我来处理。',
     'reply-uuid',
   );
@@ -573,7 +573,7 @@ if (typeof imChannelHelpers.normalizeDingTalkGroupHistoryMessages === 'function'
     'chat', 'message', 'send',
     '--group', 'cid-group',
     '--text', '收到，我来处理。',
-    '--ai-tag=false',
+    '--transport-mode=standard',
     '--uuid', 'reply-uuid',
     '--yes',
     '--format', 'json',
@@ -581,59 +581,59 @@ if (typeof imChannelHelpers.normalizeDingTalkGroupHistoryMessages === 'function'
 }
 
 {
-  const args = buildDingTalkSendArgs(
-    { channel: 'dingtalk', kind: 'user', id: 'open-colleague' },
+  const args = buildEnterpriseChatSendArgs(
+    { channel: 'enterpriseChat', kind: 'user', id: 'open-colleague' },
     '收到，我来看一下。',
-    'wukong-uuid',
-    { transport: 'wukong-polling' },
+    'legacyBridge-uuid',
+    { transport: 'legacyBridge-polling' },
   );
   assert.deepEqual(args, [
     'chat', 'message', 'send',
-    '--open-dingtalk-id', 'open-colleague',
+    '--user', 'open-colleague',
     '--text', '收到，我来看一下。',
-    '--uuid', 'wukong-uuid',
+    '--uuid', 'legacyBridge-uuid',
     '--yes',
     '--format', 'json',
   ]);
 }
 
 {
-  const args = buildDingTalkSendArgs(
-    { channel: 'dingtalk', kind: 'group', id: 'cid-group' },
+  const args = buildEnterpriseChatSendArgs(
+    { channel: 'enterpriseChat', kind: 'group', id: 'cid-group' },
     '<@sender-1>\nIssue 已更新',
     'mention-uuid',
-    { atOpenDingTalkIds: ['sender-1'] },
+    { mentionUserIds: ['sender-1'] },
   );
-  assert.ok(args.includes('--at-open-dingtalk-ids'));
-  assert.equal(args[args.indexOf('--at-open-dingtalk-ids') + 1], 'sender-1');
+  assert.ok(args.includes('--mentions'));
+  assert.equal(args[args.indexOf('--mentions') + 1], 'sender-1');
 }
 
 assert.throws(
-  () => buildDingTalkSendArgs(
-    { channel: 'dingtalk', kind: 'group', id: '' },
+  () => buildEnterpriseChatSendArgs(
+    { channel: 'enterpriseChat', kind: 'group', id: '' },
     '收到',
     'invalid-target',
   ),
   /target ID/i,
 );
 assert.throws(
-  () => buildDingTalkSendArgs(
-    { channel: 'dingtalk', kind: 'group', id: 'cid-group' },
+  () => buildEnterpriseChatSendArgs(
+    { channel: 'enterpriseChat', kind: 'group', id: 'cid-group' },
     '收到，我来处理。',
     'missing-mention-placeholder',
-    { atOpenDingTalkIds: ['sender-1'] },
+    { mentionUserIds: ['sender-1'] },
   ),
   /mention placeholder/i,
 );
 
 {
-  const args = buildDingTalkSendArgs(
-    { channel: 'dingtalk', kind: 'user', id: 'sender-2' },
+  const args = buildEnterpriseChatSendArgs(
+    { channel: 'enterpriseChat', kind: 'user', id: 'sender-2' },
     '你好',
     'direct-uuid',
   );
   assert.deepEqual(args.slice(0, 5), [
-    'chat', 'message', 'send', '--open-dingtalk-id', 'sender-2',
+    'chat', 'message', 'send', '--user', 'sender-2',
   ]);
 }
 

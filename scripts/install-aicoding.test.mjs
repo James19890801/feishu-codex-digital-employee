@@ -25,7 +25,7 @@ const home = join(sandbox, 'home');
 const installRoot = join(sandbox, 'installed', 'AchongDigitalHuman');
 const launchctlLog = join(sandbox, 'launchctl.log');
 const launchctl = join(sandbox, 'launchctl-stub');
-const standaloneDws = join(sandbox, 'standalone-dws');
+const standaloneConnector = join(sandbox, 'standalone-connector');
 await mkdir(home, { recursive: true });
 await writeFile(launchctl, `#!/bin/sh
 printf '%s\n' "$*" >> "$ACHONG_LAUNCHCTL_LOG"
@@ -34,8 +34,8 @@ if [ "${'$'}{ACHONG_LAUNCHCTL_FAIL:-0}" = "1" ] && [ "$1" = "bootstrap" ]; then 
 exit 0
 `, 'utf8');
 await chmod(launchctl, 0o755);
-await writeFile(standaloneDws, '#!/bin/sh\nexit 0\n', 'utf8');
-await chmod(standaloneDws, 0o755);
+await writeFile(standaloneConnector, '#!/bin/sh\nexit 0\n', 'utf8');
+await chmod(standaloneConnector, 0o755);
 
 async function packageDirectory() {
   return (await buildDistribution({ root, outputDir: output, version: '1.0.0' })).directory;
@@ -56,7 +56,7 @@ function install(directory, extraEnv = {}) {
       ACHONG_SKIP_OPEN: '1',
       ACHONG_SERVICE_RETRIES: '1',
       ACHONG_SERVICE_WAIT_SECONDS: '0',
-      JAMES_DWS_BIN: standaloneDws,
+      JAMES_CONNECTOR_BIN: standaloneConnector,
       ...extraEnv,
     },
   });
@@ -69,23 +69,23 @@ assert.match(result.stdout, /INSTALL_OK/);
 assert.match(result.stdout, /http:\/\/127\.0\.0\.1:17655/);
 const config = JSON.parse(await readFile(join(installRoot, 'config.local.json'), 'utf8'));
 assert.equal(config.feishuEnabled, false);
-assert.equal(config.dingtalkEnabled, true);
-assert.equal(config.dingtalkTransport, 'event-stream');
-assert.equal(config.dingtalkBin, await realpath(standaloneDws));
+assert.equal(config.enterpriseChatEnabled, true);
+assert.equal(config.enterpriseChatTransport, 'event-stream');
+assert.equal(config.enterpriseChatBin, await realpath(standaloneConnector));
 assert.equal(config.allowAllChats, false);
 assert.deepEqual(config.authorizedChatIds, ['__SETUP_REQUIRED__']);
 
-const wukongDws = join(sandbox, '.real', '.bin', 'dws', 'bin', 'dws');
-await mkdir(join(wukongDws, '..'), { recursive: true });
-await writeFile(wukongDws, '#!/bin/sh\nexit 0\n', 'utf8');
-await chmod(wukongDws, 0o755);
-const rejectedRoot = join(sandbox, 'installed', 'RejectedWukong');
+const legacyBridgeConnector = join(sandbox, '.real', '.bin', 'connector', 'bin', 'connector');
+await mkdir(join(legacyBridgeConnector, '..'), { recursive: true });
+await writeFile(legacyBridgeConnector, '#!/bin/sh\nexit 0\n', 'utf8');
+await chmod(legacyBridgeConnector, 0o755);
+const rejectedRoot = join(sandbox, 'installed', 'RejectedLegacyBridge');
 result = install(directory, {
   ACHONG_INSTALL_ROOT: rejectedRoot,
-  JAMES_DWS_BIN: wukongDws,
+  JAMES_CONNECTOR_BIN: legacyBridgeConnector,
 });
 assert.notEqual(result.status, 0);
-assert.match(`${result.stdout}\n${result.stderr}`, /Wukong is not allowed/i);
+assert.match(`${result.stdout}\n${result.stderr}`, /LegacyBridge is not allowed/i);
 
 const calls = (await readFile(launchctlLog, 'utf8')).trim().split('\n');
 assert.equal(calls.filter(call => call.startsWith('bootstrap ')).length, 2);

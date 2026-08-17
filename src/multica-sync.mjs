@@ -120,7 +120,7 @@ function normalizedChannel(value) {
   const text = String(value || '').trim().toLowerCase();
   if (!text) return '';
   if (['feishu', 'lark', '飞书'].includes(text)) return 'feishu';
-  if (['dingtalk', 'ding', '钉钉'].includes(text)) return 'dingtalk';
+  if (['enterprisechat', 'ding', '企业会话'].includes(text)) return 'enterpriseChat';
   if (['wecom', 'work-wechat', '企业微信'].includes(text)) return 'wecom';
   if (['wechat', '微信'].includes(text)) return 'wechat';
   return '';
@@ -130,8 +130,11 @@ function recipientChannel(recipient) {
   const explicit = normalizedChannel(recipient?.channel);
   if (explicit) return explicit;
   for (const value of [recipient?.chatId, recipient?.senderId]) {
-    const match = String(value || '').match(/^(dingtalk|wecom|wechat):/i);
-    if (match) return match[1].toLowerCase();
+    const match = String(value || '').match(/^(enterpriseChat|wecom|wechat):/i);
+    if (match) {
+      const channel = match[1].toLowerCase();
+      return channel === 'enterprisechat' ? 'enterpriseChat' : channel;
+    }
   }
   return recipient?.chatId ? 'feishu' : '';
 }

@@ -2,16 +2,16 @@ import assert from 'node:assert/strict';
 import {
   ConversationContextClient,
   ConversationHistoryError,
-  isSupportedDwsExecutable,
+  isSupportedConnectorExecutable,
 } from './conversation-context-client.mjs';
 
-const PORTABLE_DWS_BIN = '/opt/homebrew/bin/dws';
+const PORTABLE_CONNECTOR_BIN = '/opt/homebrew/bin/connector';
 
-assert.equal(isSupportedDwsExecutable(PORTABLE_DWS_BIN), true);
-assert.equal(isSupportedDwsExecutable('/usr/local/bin/dws'), true);
-assert.equal(isSupportedDwsExecutable('dws'), false);
-assert.equal(isSupportedDwsExecutable('/opt/wukong/bin/dws'), false);
-assert.equal(isSupportedDwsExecutable('/tmp/.real/.bin/dws/bin/dws'), false);
+assert.equal(isSupportedConnectorExecutable(PORTABLE_CONNECTOR_BIN), true);
+assert.equal(isSupportedConnectorExecutable('/usr/local/bin/connector'), true);
+assert.equal(isSupportedConnectorExecutable('connector'), false);
+assert.equal(isSupportedConnectorExecutable('/opt/legacyBridge/bin/connector'), false);
+assert.equal(isSupportedConnectorExecutable('/tmp/.real/.bin/connector/bin/connector'), false);
 
 const successPayload = {
   success: true,
@@ -19,7 +19,7 @@ const successPayload = {
     messages: [{
       openMessageId: 'msg-1',
       openConversationId: 'cid-direct',
-      senderOpenDingTalkId: 'colleague-open',
+      senderEnterpriseUserId: 'colleague-open',
       sender: '同事甲',
       content: '最后一句',
       createTime: '2026-08-03 15:00:00',
@@ -31,10 +31,10 @@ const successPayload = {
 
 const audits = [];
 const client = new ConversationContextClient({
-  bin: PORTABLE_DWS_BIN,
+  bin: PORTABLE_CONNECTOR_BIN,
   profile: 'corp:user',
   transport: 'event-stream',
-  env: { DWS_CHANNEL: 'channel-1' },
+  env: { CONNECTOR_CHANNEL: 'channel-1' },
   cwd: '/srv/james',
   ownerIds: ['owner-open'],
   runner: async () => ({ stdout: JSON.stringify(successPayload), stderr: '', exitCode: 0 }),
@@ -62,7 +62,7 @@ assert.doesNotMatch(JSON.stringify(audits), /最后一句/);
 
 async function expectHistoryError(overrides, pattern, code = 'CONVERSATION_HISTORY_UNAVAILABLE') {
   const instance = new ConversationContextClient({
-    bin: PORTABLE_DWS_BIN,
+    bin: PORTABLE_CONNECTOR_BIN,
     profile: 'corp:user',
     transport: 'event-stream',
     env: {},
@@ -88,14 +88,14 @@ async function expectHistoryError(overrides, pattern, code = 'CONVERSATION_HISTO
 }
 
 await expectHistoryError(
-  { bin: '/tmp/.real/.bin/dws/bin/dws' },
-  /original DWS/i,
-  'DWS_PATH_REJECTED',
+  { bin: '/tmp/.real/.bin/connector/bin/connector' },
+  /original CONNECTOR/i,
+  'CONNECTOR_PATH_REJECTED',
 );
 await expectHistoryError(
-  { transport: 'wukong-polling' },
+  { transport: 'legacyBridge-polling' },
   /event-stream/i,
-  'DWS_TRANSPORT_REJECTED',
+  'CONNECTOR_TRANSPORT_REJECTED',
 );
 await expectHistoryError(
   { runner: async () => ({ stdout: '<html>bad</html>', stderr: '', exitCode: 0 }) },
@@ -115,7 +115,7 @@ await expectHistoryError(
 );
 
 const emptyClient = new ConversationContextClient({
-  bin: PORTABLE_DWS_BIN,
+  bin: PORTABLE_CONNECTOR_BIN,
   profile: 'corp:user',
   transport: 'event-stream',
   env: {},
@@ -135,12 +135,12 @@ assert.equal(firstConversation.messages.length, 1);
 assert.equal(firstConversation.latestCounterpartyMessage.content, '第一次说话');
 
 const verifiedDisplayNameClient = new ConversationContextClient({
-  bin: PORTABLE_DWS_BIN,
+  bin: PORTABLE_CONNECTOR_BIN,
   profile: 'corp:user',
   transport: 'event-stream',
   env: {},
   cwd: '/srv/james',
-  ownerIds: ['384351'],
+  ownerIds: ['owner-demo'],
   ownerNames: ['新用户', '小新'],
   runner: async () => ({
     stdout: JSON.stringify({
@@ -148,7 +148,7 @@ const verifiedDisplayNameClient = new ConversationContextClient({
       result: {
         messages: [{
           openMessageId: 'owner-display-1', openConversationId: 'provider-cid',
-          senderOpenDingTalkId: 'owner-open-unknown', sender: '小新',
+          senderEnterpriseUserId: 'owner-open-unknown', sender: '小新',
           content: '这个我先看下', createTime: '2026-08-03 14:59:00',
         }],
       },
@@ -159,9 +159,9 @@ const verifiedDisplayNameClient = new ConversationContextClient({
 });
 const verifiedDisplayName = await verifiedDisplayNameClient.fetch({
   kind: 'direct', targetId: 'colleague-open', beforeTime: '2026-08-03 15:00:01',
-  conversationId: 'dingtalk:user:colleague-open',
+  conversationId: 'enterpriseChat:user:colleague-open',
   currentMessage: {
-    messageId: 'owner-display-current', conversationId: 'dingtalk:user:colleague-open',
+    messageId: 'owner-display-current', conversationId: 'enterpriseChat:user:colleague-open',
     senderId: 'colleague-open', senderName: '同事甲', content: '你看看这个',
     createdAt: '2026-08-03 15:00:00',
   },
@@ -181,7 +181,7 @@ function crossOrgDeniedPayload() {
 
 function historyContext({
   messageId = 'cross-org-current',
-  conversationId = 'dingtalk:user:cross-org-user',
+  conversationId = 'enterpriseChat:user:cross-org-user',
   senderId = 'cross-org-user',
   content = '跨组织问题',
 } = {}) {
@@ -203,9 +203,9 @@ function historyContext({
 
 {
   const calls = [];
-  const channelEnv = { DWS_CHANNEL: 'digital-human-channel', LANG: 'zh_CN.UTF-8' };
+  const channelEnv = { CONNECTOR_CHANNEL: 'digital-human-channel', LANG: 'zh_CN.UTF-8' };
   const crossOrgClient = new ConversationContextClient({
-    bin: PORTABLE_DWS_BIN,
+    bin: PORTABLE_CONNECTOR_BIN,
     profile: 'corp:user',
     transport: 'event-stream',
     env: channelEnv,
@@ -224,7 +224,7 @@ function historyContext({
   );
   assert.equal(calls.length, 1, 'history denial must never trigger a data authorization write');
   assert.deepEqual(calls[0].args.slice(0, 4), [
-    'chat', 'message', 'list', '--open-dingtalk-id',
+    'chat', 'message', 'list', '--user',
   ]);
   assert.deepEqual(calls[0].options.env, channelEnv);
 }
@@ -232,10 +232,10 @@ function historyContext({
 {
   const calls = [];
   const unrelatedErrorClient = new ConversationContextClient({
-    bin: PORTABLE_DWS_BIN,
+    bin: PORTABLE_CONNECTOR_BIN,
     profile: 'corp:user',
     transport: 'event-stream',
-    env: { DWS_CHANNEL: 'digital-human-channel' },
+    env: { CONNECTOR_CHANNEL: 'digital-human-channel' },
     cwd: '/srv/james',
     ownerIds: ['owner-open'],
     runner: async (bin, args) => {

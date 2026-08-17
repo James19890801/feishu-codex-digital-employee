@@ -6,12 +6,12 @@ import {
 
 const message = {
   message_id: 'message-1',
-  chat_id: 'dingtalk:user:peer',
+  chat_id: 'enterpriseChat:user:peer',
   create_time: '2000',
 };
 let syncCalls = 0;
 const deferred = enforceInboundReplyGate({
-  context: { message, metadata: { channel: 'dingtalk' } },
+  context: { message, metadata: { channel: 'enterpriseChat' } },
   chatId: message.chat_id,
   sync: async () => { syncCalls += 1; },
   readTakeover: () => ({
@@ -44,7 +44,7 @@ assert.deepEqual(await enforceInboundReplyGate({
 
 assert.deepEqual(await enforceInboundReplyGate({
   context: { message, metadata: {} },
-  chatId: 'dingtalk:user:other',
+  chatId: 'enterpriseChat:user:other',
   sync: async () => { throw new Error('must not sync unrelated outbound'); },
   readTakeover: () => null,
 }), { action: 'allow', untilMs: 0, reason: 'not_inbound_reply' });

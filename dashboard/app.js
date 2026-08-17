@@ -34,7 +34,7 @@ const eventLabelKeys = {
   inbound_dead_lettered: 'eventDeadLettered',
   poller_error: 'eventPollerError',
   websocket_error: 'eventWebsocketError',
-  dingtalk_channel_error: 'eventDingtalkError',
+  enterpriseChat_channel_error: 'eventEnterpriseChatError',
   wecom_channel_error: 'eventWecomError',
   wechat_channel_error: 'eventWechatError',
   im_channel_connected: 'eventChannelConnected',
@@ -73,7 +73,7 @@ const issueLabelKeys = {
   multica_sync_error: 'issueMulticaError',
   multica_delivery_pending: 'issueMulticaPending',
   multica_delivery_dead: 'issueMulticaDead',
-  dingtalk_channel_unavailable: 'issueDingtalkUnavailable',
+  enterpriseChat_channel_unavailable: 'issueEnterpriseChatUnavailable',
   wecom_channel_unavailable: 'issueWecomUnavailable',
   wechat_channel_unavailable: 'issueWechatUnavailable',
   self_chat_circuit_open: 'issueSelfChatCircuit',
@@ -129,9 +129,9 @@ const channelCopyKeys = {
     title: 'feishuPrimaryTitle',
     description: 'feishuPrimaryDescription',
   },
-  dingtalk: {
-    title: 'dingtalkTitle',
-    description: 'dingtalkDescription',
+  enterpriseChat: {
+    title: 'enterpriseChatTitle',
+    description: 'enterpriseChatDescription',
   },
   wecom: {
     title: 'wecomTitle',
@@ -392,9 +392,9 @@ function render(data) {
     tr('feishuMeta'),
   );
   renderChannel(
-    'Dingtalk',
-    data.channels?.dingtalk,
-    tr('dingtalkMeta'),
+    'EnterpriseChat',
+    data.channels?.enterpriseChat,
+    tr('enterpriseChatMeta'),
   );
   renderChannel(
     'Wecom',
@@ -922,7 +922,7 @@ function renderChannelForm(channel, configuration) {
   $('channelEnabledRow').classList.toggle('hidden', configuration.protected === true);
   $('channelEnabled').checked = configuration.enabled === true;
   $('channelFeishuIdentity').value = configuration.identity || '';
-  $('channelDingtalkProfile').value = configuration.profile || '';
+  $('channelEnterpriseChatProfile').value = configuration.profile || '';
   $('channelWecomBotId').value = configuration.botId || '';
   $('channelWecomCredential').value = '';
   $('channelWechatAppId').value = configuration.appId || '';
@@ -958,8 +958,8 @@ function channelRequestBody() {
     enabled: $('channelEnabled').checked,
     confirmed: true,
   };
-  if (selectedChannel === 'dingtalk') {
-    base.profile = $('channelDingtalkProfile').value.trim();
+  if (selectedChannel === 'enterpriseChat') {
+    base.profile = $('channelEnterpriseChatProfile').value.trim();
   } else if (selectedChannel === 'wecom') {
     base.botId = $('channelWecomBotId').value.trim();
     base.credential = $('channelWecomCredential').value;

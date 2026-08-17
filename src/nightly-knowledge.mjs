@@ -4,9 +4,9 @@ import { access, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } f
 import { dirname, join, relative } from 'node:path';
 
 const SOURCE_LABELS = {
-  chat: '钉钉聊天',
+  chat: '企业会话聊天',
   minutes: 'AI 听记',
-  documents: '钉钉文档',
+  documents: '企业会话文档',
   codex: 'Codex 对话',
   artifacts: '本地工作产物',
 };
@@ -38,13 +38,13 @@ export function isKnowledgeRecordSafe(record = {}) {
   return !FORBIDDEN_ARTIFACT_NAME.test(locator);
 }
 
-export function buildDwsEnv({ baseEnv = process.env, channel } = {}) {
-  if (!String(channel || '').trim()) throw new Error('DWS Channel is required');
-  return { ...baseEnv, DWS_CHANNEL: String(channel).trim() };
+export function buildConnectorEnv({ baseEnv = process.env, channel } = {}) {
+  if (!String(channel || '').trim()) throw new Error('CONNECTOR Channel is required');
+  return { ...baseEnv, CONNECTOR_CHANNEL: String(channel).trim() };
 }
 
-export function buildDwsSourceCommands({ profile, startMs, endMs, cursor = '0' } = {}) {
-  if (!String(profile || '').trim()) throw new Error('DWS profile is required');
+export function buildConnectorSourceCommands({ profile, startMs, endMs, cursor = '0' } = {}) {
+  if (!String(profile || '').trim()) throw new Error('CONNECTOR profile is required');
   const common = ['--profile', String(profile), '--format', 'json'];
   return {
     chat: ['chat', 'message', 'list-all', '--start', String(startMs), '--end', String(endMs), '--cursor', String(cursor || '0'), '--limit', '50', ...common],

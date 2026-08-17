@@ -52,7 +52,7 @@ function fixture(initialStatus = 'todo') {
       state,
       authorizeWrite: candidate => isAuthorizedMulticaOwner(candidate, {
         ownerOpenId: 'ou-owner',
-        dingtalkOwnerOpenId: 'dt-owner',
+        enterpriseChatOwnerOpenId: 'dt-owner',
       }),
     }),
     updates,

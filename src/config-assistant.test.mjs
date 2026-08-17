@@ -48,8 +48,8 @@ const documents = {
     nodeBin: '',
     pythonBin: '',
     aiRuntime: 'auto',
-    dingtalkEnabled: false,
-    dingtalkProfile: '',
+    enterpriseChatEnabled: false,
+    enterpriseChatProfile: '',
     wecomEnabled: false,
     wecomBotId: '',
     geweEnabled: false,
@@ -149,7 +149,7 @@ const channelPlan = assistant.createChangePlan({
   summary: 'Enable both additional IM channels',
   changes: [{
     target: 'config',
-    key: 'dingtalkEnabled',
+    key: 'enterpriseChatEnabled',
     value: true,
   }, {
     target: 'config',
@@ -163,7 +163,7 @@ const channelPlan = assistant.createChangePlan({
 }, documents);
 assert.equal(channelPlan.confirmationLevel, 'double');
 assert.deepEqual(channelPlan.changes.map(change => change.key), [
-  'dingtalkEnabled',
+  'enterpriseChatEnabled',
   'wecomEnabled',
   'wecomBotId',
 ]);
@@ -304,7 +304,7 @@ assert.equal('feishuAppId' in publicConfig, false);
 assert.equal('ownerOpenId' in publicConfig, false);
 assert.equal('codexBin' in publicConfig, false);
 assert.equal(publicConfig.aiRuntime, 'auto');
-assert.equal(publicConfig.dingtalkEnabled, false);
+assert.equal(publicConfig.enterpriseChatEnabled, false);
 assert.equal(publicConfig.wecomEnabled, false);
 assert.equal(publicConfig.wecomBotId, '');
 assert.equal(publicConfig.semanticGroupEngagementEnabled, true);

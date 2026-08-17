@@ -81,7 +81,7 @@ assert.equal(isPendingWeChatMulticaContinuation({
 
 assert.equal(isPendingWeChatMulticaContinuation({
   ...base,
-  channel: 'dingtalk',
+  channel: 'enterpriseChat',
   text: '确认 123456',
   pendingMutation: { confirmationCode: '123456' },
 }), false);

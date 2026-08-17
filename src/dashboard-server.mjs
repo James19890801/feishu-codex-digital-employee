@@ -167,7 +167,7 @@ function readSemanticGroupDashboardState(db) {
   }
   return {
     ...counts,
-    lastError: parseSetting(db, 'health', 'last_dingtalk_semantic_poll_error', null),
+    lastError: parseSetting(db, 'health', 'last_enterpriseChat_semantic_poll_error', null),
   };
 }
 
@@ -352,7 +352,7 @@ async function refreshWebsocket(nowMs, processPid) {
     const activeConsumers = stdout.split('\n').filter(line => {
       const match = line.match(/^\s*(\d+)\s+(.+)$/);
       return Number(match?.[1]) === processPid
-        && /(?:\blark-cli\s+event\s+consume\b|\bdws\b.*\bevent\s+consume\b)/
+        && /(?:\blark-cli\s+event\s+consume\b|\bconnector\b.*\bevent\s+consume\b)/
           .test(match?.[2] || '');
     }).length;
     eventCache = {
@@ -417,10 +417,10 @@ async function collectStatus() {
       observed: 0, classified: 0, replied: 0, suppressed: 0, lastError: null,
     },
     discussion: { activeSessions: 0, coolingSessions: 0, closedSessions: 0, latestClosure: null },
-    dingtalkChannel: {
-      enabled: config.dingtalkEnabled,
-      installed: existsSync(config.dingtalkBin),
-      configured: existsSync(config.dingtalkBin),
+    enterpriseChatChannel: {
+      enabled: config.enterpriseChatEnabled,
+      installed: existsSync(config.enterpriseChatBin),
+      configured: existsSync(config.enterpriseChatBin),
       authenticated: false,
       connected: false,
       identityMode: 'user',
@@ -489,10 +489,10 @@ async function collectStatus() {
         semanticRepeat: readSemanticRepeatDashboardState(db, nowMs),
         semanticGroupEngagement: readSemanticGroupDashboardState(db),
         discussion: readDiscussionDashboardState(db, nowMs),
-        dingtalkChannel: {
-          ...defaults.dingtalkChannel,
-          ...parseSetting(db, 'channel', 'dingtalk', {}),
-          installed: existsSync(config.dingtalkBin),
+        enterpriseChatChannel: {
+          ...defaults.enterpriseChatChannel,
+          ...parseSetting(db, 'channel', 'enterpriseChat', {}),
+          installed: existsSync(config.enterpriseChatBin),
         },
         wecomChannel: {
           ...defaults.wecomChannel,
@@ -562,8 +562,8 @@ async function collectStatus() {
       pollIntervalMs: config.pollIntervalMs,
       eventTransport: config.eventTransport,
       aiRuntime: config.aiRuntime,
-      dingtalkEnabled: config.dingtalkEnabled,
-      dingtalkProfile: config.dingtalkProfile,
+      enterpriseChatEnabled: config.enterpriseChatEnabled,
+      enterpriseChatProfile: config.enterpriseChatProfile,
       wecomEnabled: config.wecomEnabled,
       wecomBotId: config.wecomBotId,
       geweEnabled: config.geweEnabled,

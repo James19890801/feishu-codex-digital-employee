@@ -27,8 +27,8 @@ assert.equal(
 
 const configuration = {
   feishuAppId: 'cli_0123456789abcdef',
-  dingtalkEnabled: false,
-  dingtalkProfile: 'desktop-api.dingtalk',
+  enterpriseChatEnabled: false,
+  enterpriseChatProfile: 'desktop-api.enterpriseChat',
   wecomEnabled: true,
   wecomBotId: 'bot-production-01',
   wecomKeychainService: 'aipro-wecom-bot',
@@ -44,11 +44,11 @@ const view = channelConfiguration.channelConfigurationView(configuration, {
   wecom: true,
   wechat: false,
 });
-assert.deepEqual(Object.keys(view), ['feishu', 'dingtalk', 'wecom', 'wechat']);
+assert.deepEqual(Object.keys(view), ['feishu', 'enterpriseChat', 'wecom', 'wechat']);
 assert.equal(view.feishu.protected, true);
 assert.equal(view.feishu.enabled, true);
 assert.match(view.feishu.identity, /^cli_\*+/);
-assert.equal(view.dingtalk.profile, 'desktop-api.dingtalk');
+assert.equal(view.enterpriseChat.profile, 'desktop-api.enterpriseChat');
 assert.equal(view.wecom.credentialStored, true);
 assert.equal(view.wechat.credentialStored, false);
 assert.equal(view.wechat.callbackPort, 17656);
@@ -61,13 +61,13 @@ assert.throws(
 );
 
 assert.deepEqual(
-  channelConfiguration.normalizeChannelConfigurationRequest('dingtalk', {
+  channelConfiguration.normalizeChannelConfigurationRequest('enterpriseChat', {
     enabled: true,
-    profile: 'desktop-api.dingtalk',
+    profile: 'desktop-api.enterpriseChat',
   }),
   {
-    channel: 'dingtalk',
-    changes: { dingtalkEnabled: true, dingtalkProfile: 'desktop-api.dingtalk' },
+    channel: 'enterpriseChat',
+    changes: { enterpriseChatEnabled: true, enterpriseChatProfile: 'desktop-api.enterpriseChat' },
     credential: null,
   },
 );
@@ -155,7 +155,7 @@ assert.deepEqual(channelConfiguration.channelCredentialTarget('wechat', configur
   account: 'wxid_example',
   label: 'GeWe API Token',
 });
-assert.equal(channelConfiguration.channelCredentialTarget('dingtalk', configuration), null);
+assert.equal(channelConfiguration.channelCredentialTarget('enterpriseChat', configuration), null);
 
 const feishuReport = channelConfiguration.channelConnectionReport('feishu', {
   process: { alive: true },

@@ -24,9 +24,9 @@ const state = {
           content: 'password=bad PDF 为什么没交付？', createdAt: '2026-08-06T14:00:00.000Z',
         },
         {
-          channel: 'dingtalk', chatType: 'group', chatId: 'dingtalk:group:private-ding',
-          senderId: 'dingtalk:private-sender', role: 'user',
-          content: '钉钉流程复盘', createdAt: '2026-08-06T14:00:01.000Z',
+          channel: 'enterpriseChat', chatType: 'group', chatId: 'enterpriseChat:group:private-ding',
+          senderId: 'enterpriseChat:private-sender', role: 'user',
+          content: '企业会话流程复盘', createdAt: '2026-08-06T14:00:01.000Z',
         },
         {
           channel: 'wechat', chatType: 'group', chatId: 'wechat:group:private-room@chatroom',
@@ -67,7 +67,7 @@ const engine = new DailyLearningEngine({
     const evidence = JSON.parse(prompt.split('脱敏学习证据：\n').at(-1));
     assert.deepEqual(
       new Set(evidence.conversationGroups.map(group => group.channel)),
-      new Set(['feishu', 'dingtalk', 'wechat']),
+      new Set(['feishu', 'enterpriseChat', 'wechat']),
     );
     return { text: JSON.stringify({
       summary: '完成今日复盘。',
@@ -95,7 +95,7 @@ assert.equal(completed[2].items.length, 3);
 assert.equal(calls.some(item => item[0] === 'audit' && item[1] === 'daily_learning_completed'), true);
 const completedAudit = calls.find(item => item[0] === 'audit' && item[1] === 'daily_learning_completed');
 assert.equal(completedAudit[2].detail.conversationGroups, 3);
-assert.deepEqual(completedAudit[2].detail.sourceChannels.sort(), ['dingtalk', 'feishu', 'wechat']);
+assert.deepEqual(completedAudit[2].detail.sourceChannels.sort(), ['enterpriseChat', 'feishu', 'wechat']);
 assert.equal(scannedRoots.includes('/Users/example'), false, 'the scanner must not traverse the entire home tree');
 assert.deepEqual(scannedRoots, ['/Users/example/Applications/AIPRO']);
 assert.deepEqual(stages.filter(Boolean), ['history', 'files', 'skills', 'analyzing']);

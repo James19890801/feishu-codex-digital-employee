@@ -78,9 +78,9 @@ try {
 
   await page.locator('#languageToggle').click();
   assert.equal(await page.locator('html').getAttribute('lang'), 'en');
-  await page.locator('[data-channel-open="dingtalk"]').click();
+  await page.locator('[data-channel-open="enterpriseChat"]').click();
   await page.locator('#channelDialog[open]').waitFor();
-  assert.match(await page.locator('#channelDialogTitle').textContent(), /DingTalk/);
+  assert.match(await page.locator('#channelDialogTitle').textContent(), /EnterpriseChat/);
   assert.match(await page.locator('#channelTestButton').textContent(), /Test connection/);
   await page.locator('#channelDialogClose').click();
   assert.equal(await page.locator('#channelDialog').getAttribute('open'), null);
