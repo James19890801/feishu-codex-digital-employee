@@ -214,6 +214,35 @@ function readDiscussionDashboardState(db, nowMs) {
   };
 }
 
+function readOwnerConsultationDashboardState(db) {
+  if (!tableExists(db, 'owner_consultation')) {
+    return {
+      active: 0, expired: 0, ambiguous: 0,
+      latestStatus: '', latestAt: '', lastErrorCode: '',
+    };
+  }
+  const aggregate = db.prepare(`SELECT
+      SUM(CASE WHEN status IN ('pending_notify', 'notifying_owner', 'awaiting_owner',
+        'reminding_owner', 'resolving', 'expiring') THEN 1 ELSE 0 END) AS active,
+      SUM(CASE WHEN status = 'expired' THEN 1 ELSE 0 END) AS expired,
+      SUM(CASE WHEN status IN ('owner_notify_ambiguous', 'relay_ambiguous') THEN 1 ELSE 0 END)
+        AS ambiguous
+    FROM owner_consultation`).get();
+  const latest = db.prepare(`SELECT status, updated_at_ms
+    FROM owner_consultation ORDER BY updated_at_ms DESC LIMIT 1`).get();
+  const latestStatus = String(latest?.status || '');
+  return {
+    active: Number(aggregate?.active || 0),
+    expired: Number(aggregate?.expired || 0),
+    ambiguous: Number(aggregate?.ambiguous || 0),
+    latestStatus,
+    latestAt: latest?.updated_at_ms
+      ? new Date(Number(latest.updated_at_ms)).toISOString()
+      : '',
+    lastErrorCode: latestStatus.endsWith('_ambiguous') ? latestStatus : '',
+  };
+}
+
 function readLearningDashboardState(db) {
   const settingStatus = parseSetting(db, 'learning', 'status', { state: 'scheduled' });
   const manualRequestedAt = parseSetting(db, 'learning', 'manual_requested_at', '');
@@ -429,6 +458,10 @@ async function collectStatus() {
       observed: 0, classified: 0, replied: 0, suppressed: 0, lastError: null,
     },
     discussion: { activeSessions: 0, coolingSessions: 0, closedSessions: 0, latestClosure: null },
+    ownerConsultation: {
+      active: 0, expired: 0, ambiguous: 0,
+      latestStatus: '', latestAt: '', lastErrorCode: '',
+    },
     dingtalkChannel: {
       enabled: config.dingtalkEnabled,
       installed: existsSync(config.dingtalkBin),
@@ -502,6 +535,7 @@ async function collectStatus() {
         semanticRepeat: readSemanticRepeatDashboardState(db, nowMs),
         semanticGroupEngagement: readSemanticGroupDashboardState(db),
         discussion: readDiscussionDashboardState(db, nowMs),
+        ownerConsultation: readOwnerConsultationDashboardState(db),
         dingtalkChannel: {
           ...defaults.dingtalkChannel,
           ...parseSetting(db, 'channel', 'dingtalk', {}),

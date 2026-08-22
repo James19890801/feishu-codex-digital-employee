@@ -51,6 +51,30 @@ const base = {
 {
   const view = buildOperatorView({
     ...base,
+    ownerConsultation: {
+      active: 2,
+      expired: 3,
+      ambiguous: 1,
+      latestStatus: 'relay_ambiguous',
+      latestAt: '2026-08-22T02:03:04.000Z',
+      lastErrorCode: 'relay_ambiguous',
+      requestText: 'must not leak',
+    },
+  });
+  assert.deepEqual(view.maintenance.ownerConsultation, {
+    active: 2,
+    expired: 3,
+    ambiguous: 1,
+    latestStatus: 'relay_ambiguous',
+    latestAt: '2026-08-22T02:03:04.000Z',
+    lastErrorCode: 'relay_ambiguous',
+  });
+  assert.equal(JSON.stringify(view.maintenance.ownerConsultation).includes('must not leak'), false);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
     webReaderEnabled: true,
     audioTranscriberAvailable: true,
     dingtalkChannel: {

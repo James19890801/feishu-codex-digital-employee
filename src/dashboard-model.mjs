@@ -95,6 +95,15 @@ export function buildOperatorView(input) {
       cooldownUntil: String(latestDiscussionClosure.cooldownUntil || ''),
     } : null,
   };
+  const ownerConsultationInput = input.ownerConsultation || {};
+  const ownerConsultation = {
+    active: Number(ownerConsultationInput.active || 0),
+    expired: Number(ownerConsultationInput.expired || 0),
+    ambiguous: Number(ownerConsultationInput.ambiguous || 0),
+    latestStatus: String(ownerConsultationInput.latestStatus || '').slice(0, 80),
+    latestAt: String(ownerConsultationInput.latestAt || '').slice(0, 40),
+    lastErrorCode: String(ownerConsultationInput.lastErrorCode || '').slice(0, 80),
+  };
   if (!input.processAlive) issues.push('process_not_running');
   if (feishuEnabled && (pollAgeMs === null || pollAgeMs > input.maxPollAgeMs)) {
     issues.push('poll_cursor_stale');
@@ -318,6 +327,7 @@ export function buildOperatorView(input) {
       semanticRepeat,
       semanticGroupEngagement,
       discussion,
+      ownerConsultation,
     },
   };
 }
