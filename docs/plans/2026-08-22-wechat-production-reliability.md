@@ -105,7 +105,7 @@ git commit -m "feat: define WeChat reliability state machine"
 **Files:**
 - Create: `src/wechat-reliability-canary.mjs`
 - Create: `src/wechat-reliability-canary.test.mjs`
-- Modify: `src/gewe-webhook.mjs`
+- Modify: `src/im-channel-runtime.mjs`
 - Modify: `src/gewe-webhook.test.mjs`
 - Modify: `package.json`
 
