@@ -5,7 +5,8 @@ import { eligibleOwnerArticle } from './wechat-owner-article-policy.mjs';
 
 const STATE_SCOPE = 'wechat-owner-article-syndication';
 const STATE_KEY = 'worker';
-const RETRY_DELAY_MS = 5 * 60_000;
+const BASE_RETRY_DELAY_MS = 5 * 60_000;
+const MAX_RETRY_DELAY_MS = 24 * 60 * 60_000;
 const RETENTION_MS = 180 * 24 * 60 * 60_000;
 
 function boundedText(value, maxLength = 500) {
@@ -54,6 +55,11 @@ function articleHash(value) {
 function safeInteger(value) {
   const number = Number(value || 0);
   return Number.isSafeInteger(number) && number >= 0 ? number : 0;
+}
+
+export function ownerArticleRetryDelayMs(attempts) {
+  const attempt = Math.max(1, Math.min(20, safeInteger(attempts) || 1));
+  return Math.min(MAX_RETRY_DELAY_MS, BASE_RETRY_DELAY_MS * (3 ** (attempt - 1)));
 }
 
 function normalizedArticle(value, nowMs) {
@@ -210,7 +216,7 @@ export class WeChatOwnerArticleSyndication {
         this.audit('wechat_owner_article_drafts_generated', article);
       } catch (error) {
         article.attempts += 1;
-        article.nextAttemptAtMs = this.now() + RETRY_DELAY_MS;
+        article.nextAttemptAtMs = this.now() + ownerArticleRetryDelayMs(article.attempts);
         article.updatedAtMs = this.now();
         article.lastError = errorCode(error);
         this.writeState(current);
@@ -241,7 +247,7 @@ export class WeChatOwnerArticleSyndication {
       } catch (error) {
         article.commentStatus = error instanceof MutationOutcomeAmbiguousError ? 'uncertain' : 'pending';
         article.lastError = errorCode(error);
-        article.nextAttemptAtMs = this.now() + RETRY_DELAY_MS;
+        article.nextAttemptAtMs = this.now() + ownerArticleRetryDelayMs(article.attempts + 1);
         this.audit('wechat_owner_article_comment_deferred', article, { error: errorCode(error) });
       }
       article.updatedAtMs = this.now();
@@ -287,7 +293,7 @@ export class WeChatOwnerArticleSyndication {
       } catch (error) {
         article.shareStatus = error instanceof MutationOutcomeAmbiguousError ? 'uncertain' : 'pending';
         article.lastError = errorCode(error);
-        article.nextAttemptAtMs = this.now() + RETRY_DELAY_MS;
+        article.nextAttemptAtMs = this.now() + ownerArticleRetryDelayMs(article.attempts + 1);
         this.audit('wechat_owner_article_moment_deferred', article, { error: errorCode(error) });
       }
       article.updatedAtMs = this.now();
@@ -351,6 +357,14 @@ export class WeChatOwnerArticleSyndication {
       existing.thumbUrl ||= article.thumbUrl || '';
       existing.updatedAtMs = this.now();
       this.writeState(current);
+    }
+    if (existing && existing.nextAttemptAtMs > this.now()) {
+      return {
+        eligible: true,
+        status: 'deferred',
+        commented: existing.commentStatus === 'succeeded',
+        shared: existing.shareStatus === 'succeeded',
+      };
     }
     return this.process(article.key);
   }

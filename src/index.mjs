@@ -4611,6 +4611,7 @@ async function runUserPollingLoop() {
   let failures = 0;
   while (!stopping) {
     const startedAt = Date.now();
+    state.set('health', 'last_multica_sync_started_at', new Date(startedAt).toISOString());
     try {
       await pollUserMessagesOnce();
       failures = 0;
@@ -5071,6 +5072,7 @@ async function runMulticaSyncLoop() {
       const result = await MULTICA_SYNCHRONIZER.cycle();
       failures = 0;
       state.set('health', 'last_multica_sync_at', new Date().toISOString());
+      state.set('health', 'last_multica_sync_duration_ms', Date.now() - startedAt);
       state.set('health', 'last_multica_sync_result', result);
       state.set('health', 'last_multica_dispatch_result', dispatch);
       state.unset('health', 'last_multica_sync_error');

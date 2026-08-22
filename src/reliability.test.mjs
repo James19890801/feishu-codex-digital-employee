@@ -1,19 +1,66 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { AgentState } from './state.mjs';
 import * as reliability from './reliability.mjs';
 import {
   assertCompleteSearchResult,
   boundedInteger,
   canPerformMutation,
+  countActionableInboundFailures,
   effectiveTask,
   evaluateEventStatus,
   evaluateHealth,
   isBareMention,
   interactiveInboundRateLimitPolicy,
+  isMulticaSyncStale,
   finalInboundFailurePolicy,
   planPollWindow,
   shouldObserveWithoutReply,
   validateInboundPayload,
 } from './reliability.mjs';
+
+{
+  const directory = await mkdtemp(join(tmpdir(), 'aipro-operational-health-'));
+  try {
+    const state = new AgentState(join(directory, 'state.sqlite'));
+    state.enqueueInbound('dead-unacknowledged', 'test', {});
+    state.claimInbound('dead-unacknowledged');
+    state.deadLetterInbound('dead-unacknowledged', 'failed');
+    state.enqueueInbound('dead-acknowledged', 'test', {});
+    state.claimInbound('dead-acknowledged');
+    state.deadLetterInbound('dead-acknowledged', 'failed');
+    state.audit('inbound_failed_final', {
+      messageId: 'dead-acknowledged',
+      detail: { userNotified: true },
+    });
+    assert.equal(countActionableInboundFailures(state.db, {
+      overdueBefore: new Date(Date.now() - 60_000).toISOString(),
+    }), 1);
+    state.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+{
+  const nowMs = Date.parse('2026-08-22T01:00:00.000Z');
+  assert.equal(isMulticaSyncStale({
+    nowMs,
+    lastCompletedAt: '2026-08-22T00:58:00.000Z',
+    lastStartedAt: '2026-08-22T00:59:30.000Z',
+    syncIntervalMs: 10_000,
+    maxCycleMs: 5 * 60_000,
+  }), false);
+  assert.equal(isMulticaSyncStale({
+    nowMs,
+    lastCompletedAt: '2026-08-22T00:58:00.000Z',
+    lastStartedAt: '2026-08-22T00:50:00.000Z',
+    syncIntervalMs: 10_000,
+    maxCycleMs: 5 * 60_000,
+  }), true);
+}
 
 assert.deepEqual(interactiveInboundRateLimitPolicy({ semanticCandidate: true }), {
   apply: false,

@@ -123,9 +123,15 @@ try {
   try {
     const state = new AgentState(join(directory, 'state.sqlite'));
     let shares = 0;
+    let reads = 0;
+    let nowMs = Date.parse('2026-08-22T00:00:00.000Z');
     const worker = new WeChatOwnerArticleSyndication({
       state,
-      readPage: async () => { throw new Error('page unavailable'); },
+      now: () => nowMs,
+      readPage: async () => {
+        reads += 1;
+        throw new Error('page unavailable');
+      },
       generate: async () => { throw new Error('must not generate'); },
       commentArticle: async () => { throw new Error('must not comment'); },
       publishLinkMoment: async () => { shares += 1; },
@@ -140,6 +146,27 @@ try {
     assert.equal(result.eligible, true);
     assert.equal(result.status, 'retry');
     assert.equal(shares, 0);
+    assert.equal(reads, 1);
+
+    const deferred = await worker.observe({
+      senderOpenId: 'wechat:gh_63f557f95450',
+      linkCandidate: {
+        url: 'https://mp.weixin.qq.com/s?__biz=MzFailure&mid=1&idx=1&sn=readfailure',
+        publisherId: 'gh_63f557f95450',
+      },
+    });
+    assert.equal(deferred.status, 'deferred');
+    assert.equal(reads, 1);
+
+    const firstRetryAt = state.get('wechat-owner-article-syndication', 'worker', {})
+      .articles[0].nextAttemptAtMs;
+    nowMs = firstRetryAt;
+    const retried = await worker.runTick();
+    assert.equal(retried, 1);
+    assert.equal(reads, 2);
+    const secondRetryAt = state.get('wechat-owner-article-syndication', 'worker', {})
+      .articles[0].nextAttemptAtMs;
+    assert.equal(secondRetryAt - nowMs > firstRetryAt - Date.parse('2026-08-22T00:00:00.000Z'), true);
     state.close();
   } finally {
     await rm(directory, { recursive: true, force: true });

@@ -87,6 +87,44 @@ export function evaluateHealth({
   return { healthy: issues.length === 0, issues };
 }
 
+export function countActionableInboundFailures(db, {
+  overdueBefore,
+  deadLetterSince = '1970-01-01T00:00:00.000Z',
+} = {}) {
+  if (!db || typeof db.prepare !== 'function') throw new TypeError('SQLite database is required');
+  const row = db.prepare(`SELECT COUNT(*) AS count
+    FROM inbound_message AS inbound
+    WHERE (inbound.status = 'failed' AND inbound.available_at < ?)
+      OR (inbound.status = 'dead' AND inbound.updated_at >= ?
+        AND NOT EXISTS (
+          SELECT 1 FROM audit AS final
+          WHERE final.message_id = inbound.message_id
+            AND final.event = 'inbound_failed_final'
+            AND json_extract(final.detail, '$.userNotified') = 1
+        ))`).get(String(overdueBefore || ''), String(deadLetterSince || ''));
+  return Number(row?.count || 0);
+}
+
+export function isMulticaSyncStale({
+  nowMs = Date.now(),
+  lastCompletedAt = '',
+  lastStartedAt = '',
+  syncIntervalMs = 10_000,
+  maxCycleMs = 5 * 60_000,
+} = {}) {
+  const now = Number(nowMs);
+  const completedAtMs = Date.parse(String(lastCompletedAt || ''));
+  const startedAtMs = Date.parse(String(lastStartedAt || ''));
+  const freshnessMs = Math.max(60_000, Number(syncIntervalMs || 10_000) * 6);
+  if (Number.isFinite(completedAtMs) && now >= completedAtMs
+    && now - completedAtMs <= freshnessMs) return false;
+  const inProgress = Number.isFinite(startedAtMs)
+    && (!Number.isFinite(completedAtMs) || startedAtMs > completedAtMs)
+    && now >= startedAtMs
+    && now - startedAtMs <= Math.max(freshnessMs, Number(maxCycleMs) || 5 * 60_000);
+  return !inProgress;
+}
+
 export function evaluateEventStatus(status, appId) {
   const issues = [];
   const app = Array.isArray(status?.apps)
