@@ -72,7 +72,11 @@ assert.equal(shouldFastCompleteRateLimitedInbound({}), false);
     );
     state.enqueueInbound('same-chat-active', 'test', {
       ...chatPayload,
-      message: { ...chatPayload.message, message_id: 'same-chat-active' },
+      message: {
+        ...chatPayload.message,
+        message_id: 'same-chat-active',
+        chat_id: 'different-active-chat',
+      },
     }, '2026-08-22T00:00:02.000Z');
     state.claimInbound('same-chat-active', '2026-08-22T00:00:02.000Z');
     assert.equal(countActionableInboundFailures(state.db, {

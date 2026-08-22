@@ -116,9 +116,6 @@ export function countActionableInboundFailures(db, {
         AND NOT EXISTS (
           SELECT 1 FROM inbound_message AS active
           WHERE active.status = 'processing'
-            AND json_valid(active.payload) AND json_valid(inbound.payload)
-            AND json_extract(active.payload, '$.message.chat_id')
-              = json_extract(inbound.payload, '$.message.chat_id')
         ))
       OR (inbound.status = 'dead' AND inbound.updated_at >= ?
         AND NOT EXISTS (
