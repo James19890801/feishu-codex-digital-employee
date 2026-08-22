@@ -249,6 +249,74 @@ function temporaryState(prefix) {
   }
 }
 
+{
+  const database = temporaryState('aipro-moments-delayed-restart-');
+  try {
+    const nowMs = Date.parse('2026-08-22T10:00:00+08:00');
+    const likes = [];
+    const timeouts = [];
+    const intervals = [];
+    const clearedTimeouts = new Set();
+    const clearedIntervals = new Set();
+    const worker = new productionMoments.WeChatMomentsEngagement({
+      state: database.state,
+      channel: {
+        getProfile: async () => ({ wxid: 'wxid_owner', nickName: '詹老师' }),
+        listMoments: async () => ({ snsList: [] }),
+        checkOnline: async () => true,
+        likeMoment: async input => { likes.push(input); return { ret: 200 }; },
+      },
+      now: () => nowMs,
+      random: () => 0,
+      setTimeoutImpl: (callback, delayMs) => {
+        const timer = { callback, delayMs, unref() {} };
+        timeouts.push(timer);
+        return timer;
+      },
+      clearTimeoutImpl: timer => { clearedTimeouts.add(timer); },
+      setIntervalImpl: (callback, delayMs) => {
+        const timer = { callback, delayMs, unref() {} };
+        intervals.push(timer);
+        return timer;
+      },
+      clearIntervalImpl: timer => { clearedIntervals.add(timer); },
+      generate: async () => '{"action":"skip","text":"","reason":"unused"}',
+    });
+    worker.writeState({
+      initialized: true,
+      coverageVersion: 2,
+      likeCoverageVersion: 1,
+      pendingInteractions: [{
+        key: 'd'.repeat(24),
+        kind: 'like',
+        mode: 'like',
+        momentId: '72001',
+        targetWxid: 'wxid_friend_restart',
+        commentId: 0,
+        content: '',
+        createdAtMs: nowMs - 100_000,
+        dueAtMs: nowMs - 1_000,
+        attempts: 0,
+      }],
+    });
+
+    await worker.start();
+    const recovered = worker.readState().pendingInteractions[0];
+    assert.equal(likes.length, 0, 'overdue restart work must not execute immediately');
+    assert.equal(recovered.dueAtMs - nowMs >= 17_300, true);
+    assert.equal(recovered.dueAtMs - nowMs <= 42_700, true);
+    const activeTimeouts = timeouts.filter(timer => !clearedTimeouts.has(timer));
+    assert.equal(activeTimeouts.length, 1);
+    assert.equal(intervals.length, 1);
+
+    worker.stop();
+    assert.equal(clearedTimeouts.has(activeTimeouts[0]), true, 'stop must clear interaction wake timer');
+    assert.equal(clearedIntervals.has(intervals[0]), true, 'stop must clear periodic scan timer');
+  } finally {
+    database.close();
+  }
+}
+
 if (typeof moments.normalizeMoment === 'function') {
   const normalized = moments.normalizeMoment({
     id: '14287710653886042616',

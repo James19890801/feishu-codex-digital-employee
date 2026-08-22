@@ -567,6 +567,25 @@ export class WeChatMomentsEngagement {
     return operation;
   }
 
+  recoverOverdueInteractions() {
+    const current = this.readState();
+    const overdue = current.pendingInteractions
+      .filter(item => item.dueAtMs <= this.now())
+      .sort((left, right) => left.dueAtMs - right.dueAtMs);
+    if (!overdue.length) return false;
+    let nextDueAtMs = this.now();
+    for (const action of overdue) {
+      nextDueAtMs += momentsInteractionDelayMs({ kind: 'restart', random: this.random });
+      action.dueAtMs = nextDueAtMs;
+    }
+    this.writeState(current);
+    this.audit('wechat_moments_interactions_recovered', {
+      count: overdue.length,
+      nextDelayMs: overdue[0].dueAtMs - this.now(),
+    });
+    return true;
+  }
+
   async feedWithDetails() {
     const rawMoments = [];
     let maxId = 0;
@@ -1001,7 +1020,9 @@ export class WeChatMomentsEngagement {
   }
 
   async start() {
+    this.recoverOverdueInteractions();
     await this.triggerScan('startup');
+    this.scheduleWake();
     if (this.timer) return;
     this.timer = this.setIntervalImpl(() => {
       this.triggerScan('periodic').catch(() => {});
@@ -1010,8 +1031,13 @@ export class WeChatMomentsEngagement {
   }
 
   stop() {
-    if (!this.timer) return;
-    this.clearIntervalImpl(this.timer);
-    this.timer = null;
+    if (this.timer) {
+      this.clearIntervalImpl(this.timer);
+      this.timer = null;
+    }
+    if (this.wakeTimer) {
+      this.clearTimeoutImpl(this.wakeTimer);
+      this.wakeTimer = null;
+    }
   }
 }
