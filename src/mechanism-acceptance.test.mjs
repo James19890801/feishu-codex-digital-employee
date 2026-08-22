@@ -73,6 +73,11 @@ import {
   buildLocalKnowledgeContext,
   LocalWikiRetriever,
 } from './local-wiki-retrieval.mjs';
+import { buildOperatorView } from './dashboard-model.mjs';
+import {
+  emptyWechatReliabilityState,
+  evaluateWechatReliability,
+} from './wechat-reliability-policy.mjs';
 
 const cases = [];
 
@@ -106,6 +111,93 @@ const identities = {
   ownerOpenId: 'ou_owner',
   dingtalkOwnerOpenId: 'dt_owner',
 };
+
+function reliabilitySample(failedLayer = null) {
+  return {
+    layers: Object.fromEntries([
+      'local_service', 'tunnel', 'public_callback', 'provider', 'callback_registration',
+    ].map(layer => [layer, {
+      ok: layer !== failedLayer,
+      errorCode: layer === failedLayer ? 'unavailable' : null,
+      durationMs: 1,
+      ...(layer === 'tunnel' ? { activeConnections: layer === failedLayer ? 0 : 4 } : {}),
+    }])),
+  };
+}
+
+contract('wechat-reliability', 'Does a failed public callback override legacy connected status?', () => {
+  const nowMs = Date.parse('2026-08-22T12:00:00.000Z');
+  let state = emptyWechatReliabilityState();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    state = evaluateWechatReliability({
+      previous: state,
+      sample: reliabilitySample('public_callback'),
+      nowMs: nowMs + attempt * 1_000,
+      random: () => 0,
+    });
+  }
+  const view = buildOperatorView({
+    nowMs: nowMs + 2_000,
+    processAlive: true,
+    feishuEnabled: false,
+    staleProcessing: 0,
+    overdueFailed: 0,
+    deadCount: 0,
+    sqliteIntegrity: 'ok',
+    websocketActive: true,
+    codexProxyReachable: true,
+    geweChannel: { enabled: true, connected: true },
+    wechatReliability: state,
+  });
+  assert.equal(view.channels.wechat.connected, false);
+  assert.equal(view.issues.includes('wechat_public_callback_unavailable'), true);
+});
+
+contract('wechat-reliability', 'Is automatic recovery bounded and layer-specific?', () => {
+  let state = emptyWechatReliabilityState();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    state = evaluateWechatReliability({
+      previous: state,
+      sample: reliabilitySample('local_service'),
+      nowMs: 10_000 + attempt * 1_000,
+      random: () => 0,
+    });
+  }
+  assert.equal(state.recovery.action, 'reconcile_main_service');
+  assert.equal(state.destructiveActionTimesMs.length, 1);
+  assert.equal(state.nextRecoveryAtMs > state.checkedAtMs, true);
+});
+
+contract('wechat-reliability', 'Is provider failure classified without restarting local services?', () => {
+  let state = emptyWechatReliabilityState();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    state = evaluateWechatReliability({
+      previous: state,
+      sample: reliabilitySample('provider'),
+      nowMs: 20_000 + attempt * 1_000,
+      random: () => 0,
+    });
+  }
+  assert.equal(state.state, 'provider_down');
+  assert.equal(state.recovery, null);
+});
+
+contract('production-release', 'Is production built from clean Git and made immutable?', () => {
+  const source = readFileSync(new URL('../scripts/production-release.mjs', import.meta.url), 'utf8');
+  assert.match(source, /status', '--porcelain=v1'/);
+  assert.match(source, /await makeReadOnly\(releasePath\)/);
+  assert.match(source, /release-manifest\.json/);
+});
+
+contract('production-release', 'Can production LaunchAgents ever point at a worktree?', () => {
+  const source = readFileSync(
+    new URL('../scripts/install-production-services.mjs', import.meta.url),
+    'utf8',
+  );
+  assert.match(source, /releasePath\.includes\('\.worktrees'\)/);
+  assert.match(source, /currentPath/);
+  assert.doesNotMatch(source, /\.worktrees\/wechat-production-reliability\/src\/index/);
+});
 
 contract('local-wiki', 'Do all IM channels share one evidence-gated local knowledge context?', async () => {
   const retriever = new LocalWikiRetriever({

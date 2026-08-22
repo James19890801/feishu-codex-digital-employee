@@ -11,6 +11,7 @@ import {
   rename,
   stat,
   symlink,
+  unlink,
   writeFile,
 } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
@@ -184,7 +185,7 @@ async function atomicSymlink(target, linkPath) {
     await symlink(target, temporary);
     await rename(temporary, linkPath);
   } catch (error) {
-    try { await chmod(temporary, 0o700); } catch {}
+    try { await unlink(temporary); } catch {}
     throw error;
   }
 }
@@ -218,4 +219,44 @@ export async function rollbackProductionRelease({ supportRoot, validate = async 
   await atomicSymlink(previous, currentLink);
   if (current && current !== previous) await atomicSymlink(current, previousLink);
   return { current: previous, previous: current };
+}
+
+export async function activateProductionRelease({
+  supportRoot,
+  releasePath,
+  validateCandidate,
+  restartServices,
+  verifyHealth,
+}) {
+  if (typeof restartServices !== 'function' || typeof verifyHealth !== 'function') {
+    throw new TypeError('Release activation requires restart and health verification operations');
+  }
+  let switched = false;
+  try {
+    const links = await switchProductionRelease({
+      supportRoot,
+      releasePath,
+      validate: validateCandidate,
+    });
+    switched = true;
+    await restartServices({ phase: 'candidate', releasePath: links.current });
+    await verifyHealth({ phase: 'candidate', releasePath: links.current });
+    return { ...links, rolledBack: false };
+  } catch {
+    if (!switched) throw releaseError(
+      'Production release candidate validation failed',
+      'RELEASE_VALIDATION_FAILED',
+    );
+    try {
+      const links = await rollbackProductionRelease({ supportRoot });
+      await restartServices({ phase: 'rollback', releasePath: links.current });
+      await verifyHealth({ phase: 'rollback', releasePath: links.current });
+    } catch {
+      throw releaseError('Production release rollback failed', 'RELEASE_ROLLBACK_FAILED');
+    }
+    throw releaseError(
+      'Production release failed health verification and was rolled back',
+      'RELEASE_HEALTH_FAILED',
+    );
+  }
 }

@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import {
+  activateProductionRelease,
   buildProductionRelease,
   inspectGitSource,
   rollbackProductionRelease,
@@ -135,5 +136,31 @@ const rolledBack = await rollbackProductionRelease({ supportRoot });
 assert.equal(rolledBack.current, built.path);
 assert.equal(await readlink(join(supportRoot, 'current')), built.path);
 assert.equal((await lstat(join(supportRoot, 'current'))).isSymbolicLink(), true);
+
+const unhealthyPath = join(supportRoot, 'releases', 'unhealthy-release');
+await mkdir(unhealthyPath, { recursive: true });
+await chmod(unhealthyPath, 0o555);
+const activationCalls = [];
+await assert.rejects(
+  activateProductionRelease({
+    supportRoot,
+    releasePath: unhealthyPath,
+    validateCandidate: async () => {},
+    restartServices: async context => { activationCalls.push(`restart:${context.phase}`); },
+    verifyHealth: async context => {
+      activationCalls.push(`verify:${context.phase}`);
+      if (context.phase === 'candidate') throw new Error('private endpoint detail');
+    },
+  }),
+  error => error?.code === 'RELEASE_HEALTH_FAILED'
+    && !String(error?.message).includes('private endpoint detail'),
+);
+assert.equal(await readlink(join(supportRoot, 'current')), built.path);
+assert.deepEqual(activationCalls, [
+  'restart:candidate',
+  'verify:candidate',
+  'restart:rollback',
+  'verify:rollback',
+]);
 
 console.log('PRODUCTION_RELEASE_TEST_OK');
