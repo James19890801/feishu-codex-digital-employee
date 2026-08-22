@@ -46,7 +46,10 @@ function validatePublicBaseUrl(value) {
   return url.origin;
 }
 
-async function fetchBounded(fetchImpl, url, { timeoutMs }) {
+async function fetchBounded(fetchImpl, url, {
+  timeoutMs,
+  maxResponseBytes = MAX_RESPONSE_BYTES,
+}) {
   try {
     const response = await fetchImpl(url, {
       method: 'GET',
@@ -57,7 +60,7 @@ async function fetchBounded(fetchImpl, url, { timeoutMs }) {
       return { ok: false, errorCode: `http_${Number(response?.status) || 0}` };
     }
     const text = await response.text();
-    if (Buffer.byteLength(text) > MAX_RESPONSE_BYTES) {
+    if (Buffer.byteLength(text) > maxResponseBytes) {
       return { ok: false, errorCode: 'response_too_large' };
     }
     return { ok: true, text };
@@ -139,6 +142,7 @@ export async function probeTunnel({
   if (!ready.ok) return { ...ready, activeConnections: 0 };
   const metrics = await fetchBounded(fetchImpl, `${safeBaseUrl}/metrics`, {
     timeoutMs: LOCAL_TIMEOUT_MS,
+    maxResponseBytes: 512 * 1024,
   });
   if (!metrics.ok) return { ...metrics, activeConnections: 0 };
   const values = [...metrics.text.matchAll(

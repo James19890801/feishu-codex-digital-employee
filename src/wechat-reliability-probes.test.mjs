@@ -78,6 +78,20 @@ function canaryResponse(url) {
 }
 
 {
+  const tunnel = await probeTunnel({
+    metricsUrl: 'http://127.0.0.1:17657',
+    fetchImpl: async url => String(url).endsWith('/ready')
+      ? new Response('ready', { status: 200 })
+      : new Response(
+          `cloudflared_tunnel_ha_connections 1\n# ${'x'.repeat(64 * 1024)}\n`,
+          { status: 200 },
+        ),
+  });
+  assert.equal(tunnel.ok, true);
+  assert.equal(tunnel.activeConnections, 1);
+}
+
+{
   const publicProbe = await probePublicCanary({
     baseUrl: 'https://wechat.example.com',
     canarySecret,
