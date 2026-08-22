@@ -3,6 +3,7 @@
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { isDirectExecution } from '../src/direct-execution.mjs';
 import {
   buildProductionRelease,
   createReleaseVersion,
@@ -53,7 +54,7 @@ async function main() {
   }, null, 2));
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url, process.argv[1])) {
   main().catch(error => {
     console.error(`[production-release] ${error?.message || error}`);
     process.exitCode = 1;

@@ -14,6 +14,7 @@ import path, { join, resolve } from 'node:path';
 import process from 'node:process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { isDirectExecution } from '../src/direct-execution.mjs';
 
 const execFile = promisify(execFileCallback);
 const PRODUCTION_LABELS = Object.freeze([
@@ -283,7 +284,7 @@ async function main() {
   });
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url, process.argv[1])) {
   main().catch(error => {
     console.error(`[production-services] ${error?.message || error}`);
     process.exitCode = 1;

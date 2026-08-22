@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { isDirectExecution } from '../src/direct-execution.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -166,7 +167,7 @@ async function main() {
   });
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url, process.argv[1])) {
   main().catch(error => {
     console.error(`[named-tunnel] supervisor failed: ${error?.message || error}`);
     process.exitCode = 1;

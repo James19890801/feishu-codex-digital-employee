@@ -3,6 +3,7 @@
 import process from 'node:process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDirectExecution } from '../src/direct-execution.mjs';
 import { readKeychainCredential } from '../src/channel-credentials.mjs';
 import { GeWeChannel } from '../src/im-channel-runtime.mjs';
 import { runBufferedProcess } from '../src/process-runner.mjs';
@@ -415,7 +416,7 @@ export async function runSupervisorMain({
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url, process.argv[1])) {
   runSupervisorMain({
     createSupervisor: createDefaultProductionSupervisor,
   });
