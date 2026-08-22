@@ -11,6 +11,11 @@ import {
   normalizeDingTalkEvent,
   normalizeWeComFrame,
 } from './im-channels.mjs';
+import {
+  CANARY_PATH,
+  createCanaryResponse,
+  verifyCanaryChallenge,
+} from './wechat-reliability-canary.mjs';
 
 function validateHttpsBaseUrl(value) {
   const url = new URL(String(value || ''));
@@ -806,6 +811,7 @@ export class GeWeWebhookServer {
   constructor({
     channel,
     callbackSecret,
+    canarySecret = '',
     port,
     host = '127.0.0.1',
     onMessage = () => {},
@@ -817,8 +823,12 @@ export class GeWeWebhookServer {
     if (!/^[A-Za-z0-9_-]{24,128}$/.test(String(callbackSecret || ''))) {
       throw new Error('GeWe callback secret must contain 24 to 128 URL-safe characters');
     }
+    if (canarySecret && String(canarySecret).length < 32) {
+      throw new Error('GeWe canary secret must contain at least 32 characters');
+    }
     this.channel = channel;
     this.callbackSecret = callbackSecret;
+    this.canarySecret = String(canarySecret || '');
     this.port = Number(port);
     this.host = host;
     this.onMessage = onMessage;
@@ -906,7 +916,33 @@ export class GeWeWebhookServer {
   }
 
   handle(request, response) {
-    const pathname = new URL(request.url || '/', 'http://127.0.0.1').pathname;
+    const rawUrl = String(request.url || '/');
+    if (rawUrl.length > 2_048) {
+      writeJson(response, 404, { ok: false });
+      return;
+    }
+    const parsedUrl = new URL(rawUrl, 'http://127.0.0.1');
+    const pathname = parsedUrl.pathname;
+    if (pathname === CANARY_PATH) {
+      if (!this.canarySecret || request.method !== 'GET') {
+        writeJson(response, 404, { ok: false });
+        return;
+      }
+      const challenge = {
+        timestamp: parsedUrl.searchParams.get('timestamp'),
+        nonce: parsedUrl.searchParams.get('nonce'),
+        signature: parsedUrl.searchParams.get('signature'),
+      };
+      if (!verifyCanaryChallenge(challenge, {
+        secret: this.canarySecret,
+        nowMs: this.now(),
+      }).ok) {
+        writeJson(response, 404, { ok: false });
+        return;
+      }
+      writeJson(response, 200, createCanaryResponse(challenge, { nowMs: this.now() }));
+      return;
+    }
     if (this.handleArtifact(request, response, pathname)) return;
     if (!callbackPathMatches(pathname, this.path())) {
       writeJson(response, 404, { ok: false });

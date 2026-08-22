@@ -3,10 +3,16 @@ import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { GeWeWebhookServer } from './im-channel-runtime.mjs';
+import {
+  CANARY_PATH,
+  createCanaryChallenge,
+  createCanaryResponse,
+} from './wechat-reliability-canary.mjs';
 
 const received = [];
 const statuses = [];
 const secret = 'callback_secret_1234567890123456';
+const canarySecret = 'canary_secret_12345678901234567890';
 let nowMs = 1_000;
 const artifactDirectory = await mkdtemp(join(tmpdir(), 'gewe-artifact-route-'));
 const artifactPath = join(artifactDirectory, 'private-report.pdf');
@@ -22,6 +28,7 @@ const channel = {
 const server = new GeWeWebhookServer({
   channel,
   callbackSecret: secret,
+  canarySecret,
   port: 0,
   onMessage: payload => received.push(payload),
   onStatus: patch => statuses.push(patch),
@@ -33,6 +40,38 @@ try {
   const address = server.address();
   assert.equal(address.address, '127.0.0.1');
   const base = `http://127.0.0.1:${address.port}`;
+
+  const challenge = createCanaryChallenge({
+    secret: canarySecret,
+    nowMs,
+    nonce: 'public-loopback-nonce',
+  });
+  const canaryQuery = new URLSearchParams(challenge);
+  const canary = await fetch(`${base}${CANARY_PATH}?${canaryQuery}`);
+  assert.equal(canary.status, 200);
+  assert.deepEqual(await canary.json(), createCanaryResponse(challenge, { nowMs }));
+  assert.equal(received.length, 0);
+
+  const invalidCanary = await fetch(`${base}${CANARY_PATH}?${new URLSearchParams({
+    ...challenge,
+    signature: '0'.repeat(64),
+  })}`);
+  assert.equal(invalidCanary.status, 404);
+  assert.equal(received.length, 0);
+
+  const expiredChallenge = createCanaryChallenge({
+    secret: canarySecret,
+    nowMs: nowMs - 60_001,
+    nonce: 'expired-public-loopback-nonce',
+  });
+  const expiredCanary = await fetch(`${base}${CANARY_PATH}?${new URLSearchParams(expiredChallenge)}`);
+  assert.equal(expiredCanary.status, 404);
+
+  const oversizedCanary = await fetch(`${base}${CANARY_PATH}?nonce=${'x'.repeat(3_000)}`);
+  assert.equal(oversizedCanary.status, 404);
+
+  const postCanary = await fetch(`${base}${CANARY_PATH}?${canaryQuery}`, { method: 'POST' });
+  assert.equal(postCanary.status, 404);
 
   const wrongPath = await fetch(`${base}/webhooks/gewe/wrong-secret`, {
     method: 'POST',
