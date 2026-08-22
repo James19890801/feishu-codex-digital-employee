@@ -18,6 +18,7 @@ const ROOT_FILES = new Set([
   'config.distribution.json',
   'docs/CLOUD_FAILOVER.md',
   'package.json',
+  'package-lock.json',
   'pnpm-lock.yaml',
   'pnpm-workspace.yaml',
   'requirements.txt',
@@ -26,18 +27,24 @@ const ROOT_FILES = new Set([
 const SCRIPT_FILES = new Set([
   'scripts/check-config.mjs',
   'scripts/check-python.mjs',
+  'scripts/cloudflare-named-tunnel-supervisor.mjs',
   'scripts/cloud-failover-smoke.mjs',
   'scripts/dws-deployment-policy.mjs',
   'scripts/health-check.mjs',
+  'scripts/build-production-release.mjs',
   'scripts/install-aicoding.mjs',
   'scripts/install-dashboard-service.sh',
   'scripts/install-service.sh',
+  'scripts/install-production-services.mjs',
   'scripts/runtime-smoke.mjs',
+  'scripts/production-release.mjs',
   'scripts/qoder-cloud-provision.mjs',
   'scripts/setup.sh',
   'scripts/wechat-poc-health.mjs',
   'scripts/wechat-poc-ui.jxa',
   'scripts/wechat-poc-vision.swift',
+  'scripts/wechat-reliability-supervisor.mjs',
+  'scripts/gewe-tunnel-supervisor.mjs',
 ]);
 
 const FORBIDDEN_PATH_PATTERNS = [
