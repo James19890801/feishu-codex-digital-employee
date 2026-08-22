@@ -883,6 +883,7 @@ function formatTaskTime(date) {
 
 async function sendText(client, chatId, text, uuid, options = {}) {
   const rememberedChat = state.get('feishu_chat', chatId, {});
+  const target = parseChannelChatId(chatId);
   const replyContext = replyContextStorage.getStore();
   const effectiveChatType = resolveFeishuChatType(
     options.chatType,
@@ -902,10 +903,10 @@ async function sendText(client, chatId, text, uuid, options = {}) {
     chatId,
     audienceKey: [...audience].sort().join(','),
     text,
+    suppressRepeats: target?.kind !== 'user',
     audit: (event, detail) => state.audit(event, { chatId, detail }),
     send: () => sendTextUnchecked(client, chatId, text, uuid, options),
   });
-  const target = parseChannelChatId(chatId);
   if (target?.channel === 'wechat' && result?.suppressed !== true && wechatRelationshipMemory) {
     const surface = target.kind === 'group' ? 'group' : 'p2p';
     const recipients = surface === 'p2p'

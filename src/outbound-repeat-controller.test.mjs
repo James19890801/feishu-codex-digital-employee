@@ -88,6 +88,29 @@ try {
     'retry-after-failure',
   ]);
 
+  const directAudits = [];
+  await sendUnlessRecentRepeat({
+    state,
+    chatId: 'wechat:user:direct-required-response',
+    text: '收到，我马上处理。',
+    nowMs: 5_100,
+    suppressRepeats: false,
+    audit: event => directAudits.push(event),
+    send: send('direct-first'),
+  });
+  const repeatedDirect = await sendUnlessRecentRepeat({
+    state,
+    chatId: 'wechat:user:direct-required-response',
+    text: '收到，我马上处理。',
+    nowMs: 5_200,
+    suppressRepeats: false,
+    audit: event => directAudits.push(event),
+    send: send('direct-repeat'),
+  });
+  assert.deepEqual(repeatedDirect, { ok: true });
+  assert.deepEqual(sent.slice(-2), ['direct-first', 'direct-repeat']);
+  assert.deepEqual(directAudits, []);
+
   await sendUnlessRecentRepeat({
     state,
     chatId: 'progress-group',

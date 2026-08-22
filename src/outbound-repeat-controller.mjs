@@ -5,10 +5,15 @@ export async function sendUnlessRecentRepeat({
   text,
   nowMs = Date.now(),
   windowMs = 10 * 60_000,
+  suppressRepeats = true,
   send,
   audit = () => {},
 } = {}) {
   if (typeof send !== 'function') throw new Error('Outbound reply send operation is required');
+  // One-to-one conversations are required-response surfaces. A repeated answer
+  // can still be the correct answer to a repeated question, so never turn the
+  // group anti-spam guard into a silent direct-message drop.
+  if (suppressRepeats === false) return send();
   const claim = state.claimOutboundReply({
     chatId,
     audienceKey,
