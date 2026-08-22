@@ -82,6 +82,104 @@ function temporaryState(prefix) {
   };
 }
 
+{
+  const database = temporaryState('aipro-moments-pending-normalization-');
+  try {
+    const nowMs = Date.parse('2026-08-22T10:00:00+08:00');
+    const worker = new moments.WeChatMomentsEngagement({
+      state: database.state,
+      channel: {},
+      now: () => nowMs,
+      generate: async () => '{"action":"skip","text":"","reason":"unused"}',
+    });
+    worker.writeState({
+      pendingInteractions: [{
+        key: 'a'.repeat(24),
+        kind: 'like',
+        mode: 'like',
+        momentId: '70001',
+        targetWxid: 'wxid_friend_a',
+        commentId: 0,
+        content: '',
+        createdAtMs: nowMs,
+        dueAtMs: nowMs + 35_137,
+        attempts: 0,
+      }, {
+        key: 'b'.repeat(24),
+        kind: 'comment',
+        mode: 'thread_reply',
+        momentId: '70002',
+        targetWxid: 'wxid_friend_b',
+        commentId: 33,
+        content: '这个问题很具体，我接着把判断依据讲清楚。',
+        createdAtMs: nowMs,
+        dueAtMs: nowMs + 91_337,
+        attempts: 1,
+      }, {
+        key: 'not-a-hash',
+        kind: 'like',
+        mode: 'like',
+        momentId: '70003',
+        targetWxid: 'wxid_friend_c',
+        createdAtMs: nowMs,
+        dueAtMs: nowMs + 40_000,
+      }, {
+        key: 'c'.repeat(24),
+        kind: 'like',
+        mode: 'like',
+        momentId: '70004',
+        targetWxid: 'wxid_friend_d',
+        createdAtMs: nowMs - 73 * 3_600_000,
+        dueAtMs: nowMs - 72 * 3_600_000,
+      }],
+    });
+
+    const reopened = new moments.WeChatMomentsEngagement({
+      state: database.state,
+      channel: {},
+      now: () => nowMs,
+      generate: async () => '{"action":"skip","text":"","reason":"unused"}',
+    });
+    assert.deepEqual(
+      reopened.readState().pendingInteractions.map(item => ({
+        key: item.key,
+        kind: item.kind,
+        mode: item.mode,
+        momentId: item.momentId,
+        targetWxid: item.targetWxid,
+        commentId: item.commentId,
+        content: item.content,
+        dueAtMs: item.dueAtMs,
+        attempts: item.attempts,
+      })),
+      [{
+        key: 'a'.repeat(24),
+        kind: 'like',
+        mode: 'like',
+        momentId: '70001',
+        targetWxid: 'wxid_friend_a',
+        commentId: 0,
+        content: '',
+        dueAtMs: nowMs + 35_137,
+        attempts: 0,
+      }, {
+        key: 'b'.repeat(24),
+        kind: 'comment',
+        mode: 'thread_reply',
+        momentId: '70002',
+        targetWxid: 'wxid_friend_b',
+        commentId: 33,
+        content: '这个问题很具体，我接着把判断依据讲清楚。',
+        dueAtMs: nowMs + 91_337,
+        attempts: 1,
+      }],
+      'pending interactions must survive state reload while malformed and expired entries are removed',
+    );
+  } finally {
+    database.close();
+  }
+}
+
 if (typeof moments.normalizeMoment === 'function') {
   const normalized = moments.normalizeMoment({
     id: '14287710653886042616',
