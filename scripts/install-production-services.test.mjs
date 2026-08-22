@@ -12,9 +12,27 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
+  bootstrapProductionLaunchAgent,
   buildProductionServiceDefinitions,
   installProductionServices,
 } from './install-production-services.mjs';
+
+{
+  let bootstrapAttempts = 0;
+  const waits = [];
+  await bootstrapProductionLaunchAgent({
+    uid: 501,
+    definition: { label: 'com.local.aipro-main', plistPath: '/tmp/main.plist' },
+    launchctl: async args => {
+      if (args[0] === 'bootstrap' && ++bootstrapAttempts < 3) {
+        throw new Error('Bootstrap failed: 5: Input/output error');
+      }
+    },
+    sleep: async milliseconds => { waits.push(milliseconds); },
+  });
+  assert.equal(bootstrapAttempts, 3);
+  assert.deepEqual(waits, [200, 400]);
+}
 
 const root = await mkdtemp(join(tmpdir(), 'aipro-production-services-'));
 const userHome = join(root, 'user');

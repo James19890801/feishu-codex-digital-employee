@@ -220,6 +220,28 @@ async function defaultLaunchctl(args) {
   });
 }
 
+export async function bootstrapProductionLaunchAgent({
+  uid,
+  definition,
+  launchctl,
+  sleep = milliseconds => new Promise(resolvePromise => setTimeout(resolvePromise, milliseconds)),
+}) {
+  const domain = `gui/${uid}/${definition.label}`;
+  await launchctl(['bootout', domain]).catch(() => {});
+  let lastError;
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      await launchctl(['bootstrap', `gui/${uid}`, definition.plistPath]);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 5) break;
+      await sleep(attempt * 200);
+    }
+  }
+  throw lastError;
+}
+
 export async function installProductionServices({
   supportRoot,
   userHome,
@@ -263,9 +285,7 @@ export async function installProductionServices({
   }
   for (const definition of definitions) await atomicWrite(definition.plistPath, definition.plist);
   for (const definition of definitions) {
-    const domain = `gui/${uid}/${definition.label}`;
-    await launchctl(['bootout', domain]).catch(() => {});
-    await launchctl(['bootstrap', `gui/${uid}`, definition.plistPath]);
+    await bootstrapProductionLaunchAgent({ uid, definition, launchctl });
   }
   return { definitions, archivedLegacyLabels: [...LEGACY_LABELS] };
 }
