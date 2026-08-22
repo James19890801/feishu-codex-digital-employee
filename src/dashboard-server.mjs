@@ -61,7 +61,10 @@ import { LicensingStore } from './licensing/store.mjs';
 
 const HOST = '127.0.0.1';
 const PORT = config.dashboardPort;
-const DATA_DIR = join(config.workdir, 'data');
+const RESOURCE_ROOT = config.resourceRoot;
+const RUNTIME_ROOT = config.runtimeRoot;
+const CONFIG_ROOT = config.configRoot;
+const DATA_DIR = join(RUNTIME_ROOT, 'data');
 const AIPRO_HOME = process.env.AIPRO_HOME
   || join(process.env.HOME || '', 'Library', 'Application Support', 'AIPRO');
 const WECHAT_RELIABILITY_STATE_PATH = join(
@@ -72,12 +75,13 @@ const WECHAT_RELIABILITY_STATE_PATH = join(
 const DB_PATH = join(DATA_DIR, 'agent-state.sqlite');
 const LOCK_PATH = join(DATA_DIR, 'service.lock');
 const NOTIFICATION_STATE_PATH = join(DATA_DIR, 'dashboard-notification-state.json');
-const DASHBOARD_DIR = join(config.workdir, 'dashboard');
+const DASHBOARD_DIR = join(RESOURCE_ROOT, 'dashboard');
 const CONFIG_ASSISTANT_RUNTIME_DIR = join(DATA_DIR, 'config-assistant-runtime');
 const CONFIG_ASSISTANT_CODEX_HOME = join(DATA_DIR, 'codex-home');
 const CONFIG_ASSISTANT_SESSION_TOKEN = randomBytes(32).toString('hex');
 const INITIAL_PUBLIC_CONFIGURATION = publicConfiguration(config);
-const SERVICE_LABEL = 'com.local.feishu-codex-digital-employee';
+const SERVICE_LABEL = process.env.AIPRO_MAIN_SERVICE_LABEL
+  || 'com.local.feishu-codex-digital-employee';
 const SERVICE_DOMAIN = `gui/${process.getuid()}/${SERVICE_LABEL}`;
 const SERVICE_PLIST = join(
   process.env.HOME || '',
@@ -85,7 +89,7 @@ const SERVICE_PLIST = join(
   'LaunchAgents',
   `${SERVICE_LABEL}.plist`,
 );
-const SERVICE_ENTRYPOINT = join(config.workdir, 'src', 'index.mjs');
+const SERVICE_ENTRYPOINT = join(RESOURCE_ROOT, 'src', 'index.mjs');
 const ALLOWED_HOSTS = new Set([`${HOST}:${PORT}`, `localhost:${PORT}`]);
 const licensingStore = new LicensingStore();
 const licensingFetch = createLicensingFetch({ proxyUrl: config.licensingProxyUrl });
@@ -737,7 +741,7 @@ async function restartMainService() {
   return reconcileLaunchAgent({
     expected: {
       plistPath: SERVICE_PLIST,
-      workdir: config.workdir,
+      workdir: RESOURCE_ROOT,
       entrypoint: SERVICE_ENTRYPOINT,
     },
     inspect: inspectLoadedMainService,
@@ -842,7 +846,7 @@ async function runConfigurationPlanner(prompt, documents) {
 }
 
 async function readEffectiveConfigurationDocuments() {
-  const documents = await readConfigurationDocuments(config.workdir);
+  const documents = await readConfigurationDocuments(CONFIG_ROOT);
   return {
     ...documents,
     config: {
@@ -868,7 +872,7 @@ async function createConfigurationAssistantPlan(requestText) {
     ? String(randomInt(100000, 1000000))
     : '';
   const pending = pendingConfigurationPlans.add(plan, { confirmationCode });
-  await appendConfigurationAudit(config.workdir, {
+  await appendConfigurationAudit(CONFIG_ROOT, {
     event: 'configuration_plan_created',
     planId: plan.id,
     summary: plan.summary,
@@ -916,7 +920,7 @@ async function createRuntimeSelectionPlan(runtimeId) {
     ? String(randomInt(100000, 1000000))
     : '';
   const pending = pendingConfigurationPlans.add(plan, { confirmationCode });
-  await appendConfigurationAudit(config.workdir, {
+  await appendConfigurationAudit(CONFIG_ROOT, {
     event: 'runtime_selection_plan_created',
     planId: plan.id,
     summary: plan.summary,
@@ -952,15 +956,15 @@ async function setSemanticGroupEngagement(enabled) {
 
 async function validateConfigurationOnDisk({ verifyRuntime = false } = {}) {
   const node = join(config.nodeBin, 'node');
-  await runBufferedProcess(node, [join(config.workdir, 'scripts', 'check-config.mjs')], {
-    cwd: config.workdir,
+  await runBufferedProcess(node, [join(RESOURCE_ROOT, 'scripts', 'check-config.mjs')], {
+    cwd: RESOURCE_ROOT,
     timeoutMs: 30_000,
     maxStdoutBytes: 256 * 1024,
     maxStderrBytes: 512 * 1024,
   });
   if (verifyRuntime) {
-    await runBufferedProcess(node, [join(config.workdir, 'scripts', 'runtime-smoke.mjs')], {
-      cwd: config.workdir,
+    await runBufferedProcess(node, [join(RESOURCE_ROOT, 'scripts', 'runtime-smoke.mjs')], {
+      cwd: RESOURCE_ROOT,
       env: plannerEnvironment(),
       timeoutMs: 100_000,
       maxStdoutBytes: 256 * 1024,
@@ -1001,7 +1005,7 @@ async function waitForChannelConnection(channel, { timeoutMs = 35_000 } = {}) {
 async function applyConfigurationAssistantPlan(plan, { verifyChannel = '' } = {}) {
   const current = await readEffectiveConfigurationDocuments();
   assertPlanMatchesDocuments(current, plan);
-  const snapshot = await createConfigurationSnapshot(config.workdir, {
+  const snapshot = await createConfigurationSnapshot(CONFIG_ROOT, {
     summary: `Before: ${plan.summary}`,
     planId: plan.id,
   });
@@ -1009,7 +1013,7 @@ async function applyConfigurationAssistantPlan(plan, { verifyChannel = '' } = {}
   const verifyRuntime = plan.changes.some(change => change.target === 'config'
     && ['codexModel', 'aiRuntime'].includes(change.key));
   try {
-    await writeConfigurationDocuments(config.workdir, updated);
+    await writeConfigurationDocuments(CONFIG_ROOT, updated);
     await validateConfigurationOnDisk({ verifyRuntime });
     synchronizeDashboardConfiguration(updated.config);
     await restartMainService();
@@ -1021,7 +1025,7 @@ async function applyConfigurationAssistantPlan(plan, { verifyChannel = '' } = {}
       }
       status = await collectStatus();
     }
-    await appendConfigurationAudit(config.workdir, {
+    await appendConfigurationAudit(CONFIG_ROOT, {
       event: 'configuration_applied',
       planId: plan.id,
       snapshotId: snapshot.id,
@@ -1036,7 +1040,7 @@ async function applyConfigurationAssistantPlan(plan, { verifyChannel = '' } = {}
   } catch (error) {
     let rollbackError = null;
     try {
-      const restored = await restoreConfigurationSnapshot(config.workdir, snapshot.id);
+      const restored = await restoreConfigurationSnapshot(CONFIG_ROOT, snapshot.id);
       await validateConfigurationOnDisk();
       synchronizeDashboardConfiguration(restored.config);
       await restartMainService();
@@ -1044,7 +1048,7 @@ async function applyConfigurationAssistantPlan(plan, { verifyChannel = '' } = {}
     } catch (failure) {
       rollbackError = failure;
     }
-    await appendConfigurationAudit(config.workdir, {
+    await appendConfigurationAudit(CONFIG_ROOT, {
       event: rollbackError ? 'configuration_rollback_failed' : 'configuration_auto_rolled_back',
       planId: plan.id,
       snapshotId: snapshot.id,
@@ -1120,17 +1124,17 @@ async function configureChannel(channel, payload) {
 }
 
 async function rollbackConfiguration(snapshotId) {
-  const safetySnapshot = await createConfigurationSnapshot(config.workdir, {
+  const safetySnapshot = await createConfigurationSnapshot(CONFIG_ROOT, {
     summary: `Before rollback to ${snapshotId}`,
     planId: `rollback-${snapshotId}`,
   });
   try {
-    const restored = await restoreConfigurationSnapshot(config.workdir, snapshotId);
+    const restored = await restoreConfigurationSnapshot(CONFIG_ROOT, snapshotId);
     await validateConfigurationOnDisk();
     synchronizeDashboardConfiguration(restored.config);
     await restartMainService();
     const status = await waitForMainConfigurationHealth();
-    await appendConfigurationAudit(config.workdir, {
+    await appendConfigurationAudit(CONFIG_ROOT, {
       event: 'configuration_manual_rollback',
       snapshotId,
       safetySnapshotId: safetySnapshot.id,
@@ -1139,7 +1143,7 @@ async function rollbackConfiguration(snapshotId) {
   } catch (error) {
     let recoveryError = null;
     try {
-      const recovered = await restoreConfigurationSnapshot(config.workdir, safetySnapshot.id);
+      const recovered = await restoreConfigurationSnapshot(CONFIG_ROOT, safetySnapshot.id);
       await validateConfigurationOnDisk();
       synchronizeDashboardConfiguration(recovered.config);
       await restartMainService();
@@ -1147,7 +1151,7 @@ async function rollbackConfiguration(snapshotId) {
     } catch (failure) {
       recoveryError = failure;
     }
-    await appendConfigurationAudit(config.workdir, {
+    await appendConfigurationAudit(CONFIG_ROOT, {
       event: recoveryError ? 'configuration_rollback_recovery_failed' : 'configuration_rollback_recovered',
       snapshotId,
       safetySnapshotId: safetySnapshot.id,
@@ -1290,7 +1294,7 @@ const server = createServer(async (request, response) => {
         },
         aiRuntime: currentAiRuntimeState(),
         channels: await readChannelConfiguration(documents),
-        snapshots: await listConfigurationSnapshots(config.workdir, 12),
+        snapshots: await listConfigurationSnapshots(CONFIG_ROOT, 12),
       });
       return;
     }
@@ -1395,7 +1399,7 @@ const server = createServer(async (request, response) => {
         const plan = await createConfigurationAssistantPlan(body.message);
         sendJson(response, 200, { ok: true, plan });
       } catch (error) {
-        await appendConfigurationAudit(config.workdir, {
+        await appendConfigurationAudit(CONFIG_ROOT, {
           event: 'configuration_plan_rejected',
           error: String(error?.message || error).slice(0, 1000),
         }).catch(() => {});

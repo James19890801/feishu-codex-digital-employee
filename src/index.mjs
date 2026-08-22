@@ -314,32 +314,37 @@ validateCoreConfiguration(config);
 const APP_ID = config.feishuAppId;
 const OWNER_OPEN_ID = config.ownerOpenId;
 const KEYCHAIN_SERVICE = config.keychainService;
-const WORKDIR = config.workdir;
+const RESOURCE_ROOT = config.resourceRoot;
+const RUNTIME_ROOT = config.runtimeRoot;
+const CONFIG_ROOT = config.configRoot;
+const WORKDIR = RUNTIME_ROOT;
+const DATA_ROOT = join(RUNTIME_ROOT, 'data');
 const BUNDLED_PYTHON = config.pythonBin;
-const FILE_EXTRACTOR = join(WORKDIR, 'src', 'extract_file_text.py');
-const DATABASE_BACKUP_DIR = join(WORKDIR, 'data', 'database-backups');
-const MULTICA_ARTIFACT_ROOT = join(WORKDIR, 'data', 'multica-artifacts');
-const WECHAT_MEDIA_ROOT = join(WORKDIR, 'data', 'wechat-media');
+const FILE_EXTRACTOR = join(RESOURCE_ROOT, 'src', 'extract_file_text.py');
+const DATABASE_BACKUP_DIR = join(DATA_ROOT, 'database-backups');
+const MULTICA_ARTIFACT_ROOT = join(DATA_ROOT, 'multica-artifacts');
+const WECHAT_MEDIA_ROOT = join(DATA_ROOT, 'wechat-media');
 const LARK_CLI = config.larkCli;
 const BUNDLED_NODE_BIN = config.nodeBin;
-const BIBLE_TEXT = await readFile(join(WORKDIR, 'BIBLE.md'), 'utf8');
-const PERSONA_TEXT = await readFile(join(WORKDIR, 'PERSONA.md'), 'utf8');
+const BIBLE_TEXT = await readFile(join(CONFIG_ROOT, 'BIBLE.md'), 'utf8');
+const PERSONA_TEXT = await readFile(join(CONFIG_ROOT, 'PERSONA.md'), 'utf8');
 const PRIVACY_BOUNDARY_TEXT = buildPrivacyBoundary({
   ownerContactPhone: config.ownerContactPhone,
 });
-const STATE_PATH = join(WORKDIR, 'data', 'agent-state.sqlite');
-const CODEX_RUNTIME_DIR = join(WORKDIR, 'data', 'codex-runtime');
-const CODEX_HOME_DIR = join(WORKDIR, 'data', 'codex-home');
-const DAILY_LEARNING_RUNTIME_DIR = join(WORKDIR, 'data', 'daily-learning-runtime');
+const STATE_PATH = join(DATA_ROOT, 'agent-state.sqlite');
+const CODEX_RUNTIME_DIR = join(DATA_ROOT, 'codex-runtime');
+const CODEX_HOME_DIR = join(DATA_ROOT, 'codex-home');
+const DAILY_LEARNING_RUNTIME_DIR = join(DATA_ROOT, 'daily-learning-runtime');
 const LOCAL_WIKI_INDEX_PATH = join(homedir(), 'Library', 'Application Support', 'AIPRO', 'local-wiki', 'index.json');
 const OWNER_ARTICLE_RUNTIME_DIR = join(
   homedir(), 'Library', 'Application Support', 'AIPRO', 'owner-article-runtime',
 );
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_DOC_CHARS = 40_000;
-const KNOWLEDGE_CATALOG_PATH = join(WORKDIR, 'knowledge-catalog.json');
+const KNOWLEDGE_CATALOG_PATH = join(CONFIG_ROOT, 'knowledge-catalog.json');
 const KNOWLEDGE_CATALOG = JSON.parse(await readFile(KNOWLEDGE_CATALOG_PATH, 'utf8'));
 await mkdir(CODEX_RUNTIME_DIR, { recursive: true });
+await mkdir(WORKDIR, { recursive: true, mode: 0o700 });
 await mkdir(CODEX_HOME_DIR, { recursive: true, mode: 0o700 });
 await mkdir(DAILY_LEARNING_RUNTIME_DIR, { recursive: true, mode: 0o700 });
 await mkdir(OWNER_ARTICLE_RUNTIME_DIR, { recursive: true, mode: 0o700 });
@@ -365,7 +370,7 @@ const AI_RUNTIME_CLIENT = new AiRuntimeClient({
   runtime: SELECTED_AI_RUNTIME,
   env: aiRuntimeEnv(),
 });
-const singletonLock = await acquireSingletonLock(join(WORKDIR, 'data', 'service.lock'));
+const singletonLock = await acquireSingletonLock(join(DATA_ROOT, 'service.lock'));
 const shutdownGuard = createShutdownGuard();
 const state = new AgentState(STATE_PATH);
 const pendingActions = new PendingActionStore(state);
@@ -3668,7 +3673,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
     const imagePaths = [...weChatImagePaths];
     const ensureTempDir = async () => {
       if (tempDir) return tempDir;
-      const mediaRoot = join(WORKDIR, 'data');
+      const mediaRoot = DATA_ROOT;
       await mkdir(mediaRoot, { recursive: true, mode: 0o700 });
       tempDir = await mkdtemp(join(mediaRoot, 'media-'));
       return tempDir;
@@ -5766,8 +5771,8 @@ async function runMaintenance() {
   try {
     const pruned = state.prune();
     const rotated = await Promise.all([
-      rotateLogIfNeeded(join(WORKDIR, 'bridge.log')),
-      rotateLogIfNeeded(join(WORKDIR, 'bridge-error.log')),
+      rotateLogIfNeeded(join(RUNTIME_ROOT, 'logs', 'bridge.log')),
+      rotateLogIfNeeded(join(RUNTIME_ROOT, 'logs', 'bridge-error.log')),
     ]);
     let backupResult = null;
     try {
@@ -5805,7 +5810,7 @@ async function refreshLocalWiki() {
   if (localWikiRefreshPromise) return localWikiRefreshPromise;
   localWikiRefreshPromise = runBufferedProcess(
     BUNDLED_NODE_BIN,
-    [join(WORKDIR, 'scripts', 'refresh-local-wiki.mjs')],
+    [join(RESOURCE_ROOT, 'scripts', 'refresh-local-wiki.mjs')],
     {
       cwd: WORKDIR,
       timeoutMs: 20 * 60_000,

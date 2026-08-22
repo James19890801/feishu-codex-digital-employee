@@ -5,6 +5,10 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { config } from './config.mjs';
 
+assert.equal(config.resourceRoot, config.workdir);
+assert.equal(typeof config.runtimeRoot, 'string');
+assert.equal(typeof config.configRoot, 'string');
+
 assert.equal(config.semanticRepeatGuardEnabled, true);
 assert.equal(config.semanticRepeatWindowMs, 30 * 60_000);
 assert.equal(config.semanticRepeatMaxReplies, 2);

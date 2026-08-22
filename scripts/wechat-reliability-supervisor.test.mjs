@@ -331,7 +331,8 @@ async function runFailure(failedLayer, { store = fakeStore(), operationOverrides
   assert.equal(layout.main.expected.entrypoint.endsWith('/src/index.mjs'), true);
   assert.equal(layout.tunnel.expected.entrypoint.endsWith('/scripts/cloudflare-named-tunnel-supervisor.mjs'), true);
   assert.equal(layout.main.expected.entrypoint.includes('.worktrees'), false);
-  assert.equal(layout.main.plistPath.endsWith('/com.local.feishu-codex-digital-employee.plist'), true);
+  assert.equal(layout.main.plistPath.endsWith('/com.local.aipro-main.plist'), true);
+  assert.equal(layout.tunnel.plistPath.endsWith('/com.local.aipro-cloudflare-tunnel.plist'), true);
 }
 
 console.log('WECHAT_RELIABILITY_SUPERVISOR_TEST_OK');

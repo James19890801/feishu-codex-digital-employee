@@ -9,6 +9,8 @@ import {
 
 const srcDir = dirname(fileURLToPath(import.meta.url));
 const workdir = resolve(srcDir, '..');
+const runtimeRoot = resolve(process.env.AIPRO_RUNTIME_ROOT || workdir);
+const configRoot = resolve(process.env.AIPRO_CONFIG_ROOT || workdir);
 const configPath = process.env.DIGITAL_EMPLOYEE_CONFIG || join(workdir, 'config.local.json');
 if (!existsSync(configPath)) {
   throw new Error(`缺少配置文件：${configPath}\n请复制 config.example.json 为 config.local.json 并填写。`);
@@ -261,6 +263,9 @@ export const config = {
   licensingPublicKey: String(raw.licensingPublicKey || '').trim(),
   licensingProductId: String(raw.licensingProductId || 'AIPRO').trim(),
   workdir,
+  resourceRoot: workdir,
+  runtimeRoot,
+  configRoot,
   codexBin: raw.codexBin || '/Applications/ChatGPT.app/Contents/Resources/codex',
   codexModel: raw.codexModel || 'gpt-5.6-terra',
   codexProxyUrl: raw.codexProxyUrl || '',

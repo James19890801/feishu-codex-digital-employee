@@ -97,8 +97,8 @@ export function buildProductionServiceLayout({ currentPath, userHome }) {
     };
   };
   return {
-    main: create('com.local.feishu-codex-digital-employee', 'src/index.mjs'),
-    tunnel: create('com.local.aipro.wechat-tunnel', 'scripts/cloudflare-named-tunnel-supervisor.mjs'),
+    main: create('com.local.aipro-main', 'src/index.mjs'),
+    tunnel: create('com.local.aipro-cloudflare-tunnel', 'scripts/cloudflare-named-tunnel-supervisor.mjs'),
   };
 }
 
