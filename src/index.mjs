@@ -93,6 +93,7 @@ import {
   interactiveInboundRateLimitPolicy,
   isBareMention,
   planPollWindow,
+  shouldFastCompleteRateLimitedInbound,
   shouldObserveWithoutReply,
   validateInboundPayload,
 } from './reliability.mjs';
@@ -4272,6 +4273,17 @@ async function processStoredInbound(item, client = null) {
         reason: item?.payloadParseError ? 'stored payload is invalid JSON' : validation.reason,
       },
     });
+    return;
+  }
+
+  // Rate-limited messages that do not carry the one allowed user notice have
+  // no outbound or mutation work. Completing them before the per-chat queue
+  // prevents a burst from making no-op items wait behind slow AI calls.
+  if (shouldFastCompleteRateLimitedInbound(payload.metadata)) {
+    const claimedAt = new Date().toISOString();
+    if (!state.claimInbound(message.message_id, claimedAt)) return;
+    audit('message_rate_limited', message, sender?.sender_id?.open_id || '');
+    state.completeInbound(message.message_id);
     return;
   }
 

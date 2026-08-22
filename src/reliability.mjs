@@ -18,6 +18,10 @@ export function interactiveInboundRateLimitPolicy(metadata = {}) {
   return { apply: true, notify: true };
 }
 
+export function shouldFastCompleteRateLimitedInbound(metadata = {}) {
+  return metadata?.rateLimited === true && metadata?.notifyRateLimit !== true;
+}
+
 export function shouldObserveWithoutReply(metadata = {}) {
   return metadata?.contextOnly === true;
 }

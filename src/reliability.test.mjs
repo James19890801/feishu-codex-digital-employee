@@ -18,9 +18,15 @@ import {
   isMulticaSyncStale,
   finalInboundFailurePolicy,
   planPollWindow,
+  shouldFastCompleteRateLimitedInbound,
   shouldObserveWithoutReply,
   validateInboundPayload,
 } from './reliability.mjs';
+
+assert.equal(shouldFastCompleteRateLimitedInbound({ rateLimited: true }), true);
+assert.equal(shouldFastCompleteRateLimitedInbound({ rateLimited: true, notifyRateLimit: false }), true);
+assert.equal(shouldFastCompleteRateLimitedInbound({ rateLimited: true, notifyRateLimit: true }), false);
+assert.equal(shouldFastCompleteRateLimitedInbound({}), false);
 
 {
   const unavailable = new Error('provider callback temporarily unavailable');
