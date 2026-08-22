@@ -320,6 +320,20 @@ contract('wechat-owner-article-syndication', 'Does the live WeChat runtime detec
   assert.match(runtimeSource, /wechatOwnerArticleSyndication\.stop\(\)/);
 });
 
+contract('wechat-owner-consultation', 'Does WeChat support an explicit, Owner-authorized consultation round trip?', () => {
+  const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
+  const stateSource = readFileSync(new URL('./state.mjs', import.meta.url), 'utf8');
+  assert.match(runtimeSource, /new OwnerConsultationCoordinator\(\{/);
+  assert.match(runtimeSource, /ownerConsultationCoordinator\.handleOwnerResponse\(\{/);
+  assert.match(runtimeSource, /metadata\.quotedMessage\?\.messageId/);
+  assert.match(runtimeSource, /ownerConsultationCoordinator\.start\(\{/);
+  assert.match(runtimeSource, /ownerConsultationCoordinator\.processDue\(\)/);
+  assert.match(runtimeSource, /mentionSenderId/);
+  assert.match(stateSource, /UNIQUE\(channel, source_message_id\)/);
+  assert.match(stateSource, /owner_notification_message_id/);
+  assert.match(stateSource, /claimOwnerConsultationResolution/);
+});
+
 contract('multimodal-pipeline', 'Can a DingTalk group file placeholder become a downloadable drive reference?', () => {
   const file = parseDingTalkFilePlaceholder('[文件] 复盘.pptx fileId: drive-node-1 注意：如需下载使用dws drive download命令下载');
   assert.equal(file.fileName, '复盘.pptx');
