@@ -242,6 +242,19 @@ try {
   assert.equal(state.recoverProcessingInbound('2026-07-29T14:00:01.000Z'), 1);
   assert.equal(state.getInbound('om_recent_crash').status, 'pending');
 
+  state.enqueueInbound('normal-before-rate-limit', 'test', {
+    metadata: {},
+  }, '2026-07-29T14:20:00.000Z');
+  state.enqueueInbound('rate-limit-noop-after-normal', 'test', {
+    metadata: { rateLimited: true, notifyRateLimit: false },
+  }, '2026-07-29T14:20:01.000Z');
+  assert.equal(
+    state.listReadyInbound('2026-07-29T14:21:00.000Z', 1)[0].messageId,
+    'rate-limit-noop-after-normal',
+  );
+  state.completeInbound('normal-before-rate-limit');
+  state.completeInbound('rate-limit-noop-after-normal');
+
   state.set('pending', 'one', { ok: true });
   state.unset('pending', 'one');
   assert.equal(state.get('pending', 'one', null), null);

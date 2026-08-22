@@ -1144,7 +1144,12 @@ export class AgentState {
     return this.db.prepare(`SELECT message_id, source, payload, attempts
       FROM inbound_message
       WHERE status IN ('pending', 'failed') AND available_at <= ?
-      ORDER BY first_seen_at ASC LIMIT ?`)
+      ORDER BY CASE
+        WHEN json_valid(payload)
+          AND json_extract(payload, '$.metadata.rateLimited') = 1
+          AND coalesce(json_extract(payload, '$.metadata.notifyRateLimit'), 0) <> 1
+        THEN 0 ELSE 1 END,
+        first_seen_at ASC LIMIT ?`)
       .all(now, limit)
       .map(row => {
         const parsed = parseStoredPayload(row.payload);
