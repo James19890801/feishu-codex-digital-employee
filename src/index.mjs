@@ -4611,7 +4611,6 @@ async function runUserPollingLoop() {
   let failures = 0;
   while (!stopping) {
     const startedAt = Date.now();
-    state.set('health', 'last_multica_sync_started_at', new Date(startedAt).toISOString());
     try {
       await pollUserMessagesOnce();
       failures = 0;
@@ -5065,6 +5064,7 @@ async function runMulticaSyncLoop() {
   let failures = 0;
   while (!stopping) {
     const startedAt = Date.now();
+    state.set('health', 'last_multica_sync_started_at', new Date(startedAt).toISOString());
     try {
       const dispatch = MULTICA_FEEDBACK_WORKFLOW
         ? await MULTICA_FEEDBACK_WORKFLOW.deliverDispatches()

@@ -199,6 +199,18 @@ contract('production-release', 'Can production LaunchAgents ever point at a work
   assert.doesNotMatch(source, /\.worktrees\/wechat-production-reliability\/src\/index/);
 });
 
+contract('production-release', 'Does long-running Multica work publish its own in-progress health marker?', () => {
+  const source = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
+  const multicaLoop = source.match(
+    /async function runMulticaSyncLoop\(\) \{([\s\S]*?)\n\}\n\nasync function createBusinessClient/,
+  )?.[1] || '';
+  const userPollingLoop = source.match(
+    /async function runUserPollingLoop\(\) \{([\s\S]*?)\n\}\n\nasync function runMulticaSyncLoop/,
+  )?.[1] || '';
+  assert.match(multicaLoop, /last_multica_sync_started_at/);
+  assert.doesNotMatch(userPollingLoop, /last_multica_sync_started_at/);
+});
+
 contract('wechat-reliability', 'Can a generated canary secret appear in process arguments?', () => {
   const source = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
   assert.match(source, /replaceKeychainCredential\(\{ service, account \}, secret\)/);
