@@ -58,9 +58,30 @@ assert.equal(shouldFastCompleteRateLimitedInbound({}), false);
       messageId: 'dead-acknowledged',
       detail: { userNotified: true },
     });
+    const chatPayload = {
+      message: { message_id: 'retry-waiting', chat_id: 'same-chat', chat_type: 'p2p' },
+      sender: { sender_type: 'user', sender_id: { open_id: 'same-user' } },
+    };
+    state.enqueueInbound('retry-waiting', 'test', chatPayload, '2026-08-22T00:00:00.000Z');
+    state.claimInbound('retry-waiting', '2026-08-22T00:00:00.000Z');
+    state.failInbound(
+      'retry-waiting',
+      'temporary',
+      '2026-08-22T00:00:01.000Z',
+      '2026-08-22T00:00:00.500Z',
+    );
+    state.enqueueInbound('same-chat-active', 'test', {
+      ...chatPayload,
+      message: { ...chatPayload.message, message_id: 'same-chat-active' },
+    }, '2026-08-22T00:00:02.000Z');
+    state.claimInbound('same-chat-active', '2026-08-22T00:00:02.000Z');
     assert.equal(countActionableInboundFailures(state.db, {
       overdueBefore: new Date(Date.now() - 60_000).toISOString(),
     }), 1);
+    state.completeInbound('same-chat-active');
+    assert.equal(countActionableInboundFailures(state.db, {
+      overdueBefore: new Date(Date.now() - 60_000).toISOString(),
+    }), 2);
     state.close();
   } finally {
     await rm(directory, { recursive: true, force: true });
