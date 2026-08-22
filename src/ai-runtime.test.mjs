@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { writeFile } from 'node:fs/promises';
 import {
   AiRuntimeClient,
   buildAiRuntimeInvocation,
@@ -80,5 +81,20 @@ const result = await client.run('private prompt', {
 assert.equal(result.text, 'AIPRO_RUNTIME_OK');
 assert.equal(calls[0].options.input, 'private prompt');
 assert.equal(calls[0].args.includes('private prompt'), false);
+
+const codexClient = new AiRuntimeClient({
+  runtime: runtimes.find(item => item.id === 'codex'),
+  runner: async (_command, args) => {
+    const outputPath = args[args.indexOf('--output-last-message') + 1];
+    assert.equal(typeof outputPath, 'string');
+    await writeFile(outputPath, 'RECOVERED_CODEX_REPLY\n', 'utf8');
+    return { stdout: '', stderr: 'progress only' };
+  },
+});
+const recovered = await codexClient.run('private prompt', {
+  cwd: '/tmp/aipro-runtime',
+  timeoutMs: 30_000,
+});
+assert.equal(recovered.text, 'RECOVERED_CODEX_REPLY');
 
 console.log('AI_RUNTIME_TEST_OK');

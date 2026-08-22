@@ -1,6 +1,7 @@
 import { accessSync, constants } from 'node:fs';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { delimiter, join } from 'node:path';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { processFailureSummary, runBufferedProcess } from './process-runner.mjs';
 
 const DEFINITIONS = [
@@ -140,6 +141,7 @@ export function buildAiRuntimeInvocation(runtime, {
   cwd,
   model = '',
   images = [],
+  outputLastMessagePath = '',
 } = {}) {
   if (!runtime?.available || !runtime.path) {
     throw new Error('A usable AI runtime is required');
@@ -159,6 +161,7 @@ export function buildAiRuntimeInvocation(runtime, {
       '--color', 'never',
     ];
     if (model) args.push('-m', model);
+    if (outputLastMessagePath) args.push('--output-last-message', outputLastMessagePath);
     args.push('-C', cwd);
     for (const image of safeImages) args.push('--image', image);
     args.push('-');
@@ -209,7 +212,18 @@ export class AiRuntimeClient {
   } = {}) {
     const input = String(prompt || '');
     if (!input.trim()) throw new Error('AI runtime prompt is required');
-    const invocation = buildAiRuntimeInvocation(this.runtime, { cwd, model, images });
+    const outputDirectory = this.runtime?.id === 'codex'
+      ? await mkdtemp(join(tmpdir(), 'aipro-codex-output-'))
+      : '';
+    const outputLastMessagePath = outputDirectory
+      ? join(outputDirectory, 'last-message.txt')
+      : '';
+    const invocation = buildAiRuntimeInvocation(this.runtime, {
+      cwd,
+      model,
+      images,
+      outputLastMessagePath,
+    });
     try {
       const { stdout, stderr } = await this.runner(invocation.command, invocation.args, {
         cwd,
@@ -220,7 +234,16 @@ export class AiRuntimeClient {
         maxStdoutBytes,
         maxStderrBytes,
       });
-      const text = String(stdout || '').trim();
+      let lastMessage = '';
+      if (outputLastMessagePath) {
+        try {
+          lastMessage = (await readFile(outputLastMessagePath, 'utf8'))
+            .slice(0, maxStdoutBytes);
+        } catch (error) {
+          if (error?.code !== 'ENOENT') throw error;
+        }
+      }
+      const text = String(lastMessage || stdout || '').trim();
       if (!text) {
         throw new Error(`${this.runtime.label} returned an empty response: ${String(stderr || '').slice(-500)}`);
       }
@@ -228,6 +251,8 @@ export class AiRuntimeClient {
     } catch (error) {
       if (error?.message?.includes('returned an empty response')) throw error;
       throw new Error(`${this.runtime.label} failed: ${processFailureSummary(error)}`);
+    } finally {
+      if (outputDirectory) await rm(outputDirectory, { recursive: true, force: true });
     }
   }
 }
