@@ -368,6 +368,10 @@ export class WeChatMomentsEngagement {
     now = Date.now,
     setIntervalImpl = setInterval,
     clearIntervalImpl = clearInterval,
+    setTimeoutImpl = setTimeout,
+    clearTimeoutImpl = clearTimeout,
+    random = Math.random,
+    interactionDelayEnabled = true,
   } = {}) {
     if (!state || !channel || typeof generate !== 'function') {
       throw new Error('WeChat Moments engagement requires state, channel, and generate');
@@ -388,7 +392,12 @@ export class WeChatMomentsEngagement {
     this.now = now;
     this.setIntervalImpl = setIntervalImpl;
     this.clearIntervalImpl = clearIntervalImpl;
+    this.setTimeoutImpl = setTimeoutImpl;
+    this.clearTimeoutImpl = clearTimeoutImpl;
+    this.random = random;
+    this.interactionDelayEnabled = interactionDelayEnabled !== false;
     this.timer = null;
+    this.wakeTimer = null;
     this.tail = Promise.resolve();
     this.nudgePending = false;
   }
@@ -408,6 +417,154 @@ export class WeChatMomentsEngagement {
 
   audit(event, detail = {}) {
     this.state.audit(event, { detail });
+  }
+
+  scheduleInteraction({
+    current,
+    kind,
+    mode,
+    moment,
+    targetWxid,
+    commentId = 0,
+    content = '',
+    threadHash = '',
+  }) {
+    const key = auditHash(`${kind}\0${mode}\0${moment.id}\0${commentId}`);
+    if (current.pendingInteractions.some(item => item.key === key)) {
+      return { scheduled: false, reason: 'already_scheduled' };
+    }
+    const delayMs = momentsInteractionDelayMs({ kind: mode, text: content, random: this.random });
+    current.pendingInteractions.push({
+      key,
+      kind,
+      mode,
+      momentId: moment.id,
+      targetWxid,
+      commentId,
+      content,
+      createdAtMs: this.now(),
+      dueAtMs: this.now() + delayMs,
+      attempts: 0,
+    });
+    if (kind === 'like') {
+      current.likeHandledMoments.push(moment.id);
+      current.likeCount += 1;
+    } else if (mode === 'thread_reply') {
+      current.replyCount += 1;
+      current.threadCounts[threadHash] = (current.threadCounts[threadHash] || 0) + 1;
+    } else {
+      current.proactiveCount += 1;
+      current.authorHashes.push(auditHash(moment.userName));
+    }
+    this.writeState(current);
+    this.audit('wechat_moments_interaction_scheduled', {
+      kind,
+      mode,
+      snsHash: auditHash(moment.id),
+      key,
+      delayMs,
+    });
+    this.scheduleWake();
+    return { scheduled: true, reason: 'scheduled', delayMs };
+  }
+
+  scheduleWake() {
+    if (!this.interactionDelayEnabled) return;
+    if (this.wakeTimer) {
+      this.clearTimeoutImpl(this.wakeTimer);
+      this.wakeTimer = null;
+    }
+    const [next] = this.readState().pendingInteractions;
+    if (!next) return;
+    const delayMs = Math.max(1, next.dueAtMs - this.now());
+    const timer = this.setTimeoutImpl(() => {
+      if (this.wakeTimer === timer) this.wakeTimer = null;
+      this.clearTimeoutImpl(timer);
+      return this.triggerDueInteractions().catch(() => {});
+    }, delayMs);
+    this.wakeTimer = timer;
+    timer?.unref?.();
+  }
+
+  async runDueInteractions() {
+    const current = this.readState();
+    const action = current.pendingInteractions.find(item => item.dueAtMs <= this.now());
+    if (!action) {
+      this.scheduleWake();
+      return { executed: false, reason: 'not_due' };
+    }
+    if (typeof this.channel.checkOnline === 'function' && !await this.channel.checkOnline()) {
+      action.attempts += 1;
+      if (action.attempts >= 3) {
+        current.pendingInteractions = current.pendingInteractions.filter(item => item.key !== action.key);
+      } else {
+        action.dueAtMs = this.now() + momentsInteractionDelayMs({
+          kind: 'restart',
+          random: this.random,
+        });
+      }
+      this.writeState(current);
+      this.audit('wechat_moments_interaction_deferred', {
+        kind: action.kind,
+        mode: action.mode,
+        key: action.key,
+        attempts: action.attempts,
+      });
+      this.scheduleWake();
+      return { executed: false, reason: 'offline' };
+    }
+
+    const executionKey = action.kind === 'like'
+      ? `wechat-moments-like:${auditHash(action.momentId)}`
+      : `wechat-moments:${action.key}`;
+    try {
+      const result = await executeMutationOnce({
+        state: this.state,
+        executionKey,
+        kind: action.kind === 'like' ? 'wechat_moments_like' : 'wechat_moments_comment',
+        operation: () => action.kind === 'like'
+          ? this.channel.likeMoment({ snsId: action.momentId, wxid: action.targetWxid })
+          : this.channel.commentMoment({
+            snsId: action.momentId,
+            wxid: action.targetWxid,
+            commentId: action.commentId,
+            content: action.content,
+          }),
+      });
+      current.pendingInteractions = current.pendingInteractions.filter(item => item.key !== action.key);
+      current.writeFailures = 0;
+      this.writeState(current);
+      this.audit('wechat_moments_interaction_sent', {
+        kind: action.kind,
+        mode: action.mode,
+        key: action.key,
+        plannedDelayMs: action.dueAtMs - action.createdAtMs,
+        actualDelayMs: this.now() - action.createdAtMs,
+        replayed: result.replayed === true,
+      });
+      this.scheduleWake();
+      return { executed: !result.replayed, reason: result.replayed ? 'replayed' : 'sent' };
+    } catch (error) {
+      current.pendingInteractions = current.pendingInteractions.filter(item => item.key !== action.key);
+      current.writeFailures += 1;
+      if (current.writeFailures >= 2) current.circuitDay = current.day;
+      this.writeState(current);
+      this.audit('wechat_moments_interaction_failed', {
+        kind: action.kind,
+        mode: action.mode,
+        key: action.key,
+        error: errorCode(error),
+        circuitOpen: Boolean(current.circuitDay),
+      });
+      this.scheduleWake();
+      return { executed: false, reason: 'write_failed' };
+    }
+  }
+
+  triggerDueInteractions() {
+    const operation = this.tail.then(() => this.runDueInteractions());
+    this.tail = operation.catch(() => {});
+    return operation;
   }
 
   async feedWithDetails() {
@@ -505,6 +662,23 @@ export class WeChatMomentsEngagement {
     const targetCommentId = isReply ? comment.commentId : 0;
     const mutationMaterial = `${mode}\0${moment.id}\0${targetCommentId}`;
     const executionKey = `wechat-moments:${auditHash(mutationMaterial)}`;
+    if (this.interactionDelayEnabled) {
+      const scheduled = this.scheduleInteraction({
+        current,
+        kind: 'comment',
+        mode,
+        moment,
+        targetWxid,
+        commentId: targetCommentId,
+        content: decision.text,
+        threadHash: replyThreadHash,
+      });
+      return {
+        sent: false,
+        scheduled: scheduled.scheduled,
+        reason: scheduled.reason,
+      };
+    }
     try {
       if (typeof this.channel.checkOnline === 'function' && !await this.channel.checkOnline()) {
         return { sent: false, reason: 'offline' };
@@ -574,6 +748,21 @@ export class WeChatMomentsEngagement {
     }
     const snsHash = auditHash(moment.id);
     const executionKey = `wechat-moments-like:${snsHash}`;
+    if (this.interactionDelayEnabled) {
+      const scheduled = this.scheduleInteraction({
+        current,
+        kind: 'like',
+        mode: 'like',
+        moment,
+        targetWxid: moment.userName,
+      });
+      return {
+        liked: false,
+        handled: true,
+        scheduled: scheduled.scheduled,
+        reason: scheduled.reason,
+      };
+    }
     try {
       if (typeof this.channel.checkOnline === 'function' && !await this.channel.checkOnline()) {
         return { liked: false, handled: false, reason: 'offline' };

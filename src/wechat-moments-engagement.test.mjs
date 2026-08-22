@@ -4,7 +4,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentState } from './state.mjs';
 
-const moments = await import('./wechat-moments-engagement.mjs').catch(() => ({}));
+const productionMoments = await import('./wechat-moments-engagement.mjs').catch(() => ({}));
+const moments = {
+  ...productionMoments,
+  WeChatMomentsEngagement: class extends productionMoments.WeChatMomentsEngagement {
+    constructor(options) {
+      super({ ...options, interactionDelayEnabled: false });
+    }
+  },
+};
 
 for (const name of [
   'normalizeMoment',
@@ -175,6 +183,67 @@ function temporaryState(prefix) {
       }],
       'pending interactions must survive state reload while malformed and expired entries are removed',
     );
+  } finally {
+    database.close();
+  }
+}
+
+{
+  const database = temporaryState('aipro-moments-delayed-execution-');
+  try {
+    let nowMs = Date.parse('2026-08-22T10:00:00+08:00');
+    let feed = [];
+    const likes = [];
+    const comments = [];
+    const timers = [];
+    const cleared = new Set();
+    const setTimeoutImpl = (callback, delayMs) => {
+      const timer = { callback, delayMs, unref() {} };
+      timers.push(timer);
+      return timer;
+    };
+    const worker = new productionMoments.WeChatMomentsEngagement({
+      state: database.state,
+      channel: {
+        getProfile: async () => ({ wxid: 'wxid_owner', nickName: '詹老师' }),
+        listMoments: async () => ({ snsList: feed }),
+        getMomentDetails: async snsId => feed.find(item => String(item.id) === String(snsId)),
+        checkOnline: async () => true,
+        likeMoment: async input => { likes.push(input); return { ret: 200 }; },
+        commentMoment: async input => { comments.push(input); return { ret: 200 }; },
+      },
+      now: () => nowMs,
+      random: () => 0,
+      setTimeoutImpl,
+      clearTimeoutImpl: timer => { cleared.add(timer); },
+      generate: async () => '{"action":"reply","text":"这个变化很具体，后续可以继续观察交接成本是否同步下降。","reason":"specific"}',
+    });
+    await worker.scan('startup');
+    feed = [rawMoment({ id: '71001', userName: 'wxid_friend_a', createTime: nowMs / 1_000 })];
+    await worker.scan('periodic');
+
+    assert.equal(likes.length, 0, 'scan must not like immediately');
+    assert.equal(comments.length, 0, 'scan must not comment immediately');
+    assert.deepEqual(
+      worker.readState().pendingInteractions.map(item => item.kind),
+      ['like', 'comment'],
+    );
+    let activeTimers = timers.filter(timer => !cleared.has(timer));
+    assert.equal(activeTimers.length, 1, 'only the earliest interaction timer may remain active');
+    assert.equal(activeTimers[0].delayMs >= 31_300, true);
+
+    nowMs += activeTimers[0].delayMs;
+    await activeTimers[0].callback();
+    assert.equal(likes.length, 1);
+    assert.equal(comments.length, 0);
+    assert.equal(worker.readState().pendingInteractions.length, 1);
+
+    activeTimers = timers.filter(timer => !cleared.has(timer));
+    assert.equal(activeTimers.length, 1);
+    nowMs += activeTimers[0].delayMs;
+    await activeTimers[0].callback();
+    assert.equal(comments.length, 1);
+    assert.equal(worker.readState().pendingInteractions.length, 0);
   } finally {
     database.close();
   }
