@@ -6,6 +6,7 @@ import { AgentState } from './state.mjs';
 import * as reliability from './reliability.mjs';
 import {
   assertCompleteSearchResult,
+  attemptInitialCallbackRegistration,
   boundedInteger,
   canPerformMutation,
   countActionableInboundFailures,
@@ -20,6 +21,22 @@ import {
   shouldObserveWithoutReply,
   validateInboundPayload,
 } from './reliability.mjs';
+
+{
+  const unavailable = new Error('provider callback temporarily unavailable');
+  let deferredError = null;
+  const deferred = await attemptInitialCallbackRegistration(
+    async () => { throw unavailable; },
+    { onDeferred: async error => { deferredError = error; } },
+  );
+  assert.equal(deferred.registered, false);
+  assert.equal(deferred.error, unavailable);
+  assert.equal(deferredError, unavailable);
+  assert.deepEqual(
+    await attemptInitialCallbackRegistration(async () => {}),
+    { registered: true, error: null },
+  );
+}
 
 {
   const directory = await mkdtemp(join(tmpdir(), 'aipro-operational-health-'));

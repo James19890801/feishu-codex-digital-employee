@@ -87,6 +87,20 @@ export function evaluateHealth({
   return { healthy: issues.length === 0, issues };
 }
 
+export async function attemptInitialCallbackRegistration(register, {
+  onDeferred = async () => {},
+} = {}) {
+  if (typeof register !== 'function') throw new TypeError('Callback registration is required');
+  if (typeof onDeferred !== 'function') throw new TypeError('Callback deferral handler is required');
+  try {
+    await register();
+    return { registered: true, error: null };
+  } catch (error) {
+    await onDeferred(error);
+    return { registered: false, error };
+  }
+}
+
 export function countActionableInboundFailures(db, {
   overdueBefore,
   deadLetterSince = '1970-01-01T00:00:00.000Z',

@@ -85,6 +85,7 @@ import {
 } from './media-context.mjs';
 import {
   assertCompleteSearchResult,
+  attemptInitialCallbackRegistration,
   canPerformMutation,
   effectiveTask,
   finalInboundFailurePolicy,
@@ -5456,8 +5457,26 @@ async function initializeAdditionalImChannels() {
       });
       await geWeWebhookServer.start();
       const callbackUrl = `${config.gewePublicCallbackBaseUrl.replace(/\/$/, '')}${geWeWebhookServer.path()}`;
-      await geWeChannel.setCallback(callbackUrl);
-      updateImChannelStatus('wechat', { callbackRegistered: true });
+      const callbackRegistration = await attemptInitialCallbackRegistration(
+        () => geWeChannel.setCallback(callbackUrl),
+        {
+          onDeferred: async error => {
+            const summary = processFailureSummary(error)
+              .replaceAll(callbackUrl, '[redacted-callback-url]');
+            updateImChannelStatus('wechat', {
+              callbackRegistered: false,
+              lastError: { at: new Date().toISOString(), error: summary },
+            });
+            state.audit('wechat_callback_registration_deferred', {
+              detail: { error: summary },
+            });
+            console.error(`[wechat-callback-registration-deferred] ${summary}`);
+          },
+        },
+      );
+      if (callbackRegistration.registered) {
+        updateImChannelStatus('wechat', { callbackRegistered: true });
+      }
       await geWeChannel.checkOnline();
       if (wechatRelationshipMemory) wechatRelationshipMemory.start();
       if (config.geweNewcomerWelcomeEnabled) {
