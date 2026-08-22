@@ -228,15 +228,16 @@ export async function bootstrapProductionLaunchAgent({
 }) {
   const domain = `gui/${uid}/${definition.label}`;
   await launchctl(['bootout', domain]).catch(() => {});
+  const retryDelaysMs = [250, 500, 1_000, 1_500, 2_000, 2_500, 3_000, 4_000, 5_000];
   let lastError;
-  for (let attempt = 1; attempt <= 5; attempt += 1) {
+  for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
     try {
       await launchctl(['bootstrap', `gui/${uid}`, definition.plistPath]);
       return;
     } catch (error) {
       lastError = error;
-      if (attempt === 5) break;
-      await sleep(attempt * 200);
+      if (attempt === retryDelaysMs.length) break;
+      await sleep(retryDelaysMs[attempt]);
     }
   }
   throw lastError;

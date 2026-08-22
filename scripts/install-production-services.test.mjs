@@ -24,14 +24,14 @@ import {
     uid: 501,
     definition: { label: 'com.local.aipro-main', plistPath: '/tmp/main.plist' },
     launchctl: async args => {
-      if (args[0] === 'bootstrap' && ++bootstrapAttempts < 3) {
+      if (args[0] === 'bootstrap' && ++bootstrapAttempts < 8) {
         throw new Error('Bootstrap failed: 5: Input/output error');
       }
     },
     sleep: async milliseconds => { waits.push(milliseconds); },
   });
-  assert.equal(bootstrapAttempts, 3);
-  assert.deepEqual(waits, [200, 400]);
+  assert.equal(bootstrapAttempts, 8);
+  assert.deepEqual(waits, [250, 500, 1_000, 1_500, 2_000, 2_500, 3_000]);
 }
 
 const root = await mkdtemp(join(tmpdir(), 'aipro-production-services-'));
