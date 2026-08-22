@@ -5,9 +5,25 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  assertQuickTunnelFallbackAllowed,
   QuickTunnelUrlDetector,
   updateCallbackConfiguration,
 } from './gewe-tunnel-supervisor.mjs';
+
+test('refuses production Quick Tunnel unless emergency fallback is explicit', () => {
+  assert.throws(
+    () => assertQuickTunnelFallbackAllowed({ runtimeMode: 'production', allowFallback: false }),
+    /fallback/i,
+  );
+  assert.equal(
+    assertQuickTunnelFallbackAllowed({ runtimeMode: 'production', allowFallback: true }),
+    true,
+  );
+  assert.equal(
+    assertQuickTunnelFallbackAllowed({ runtimeMode: 'development', allowFallback: false }),
+    true,
+  );
+});
 
 test('detects a quick tunnel URL split across output chunks', () => {
   const detector = new QuickTunnelUrlDetector();

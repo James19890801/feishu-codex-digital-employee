@@ -8,6 +8,13 @@ import { fileURLToPath } from 'node:url';
 
 const QUICK_TUNNEL_PATTERN = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
 
+export function assertQuickTunnelFallbackAllowed({ runtimeMode, allowFallback }) {
+  if (String(runtimeMode || '').toLowerCase() === 'production' && allowFallback !== true) {
+    throw new Error('Cloudflare Quick Tunnel is disabled in production unless emergency fallback is explicit');
+  }
+  return true;
+}
+
 export class QuickTunnelUrlDetector {
   constructor({ maxBufferLength = 8_192 } = {}) {
     this.buffer = '';
@@ -80,11 +87,16 @@ export async function superviseQuickTunnel({
   configPath,
   callbackPort,
   serviceLabel,
+  runtimeMode = 'development',
+  allowFallback = false,
 }) {
+  assertQuickTunnelFallbackAllowed({ runtimeMode, allowFallback });
   const detector = new QuickTunnelUrlDetector();
   const tunnel = spawn(cloudflaredPath, [
     'tunnel',
     '--no-autoupdate',
+    '--edge-ip-version',
+    '4',
     '--url',
     `http://127.0.0.1:${callbackPort}`,
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -140,6 +152,8 @@ async function main() {
     configPath: process.env.AIPRO_CONFIG_PATH || path.join(workspace, 'config.local.json'),
     callbackPort: Number(process.env.GEWE_CALLBACK_PORT || 17_656),
     serviceLabel: process.env.AIPRO_SERVICE_LABEL || 'com.local.feishu-codex-digital-employee',
+    runtimeMode: process.env.AIPRO_RUNTIME_MODE || 'production',
+    allowFallback: process.env.AIPRO_ALLOW_QUICK_TUNNEL_FALLBACK === 'true',
   });
 }
 
