@@ -13,7 +13,6 @@ import {
   SEMANTIC_REPEAT_CLOSE_REPLY,
   SEMANTIC_REPEAT_REQUIRED_ACK_REPLY,
 } from './semantic-repeat-controller.mjs';
-import { REQUIRED_RESPONSE_FALLBACK_REPLY } from './required-response-fallback.mjs';
 
 const directory = mkdtempSync(join(tmpdir(), 'james-stable-response-'));
 const state = new AgentState(join(directory, 'state.sqlite'));
@@ -92,17 +91,12 @@ try {
   assert.equal(generatorCalls, 0);
 
   const fallbackAudits = [];
-  const fallback = await generateStableResponse({
+  await assert.rejects(() => generateStableResponse({
     responseRequired: true,
     generate: async () => { throw new Error('AI prompt failed with private text'); },
     audit: (event, detail) => fallbackAudits.push({ event, detail }),
-  });
-  assert.equal(fallback.text, REQUIRED_RESPONSE_FALLBACK_REPLY);
-  assert.equal(fallback.fallback, true);
-  assert.deepEqual(fallbackAudits, [{
-    event: 'required_response_fallback_sent',
-    detail: { error: 'ai_generation_error' },
-  }]);
+  }), /AI prompt failed/);
+  assert.deepEqual(fallbackAudits, []);
 
   const generatedSent = [];
   const sendBase = {

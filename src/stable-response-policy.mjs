@@ -1,6 +1,9 @@
 import { assessResponseObligation } from './response-obligation.mjs';
 import { resolveRequiredResponse } from './required-response-fallback.mjs';
-import { applySemanticRepeatGate } from './semantic-repeat-controller.mjs';
+import {
+  applySemanticRepeatGate,
+  SEMANTIC_REPEAT_REQUIRED_ACK_REPLY,
+} from './semantic-repeat-controller.mjs';
 import { sendUnlessRecentRepeat } from './outbound-repeat-controller.mjs';
 
 const SOCIAL_INVITATION_REQUEST = /(?:走不走|去不去|来不来|要不要(?:一起)?(?:去|来|见)|一起(?:去|走|来|吃|喝)|见面|碰面|楼见)/u;
@@ -103,7 +106,7 @@ export async function sendStableGeneratedReply({
     if (result?.suppressed) return result;
     return { ...(result && typeof result === 'object' ? result : {}), sentText: text };
   }
-  return sendUnlessRecentRepeat({
+  const result = await sendUnlessRecentRepeat({
     state,
     chatId: message.chat_id,
     audienceKey: senderId,
@@ -111,7 +114,27 @@ export async function sendStableGeneratedReply({
     responseRequired,
     nowMs,
     windowMs,
-    send,
+    send: () => send(text),
     audit,
   });
+  if (result?.suppressed !== true) {
+    return { ...(result && typeof result === 'object' ? result : {}), sentText: text };
+  }
+  if (!responseRequired) return result;
+  const acknowledged = await sendUnlessRecentRepeat({
+    state,
+    chatId: message.chat_id,
+    audienceKey: senderId,
+    text: SEMANTIC_REPEAT_REQUIRED_ACK_REPLY,
+    nowMs,
+    windowMs,
+    send: () => send(SEMANTIC_REPEAT_REQUIRED_ACK_REPLY),
+    audit,
+  });
+  if (acknowledged?.suppressed) return acknowledged;
+  return {
+    ...(acknowledged && typeof acknowledged === 'object' ? acknowledged : {}),
+    acknowledged: true,
+    sentText: SEMANTIC_REPEAT_REQUIRED_ACK_REPLY,
+  };
 }

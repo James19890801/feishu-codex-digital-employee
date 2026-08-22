@@ -216,7 +216,10 @@ import {
   shouldIntroduceAssistant,
 } from './conversation-etiquette.mjs';
 import { applySemanticRepeatGate } from './semantic-repeat-controller.mjs';
-import { resolveRequiredResponse } from './required-response-fallback.mjs';
+import {
+  REQUIRED_RESPONSE_FALLBACK_REPLY,
+  resolveRequiredResponse,
+} from './required-response-fallback.mjs';
 import {
   applyDiscussionBudgetGate,
   appendDiscussionInstruction,
@@ -4296,6 +4299,31 @@ async function processStoredInbound(item, client = null) {
       }
 
       const failurePolicy = finalInboundFailurePolicy();
+      let userNotified = false;
+      if (failurePolicy.notifyUser) {
+        try {
+          await sendText(
+            client,
+            message.chat_id,
+            REQUIRED_RESPONSE_FALLBACK_REPLY,
+            `inbound-final-fallback-${message.message_id}`,
+          );
+          userNotified = true;
+          state.audit('required_response_fallback_sent', {
+            chatId: message.chat_id,
+            senderId: sender?.sender_id?.open_id || '',
+            messageId: message.message_id,
+            detail: { error: 'inbound_retry_exhausted' },
+          });
+        } catch (notificationError) {
+          state.audit('inbound_failure_notification_failed', {
+            chatId: message.chat_id,
+            senderId: sender?.sender_id?.open_id || '',
+            messageId: message.message_id,
+            detail: { error: processFailureSummary(notificationError) },
+          });
+        }
+      }
       state.deadLetterInbound(message.message_id, error?.stack || error?.message || error);
       state.audit('inbound_failed_final', {
         chatId: message.chat_id,
@@ -4305,7 +4333,7 @@ async function processStoredInbound(item, client = null) {
           source: item.source,
           attemptNumber,
           disposition: failurePolicy.disposition,
-          userNotified: failurePolicy.notifyUser,
+          userNotified,
           error: String(error?.message || error).slice(0, 1000),
         },
       });

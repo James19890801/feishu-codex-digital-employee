@@ -23,7 +23,7 @@ export function shouldObserveWithoutReply(metadata = {}) {
 }
 
 export function finalInboundFailurePolicy() {
-  return { disposition: 'dead_letter', notifyUser: false };
+  return { disposition: 'dead_letter', notifyUser: true };
 }
 
 export function effectiveTask(cleanText, { messageType = 'text' } = {}) {

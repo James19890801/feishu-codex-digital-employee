@@ -95,7 +95,7 @@ assert.equal(shouldObserveWithoutReply({ contextOnly: true }), true);
 assert.equal(shouldObserveWithoutReply({}), false);
 assert.deepEqual(finalInboundFailurePolicy(), {
   disposition: 'dead_letter',
-  notifyUser: false,
+  notifyUser: true,
 });
 
 {
