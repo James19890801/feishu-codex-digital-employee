@@ -16,6 +16,36 @@ function outboundContentHash(content) {
   return createHash('sha256').update(String(content || '')).digest('hex');
 }
 
+function ownerConsultationRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    channel: row.channel,
+    ownerId: row.owner_id,
+    ownerChatId: row.owner_chat_id,
+    originChatId: row.origin_chat_id,
+    originChatType: row.origin_chat_type,
+    requesterId: row.requester_id,
+    requesterLabel: row.requester_label,
+    sourceMessageId: row.source_message_id,
+    requestText: row.request_text,
+    decisionPrompt: row.decision_prompt,
+    suggestedReply: row.suggested_reply,
+    ownerNotificationMessageId: row.owner_notification_message_id,
+    ownerResponseMessageId: row.owner_response_message_id,
+    decision: row.decision,
+    approvedReply: row.approved_reply,
+    status: row.status,
+    reminderAtMs: Number(row.reminder_at_ms),
+    expiresAtMs: Number(row.expires_at_ms),
+    remindedAtMs: Number(row.reminded_at_ms),
+    resolvedAtMs: Number(row.resolved_at_ms),
+    createdAtMs: Number(row.created_at_ms),
+    updatedAtMs: Number(row.updated_at_ms),
+    lastError: row.last_error,
+  };
+}
+
 export class AgentState {
   constructor(path) {
     mkdirSync(dirname(path), { recursive: true });
@@ -270,6 +300,39 @@ export class AgentState {
       );
       CREATE INDEX IF NOT EXISTS mutation_execution_status
         ON mutation_execution(status, updated_at);
+      CREATE TABLE IF NOT EXISTS owner_consultation (
+        id TEXT PRIMARY KEY,
+        channel TEXT NOT NULL,
+        owner_id TEXT NOT NULL,
+        owner_chat_id TEXT NOT NULL,
+        origin_chat_id TEXT NOT NULL,
+        origin_chat_type TEXT NOT NULL,
+        requester_id TEXT NOT NULL,
+        requester_label TEXT NOT NULL DEFAULT '',
+        source_message_id TEXT NOT NULL,
+        request_text TEXT NOT NULL,
+        decision_prompt TEXT NOT NULL,
+        suggested_reply TEXT NOT NULL,
+        owner_notification_message_id TEXT NOT NULL DEFAULT '',
+        owner_response_message_id TEXT NOT NULL DEFAULT '',
+        decision TEXT NOT NULL DEFAULT '',
+        approved_reply TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL,
+        reminder_at_ms INTEGER NOT NULL,
+        expires_at_ms INTEGER NOT NULL,
+        reminded_at_ms INTEGER NOT NULL DEFAULT 0,
+        resolved_at_ms INTEGER NOT NULL DEFAULT 0,
+        created_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL,
+        last_error TEXT NOT NULL DEFAULT '',
+        UNIQUE(channel, source_message_id)
+      );
+      CREATE INDEX IF NOT EXISTS owner_consultation_owner_message
+        ON owner_consultation(owner_id, owner_notification_message_id);
+      CREATE INDEX IF NOT EXISTS owner_consultation_reminder
+        ON owner_consultation(status, reminded_at_ms, reminder_at_ms);
+      CREATE INDEX IF NOT EXISTS owner_consultation_expiry
+        ON owner_consultation(status, expires_at_ms);
       CREATE TABLE IF NOT EXISTS relationship_person (
         person_id TEXT PRIMARY KEY,
         channel TEXT NOT NULL,
@@ -1720,6 +1783,151 @@ export class AgentState {
     if (!matched) return false;
     return this.db.prepare('DELETE FROM outbound_echo WHERE id = ?')
       .run(matched.id).changes === 1;
+  }
+
+  createOwnerConsultation(input = {}) {
+    const text = (value, limit = 1_000) => String(value || '').trim().slice(0, limit);
+    const row = {
+      id: text(input.id, 200), channel: text(input.channel, 50),
+      ownerId: text(input.ownerId, 500), ownerChatId: text(input.ownerChatId, 500),
+      originChatId: text(input.originChatId, 500), originChatType: text(input.originChatType, 30),
+      requesterId: text(input.requesterId, 500), requesterLabel: text(input.requesterLabel, 200),
+      sourceMessageId: text(input.sourceMessageId, 500), requestText: text(input.requestText, 4_000),
+      decisionPrompt: text(input.decisionPrompt, 1_000), suggestedReply: text(input.suggestedReply, 2_000),
+      reminderAtMs: Number(input.reminderAtMs), expiresAtMs: Number(input.expiresAtMs),
+      nowMs: Number(input.nowMs ?? Date.now()),
+    };
+    const required = [row.id, row.channel, row.ownerId, row.ownerChatId, row.originChatId,
+      row.originChatType, row.requesterId, row.sourceMessageId, row.requestText,
+      row.decisionPrompt, row.suggestedReply];
+    if (required.some(value => !value)
+      || !Number.isFinite(row.reminderAtMs) || !Number.isFinite(row.expiresAtMs)
+      || row.reminderAtMs <= row.nowMs || row.expiresAtMs <= row.reminderAtMs) {
+      throw new Error('Owner consultation input is invalid');
+    }
+    const result = this.db.prepare(`INSERT OR IGNORE INTO owner_consultation
+      (id, channel, owner_id, owner_chat_id, origin_chat_id, origin_chat_type,
+       requester_id, requester_label, source_message_id, request_text, decision_prompt,
+       suggested_reply, status, reminder_at_ms, expires_at_ms, created_at_ms, updated_at_ms)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_notify', ?, ?, ?, ?)`).run(
+      row.id, row.channel, row.ownerId, row.ownerChatId, row.originChatId, row.originChatType,
+      row.requesterId, row.requesterLabel, row.sourceMessageId, row.requestText,
+      row.decisionPrompt, row.suggestedReply, row.reminderAtMs, row.expiresAtMs,
+      row.nowMs, row.nowMs,
+    );
+    const consultation = result.changes === 1
+      ? this.ownerConsultationById(row.id)
+      : ownerConsultationRow(this.db.prepare(`SELECT * FROM owner_consultation
+          WHERE channel = ? AND source_message_id = ?`).get(row.channel, row.sourceMessageId));
+    return { created: result.changes === 1, consultation };
+  }
+
+  ownerConsultationById(id) {
+    return ownerConsultationRow(this.db.prepare('SELECT * FROM owner_consultation WHERE id = ?')
+      .get(String(id || '')));
+  }
+
+  ownerConsultationByNotificationMessageId(messageId) {
+    return ownerConsultationRow(this.db.prepare(`SELECT * FROM owner_consultation
+      WHERE owner_notification_message_id = ? ORDER BY created_at_ms DESC LIMIT 1`)
+      .get(String(messageId || '')));
+  }
+
+  activeOwnerConsultations(ownerId, nowMs = Date.now()) {
+    return this.db.prepare(`SELECT * FROM owner_consultation
+      WHERE owner_id = ? AND status = 'awaiting_owner' AND expires_at_ms > ?
+      ORDER BY created_at_ms ASC`).all(String(ownerId || ''), Number(nowMs)).map(ownerConsultationRow);
+  }
+
+  claimOwnerConsultationNotification(id, nowMs = Date.now()) {
+    const result = this.db.prepare(`UPDATE owner_consultation
+      SET status = 'notifying_owner', updated_at_ms = ?
+      WHERE id = ? AND status = 'pending_notify'`).run(Number(nowMs), String(id || ''));
+    return result.changes === 1 ? this.ownerConsultationById(id) : null;
+  }
+
+  markOwnerConsultationAwaiting(id, notificationMessageId = '', nowMs = Date.now(), { reminded = false } = {}) {
+    const allowed = reminded ? 'reminding_owner' : 'notifying_owner';
+    const result = this.db.prepare(`UPDATE owner_consultation
+      SET status = 'awaiting_owner',
+          owner_notification_message_id = CASE WHEN ? <> '' THEN ? ELSE owner_notification_message_id END,
+          reminded_at_ms = CASE WHEN ? = 1 THEN ? ELSE reminded_at_ms END,
+          updated_at_ms = ?, last_error = ''
+      WHERE id = ? AND status = ?`).run(
+      String(notificationMessageId || ''), String(notificationMessageId || ''),
+      reminded ? 1 : 0, Number(nowMs), Number(nowMs), String(id || ''), allowed,
+    );
+    return result.changes === 1;
+  }
+
+  claimOwnerConsultationResolution(id, {
+    decision, approvedReply = '', ownerResponseMessageId = '', nowMs = Date.now(),
+  } = {}) {
+    if (!['approve', 'reject', 'revise'].includes(String(decision || ''))) {
+      throw new Error('Owner consultation decision is invalid');
+    }
+    const result = this.db.prepare(`UPDATE owner_consultation
+      SET status = 'resolving', decision = ?, approved_reply = ?,
+          owner_response_message_id = ?, resolved_at_ms = ?, updated_at_ms = ?
+      WHERE id = ? AND status = 'awaiting_owner' AND expires_at_ms > ?`).run(
+      decision, String(approvedReply || '').trim().slice(0, 2_000),
+      String(ownerResponseMessageId || '').trim().slice(0, 500),
+      Number(nowMs), Number(nowMs), String(id || ''), Number(nowMs),
+    );
+    return result.changes === 1 ? this.ownerConsultationById(id) : null;
+  }
+
+  markOwnerConsultationRelayed(id, status = 'relayed', nowMs = Date.now()) {
+    if (!['relayed', 'rejected_relayed', 'expired'].includes(status)) {
+      throw new Error('Owner consultation terminal status is invalid');
+    }
+    const expected = status === 'expired' ? 'expiring' : 'resolving';
+    return this.db.prepare(`UPDATE owner_consultation SET status = ?, updated_at_ms = ?
+      WHERE id = ? AND status = ?`).run(status, Number(nowMs), String(id || ''), expected).changes === 1;
+  }
+
+  claimDueOwnerConsultationReminder(nowMs = Date.now()) {
+    const current = Number(nowMs);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const row = this.db.prepare(`SELECT id FROM owner_consultation
+        WHERE status = 'awaiting_owner' AND reminded_at_ms = 0
+          AND reminder_at_ms <= ? AND expires_at_ms > ?
+        ORDER BY reminder_at_ms ASC LIMIT 1`).get(current, current);
+      if (!row) { this.db.exec('COMMIT'); return null; }
+      const changed = this.db.prepare(`UPDATE owner_consultation
+        SET status = 'reminding_owner', updated_at_ms = ?
+        WHERE id = ? AND status = 'awaiting_owner' AND reminded_at_ms = 0`)
+        .run(current, row.id).changes;
+      this.db.exec('COMMIT');
+      return changed === 1 ? this.ownerConsultationById(row.id) : null;
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+
+  claimDueOwnerConsultationExpiry(nowMs = Date.now()) {
+    const current = Number(nowMs);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const row = this.db.prepare(`SELECT id FROM owner_consultation
+        WHERE status = 'awaiting_owner' AND expires_at_ms <= ?
+        ORDER BY expires_at_ms ASC LIMIT 1`).get(current);
+      if (!row) { this.db.exec('COMMIT'); return null; }
+      const changed = this.db.prepare(`UPDATE owner_consultation
+        SET status = 'expiring', updated_at_ms = ?
+        WHERE id = ? AND status = 'awaiting_owner'`).run(current, row.id).changes;
+      this.db.exec('COMMIT');
+      return changed === 1 ? this.ownerConsultationById(row.id) : null;
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+
+  markOwnerConsultationAmbiguous(id, phase, error, nowMs = Date.now()) {
+    const normalizedPhase = String(phase || '') === 'relay' ? 'relay' : 'owner_notify';
+    return this.db.prepare(`UPDATE owner_consultation
+      SET status = ?, last_error = ?, updated_at_ms = ?
+      WHERE id = ? AND status NOT IN ('relayed', 'rejected_relayed', 'expired')`).run(
+      `${normalizedPhase}_ambiguous`, String(error || '').slice(0, 1_000),
+      Number(nowMs), String(id || ''),
+    ).changes === 1;
   }
 
   beginMutationExecution(executionKey, kind, now = new Date().toISOString()) {
