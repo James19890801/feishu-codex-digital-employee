@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { config } from './config.mjs';
 
 assert.equal(config.resourceRoot, config.workdir);
 assert.equal(typeof config.runtimeRoot, 'string');
 assert.equal(typeof config.configRoot, 'string');
+if (process.env.DIGITAL_EMPLOYEE_CONFIG && !process.env.AIPRO_CONFIG_ROOT) {
+  assert.equal(config.configRoot, dirname(resolve(process.env.DIGITAL_EMPLOYEE_CONFIG)));
+}
 
 assert.equal(config.semanticRepeatGuardEnabled, true);
 assert.equal(config.semanticRepeatWindowMs, 30 * 60_000);
