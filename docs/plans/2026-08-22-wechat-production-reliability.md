@@ -761,6 +761,16 @@ Perform one action at a time and verify recovery evidence:
 6. confirm audit path `received → durable enqueue → replied`;
 7. restart the main service and confirm no duplicate reply.
 
+If any personal-WeChat step fails, keep the new deployment in controlled rollout, diagnose the failing layer, fix it in the isolated branch, rebuild, and repeat the full WeChat sequence until it passes or the GeWe provider is factually unavailable.
+
+After personal WeChat passes, execute the DingTalk production gate as well:
+
+1. verify the DingTalk event-stream consumer is authenticated and active;
+2. send one inbound direct-message test and confirm durable enqueue and reply delivery;
+3. send one outbound test through the configured DingTalk transport;
+4. restart the main service and confirm the event consumer reconnects without duplicate reply;
+5. if any step fails, diagnose, fix, rebuild and repeat until the DingTalk chain passes.
+
 **Step 6: Validate production isolation and power assertion**
 
 Confirm:
@@ -784,6 +794,7 @@ Record only:
 - health-layer results and timestamps;
 - recovery durations from the controlled tests;
 - Quick Tunnel retirement state;
+- personal-WeChat and DingTalk end-to-end test results;
 - remaining external limitation: GeWe provider availability/redelivery.
 
 Never include credentials, account identifiers, contact IDs, message text or callback secrets.
