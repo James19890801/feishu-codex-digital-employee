@@ -31,6 +31,16 @@ const base = {
   recentEvents: [],
 };
 
+{
+  const view = buildOperatorView({
+    ...base,
+    overdueFailed: 0,
+    deadCount: 12,
+  });
+  assert.equal(view.issues.includes('messages_failed'), false);
+  assert.equal(view.database.deadCount, 12);
+}
+
 function wechatReliability({
   state = 'healthy',
   checkedAtMs = base.nowMs,
@@ -531,6 +541,21 @@ function wechatReliability({
   assert.equal(view.multica.enabled, true);
   assert.equal(view.multica.healthy, true);
   assert.equal(view.multica.scanned, 17);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    multicaEnabled: true,
+    lastMulticaSyncAt: '2026-07-30T00:50:00.000Z',
+    lastMulticaSyncStartedAt: '2026-07-30T00:59:30.000Z',
+    maxMulticaSyncAgeMs: 60_000,
+    maxMulticaSyncCycleMs: 5 * 60_000,
+    lastMulticaSyncError: null,
+    lastMulticaSyncResult: { scanned: 17, changes: 0, notified: 0 },
+  });
+  assert.equal(view.issues.includes('multica_sync_stale'), false);
+  assert.equal(view.multica.healthy, true);
 }
 
 {

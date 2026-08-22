@@ -44,6 +44,7 @@ import {
   isCredentialAccessBlocked,
 } from './dashboard-model.mjs';
 import { notificationEvent } from './notification-policy.mjs';
+import { countActionableInboundFailures } from './reliability.mjs';
 import { runBufferedProcess } from './process-runner.mjs';
 import { SerialKeyQueue } from './serial-key-queue.mjs';
 import {
@@ -430,6 +431,7 @@ async function collectStatus() {
     lastPollError: null,
     lastWebsocketReadyAt: '',
     lastMulticaSyncAt: '',
+    lastMulticaSyncStartedAt: '',
     lastMulticaSyncError: null,
     lastMulticaSyncResult: null,
     multicaDeadCount: 0,
@@ -494,8 +496,10 @@ async function collectStatus() {
         pollCursorMs: Number(parseSetting(db, 'poller', 'cursor_ms', 0)),
         staleProcessing: Number(db.prepare(`SELECT COUNT(*) count FROM inbound_message
           WHERE status = 'processing' AND updated_at < ?`).get(staleBefore)?.count || 0),
-        overdueFailed: Number(db.prepare(`SELECT COUNT(*) count FROM inbound_message
-          WHERE status = 'failed' AND available_at < ?`).get(failureBefore)?.count || 0),
+        overdueFailed: countActionableInboundFailures(db, {
+          overdueBefore: failureBefore,
+          deadLetterSince: new Date(nowMs - 60 * 60_000).toISOString(),
+        }),
         deadCount: Number(db.prepare(`SELECT COUNT(*) count FROM inbound_message
           WHERE status = 'dead'`).get()?.count || 0),
         sqliteIntegrity: db.prepare('PRAGMA quick_check').get()?.quick_check || 'unknown',
@@ -504,6 +508,9 @@ async function collectStatus() {
         lastPollError: parseSetting(db, 'health', 'last_poll_error', null),
         lastWebsocketReadyAt: parseSetting(db, 'health', 'last_websocket_ready_at', ''),
         lastMulticaSyncAt: parseSetting(db, 'health', 'last_multica_sync_at', ''),
+        lastMulticaSyncStartedAt: parseSetting(
+          db, 'health', 'last_multica_sync_started_at', '',
+        ),
         lastMulticaSyncError: parseSetting(db, 'health', 'last_multica_sync_error', null),
         lastMulticaSyncResult: parseSetting(db, 'health', 'last_multica_sync_result', null),
         multicaDeadCount: Number(db.prepare(`SELECT COUNT(*) count
@@ -571,6 +578,7 @@ async function collectStatus() {
     aiRuntime,
     multicaEnabled: config.multicaEnabled,
     maxMulticaSyncAgeMs: Math.max(60_000, config.multicaSyncIntervalMs * 6),
+    maxMulticaSyncCycleMs: 5 * 60_000,
     backupRequired: true,
     maxBackupAgeMs: 12 * 60 * 60_000,
     semanticRepeatGuardEnabled: config.semanticRepeatGuardEnabled,

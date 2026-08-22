@@ -1,3 +1,5 @@
+import { isMulticaSyncStale } from './reliability.mjs';
+
 const ISSUE_LABELS = {
   process_not_running: 'AIPRO 主进程已停止',
   poll_cursor_stale: '主消息轮询已停止推进',
@@ -131,7 +133,7 @@ export function buildOperatorView(input) {
     issues.push('poll_cursor_stale');
   }
   if (input.staleProcessing > 0) issues.push('messages_processing_stale');
-  if (input.overdueFailed > 0 || input.deadCount > 0) issues.push('messages_failed');
+  if (input.overdueFailed > 0) issues.push('messages_failed');
   if (input.sqliteIntegrity !== 'ok') issues.push('sqlite_integrity_failed');
   if (input.backupRequired
     && (backupAgeMs === null || !Number.isFinite(backupAgeMs)
@@ -154,9 +156,13 @@ export function buildOperatorView(input) {
   if (feishuEnabled && input.credentialBlocked) issues.push('credential_access_blocked');
   const selfChatCircuitOpen = Number(input.selfChatCircuitLast?.openUntilMs || 0) > input.nowMs;
   if (selfChatCircuitOpen) issues.push('self_chat_circuit_open');
-  if (input.multicaEnabled
-    && (multicaSyncAgeMs === null || !Number.isFinite(multicaSyncAgeMs)
-      || multicaSyncAgeMs > input.maxMulticaSyncAgeMs)) {
+  if (input.multicaEnabled && isMulticaSyncStale({
+    nowMs: input.nowMs,
+    lastCompletedAt: input.lastMulticaSyncAt,
+    lastStartedAt: input.lastMulticaSyncStartedAt,
+    syncIntervalMs: Math.max(1_000, Number(input.maxMulticaSyncAgeMs || 60_000) / 6),
+    maxCycleMs: Number(input.maxMulticaSyncCycleMs || 5 * 60_000),
+  })) {
     issues.push('multica_sync_stale');
   }
   if (input.multicaEnabled && input.lastMulticaSyncError) issues.push('multica_sync_error');
