@@ -228,6 +228,47 @@ function boundedUnique(values, limit = 5_000) {
     .slice(-limit);
 }
 
+function normalizedPendingInteraction(value, nowMs) {
+  const source = value && typeof value === 'object' ? value : {};
+  const key = String(source.key || '');
+  const kind = String(source.kind || '');
+  const mode = String(source.mode || '');
+  const momentId = normalizedId(source.momentId, 30);
+  const targetWxid = normalizedWxid(source.targetWxid);
+  const commentId = Number(source.commentId || 0);
+  const createdAtMs = Math.max(0, Number(source.createdAtMs) || 0);
+  const dueAtMs = Math.max(0, Number(source.dueAtMs) || 0);
+  const attempts = Math.max(0, Math.min(3, Number(source.attempts) || 0));
+  const validMode = kind === 'like'
+    ? mode === 'like'
+    : kind === 'comment' && ['proactive', 'thread_reply'].includes(mode);
+  const content = kind === 'comment' ? cleanText(source.content, 60) : '';
+  if (!/^[a-f0-9]{24}$/.test(key)
+    || !validMode
+    || !momentId
+    || !targetWxid
+    || !Number.isSafeInteger(commentId)
+    || commentId < 0
+    || !createdAtMs
+    || !dueAtMs
+    || dueAtMs <= Number(nowMs) - 72 * 3_600_000
+    || (kind === 'comment' && !content)) {
+    return null;
+  }
+  return {
+    key,
+    kind,
+    mode,
+    momentId,
+    targetWxid,
+    commentId,
+    content,
+    createdAtMs,
+    dueAtMs,
+    attempts,
+  };
+}
+
 function normalizedWorkerState(value, nowMs) {
   const source = value && typeof value === 'object' ? value : {};
   const today = shanghaiDay(nowMs);
@@ -241,6 +282,15 @@ function normalizedWorkerState(value, nowMs) {
       && Number.isInteger(Number(count)) && Number(count) >= 0)
     .slice(-500)
     .map(([key, count]) => [key, Number(count)]));
+  const pendingInteractions = (Array.isArray(source.pendingInteractions)
+    ? source.pendingInteractions
+    : [])
+    .flatMap(item => {
+      const normalized = normalizedPendingInteraction(item, nowMs);
+      return normalized ? [normalized] : [];
+    })
+    .sort((left, right) => left.dueAtMs - right.dueAtMs)
+    .slice(0, 500);
   return {
     initialized: source.initialized === true,
     coverageVersion: Math.max(0, Math.min(2, Number(source.coverageVersion) || 0)),
@@ -258,6 +308,7 @@ function normalizedWorkerState(value, nowMs) {
     writeFailures: sameDay ? Math.max(0, Number(source.writeFailures) || 0) : 0,
     circuitDay: String(source.circuitDay || '') === today ? today : '',
     lastScanAtMs: Math.max(0, Number(source.lastScanAtMs) || 0),
+    pendingInteractions,
   };
 }
 
