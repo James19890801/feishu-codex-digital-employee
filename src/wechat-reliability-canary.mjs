@@ -8,6 +8,14 @@ import {
 export const CANARY_PATH = '/internal/reliability/canary';
 export const CANARY_VALIDITY_MS = 60_000;
 
+export function canaryCredentialAccount(appId) {
+  const value = String(appId || '').trim();
+  if (!value || value.length > 200 || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw new Error('GeWe app ID is invalid for the canary credential');
+  }
+  return `${value}:canary`;
+}
+
 function assertSecret(secret) {
   const value = String(secret || '');
   if (value.length < 32 || value.length > 256) {

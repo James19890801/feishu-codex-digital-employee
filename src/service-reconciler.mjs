@@ -73,8 +73,8 @@ function reconciliationError(message, code) {
 export async function reconcileLaunchAgent({
   expected,
   inspect,
-  inspectLock,
-  archiveStaleLock,
+  inspectLock = async () => ({ present: false }),
+  archiveStaleLock = async () => {},
   bootout,
   bootstrap,
   kickstart,
@@ -132,4 +132,40 @@ export async function reconcileLaunchAgent({
     differences: definition.differences,
     archivedStaleLock: lock.state === 'stale',
   };
+}
+
+function abortableSleep(milliseconds, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason || new Error('Service verification aborted'));
+      return;
+    }
+    const timer = setTimeout(resolve, milliseconds);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer);
+      reject(signal.reason || new Error('Service verification aborted'));
+    }, { once: true });
+  });
+}
+
+export async function waitForServiceCondition({
+  probe,
+  timeoutMs = 30_000,
+  intervalMs = 500,
+  now = Date.now,
+  sleep = abortableSleep,
+  signal,
+} = {}) {
+  if (typeof probe !== 'function') throw new TypeError('Service condition probe is required');
+  const boundedTimeoutMs = Math.max(1, Number(timeoutMs) || 30_000);
+  const boundedIntervalMs = Math.max(1, Number(intervalMs) || 500);
+  const startedAt = Number(now());
+  while (true) {
+    if (signal?.aborted) throw signal.reason || new Error('Service verification aborted');
+    if (await probe({ signal })) return true;
+    if (Number(now()) - startedAt >= boundedTimeoutMs) {
+      throw reconciliationError('Service did not reach the required condition before timeout', 'SERVICE_VERIFY_TIMEOUT');
+    }
+    await sleep(boundedIntervalMs, signal);
+  }
 }

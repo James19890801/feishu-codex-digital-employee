@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import {
   CANARY_PATH,
+  canaryCredentialAccount,
   createCanaryChallenge,
   createCanaryResponse,
   verifyCanaryChallenge,
 } from './wechat-reliability-canary.mjs';
 
 const secret = 's'.repeat(32);
+
+assert.equal(canaryCredentialAccount('device-a'), 'device-a:canary');
+assert.throws(() => canaryCredentialAccount(''), /app/i);
 
 {
   const challenge = createCanaryChallenge({ secret, nowMs: 10_000, nonce: 'abc' });

@@ -4,6 +4,7 @@ import {
   assessServiceLock,
   parseLaunchctlPrint,
   reconcileLaunchAgent,
+  waitForServiceCondition,
 } from './service-reconciler.mjs';
 
 const expected = {
@@ -118,6 +119,48 @@ async function runCase({ loaded, lock, verifyError = null } = {}) {
   assert.deepEqual(calls, ['bootstrap', 'verify']);
   assert.equal(result.action, 'rebootstrap');
   assert.equal(result.previousState, 'missing');
+}
+
+{
+  const calls = [];
+  const result = await reconcileLaunchAgent({
+    expected: {
+      plistPath: '/Users/operator/Library/LaunchAgents/com.local.aipro.tunnel.plist',
+      workdir: '/Applications/AIPRO',
+      entrypoint: '/Applications/AIPRO/scripts/cloudflare-named-tunnel-supervisor.mjs',
+    },
+    inspect: async () => null,
+    bootout: async () => { calls.push('bootout'); },
+    bootstrap: async () => { calls.push('bootstrap'); },
+    kickstart: async () => { calls.push('kickstart'); },
+    verify: async () => { calls.push('verify'); },
+  });
+  assert.equal(result.action, 'rebootstrap');
+  assert.deepEqual(calls, ['bootstrap', 'verify']);
+}
+
+{
+  let nowMs = 0;
+  let probes = 0;
+  const result = await waitForServiceCondition({
+    probe: async () => { probes += 1; return probes >= 3; },
+    timeoutMs: 1_000,
+    intervalMs: 100,
+    now: () => nowMs,
+    sleep: async milliseconds => { nowMs += milliseconds; },
+  });
+  assert.equal(result, true);
+  assert.equal(probes, 3);
+  await assert.rejects(
+    waitForServiceCondition({
+      probe: async () => false,
+      timeoutMs: 200,
+      intervalMs: 100,
+      now: () => nowMs,
+      sleep: async milliseconds => { nowMs += milliseconds; },
+    }),
+    error => error?.code === 'SERVICE_VERIFY_TIMEOUT',
+  );
 }
 
 await assert.rejects(

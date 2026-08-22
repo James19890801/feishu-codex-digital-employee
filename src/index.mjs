@@ -228,6 +228,7 @@ import {
   GeWeWebhookServer,
   WeComChannel,
 } from './im-channel-runtime.mjs';
+import { canaryCredentialAccount } from './wechat-reliability-canary.mjs';
 import {
   fetchDingTalkWukongWindow,
   semanticObserverFailureRecord,
@@ -5403,6 +5404,10 @@ async function initializeAdditionalImChannels() {
         config.geweKeychainService,
         `${config.geweAppId}:callback`,
       );
+      const canarySecret = await ensureKeychainSecret(
+        config.geweKeychainService,
+        canaryCredentialAccount(config.geweAppId),
+      );
       geWeChannel = new GeWeChannel({
         appId: config.geweAppId,
         token,
@@ -5431,6 +5436,7 @@ async function initializeAdditionalImChannels() {
       geWeWebhookServer = new GeWeWebhookServer({
         channel: geWeChannel,
         callbackSecret,
+        canarySecret,
         port: config.geweCallbackPort,
         onStatus: patch => updateImChannelStatus('wechat', patch),
         onMessage: payload => {
