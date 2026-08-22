@@ -10,6 +10,8 @@ James 不是一个额外加入群聊的机器人账号，也不是只会生成�
 
 当前阿里内部发行版以钉钉 DWS `event-stream` 为唯一消息主链路。每位安装者使用自己的操作者身份、DWS Profile、Channel 和认证；发行包只保留开发者“阿充”，不携带任何人的账号、Token、聊天、记忆或本机配置。
 
+当前常驻服务器还可按独立生产方案启用个人微信：固定 Cloudflare Named Tunnel、五层事实健康、带预算的自动恢复、只读 Git release 与自动回滚。Quick Tunnel（`trycloudflare.com`）仅作显式应急回退，不作为生产承诺。完整的部署、回调、Keychain、故障恢复和双渠道验收要求见 [个人微信生产运行手册](docs/WECHAT_PRODUCTION_RUNBOOK.md)。
+
 ## 为什么做这个项目
 
 大多数 AI 助手擅长回答孤立问题，却很难进入真实工作关系：同事仍在原来的单聊和群聊里沟通，双方已经有称呼、上下文、责任边界和组织语言；新建一个机器人账号会割裂这些关系，也很难判断哪些事可以直接做、哪些必须由本人确认。
@@ -291,6 +293,8 @@ npm run health
 - AI Runtime 最近一次真实调用成功。
 - SQLite integrity 为 `ok`。
 - pending、failed、dead 队列没有异常积压。
+
+若当前服务器同时启用了个人微信，还必须确认固定 Named Tunnel、公开 callback canary、四条 edge 连接、GeWe 回调注册、真实收发、Tunnel 自动重启和 release rollback；不能用进程存活或旧 `connected` 状态代替端到端证据。
 
 完整部署步骤见 [AI_CODING_INSTALL.md](AI_CODING_INSTALL.md)。
 
