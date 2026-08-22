@@ -189,6 +189,17 @@ export const config = {
   geweRelationshipMemoryRecallLimit: boundedInteger(raw.geweRelationshipMemoryRecallLimit, {
     name: 'geweRelationshipMemoryRecallLimit', fallback: 6, min: 1, max: 12,
   }),
+  geweOwnerConsultationEnabled: raw.geweOwnerConsultationEnabled !== false,
+  geweOwnerWxids: boundedStringArray(
+    raw.geweOwnerWxids === undefined ? ['fung5115'] : raw.geweOwnerWxids,
+    { name: 'geweOwnerWxids', maxItems: 5, maxLength: 256 },
+  ),
+  geweOwnerConsultationReminderMs: boundedInteger(raw.geweOwnerConsultationReminderMs, {
+    name: 'geweOwnerConsultationReminderMs', fallback: 14_400_000, min: 60_000, max: 82_800_000,
+  }),
+  geweOwnerConsultationTtlMs: boundedInteger(raw.geweOwnerConsultationTtlMs, {
+    name: 'geweOwnerConsultationTtlMs', fallback: 86_400_000, min: 120_000, max: 604_800_000,
+  }),
   geweNewcomerWelcomeEnabled: raw.geweNewcomerWelcomeEnabled === true,
   geweNewcomerWelcomeGroupId: String(raw.geweNewcomerWelcomeGroupId || '').trim(),
   geweNewcomerWelcomeGroupName: String(raw.geweNewcomerWelcomeGroupName || '').trim(),
@@ -338,6 +349,12 @@ if (config.wecomEnabled && !config.wecomBotId) {
 }
 if (!/^wss:\/\/[^/\s]+(?:\/.*)?$/i.test(config.wecomWebsocketUrl)) {
   throw new Error('wecomWebsocketUrl 必须是 wss 地址');
+}
+if (config.geweOwnerConsultationEnabled && config.geweOwnerWxids.length === 0) {
+  throw new Error('启用 geweOwnerConsultationEnabled 时必须配置 geweOwnerWxids');
+}
+if (config.geweOwnerConsultationTtlMs <= config.geweOwnerConsultationReminderMs) {
+  throw new Error('geweOwnerConsultationTtlMs 必须大于 geweOwnerConsultationReminderMs');
 }
 if (config.geweNewcomerWelcomeEnabled) {
   if (!config.geweNewcomerWelcomeGroupId.endsWith('@chatroom')

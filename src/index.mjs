@@ -269,6 +269,10 @@ import { readOwnerArticlePage } from './wechat-owner-article-reader.mjs';
 import { WeChatOwnerArticleSyndication } from './wechat-owner-article-syndication.mjs';
 import { WeChatRelationshipMemory } from './wechat-relationship-memory.mjs';
 import {
+  OwnerConsultationCoordinator,
+  parseOwnerConsultationDecision,
+} from './owner-consultation.mjs';
+import {
   discoverBotP2pChats,
   isExpectedLarkCliResult,
   resolveFeishuChatType,
@@ -472,6 +476,7 @@ let dingTalkSelfPollingPromise = null;
 let dingTalkSemanticPollingPromise = null;
 let dingTalkGroupHostRecoveryPromise = null;
 let geWeMonitorPromise = null;
+let ownerConsultationLoopPromise = null;
 let dailyLearningPromise = null;
 let groupHostPromise = null;
 let localWikiRefreshPromise = null;
@@ -486,6 +491,7 @@ let wechatMomentsEngagement = null;
 let wechatMomentsPublisher = null;
 let wechatOwnerArticleSyndication = null;
 let wechatRelationshipMemory = null;
+let ownerConsultationCoordinator = null;
 const shutdownDelay = new InterruptibleDelay();
 
 function remember(chatId, senderOpenId, role, content, options) {
@@ -2769,6 +2775,43 @@ async function processIncoming(client, message, sender, metadata = {}) {
         messageId: message.message_id,
         detail: { stage: 'inbound', error: processFailureSummary(error) },
       });
+    }
+  }
+
+  if (metadata.channel === 'wechat'
+    && message.message_type === 'text'
+    && ownerConsultationCoordinator) {
+    const quotedMessageId = String(metadata.quotedMessage?.messageId || '').trim();
+    const ownerDecision = parseOwnerConsultationDecision(cleanText);
+    const ownerPrivate = ownerConsultationCoordinator.isOwnerPrivateMessage({
+      senderId: senderOpenId,
+      chatId: message.chat_id,
+      chatType: message.chat_type,
+    });
+    if (ownerPrivate && (quotedMessageId || ownerDecision.kind !== 'ambiguous')) {
+      const response = await ownerConsultationCoordinator.handleOwnerResponse({
+        senderId: senderOpenId,
+        chatId: message.chat_id,
+        chatType: message.chat_type,
+        text: cleanText,
+        messageId: message.message_id,
+        quotedMessageId,
+      });
+      if (response.handled) return;
+    }
+    if (!ownerPrivate && metadata.contextOnly !== true) {
+      const relationship = state.relationshipPerson(senderOpenId);
+      const recentAssistantText = state.chatHistory(message.chat_id, 10)
+        .filter(item => item.role === 'assistant')
+        .at(-1)?.content || '';
+      const started = await ownerConsultationCoordinator.start({
+        message,
+        senderId: senderOpenId,
+        text: cleanText,
+        requesterLabel: relationship?.remark || relationship?.displayName || '一位微信联系人',
+        recentAssistantText,
+      });
+      if (started.handled) return;
     }
   }
 
@@ -5410,6 +5453,23 @@ async function initializeAdditionalImChannels() {
         mentionNames: config.geweMentionNames,
         onStatus: patch => updateImChannelStatus('wechat', patch),
       });
+      if (config.geweOwnerConsultationEnabled) {
+        ownerConsultationCoordinator = new OwnerConsultationCoordinator({
+          state,
+          ownerIds: config.geweOwnerWxids,
+          reminderMs: config.geweOwnerConsultationReminderMs,
+          ttlMs: config.geweOwnerConsultationTtlMs,
+          executeOnce: executeMutationOnce,
+          send: ({ chatId, text, idempotencyKey, chatType, mentionSenderId }) => sendText(
+            null,
+            chatId,
+            text,
+            idempotencyKey,
+            { chatType, mentionSenderId },
+          ),
+          audit: (event, detail) => state.audit(event, { detail }),
+        });
+      }
       if (config.geweRelationshipMemoryEnabled) {
         wechatRelationshipMemory = new WeChatRelationshipMemory({
           state,
@@ -5579,6 +5639,7 @@ async function initializeAdditionalImChannels() {
       if (geWeWebhookServer) await geWeWebhookServer.stop().catch(() => {});
       geWeWebhookServer = null;
       geWeChannel = null;
+      ownerConsultationCoordinator = null;
       updateImChannelStatus('wechat', {
         configured: Boolean(config.geweAppId && config.gewePublicCallbackBaseUrl),
         authenticated: false,
@@ -5603,6 +5664,28 @@ async function superviseGeWeHealth() {
       state.audit('wechat_channel_error', { detail: { error: summary } });
       console.error('[wechat-gewe-health-error]', error);
     }
+  }
+}
+
+async function runOwnerConsultationLoop() {
+  while (!stopping && ownerConsultationCoordinator) {
+    try {
+      const processed = await ownerConsultationCoordinator.processDue();
+      state.set('health', 'wechat_owner_consultation', {
+        state: 'available',
+        at: new Date().toISOString(),
+        processed,
+      });
+      state.unset('health', 'last_wechat_owner_consultation_error');
+    } catch (error) {
+      const summary = processFailureSummary(error);
+      state.set('health', 'last_wechat_owner_consultation_error', {
+        at: new Date().toISOString(), error: summary,
+      });
+      state.audit('owner_consultation_loop_failed', { detail: { error: summary } });
+      console.error('[wechat-owner-consultation-error]', error);
+    }
+    await wait(60_000);
   }
 }
 
@@ -5871,6 +5954,7 @@ function stopGracefully(signal) {
     geWeWebhookServer = null;
   }
   geWeChannel = null;
+  ownerConsultationCoordinator = null;
   if (activeSdkWsClient) {
     const sdkWsClient = activeSdkWsClient;
     activeSdkWsClient = null;
@@ -5913,6 +5997,11 @@ async function main() {
       await initializeUserPolling();
     }
     await initializeAdditionalImChannels();
+    if (ownerConsultationCoordinator) {
+      ownerConsultationLoopPromise = runOwnerConsultationLoop()
+        .catch(error => console.error('[wechat-owner-consultation-fatal]', error));
+      console.log('[wechat] Owner consultation loop active');
+    }
     triggerDrain();
     groupHostPromise = runGroupHostLoop()
       .catch(error => console.error('[group-host-fatal]', error));
@@ -5998,6 +6087,7 @@ async function main() {
     if (dingTalkGroupHostRecoveryPromise) await dingTalkGroupHostRecoveryPromise.catch(() => {});
     if (dingTalkSemanticPollingPromise) await dingTalkSemanticPollingPromise.catch(() => {});
     if (geWeMonitorPromise) await geWeMonitorPromise.catch(() => {});
+    if (ownerConsultationLoopPromise) await ownerConsultationLoopPromise.catch(() => {});
     if (dailyLearningPromise) await dailyLearningPromise.catch(() => {});
     if (groupHostPromise) await groupHostPromise.catch(() => {});
   } finally {

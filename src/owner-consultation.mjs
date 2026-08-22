@@ -131,9 +131,10 @@ export class OwnerConsultationCoordinator {
   }
 
   async start({
-    message, senderId, text, requesterLabel = '', decisionPrompt = '', suggestedReply = '',
+    message, senderId, text, requesterLabel = '', recentAssistantText = '',
+    decisionPrompt = '', suggestedReply = '',
   } = {}) {
-    const detection = detectOwnerConsultationRequest({ text });
+    const detection = detectOwnerConsultationRequest({ text, recentAssistantText });
     if (!detection.triggered || this.ownerIds.has(prefixedOwnerId(senderId))) return { handled: false };
     const ownerId = [...this.ownerIds][0];
     const nowMs = Number(this.now());
@@ -156,16 +157,31 @@ export class OwnerConsultationCoordinator {
       nowMs,
     });
     const consultation = created.consultation;
-    if (!created.created) return { handled: true, action: 'already_created', consultation };
+    if (!created.created && consultation.status !== 'pending_notify') {
+      return { handled: true, action: 'already_created', consultation };
+    }
 
-    await this.mutate(`owner-consultation:${consultation.id}:requester-ack`, 'owner_consultation_ack',
-      () => this.send({
-        chatId: consultation.originChatId,
-        chatType: consultation.originChatType,
-        mentionSenderId: consultation.originChatType === 'group' ? consultation.requesterId : '',
-        text: '好的，我去问詹老师，有回复后告诉你。',
-        idempotencyKey: `owner-consultation-${consultation.id}-ack`,
-      }));
+    if (created.created) {
+      try {
+        await this.mutate(
+          `owner-consultation:${consultation.id}:requester-ack`,
+          'owner_consultation_ack',
+          () => this.send({
+            chatId: consultation.originChatId,
+            chatType: consultation.originChatType,
+            mentionSenderId: consultation.originChatType === 'group' ? consultation.requesterId : '',
+            text: '好的，我去问詹老师，有回复后告诉你。',
+            idempotencyKey: `owner-consultation-${consultation.id}-ack`,
+          }),
+        );
+      } catch (error) {
+        this.audit('owner_consultation_ack_ambiguous', {
+          consultationId: consultation.id,
+          channel: 'wechat',
+          errorCode: error?.code || 'send_failed',
+        });
+      }
+    }
 
     const claimed = this.state.claimOwnerConsultationNotification(consultation.id, Number(this.now()));
     if (!claimed) return { handled: true, action: 'notification_already_claimed', consultation };
@@ -224,6 +240,7 @@ export class OwnerConsultationCoordinator {
       ? this.state.ownerConsultationByNotificationMessageId(quotedMessageId)
       : null;
     if (consultation && consultation.ownerId !== ownerId) consultation = null;
+    if (quotedMessageId && !consultation) return { handled: false };
     if (consultation && consultation.status !== 'awaiting_owner') {
       return { handled: true, action: 'already_closed' };
     }
@@ -287,5 +304,59 @@ export class OwnerConsultationCoordinator {
       });
       return { handled: true, action: 'relay_ambiguous', consultationId: consultation.id };
     }
+  }
+
+  async processDue() {
+    let processed = 0;
+    for (let index = 0; index < 20; index += 1) {
+      const reminder = this.state.claimDueOwnerConsultationReminder(Number(this.now()));
+      if (!reminder) break;
+      try {
+        await this.mutate(
+          `owner-consultation:${reminder.id}:owner-reminder`,
+          'owner_consultation_reminder',
+          () => this.send({
+            chatId: reminder.ownerChatId,
+            chatType: 'p2p',
+            text: `提醒一下：${reminder.requesterLabel || '一位微信联系人'}的请示还在等您回复。\n\n需要您确认：${reminder.decisionPrompt}\n\n请引用原请示消息回复。`,
+            idempotencyKey: `owner-consultation-${reminder.id}-reminder`,
+          }),
+        );
+        this.state.markOwnerConsultationAwaiting(
+          reminder.id, reminder.ownerNotificationMessageId, Number(this.now()), { reminded: true },
+        );
+        this.audit('owner_consultation_reminded', { consultationId: reminder.id, channel: 'wechat' });
+      } catch (error) {
+        this.state.markOwnerConsultationAmbiguous(
+          reminder.id, 'owner_notify', error?.message || error, Number(this.now()),
+        );
+      }
+      processed += 1;
+    }
+    for (let index = 0; index < 20; index += 1) {
+      const expired = this.state.claimDueOwnerConsultationExpiry(Number(this.now()));
+      if (!expired) break;
+      try {
+        await this.mutate(
+          `owner-consultation:${expired.id}:expired`,
+          'owner_consultation_expired',
+          () => this.send({
+            chatId: expired.originChatId,
+            chatType: expired.originChatType,
+            mentionSenderId: expired.originChatType === 'group' ? expired.requesterId : '',
+            text: '詹老师暂时还没有回复，这次请示先结束；如果仍然需要，可以重新告诉我。',
+            idempotencyKey: `owner-consultation-${expired.id}-expired`,
+          }),
+        );
+        this.state.markOwnerConsultationRelayed(expired.id, 'expired', Number(this.now()));
+        this.audit('owner_consultation_expired', { consultationId: expired.id, channel: 'wechat' });
+      } catch (error) {
+        this.state.markOwnerConsultationAmbiguous(
+          expired.id, 'relay', error?.message || error, Number(this.now()),
+        );
+      }
+      processed += 1;
+    }
+    return processed;
   }
 }
