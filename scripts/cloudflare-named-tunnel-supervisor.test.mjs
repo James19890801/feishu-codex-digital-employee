@@ -58,6 +58,22 @@ test('reads the connector token from Keychain without putting it in arguments', 
   assert.equal(JSON.stringify(calls).includes(token), false);
 });
 
+test('reads a long connector token from bounded Keychain chunks', async () => {
+  const calls = [];
+  const token = await readTunnelToken({
+    service: 'com.example.aipro.tunnel',
+    account: 'production',
+    chunks: 2,
+    run: async (command, args) => {
+      calls.push({ command, args });
+      return { stdout: args.at(-1).endsWith(':1') ? 'long-keychain-' : 'token-value\n' };
+    },
+  });
+  assert.equal(token, 'long-keychain-token-value');
+  assert.deepEqual(calls.map(call => call.args.at(-1)), ['production:1', 'production:2']);
+  assert.equal(calls.every(call => call.command === '/usr/bin/security'), true);
+});
+
 test('passes token only through TUNNEL_TOKEN and reports abnormal exit', async () => {
   const secret = 'keychain-token-value';
   const child = new FakeChild();

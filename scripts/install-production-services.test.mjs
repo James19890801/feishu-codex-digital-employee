@@ -65,6 +65,7 @@ assert.match(definitions[0].plist, /<string>\/usr\/bin\/caffeinate<\/string>[\s\
 assert.equal(definitions[0].plist.includes('<key>DIGITAL_EMPLOYEE_CONFIG</key>'), true);
 assert.equal(definitions[1].plist.includes('127.0.0.1:17657'), true);
 assert.equal(definitions[1].plist.includes('TUNNEL_TOKEN'), false);
+assert.equal(definitions[1].plist.includes('CLOUDFLARED_TUNNEL_KEYCHAIN_CHUNKS'), true);
 assert.equal(definitions[3].plist.includes('<key>AIPRO_MAIN_SERVICE_LABEL</key>'), true);
 
 await assert.rejects(

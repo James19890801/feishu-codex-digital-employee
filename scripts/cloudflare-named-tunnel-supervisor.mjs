@@ -38,19 +38,28 @@ function validateKeychainName(value, name) {
 export async function readTunnelToken({
   service,
   account,
+  chunks = 1,
   run = async (command, args) => execFileAsync(command, args, {
     encoding: 'utf8',
     timeout: 10_000,
     maxBuffer: 16 * 1024,
   }),
 }) {
-  const result = await run('/usr/bin/security', [
-    'find-generic-password',
-    '-w',
-    '-s', validateKeychainName(service, 'service'),
-    '-a', validateKeychainName(account, 'account'),
-  ]);
-  const token = String(result?.stdout || '').trim();
+  const safeService = validateKeychainName(service, 'service');
+  const safeAccount = validateKeychainName(account, 'account');
+  const chunkCount = Number(chunks);
+  if (!Number.isInteger(chunkCount) || chunkCount < 1 || chunkCount > 8) {
+    throw new Error('Tunnel Keychain chunk count is invalid');
+  }
+  const values = [];
+  for (let index = 1; index <= chunkCount; index += 1) {
+    const chunkAccount = chunkCount === 1 ? safeAccount : `${safeAccount}:${index}`;
+    const result = await run('/usr/bin/security', [
+      'find-generic-password', '-w', '-s', safeService, '-a', chunkAccount,
+    ]);
+    values.push(String(result?.stdout || '').trim());
+  }
+  const token = values.join('');
   if (token.length < 16 || token.length > 8_192) {
     throw new Error('Tunnel token from Keychain is empty or invalid');
   }
@@ -76,7 +85,12 @@ export async function superviseNamedTunnel({
   metricsAddress,
   keychainService,
   keychainAccount,
-  readToken = () => readTunnelToken({ service: keychainService, account: keychainAccount }),
+  keychainChunks = 1,
+  readToken = () => readTunnelToken({
+    service: keychainService,
+    account: keychainAccount,
+    chunks: keychainChunks,
+  }),
   spawnImpl = spawn,
   processLike = process,
   logger = console,
@@ -148,6 +162,7 @@ async function main() {
     metricsAddress: process.env.CLOUDFLARED_METRICS_ADDRESS || '127.0.0.1:17657',
     keychainService: process.env.CLOUDFLARED_TUNNEL_KEYCHAIN_SERVICE,
     keychainAccount: process.env.CLOUDFLARED_TUNNEL_KEYCHAIN_ACCOUNT,
+    keychainChunks: Number(process.env.CLOUDFLARED_TUNNEL_KEYCHAIN_CHUNKS || 1),
   });
 }
 

@@ -143,6 +143,7 @@ export async function buildProductionServiceDefinitions({
         CLOUDFLARED_METRICS_ADDRESS: '127.0.0.1:17657',
         CLOUDFLARED_TUNNEL_KEYCHAIN_SERVICE: tunnelKeychainService,
         CLOUDFLARED_TUNNEL_KEYCHAIN_ACCOUNT: tunnelKeychainAccount,
+        CLOUDFLARED_TUNNEL_KEYCHAIN_CHUNKS: '2',
       },
       logName: 'cloudflare-tunnel',
     },
