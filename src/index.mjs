@@ -4253,8 +4253,17 @@ function enqueueInbound(payload, source) {
       messageId,
       detail: { source, rateLimited },
     });
+    if (shouldFastCompleteRateLimitedInbound(storedPayload.metadata)) {
+      state.completeInbound(messageId);
+      state.audit('message_rate_limited', {
+        chatId: payload.message.chat_id || '',
+        senderId: payload.sender?.sender_id?.open_id || '',
+        messageId,
+        detail: { source, fastCompleted: true },
+      });
+    }
   }
-  return inserted;
+  return inserted && !shouldFastCompleteRateLimitedInbound(storedPayload.metadata);
 }
 
 async function processStoredInbound(item, client = null) {
