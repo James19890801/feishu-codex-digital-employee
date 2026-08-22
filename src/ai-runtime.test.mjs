@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import {
   AiRuntimeClient,
+  FailoverAiRuntimeClient,
   buildAiRuntimeInvocation,
   discoverAiRuntimes,
   selectAiRuntime,
@@ -96,5 +97,46 @@ const recovered = await codexClient.run('private prompt', {
   timeoutMs: 30_000,
 });
 assert.equal(recovered.text, 'RECOVERED_CODEX_REPLY');
+
+let nowMs = 10_000;
+const failoverCalls = [];
+const primaryClient = {
+  runtime: { id: 'codex' },
+  run: async (_prompt, options) => {
+    failoverCalls.push({ runtime: 'codex', model: options.model });
+    throw new Error('primary unavailable');
+  },
+};
+const fallbackClient = {
+  runtime: { id: 'qoder' },
+  run: async (_prompt, options) => {
+    failoverCalls.push({ runtime: 'qoder', model: options.model });
+    return { text: 'FALLBACK_OK', runtime: { id: 'qoder' } };
+  },
+};
+const failoverClient = new FailoverAiRuntimeClient({
+  clients: [primaryClient, fallbackClient],
+  cooldownMs: 60_000,
+  now: () => nowMs,
+});
+const fallbackResult = await failoverClient.run('private prompt', {
+  cwd: '/tmp/aipro-runtime',
+  model: 'codex-only-model',
+});
+assert.equal(fallbackResult.text, 'FALLBACK_OK');
+assert.equal(fallbackResult.failover, true);
+assert.deepEqual(failoverCalls, [
+  { runtime: 'codex', model: 'codex-only-model' },
+  { runtime: 'qoder', model: '' },
+]);
+
+failoverCalls.length = 0;
+await failoverClient.run('second prompt', { cwd: '/tmp/aipro-runtime' });
+assert.deepEqual(failoverCalls.map(call => call.runtime), ['qoder']);
+
+nowMs += 60_001;
+failoverCalls.length = 0;
+await failoverClient.run('probe prompt', { cwd: '/tmp/aipro-runtime' });
+assert.deepEqual(failoverCalls.map(call => call.runtime), ['codex', 'qoder']);
 
 console.log('AI_RUNTIME_TEST_OK');

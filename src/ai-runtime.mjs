@@ -256,3 +256,49 @@ export class AiRuntimeClient {
     }
   }
 }
+
+export class FailoverAiRuntimeClient {
+  constructor({
+    clients,
+    cooldownMs = 2 * 60_000,
+    now = Date.now,
+  } = {}) {
+    if (!Array.isArray(clients) || clients.length === 0
+      || clients.some(client => typeof client?.run !== 'function' || !client?.runtime?.id)) {
+      throw new Error('At least one identified AI runtime client is required');
+    }
+    this.clients = clients;
+    this.primaryRuntimeId = clients[0].runtime.id;
+    this.cooldownMs = Math.max(1_000, Number(cooldownMs) || 2 * 60_000);
+    this.now = now;
+    this.blockedUntil = new Map();
+  }
+
+  async run(prompt, options = {}) {
+    const nowMs = Number(this.now());
+    const ordered = [...this.clients].sort((left, right) => {
+      const leftBlocked = Number(this.blockedUntil.get(left.runtime.id) || 0) > nowMs;
+      const rightBlocked = Number(this.blockedUntil.get(right.runtime.id) || 0) > nowMs;
+      return Number(leftBlocked) - Number(rightBlocked);
+    });
+    const failures = [];
+    for (const client of ordered) {
+      try {
+        const runtimeOptions = client.runtime.id === this.primaryRuntimeId
+          ? options
+          : { ...options, model: '' };
+        const result = await client.run(prompt, runtimeOptions);
+        this.blockedUntil.delete(client.runtime.id);
+        return {
+          ...result,
+          failover: client.runtime.id !== this.primaryRuntimeId,
+          primaryRuntimeId: this.primaryRuntimeId,
+        };
+      } catch (error) {
+        this.blockedUntil.set(client.runtime.id, nowMs + this.cooldownMs);
+        failures.push(`${client.runtime.id}: ${processFailureSummary(error)}`);
+      }
+    }
+    throw new Error(`All AI runtimes failed: ${failures.join(' | ')}`);
+  }
+}

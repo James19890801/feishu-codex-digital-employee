@@ -166,6 +166,7 @@ import {
 } from './mutation-execution.mjs';
 import {
   AiRuntimeClient,
+  FailoverAiRuntimeClient,
   discoverAiRuntimes,
   selectAiRuntime,
 } from './ai-runtime.mjs';
@@ -371,9 +372,15 @@ try {
 }
 const AI_RUNTIMES = discoverAiRuntimes({ configuredCodexBin: config.codexBin });
 const SELECTED_AI_RUNTIME = selectAiRuntime(AI_RUNTIMES, config.aiRuntime);
-const AI_RUNTIME_CLIENT = new AiRuntimeClient({
-  runtime: SELECTED_AI_RUNTIME,
-  env: aiRuntimeEnv(),
+const ORDERED_AI_RUNTIMES = [
+  SELECTED_AI_RUNTIME,
+  ...AI_RUNTIMES.filter(runtime => runtime.available && runtime.id !== SELECTED_AI_RUNTIME.id),
+];
+const AI_RUNTIME_CLIENT = new FailoverAiRuntimeClient({
+  clients: ORDERED_AI_RUNTIMES.map(runtime => new AiRuntimeClient({
+    runtime,
+    env: aiRuntimeEnv(),
+  })),
 });
 const singletonLock = await acquireSingletonLock(join(DATA_ROOT, 'service.lock'));
 const shutdownGuard = createShutdownGuard();
@@ -1386,6 +1393,15 @@ async function runAiRuntime(prompt, options) {
     const result = await AI_RUNTIME_CLIENT.run(prompt, runtimeOptions);
     state.set('health', 'last_ai_runtime_success_at', new Date().toISOString());
     state.unset('health', 'last_ai_runtime_error');
+    state.set('health', 'active_ai_runtime', result.runtime?.id || SELECTED_AI_RUNTIME.id);
+    if (result.failover) {
+      state.audit('ai_runtime_failover', {
+        detail: {
+          primary: result.primaryRuntimeId,
+          active: result.runtime?.id || '',
+        },
+      });
+    }
     return result;
   } catch (error) {
     const detail = {
