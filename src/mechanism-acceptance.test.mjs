@@ -199,6 +199,12 @@ contract('production-release', 'Can production LaunchAgents ever point at a work
   assert.doesNotMatch(source, /\.worktrees\/wechat-production-reliability\/src\/index/);
 });
 
+contract('wechat-reliability', 'Can a generated canary secret appear in process arguments?', () => {
+  const source = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
+  assert.match(source, /replaceKeychainCredential\(\{ service, account \}, secret\)/);
+  assert.doesNotMatch(source, /'add-generic-password'[\s\S]{0,200}'-w', secret/);
+});
+
 contract('local-wiki', 'Do all IM channels share one evidence-gated local knowledge context?', async () => {
   const retriever = new LocalWikiRetriever({
     minimumScore: 0.1,

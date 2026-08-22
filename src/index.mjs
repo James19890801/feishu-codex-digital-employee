@@ -229,6 +229,7 @@ import {
   WeComChannel,
 } from './im-channel-runtime.mjs';
 import { canaryCredentialAccount } from './wechat-reliability-canary.mjs';
+import { replaceKeychainCredential } from './channel-credentials.mjs';
 import {
   fetchDingTalkWukongWindow,
   semanticObserverFailureRecord,
@@ -647,13 +648,7 @@ async function ensureKeychainSecret(service, account) {
     if (!/could not be found|item not found|SecKeychainSearchCopyNext/i.test(summary)) throw error;
   }
   const secret = randomBytes(32).toString('base64url');
-  await runBufferedProcess('/usr/bin/security', [
-    'add-generic-password', '-U', '-a', account, '-s', service, '-w', secret,
-  ], {
-    timeoutMs: 10_000,
-    maxStdoutBytes: 64 * 1024,
-    maxStderrBytes: 64 * 1024,
-  });
+  await replaceKeychainCredential({ service, account }, secret);
   return secret;
 }
 
