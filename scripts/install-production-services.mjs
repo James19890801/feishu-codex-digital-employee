@@ -252,6 +252,7 @@ export async function installProductionServices({
     mkdir(join(resolve(supportRoot), 'data'), { recursive: true, mode: 0o700 }),
   ]);
   for (const legacyLabel of LEGACY_LABELS) {
+    await launchctl(['bootout', `gui/${uid}/${legacyLabel}`]).catch(() => {});
     const legacyPath = join(launchAgents, `${legacyLabel}.plist`);
     try {
       await rename(legacyPath, `${legacyPath}.legacy-${now()}`);

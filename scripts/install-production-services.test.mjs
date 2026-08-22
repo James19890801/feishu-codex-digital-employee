@@ -121,6 +121,10 @@ assert.deepEqual(
   calls.filter(args => args[0] === 'bootstrap').map(args => args.at(-1).split('/').at(-1)),
   definitions.map(definition => `${definition.label}.plist`),
 );
+assert.equal(calls.some(args => (
+  args[0] === 'bootout'
+  && args[1] === 'gui/501/com.local.feishu-codex-digital-employee'
+)), true);
 const launchAgentFiles = await readdir(launchAgents);
 assert.equal(launchAgentFiles.includes('com.local.feishu-codex-digital-employee.plist'), false);
 assert.equal(
