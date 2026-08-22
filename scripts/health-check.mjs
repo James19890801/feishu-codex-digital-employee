@@ -9,7 +9,10 @@ import { evaluateLicenseGuard } from '../src/licensing/guard.mjs';
 import { LicensingStore } from '../src/licensing/store.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const config = JSON.parse(readFileSync(join(root, 'config.local.json'), 'utf8'));
+const configPath = process.env.DIGITAL_EMPLOYEE_CONFIG || join(root, 'config.local.json');
+const supportRoot = process.env.AIPRO_HOME || root;
+const dataRoot = join(supportRoot, 'data');
+const config = JSON.parse(readFileSync(configPath, 'utf8'));
 if (config.licensingEnforced === true) {
   const license = await evaluateLicenseGuard({
     enforced: true,
@@ -27,7 +30,7 @@ if (config.licensingEnforced === true) {
     process.exit(2);
   }
 }
-const db = new DatabaseSync(join(root, 'data', 'agent-state.sqlite'), { readOnly: true });
+const db = new DatabaseSync(join(dataRoot, 'agent-state.sqlite'), { readOnly: true });
 const nowMs = Date.now();
 const tcpReachable = url => new Promise(resolve => {
   if (!url) {
@@ -110,6 +113,15 @@ const groupHostHealth = setting('health', 'group_host', null);
 const dingtalkChannel = setting('channel', 'dingtalk', {});
 const wecomChannel = setting('channel', 'wecom', {});
 const geweChannel = setting('channel', 'wechat', {});
+let wechatReliability = null;
+try {
+  wechatReliability = JSON.parse(readFileSync(
+    join(dataRoot, 'wechat-reliability-state.json'),
+    'utf8',
+  ));
+} catch {
+  wechatReliability = null;
+}
 const backupAgeMs = lastBackupAt ? nowMs - new Date(lastBackupAt).getTime() : null;
 if (backupAgeMs === null || !Number.isFinite(backupAgeMs)
   || backupAgeMs > 12 * 60 * 60_000) {
@@ -132,8 +144,27 @@ if (config.dingtalkEnabled === true && !dingtalkChannel.connected) {
 if (config.wecomEnabled === true && !wecomChannel.connected) {
   result.issues.push('wecom_channel_unavailable');
 }
-if (config.geweEnabled === true && !geweChannel.connected) {
-  result.issues.push('wechat_channel_unavailable');
+if (config.geweEnabled === true) {
+  const checkedAtMs = Number(wechatReliability?.checkedAtMs);
+  const fresh = Number.isFinite(checkedAtMs)
+    && nowMs >= checkedAtMs
+    && nowMs - checkedAtMs <= 45_000;
+  if (!fresh) result.issues.push('wechat_reliability_state_stale');
+  else {
+    const layers = wechatReliability.layers || {};
+    if (layers.local_service?.ok !== true) result.issues.push('wechat_local_callback_unavailable');
+    if (layers.tunnel?.ok !== true || Number(layers.tunnel?.activeConnections || 0) < 1) {
+      result.issues.push('wechat_tunnel_unavailable');
+    }
+    if (layers.public_callback?.ok !== true) result.issues.push('wechat_public_callback_unavailable');
+    if (layers.provider?.ok !== true) result.issues.push('wechat_provider_unavailable');
+    if (layers.callback_registration?.ok !== true) {
+      result.issues.push('wechat_callback_registration_stale');
+    }
+    if (wechatReliability.state === 'circuit_open') {
+      result.issues.push('wechat_recovery_circuit_open');
+    }
+  }
 }
 if (config.groupHostModeEnabled === true && groupHostHealth?.lastError) {
   result.issues.push('group_host_worker_error');
@@ -233,9 +264,14 @@ result.metrics = {
       enabled: config.geweEnabled === true,
       configured: Boolean(geweChannel.configured),
       authenticated: Boolean(geweChannel.authenticated),
-      callbackListening: Boolean(geweChannel.callbackListening),
-      callbackRegistered: Boolean(geweChannel.callbackRegistered),
-      connected: Boolean(geweChannel.connected),
+      callbackListening: wechatReliability?.layers?.local_service?.ok === true,
+      callbackRegistered: wechatReliability?.layers?.callback_registration?.ok === true,
+      tunnelReady: wechatReliability?.layers?.tunnel?.ok === true,
+      activeConnections: Number(wechatReliability?.layers?.tunnel?.activeConnections || 0),
+      publicReachable: wechatReliability?.layers?.public_callback?.ok === true,
+      providerOnline: wechatReliability?.layers?.provider?.ok === true,
+      connected: wechatReliability?.state === 'healthy',
+      reliabilityState: wechatReliability?.state || 'missing',
       identityMode: 'personal-third-party',
       providerOfficial: false,
     },

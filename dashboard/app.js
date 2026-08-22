@@ -76,6 +76,13 @@ const issueLabelKeys = {
   dingtalk_channel_unavailable: 'issueDingtalkUnavailable',
   wecom_channel_unavailable: 'issueWecomUnavailable',
   wechat_channel_unavailable: 'issueWechatUnavailable',
+  wechat_reliability_state_stale: 'issueWechatReliabilityStale',
+  wechat_local_callback_unavailable: 'issueWechatLocalUnavailable',
+  wechat_tunnel_unavailable: 'issueWechatTunnelUnavailable',
+  wechat_public_callback_unavailable: 'issueWechatPublicUnavailable',
+  wechat_provider_unavailable: 'issueWechatProviderUnavailable',
+  wechat_callback_registration_stale: 'issueWechatCallbackStale',
+  wechat_recovery_circuit_open: 'issueWechatCircuitOpen',
   self_chat_circuit_open: 'issueSelfChatCircuit',
 };
 
@@ -262,6 +269,42 @@ function renderChannel(prefix, channel, fallbackMeta) {
   dot.className = channel.authenticated ? 'warn' : 'bad';
 }
 
+function renderWechatIngress(channel) {
+  const container = $('channelWechatIngress');
+  if (!container) return;
+  container.classList.toggle('hidden', !channel?.enabled);
+  const facts = channel?.ingress || {};
+  const labels = locale === 'zh'
+    ? {
+        local: '本地回调', tunnel: 'Named Tunnel', public: '公网回环',
+        provider: 'GeWe 账号', callback: '回调注册', connections: '活动连接',
+      }
+    : {
+        local: 'Local callback', tunnel: 'Named Tunnel', public: 'Public loopback',
+        provider: 'GeWe account', callback: 'Callback registration', connections: 'Connections',
+      };
+  const values = {
+    local: facts.localListening,
+    tunnel: facts.tunnelReady,
+    public: facts.publicReachable,
+    provider: facts.providerOnline,
+    callback: facts.callbackRegistered,
+  };
+  for (const [name, good] of Object.entries(values)) {
+    const row = $(`wechatFact${name[0].toUpperCase()}${name.slice(1)}`);
+    if (!row) continue;
+    row.querySelector('span').textContent = labels[name];
+    row.querySelector('b').textContent = good ? '✓' : '×';
+    row.className = good ? 'good' : 'bad';
+  }
+  const connections = $('wechatFactConnections');
+  connections.querySelector('span').textContent = labels.connections;
+  connections.querySelector('b').textContent = String(facts.activeConnections || 0);
+  connections.className = Number(facts.activeConnections || 0) > 0 ? 'good' : 'bad';
+  if (channel.status === 'provider_down') $('channelWechatStatus').textContent = locale === 'zh' ? '第三方接口异常' : 'Provider unavailable';
+  if (channel.status === 'circuit_open') $('channelWechatStatus').textContent = locale === 'zh' ? '自动恢复已熔断' : 'Recovery circuit open';
+}
+
 function renderEvents(events) {
   if (!events?.length) {
     $('timeline').innerHTML = `<p class="empty">${escapeHtml(tr('noAuditEvents'))}</p>`;
@@ -406,6 +449,7 @@ function render(data) {
     data.channels?.wechat,
     tr('wechatMeta'),
   );
+  renderWechatIngress(data.channels?.wechat);
   const semanticGroup = data.maintenance?.semanticGroupEngagement || {};
   $('semanticGroupToggle').checked = semanticGroup.enabled === true;
   $('semanticGroupToggle').disabled = semanticGroupBusy;

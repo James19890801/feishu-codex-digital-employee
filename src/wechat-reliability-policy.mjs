@@ -62,7 +62,7 @@ export function emptyWechatReliabilityState(nowMs = 0) {
 
 function updateLayer(previous, sample, nowMs) {
   const ok = sample?.ok === true;
-  return {
+  const updated = {
     ok,
     lastSuccessAtMs: ok ? nowMs : previous.lastSuccessAtMs,
     lastFailureAtMs: ok ? previous.lastFailureAtMs : nowMs,
@@ -71,6 +71,16 @@ function updateLayer(previous, sample, nowMs) {
     consecutiveFailures: ok ? 0 : previous.consecutiveFailures + 1,
     errorCode: ok ? null : String(sample?.errorCode || 'unavailable').slice(0, 80),
   };
+  if (Number.isFinite(sample?.activeConnections)) {
+    updated.activeConnections = Math.max(0, Number(sample.activeConnections));
+  } else if (Number.isFinite(previous?.activeConnections)) {
+    updated.activeConnections = Math.max(0, Number(previous.activeConnections));
+  }
+  const lastRegisteredAt = String(sample?.lastRegisteredAt || previous?.lastRegisteredAt || '');
+  if (Number.isFinite(Date.parse(lastRegisteredAt))) {
+    updated.lastRegisteredAt = new Date(lastRegisteredAt).toISOString();
+  }
+  return updated;
 }
 
 export function recoveryDelayMs(attempt, random = Math.random) {

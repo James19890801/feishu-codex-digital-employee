@@ -817,6 +817,12 @@ h1 {
   line-height: 1.5;
 }
 
+.wechat-ingress { display: grid; gap: 5px; margin: 0 0 12px; }
+.wechat-ingress > div { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--muted); }
+.wechat-ingress > div b { font-family: var(--mono); }
+.wechat-ingress > div.good b { color: var(--green); }
+.wechat-ingress > div.bad b { color: var(--red); }
+
 .channel-card > button,
 .runtime-card button,
 .prompt-chips button,

@@ -37,13 +37,21 @@ function apply(previous, samples, { startMs = 1_000, stepMs = 1_000 } = {}) {
 {
   const first = evaluateWechatReliability({
     previous: emptyWechatReliabilityState(),
-    sample: sample(),
+    sample: sample({
+      tunnel: { activeConnections: 4 },
+      callback_registration: { lastRegisteredAt: '2026-08-22T12:00:00.000Z' },
+    }),
     nowMs: 1_000,
     random: () => 0,
   });
   assert.equal(first.state, 'starting');
   assert.equal(first.layers.public_callback.lastSuccessAtMs, 1_000);
   assert.equal(first.layers.public_callback.consecutiveSuccesses, 1);
+  assert.equal(first.layers.tunnel.activeConnections, 4);
+  assert.equal(
+    first.layers.callback_registration.lastRegisteredAt,
+    '2026-08-22T12:00:00.000Z',
+  );
 
   const healthy = apply(first, [sample(), sample()], { startMs: 2_000 });
   assert.equal(healthy.state, 'healthy');

@@ -133,6 +133,14 @@
           <header><i id="channelWechatDot"></i><strong data-i18n="wechatName">Personal WeChat / GeWe</strong><span>OPTIONAL</span></header>
           <b id="channelWechatStatus" data-i18n="checking">Checking</b>
           <p id="channelWechatMeta" data-i18n="wechatMeta">Human identity · GeWe REST + HTTPS Webhook</p>
+          <dl class="wechat-ingress hidden" id="channelWechatIngress">
+            <div id="wechatFactLocal"><span>Local callback</span><b>—</b></div>
+            <div id="wechatFactTunnel"><span>Named Tunnel</span><b>—</b></div>
+            <div id="wechatFactConnections"><span>Connections</span><b>—</b></div>
+            <div id="wechatFactPublic"><span>Public loopback</span><b>—</b></div>
+            <div id="wechatFactProvider"><span>GeWe account</span><b>—</b></div>
+            <div id="wechatFactCallback"><span>Callback registration</span><b>—</b></div>
+          </dl>
           <button type="button" data-channel-open="wechat" data-i18n="configure">Configure</button>
         </article>
       </div>

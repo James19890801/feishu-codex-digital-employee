@@ -31,6 +31,110 @@ const base = {
   recentEvents: [],
 };
 
+function wechatReliability({
+  state = 'healthy',
+  checkedAtMs = base.nowMs,
+  failedLayer = null,
+} = {}) {
+  const layers = Object.fromEntries([
+    'local_service',
+    'tunnel',
+    'public_callback',
+    'provider',
+    'callback_registration',
+  ].map(name => [name, {
+    ok: name !== failedLayer,
+    lastSuccessAtMs: name === failedLayer ? base.nowMs - 60_000 : base.nowMs,
+    lastFailureAtMs: name === failedLayer ? base.nowMs : null,
+    consecutiveSuccesses: name === failedLayer ? 0 : 3,
+    consecutiveFailures: name === failedLayer ? 3 : 0,
+    errorCode: name === failedLayer ? 'unavailable' : null,
+    ...(name === 'tunnel' ? { activeConnections: failedLayer === name ? 0 : 4 } : {}),
+    ...(name === 'callback_registration'
+      ? { lastRegisteredAt: '2026-07-30T00:59:58.000Z' }
+      : {}),
+  }]));
+  return { state, checkedAtMs, layers, recovery: null, circuitOpenUntilMs: null };
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    geweChannel: {
+      enabled: true,
+      installed: true,
+      configured: true,
+      authenticated: true,
+      connected: true,
+    },
+    wechatReliability: wechatReliability(),
+    wechatReliabilityIntervalMs: 15_000,
+  });
+  assert.equal(view.state, 'online');
+  assert.deepEqual(view.channels.wechat.ingress, {
+    localListening: true,
+    tunnelReady: true,
+    activeConnections: 4,
+    publicReachable: true,
+    callbackRegistered: true,
+    providerOnline: true,
+  });
+  assert.equal(view.channels.wechat.connected, true);
+  assert.equal(view.channels.wechat.healthy, true);
+}
+
+{
+  const view = buildOperatorView({
+    ...base,
+    geweChannel: {
+      enabled: true,
+      installed: true,
+      configured: true,
+      authenticated: true,
+      connected: true,
+    },
+    wechatReliability: wechatReliability({ state: 'degraded', failedLayer: 'public_callback' }),
+    wechatReliabilityIntervalMs: 15_000,
+  });
+  assert.equal(view.state, 'degraded');
+  assert.equal(view.channels.wechat.connected, false);
+  assert.equal(view.channels.wechat.ingress.providerOnline, true);
+  assert.equal(view.channels.wechat.ingress.publicReachable, false);
+  assert.equal(view.issues.includes('wechat_public_callback_unavailable'), true);
+}
+
+{
+  const stale = buildOperatorView({
+    ...base,
+    geweChannel: { enabled: true, connected: true, authenticated: true },
+    wechatReliability: wechatReliability({ checkedAtMs: base.nowMs - 45_001 }),
+    wechatReliabilityIntervalMs: 15_000,
+  });
+  assert.equal(stale.state, 'degraded');
+  assert.equal(stale.channels.wechat.connected, false);
+  assert.equal(stale.issues.includes('wechat_reliability_state_stale'), true);
+
+  const providerDown = buildOperatorView({
+    ...base,
+    geweChannel: { enabled: true, connected: true, authenticated: true },
+    wechatReliability: wechatReliability({ state: 'provider_down', failedLayer: 'provider' }),
+    wechatReliabilityIntervalMs: 15_000,
+  });
+  assert.equal(providerDown.channels.wechat.status, 'provider_down');
+  assert.equal(providerDown.issues.includes('wechat_provider_unavailable'), true);
+}
+
+{
+  const starting = buildOperatorView({
+    ...base,
+    geweChannel: { enabled: true, connected: true, authenticated: true },
+    wechatReliability: wechatReliability({ state: 'starting' }),
+    wechatReliabilityIntervalMs: 15_000,
+  });
+  assert.equal(starting.state, 'degraded');
+  assert.equal(starting.channels.wechat.connected, false);
+}
+
 {
   const view = buildOperatorView(base);
   assert.equal(view.state, 'online');
@@ -79,6 +183,8 @@ const base = {
       authenticated: true,
       connected: true,
     },
+    wechatReliability: wechatReliability(),
+    wechatReliabilityIntervalMs: 15_000,
   });
   assert.equal(view.channels.wechat.capabilities.image, true);
 }
@@ -129,7 +235,8 @@ const base = {
   assert.equal(view.state, 'degraded');
   assert.equal(view.issues.includes('wechat_channel_unavailable'), true);
   assert.equal(view.channels.wechat.healthy, false);
-  assert.equal(view.channels.wechat.callbackListening, true);
+  assert.equal(view.channels.wechat.callbackListening, false);
+  assert.equal(view.issues.includes('wechat_reliability_state_stale'), true);
   assert.equal(view.channels.wechat.callbackRegistered, false);
   assert.equal(view.channels.feishu.healthy, true);
   assert.equal(view.channels.wechat.identityMode, 'personal-third-party');

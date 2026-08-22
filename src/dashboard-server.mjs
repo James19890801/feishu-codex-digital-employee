@@ -62,6 +62,13 @@ import { LicensingStore } from './licensing/store.mjs';
 const HOST = '127.0.0.1';
 const PORT = config.dashboardPort;
 const DATA_DIR = join(config.workdir, 'data');
+const AIPRO_HOME = process.env.AIPRO_HOME
+  || join(process.env.HOME || '', 'Library', 'Application Support', 'AIPRO');
+const WECHAT_RELIABILITY_STATE_PATH = join(
+  AIPRO_HOME,
+  'data',
+  'wechat-reliability-state.json',
+);
 const DB_PATH = join(DATA_DIR, 'agent-state.sqlite');
 const LOCK_PATH = join(DATA_DIR, 'service.lock');
 const NOTIFICATION_STATE_PATH = join(DATA_DIR, 'dashboard-notification-state.json');
@@ -401,8 +408,11 @@ async function collectStatus() {
   const nowMs = Date.now();
   const processInfo = await readProcessLock();
   const websocket = checkWebsocket(nowMs, processInfo.alive ? processInfo.pid : null);
-  const [codexProxyReachable] = await Promise.all([
+  const [codexProxyReachable, wechatReliability] = await Promise.all([
     checkProxy(),
+    readFile(WECHAT_RELIABILITY_STATE_PATH, 'utf8')
+      .then(text => JSON.parse(text))
+      .catch(() => null),
   ]);
   const aiRuntime = currentAiRuntimeState();
   const defaults = {
@@ -569,6 +579,10 @@ async function collectStatus() {
     adaptiveDiscussionMaxReplies: config.adaptiveDiscussionMaxReplies,
     adaptiveDiscussionLowValueLimit: config.adaptiveDiscussionLowValueLimit,
     adaptiveDiscussionCooldownMs: config.adaptiveDiscussionCooldownMs,
+    wechatReliability,
+    wechatReliabilityIntervalMs: Number(
+      process.env.AIPRO_WECHAT_RELIABILITY_INTERVAL_MS || 15_000,
+    ),
     configuration: {
       allChats: config.allowAllChats,
       digitalTwinLabel: config.digitalTwinLabel,

@@ -18,6 +18,13 @@ const ISSUE_LABELS = {
   dingtalk_channel_unavailable: '钉钉通道已启用但未连接',
   wecom_channel_unavailable: '企业微信通道已启用但未连接',
   wechat_channel_unavailable: '个人微信通道已启用但未连接',
+  wechat_reliability_state_stale: '个人微信端到端健康状态缺失或已过期',
+  wechat_local_callback_unavailable: '个人微信本地回调不可用',
+  wechat_tunnel_unavailable: '个人微信公网隧道不可用',
+  wechat_public_callback_unavailable: '个人微信公网回调不可达',
+  wechat_provider_unavailable: '个人微信第三方接口或账号不可用',
+  wechat_callback_registration_stale: '个人微信回调注册未对齐',
+  wechat_recovery_circuit_open: '个人微信自动恢复已熔断',
   self_chat_circuit_open: '自聊防循环熔断器已开启，当前正在静默冷却',
 };
 
@@ -34,6 +41,30 @@ export function buildOperatorView(input) {
   const dingtalkChannel = input.dingtalkChannel || {};
   const wecomChannel = input.wecomChannel || {};
   const geweChannel = input.geweChannel || {};
+  const wechatReliability = input.wechatReliability || null;
+  const reliabilityCheckedAtMs = Number(wechatReliability?.checkedAtMs);
+  const reliabilityMaxAgeMs = Math.max(
+    30_000,
+    Number(input.wechatReliabilityIntervalMs || 15_000) * 3,
+  );
+  const reliabilityFresh = Boolean(wechatReliability)
+    && Number.isFinite(reliabilityCheckedAtMs)
+    && input.nowMs >= reliabilityCheckedAtMs
+    && input.nowMs - reliabilityCheckedAtMs <= reliabilityMaxAgeMs;
+  const reliabilityLayers = reliabilityFresh ? wechatReliability.layers || {} : {};
+  const wechatIngress = {
+    localListening: reliabilityLayers.local_service?.ok === true,
+    tunnelReady: reliabilityLayers.tunnel?.ok === true,
+    activeConnections: Math.max(0, Number(reliabilityLayers.tunnel?.activeConnections || 0)),
+    publicReachable: reliabilityLayers.public_callback?.ok === true,
+    callbackRegistered: reliabilityLayers.callback_registration?.ok === true,
+    providerOnline: reliabilityLayers.provider?.ok === true,
+  };
+  const wechatIngressHealthy = reliabilityFresh
+    && Object.entries(wechatIngress).every(([name, value]) => (
+      name === 'activeConnections' ? value > 0 : value === true
+    ))
+    && wechatReliability.state === 'healthy';
   const multicaSyncAgeMs = input.multicaEnabled && input.lastMulticaSyncAt
     ? Math.max(0, input.nowMs - new Date(input.lastMulticaSyncAt).getTime())
     : null;
@@ -141,8 +172,25 @@ export function buildOperatorView(input) {
   if (wecomChannel.enabled && !wecomChannel.connected) {
     issues.push('wecom_channel_unavailable');
   }
-  if (geweChannel.enabled && !geweChannel.connected) {
-    issues.push('wechat_channel_unavailable');
+  if (geweChannel.enabled) {
+    if (!reliabilityFresh) issues.push('wechat_reliability_state_stale');
+    else {
+      if (!wechatIngress.localListening) issues.push('wechat_local_callback_unavailable');
+      if (!wechatIngress.tunnelReady || wechatIngress.activeConnections < 1) {
+        issues.push('wechat_tunnel_unavailable');
+      }
+      if (!wechatIngress.publicReachable) issues.push('wechat_public_callback_unavailable');
+      if (!wechatIngress.providerOnline) issues.push('wechat_provider_unavailable');
+      if (!wechatIngress.callbackRegistered) issues.push('wechat_callback_registration_stale');
+      if (wechatReliability.state === 'circuit_open') issues.push('wechat_recovery_circuit_open');
+      if (wechatReliability.state !== 'healthy'
+        && !issues.some(issue => issue.startsWith('wechat_'))) {
+        issues.push('wechat_channel_unavailable');
+      }
+    }
+    if (!geweChannel.connected && !reliabilityFresh) {
+      issues.push('wechat_channel_unavailable');
+    }
   }
 
   const state = !input.processAlive ? 'offline' : issues.length ? 'degraded' : 'online';
@@ -239,20 +287,39 @@ export function buildOperatorView(input) {
         installed: Boolean(geweChannel.installed),
         configured: Boolean(geweChannel.configured),
         authenticated: Boolean(geweChannel.authenticated),
-        connected: Boolean(geweChannel.connected),
-        callbackListening: Boolean(geweChannel.callbackListening),
-        callbackRegistered: Boolean(geweChannel.callbackRegistered),
-        healthy: !geweChannel.enabled || Boolean(geweChannel.connected),
+        connected: Boolean(geweChannel.enabled && wechatIngressHealthy),
+        callbackListening: wechatIngress.localListening,
+        callbackRegistered: wechatIngress.callbackRegistered,
+        healthy: !geweChannel.enabled || wechatIngressHealthy,
+        status: !geweChannel.enabled
+          ? 'disabled'
+          : reliabilityFresh ? String(wechatReliability.state || 'starting') : 'stale',
+        ingress: wechatIngress,
+        reliabilityCheckedAt: reliabilityFresh
+          ? new Date(reliabilityCheckedAtMs).toISOString()
+          : '',
+        lastPublicSuccessAt: Number.isFinite(reliabilityLayers.public_callback?.lastSuccessAtMs)
+          ? new Date(reliabilityLayers.public_callback.lastSuccessAtMs).toISOString()
+          : '',
+        lastCallbackRegistrationAt:
+          String(reliabilityLayers.callback_registration?.lastRegisteredAt || ''),
+        recovery: wechatReliability?.recovery || null,
+        nextRecoveryAt: Number.isFinite(wechatReliability?.nextRecoveryAtMs)
+          ? new Date(wechatReliability.nextRecoveryAtMs).toISOString()
+          : '',
+        circuitOpenUntil: Number.isFinite(wechatReliability?.circuitOpenUntilMs)
+          ? new Date(wechatReliability.circuitOpenUntilMs).toISOString()
+          : '',
         identityMode: geweChannel.identityMode || 'personal-third-party',
         transport: geweChannel.transport || 'GeWe REST + public webhook',
         lastReadyAt: geweChannel.lastReadyAt || '',
         lastError: geweChannel.lastError || null,
         risk: 'third-party-unofficial-wechat-api',
         capabilities: {
-          text: Boolean(geweChannel.enabled && geweChannel.connected),
-          image: Boolean(geweChannel.enabled && geweChannel.connected),
+          text: Boolean(geweChannel.enabled && wechatIngressHealthy),
+          image: Boolean(geweChannel.enabled && wechatIngressHealthy),
           audio: false,
-          link: Boolean(geweChannel.enabled && geweChannel.connected
+          link: Boolean(geweChannel.enabled && wechatIngressHealthy
             && webReaderAvailable),
         },
       },
