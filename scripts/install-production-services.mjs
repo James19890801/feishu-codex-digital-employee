@@ -94,6 +94,7 @@ async function validateRelease(supportRoot) {
     'src/index.mjs',
     'src/dashboard-server.mjs',
     'scripts/cloudflare-named-tunnel-supervisor.mjs',
+    'scripts/gewe-tunnel-supervisor.mjs',
     'scripts/wechat-reliability-supervisor.mjs',
   ]) {
     await stat(join(releasePath, required));
@@ -108,9 +109,13 @@ export async function buildProductionServiceDefinitions({
   cloudflaredPath,
   tunnelKeychainService,
   tunnelKeychainAccount,
+  tunnelMode = 'named',
 }) {
   if (!tunnelKeychainService || !tunnelKeychainAccount) {
     throw new Error('Named Tunnel Keychain service and account are required');
+  }
+  if (!['named', 'quick-emergency'].includes(tunnelMode)) {
+    throw new Error('Production tunnel mode is invalid');
   }
   const validated = await validateRelease(supportRoot);
   const launchAgents = join(resolve(userHome), 'Library', 'LaunchAgents');
@@ -134,7 +139,22 @@ export async function buildProductionServiceDefinitions({
       environment: commonEnvironment,
       logName: 'main',
     },
-    {
+    tunnelMode === 'quick-emergency' ? {
+      label: PRODUCTION_LABELS[1],
+      args: [nodePath, join(validated.currentPath, 'scripts', 'gewe-tunnel-supervisor.mjs')],
+      environment: {
+        ...commonEnvironment,
+        CLOUDFLARED_PATH: cloudflaredPath,
+        CLOUDFLARED_METRICS_ADDRESS: '127.0.0.1:17657',
+        AIPRO_CONFIG_PATH: configPath,
+        GEWE_CALLBACK_PORT: '17656',
+        AIPRO_SERVICE_LABEL: PRODUCTION_LABELS[0],
+        AIPRO_RELIABILITY_SERVICE_LABEL: PRODUCTION_LABELS[2],
+        AIPRO_RUNTIME_MODE: 'production',
+        AIPRO_ALLOW_QUICK_TUNNEL_FALLBACK: 'true',
+      },
+      logName: 'cloudflare-tunnel',
+    } : {
       label: PRODUCTION_LABELS[1],
       args: [nodePath, join(validated.currentPath, 'scripts', 'cloudflare-named-tunnel-supervisor.mjs')],
       environment: {
@@ -206,6 +226,7 @@ export async function installProductionServices({
   cloudflaredPath,
   tunnelKeychainService,
   tunnelKeychainAccount,
+  tunnelMode = 'named',
   uid = process.getuid(),
   now = Date.now,
   runLaunchctl,
@@ -222,6 +243,7 @@ export async function installProductionServices({
     cloudflaredPath,
     tunnelKeychainService,
     tunnelKeychainAccount,
+    tunnelMode,
   });
   const launchAgents = join(resolve(userHome), 'Library', 'LaunchAgents');
   await Promise.all([
@@ -256,6 +278,7 @@ async function main() {
       || join(process.env.HOME || '', '.local', 'bin', 'cloudflared'),
     tunnelKeychainService: process.env.CLOUDFLARED_TUNNEL_KEYCHAIN_SERVICE,
     tunnelKeychainAccount: process.env.CLOUDFLARED_TUNNEL_KEYCHAIN_ACCOUNT,
+    tunnelMode: process.env.AIPRO_TUNNEL_MODE || 'named',
   });
 }
 

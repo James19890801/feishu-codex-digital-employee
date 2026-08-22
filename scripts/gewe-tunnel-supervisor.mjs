@@ -41,6 +41,26 @@ function validateQuickTunnelUrl(publicUrl) {
   return parsed.origin;
 }
 
+export function quickTunnelArguments({ callbackPort, metricsAddress }) {
+  const port = Number(callbackPort);
+  const metrics = String(metricsAddress || '');
+  if (!Number.isInteger(port) || port < 1_024 || port > 65_535) {
+    throw new Error('Cloudflare quick tunnel callback port is invalid');
+  }
+  if (!/^(127\.0\.0\.1|localhost):([0-9]{4,5})$/.test(metrics)) {
+    throw new Error('Cloudflare quick tunnel metrics address must use loopback');
+  }
+  const metricsPort = Number(metrics.split(':').at(-1));
+  if (metricsPort < 1_024 || metricsPort > 65_535) {
+    throw new Error('Cloudflare quick tunnel metrics port is invalid');
+  }
+  return [
+    'tunnel', '--no-autoupdate', '--edge-ip-version', '4',
+    '--metrics', metrics,
+    '--url', `http://127.0.0.1:${port}`,
+  ];
+}
+
 export async function updateCallbackConfiguration({
   configPath,
   publicUrl,
@@ -86,20 +106,18 @@ export async function superviseQuickTunnel({
   cloudflaredPath,
   configPath,
   callbackPort,
+  metricsAddress = '127.0.0.1:17657',
   serviceLabel,
+  reliabilityServiceLabel = '',
   runtimeMode = 'development',
   allowFallback = false,
 }) {
   assertQuickTunnelFallbackAllowed({ runtimeMode, allowFallback });
   const detector = new QuickTunnelUrlDetector();
-  const tunnel = spawn(cloudflaredPath, [
-    'tunnel',
-    '--no-autoupdate',
-    '--edge-ip-version',
-    '4',
-    '--url',
-    `http://127.0.0.1:${callbackPort}`,
-  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const tunnel = spawn(cloudflaredPath, quickTunnelArguments({
+    callbackPort,
+    metricsAddress,
+  }), { stdio: ['ignore', 'pipe', 'pipe'] });
 
   let configuredUrl = '';
   let configurationPromise = null;
@@ -111,11 +129,14 @@ export async function superviseQuickTunnel({
     configurationPromise = updateCallbackConfiguration({
       configPath,
       publicUrl,
-      restart: () => runCommand('/bin/launchctl', [
-        'kickstart',
-        '-k',
-        `gui/${process.getuid()}/${serviceLabel}`,
-      ]),
+      restart: async () => {
+        const labels = [serviceLabel, reliabilityServiceLabel].filter(Boolean);
+        for (const label of labels) {
+          await runCommand('/bin/launchctl', [
+            'kickstart', '-k', `gui/${process.getuid()}/${label}`,
+          ]);
+        }
+      },
     }).then(changed => {
       console.log(`[gewe-tunnel] callback base URL ${changed ? 'updated' : 'unchanged'}; personal WeChat service is aligned`);
     }).catch(error => {
@@ -151,7 +172,9 @@ async function main() {
     cloudflaredPath: process.env.CLOUDFLARED_PATH || path.join(process.env.HOME || '', '.local/bin/cloudflared'),
     configPath: process.env.AIPRO_CONFIG_PATH || path.join(workspace, 'config.local.json'),
     callbackPort: Number(process.env.GEWE_CALLBACK_PORT || 17_656),
+    metricsAddress: process.env.CLOUDFLARED_METRICS_ADDRESS || '127.0.0.1:17657',
     serviceLabel: process.env.AIPRO_SERVICE_LABEL || 'com.local.feishu-codex-digital-employee',
+    reliabilityServiceLabel: process.env.AIPRO_RELIABILITY_SERVICE_LABEL || '',
     runtimeMode: process.env.AIPRO_RUNTIME_MODE || 'production',
     allowFallback: process.env.AIPRO_ALLOW_QUICK_TUNNEL_FALLBACK === 'true',
   });

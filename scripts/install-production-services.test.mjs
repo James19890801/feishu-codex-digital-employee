@@ -26,6 +26,7 @@ await mkdir(join(supportRoot, 'config'), { recursive: true });
 await writeFile(join(releasePath, 'src', 'index.mjs'), '', 'utf8');
 await writeFile(join(releasePath, 'src', 'dashboard-server.mjs'), '', 'utf8');
 await writeFile(join(releasePath, 'scripts', 'cloudflare-named-tunnel-supervisor.mjs'), '', 'utf8');
+await writeFile(join(releasePath, 'scripts', 'gewe-tunnel-supervisor.mjs'), '', 'utf8');
 await writeFile(join(releasePath, 'scripts', 'wechat-reliability-supervisor.mjs'), '', 'utf8');
 await writeFile(join(releasePath, 'release-manifest.json'), JSON.stringify({
   gitSha: 'a'.repeat(40), files: [],
@@ -34,6 +35,7 @@ await writeFile(join(supportRoot, 'config', 'config.local.json'), '{}\n', 'utf8'
 await chmod(join(releasePath, 'src', 'index.mjs'), 0o444);
 await chmod(join(releasePath, 'src', 'dashboard-server.mjs'), 0o444);
 await chmod(join(releasePath, 'scripts', 'cloudflare-named-tunnel-supervisor.mjs'), 0o444);
+await chmod(join(releasePath, 'scripts', 'gewe-tunnel-supervisor.mjs'), 0o444);
 await chmod(join(releasePath, 'scripts', 'wechat-reliability-supervisor.mjs'), 0o444);
 await chmod(join(releasePath, 'release-manifest.json'), 0o444);
 await chmod(join(releasePath, 'src'), 0o555);
@@ -67,6 +69,20 @@ assert.equal(definitions[1].plist.includes('127.0.0.1:17657'), true);
 assert.equal(definitions[1].plist.includes('TUNNEL_TOKEN'), false);
 assert.equal(definitions[1].plist.includes('CLOUDFLARED_TUNNEL_KEYCHAIN_CHUNKS'), true);
 assert.equal(definitions[3].plist.includes('<key>AIPRO_MAIN_SERVICE_LABEL</key>'), true);
+
+const emergencyDefinitions = await buildProductionServiceDefinitions({
+  supportRoot,
+  userHome,
+  nodePath: '/usr/local/bin/node',
+  cloudflaredPath: '/usr/local/bin/cloudflared',
+  tunnelKeychainService: 'com.example.aipro.tunnel',
+  tunnelKeychainAccount: 'production',
+  tunnelMode: 'quick-emergency',
+});
+assert.equal(emergencyDefinitions[1].plist.includes('gewe-tunnel-supervisor.mjs'), true);
+assert.equal(emergencyDefinitions[1].plist.includes('AIPRO_ALLOW_QUICK_TUNNEL_FALLBACK'), true);
+assert.equal(emergencyDefinitions[1].plist.includes('AIPRO_RELIABILITY_SERVICE_LABEL'), true);
+assert.equal(emergencyDefinitions[1].plist.includes('127.0.0.1:17657'), true);
 
 await assert.rejects(
   buildProductionServiceDefinitions({

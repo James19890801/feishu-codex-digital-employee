@@ -6,9 +6,25 @@ import test from 'node:test';
 
 import {
   assertQuickTunnelFallbackAllowed,
+  quickTunnelArguments,
   QuickTunnelUrlDetector,
   updateCallbackConfiguration,
 } from './gewe-tunnel-supervisor.mjs';
+
+test('binds emergency Quick Tunnel metrics to loopback for factual supervision', () => {
+  assert.deepEqual(quickTunnelArguments({
+    callbackPort: 17656,
+    metricsAddress: '127.0.0.1:17657',
+  }), [
+    'tunnel', '--no-autoupdate', '--edge-ip-version', '4',
+    '--metrics', '127.0.0.1:17657',
+    '--url', 'http://127.0.0.1:17656',
+  ]);
+  assert.throws(() => quickTunnelArguments({
+    callbackPort: 17656,
+    metricsAddress: '0.0.0.0:17657',
+  }), /metrics/i);
+});
 
 test('refuses production Quick Tunnel unless emergency fallback is explicit', () => {
   assert.throws(
