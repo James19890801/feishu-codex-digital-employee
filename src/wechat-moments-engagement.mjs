@@ -4,6 +4,43 @@ import { executeMutationOnce } from './mutation-execution.mjs';
 const STATE_SCOPE = 'wechat-moments-engagement';
 const STATE_KEY = 'worker';
 
+function randomUnit(random) {
+  const value = Number(typeof random === 'function' ? random() : Math.random());
+  if (!Number.isFinite(value)) return 0.5;
+  return Math.max(0, Math.min(0.999999, value));
+}
+
+function nonRoundMilliseconds(value, upperBound) {
+  let milliseconds = Math.max(1, Math.round(value));
+  if (milliseconds % 5_000 === 0) {
+    milliseconds = milliseconds + 137 <= upperBound
+      ? milliseconds + 137
+      : milliseconds - 137;
+  }
+  return milliseconds;
+}
+
+export function momentsInteractionDelayMs({ kind, text = '', random = Math.random } = {}) {
+  const ranges = {
+    like: [31_300, 73_700],
+    proactive: [71_300, 151_700],
+    thread_reply: [77_300, 169_700],
+    restart: [17_300, 42_700],
+  };
+  const range = ranges[kind];
+  if (!range) throw new Error('Unknown Moments interaction delay kind');
+  const [minimum, maximum] = range;
+  const base = minimum + (maximum - minimum) * randomUnit(random);
+  if (kind === 'like' || kind === 'restart') {
+    return nonRoundMilliseconds(base, maximum);
+  }
+  const characters = [...String(text || '')].length;
+  const typingBase = Math.min(45_700, 8_300 + Math.max(0, characters - 8) * 740);
+  const typingJitter = 0.85 + randomUnit(random) * 0.3;
+  const typing = Math.max(8_300, Math.min(45_700, typingBase * typingJitter));
+  return nonRoundMilliseconds(base + typing, maximum + 45_700);
+}
+
 function cleanText(value, maxLength = 2_000) {
   return String(value || '')
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')

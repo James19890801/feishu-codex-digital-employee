@@ -13,9 +13,39 @@ for (const name of [
   'validateGeneratedReply',
   'parseEngagementDecision',
   'buildMomentsPrompt',
+  'momentsInteractionDelayMs',
   'WeChatMomentsEngagement',
 ]) {
   assert.equal(typeof moments[name], 'function', `${name} must be implemented`);
+}
+
+if (typeof moments.momentsInteractionDelayMs === 'function') {
+  const likeMinimum = moments.momentsInteractionDelayMs({ kind: 'like', random: () => 0 });
+  const likeMaximum = moments.momentsInteractionDelayMs({ kind: 'like', random: () => 0.999999 });
+  assert.equal(likeMinimum >= 31_300, true);
+  assert.equal(likeMaximum <= 73_700, true);
+  assert.notEqual(likeMinimum % 5_000, 0, 'likes must avoid round five-second boundaries');
+
+  const shortComment = moments.momentsInteractionDelayMs({
+    kind: 'proactive',
+    text: '这个变化很具体。',
+    random: () => 0,
+  });
+  const longComment = moments.momentsInteractionDelayMs({
+    kind: 'proactive',
+    text: '这个变化很具体，后续可以继续观察交接成本是否同步下降。',
+    random: () => 0,
+  });
+  assert.equal(shortComment > 71_300, true);
+  assert.equal(longComment > shortComment, true, 'longer comments need additional typing time');
+  assert.notEqual(longComment % 5_000, 0, 'comments must avoid round five-second boundaries');
+
+  const replyDelay = moments.momentsInteractionDelayMs({
+    kind: 'thread_reply',
+    text: '这个问题问得很具体，我接着把判断依据讲清楚。',
+    random: () => 0,
+  });
+  assert.equal(replyDelay > 77_300, true);
 }
 
 function rawMoment({
