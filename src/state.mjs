@@ -18,6 +18,11 @@ function outboundContentHash(content) {
 
 function ownerConsultationRow(row) {
   if (!row) return null;
+  let taskSnapshot = {};
+  try {
+    const parsed = JSON.parse(row.task_snapshot || '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) taskSnapshot = parsed;
+  } catch { /* keep the safe empty snapshot */ }
   return {
     id: row.id,
     channel: row.channel,
@@ -31,6 +36,11 @@ function ownerConsultationRow(row) {
     requestText: row.request_text,
     decisionPrompt: row.decision_prompt,
     suggestedReply: row.suggested_reply,
+    purpose: row.purpose || 'general',
+    locationLabel: row.location_label || '',
+    costCategory: row.cost_category || '',
+    requestFingerprint: row.request_fingerprint || '',
+    taskSnapshot,
     ownerNotificationMessageId: row.owner_notification_message_id,
     ownerResponseMessageId: row.owner_response_message_id,
     decision: row.decision,
@@ -40,6 +50,8 @@ function ownerConsultationRow(row) {
     expiresAtMs: Number(row.expires_at_ms),
     remindedAtMs: Number(row.reminded_at_ms),
     resolvedAtMs: Number(row.resolved_at_ms),
+    executionStartedAtMs: Number(row.execution_started_at_ms || 0),
+    executionCompletedAtMs: Number(row.execution_completed_at_ms || 0),
     createdAtMs: Number(row.created_at_ms),
     updatedAtMs: Number(row.updated_at_ms),
     lastError: row.last_error,
@@ -313,6 +325,11 @@ export class AgentState {
         request_text TEXT NOT NULL,
         decision_prompt TEXT NOT NULL,
         suggested_reply TEXT NOT NULL,
+        purpose TEXT NOT NULL DEFAULT 'general',
+        location_label TEXT NOT NULL DEFAULT '',
+        cost_category TEXT NOT NULL DEFAULT '',
+        request_fingerprint TEXT NOT NULL DEFAULT '',
+        task_snapshot TEXT NOT NULL DEFAULT '{}',
         owner_notification_message_id TEXT NOT NULL DEFAULT '',
         owner_response_message_id TEXT NOT NULL DEFAULT '',
         decision TEXT NOT NULL DEFAULT '',
@@ -322,6 +339,8 @@ export class AgentState {
         expires_at_ms INTEGER NOT NULL,
         reminded_at_ms INTEGER NOT NULL DEFAULT 0,
         resolved_at_ms INTEGER NOT NULL DEFAULT 0,
+        execution_started_at_ms INTEGER NOT NULL DEFAULT 0,
+        execution_completed_at_ms INTEGER NOT NULL DEFAULT 0,
         created_at_ms INTEGER NOT NULL,
         updated_at_ms INTEGER NOT NULL,
         last_error TEXT NOT NULL DEFAULT '',
@@ -433,6 +452,22 @@ export class AgentState {
     this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS conversation_source_once
       ON conversation(chat_id, sender_id, role, source_message_id)
       WHERE source_message_id <> ''`);
+    const ownerConsultationColumns = new Set(
+      this.db.prepare('PRAGMA table_info(owner_consultation)').all().map(row => row.name),
+    );
+    for (const [name, definition] of [
+      ['purpose', "TEXT NOT NULL DEFAULT 'general'"],
+      ['location_label', "TEXT NOT NULL DEFAULT ''"],
+      ['cost_category', "TEXT NOT NULL DEFAULT ''"],
+      ['request_fingerprint', "TEXT NOT NULL DEFAULT ''"],
+      ['task_snapshot', "TEXT NOT NULL DEFAULT '{}'"],
+      ['execution_started_at_ms', 'INTEGER NOT NULL DEFAULT 0'],
+      ['execution_completed_at_ms', 'INTEGER NOT NULL DEFAULT 0'],
+    ]) {
+      if (!ownerConsultationColumns.has(name)) {
+        this.db.exec(`ALTER TABLE owner_consultation ADD COLUMN ${name} ${definition}`);
+      }
+    }
     const notificationColumns = new Set(
       this.db.prepare('PRAGMA table_info(multica_notification_outbox)')
         .all()
@@ -1789,6 +1824,12 @@ export class AgentState {
       requesterId: text(input.requesterId, 500), requesterLabel: text(input.requesterLabel, 200),
       sourceMessageId: text(input.sourceMessageId, 500), requestText: text(input.requestText, 4_000),
       decisionPrompt: text(input.decisionPrompt, 1_000), suggestedReply: text(input.suggestedReply, 2_000),
+      purpose: text(input.purpose || 'general', 50),
+      locationLabel: text(input.locationLabel, 300),
+      costCategory: text(input.costCategory, 80),
+      requestFingerprint: text(input.requestFingerprint, 200),
+      taskSnapshot: input.taskSnapshot && typeof input.taskSnapshot === 'object'
+        && !Array.isArray(input.taskSnapshot) ? input.taskSnapshot : {},
       reminderAtMs: Number(input.reminderAtMs), expiresAtMs: Number(input.expiresAtMs),
       nowMs: Number(input.nowMs ?? Date.now()),
     };
@@ -1796,18 +1837,27 @@ export class AgentState {
       row.originChatType, row.requesterId, row.sourceMessageId, row.requestText,
       row.decisionPrompt, row.suggestedReply];
     if (required.some(value => !value)
+      || (row.purpose === 'cost_approval'
+        && (!row.requestFingerprint || !Object.keys(row.taskSnapshot).length))
       || !Number.isFinite(row.reminderAtMs) || !Number.isFinite(row.expiresAtMs)
       || row.reminderAtMs <= row.nowMs || row.expiresAtMs <= row.reminderAtMs) {
       throw new Error('Owner consultation input is invalid');
     }
+    const serializedTaskSnapshot = JSON.stringify(row.taskSnapshot);
+    if (serializedTaskSnapshot.length > 12_000) {
+      throw new Error('Owner consultation task snapshot is too large');
+    }
     const result = this.db.prepare(`INSERT OR IGNORE INTO owner_consultation
       (id, channel, owner_id, owner_chat_id, origin_chat_id, origin_chat_type,
        requester_id, requester_label, source_message_id, request_text, decision_prompt,
-       suggested_reply, status, reminder_at_ms, expires_at_ms, created_at_ms, updated_at_ms)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_notify', ?, ?, ?, ?)`).run(
+       suggested_reply, purpose, location_label, cost_category, request_fingerprint, task_snapshot,
+       status, reminder_at_ms, expires_at_ms, created_at_ms, updated_at_ms)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_notify', ?, ?, ?, ?)`).run(
       row.id, row.channel, row.ownerId, row.ownerChatId, row.originChatId, row.originChatType,
       row.requesterId, row.requesterLabel, row.sourceMessageId, row.requestText,
-      row.decisionPrompt, row.suggestedReply, row.reminderAtMs, row.expiresAtMs,
+      row.decisionPrompt, row.suggestedReply, row.purpose, row.locationLabel,
+      row.costCategory, row.requestFingerprint, serializedTaskSnapshot,
+      row.reminderAtMs, row.expiresAtMs,
       row.nowMs, row.nowMs,
     );
     const consultation = result.changes === 1
@@ -1879,6 +1929,27 @@ export class AgentState {
     const expected = status === 'expired' ? 'expiring' : 'resolving';
     return this.db.prepare(`UPDATE owner_consultation SET status = ?, updated_at_ms = ?
       WHERE id = ? AND status = ?`).run(status, Number(nowMs), String(id || ''), expected).changes === 1;
+  }
+
+  claimOwnerConsultationCostExecution(id, nowMs = Date.now()) {
+    const result = this.db.prepare(`UPDATE owner_consultation
+      SET status = 'executing', execution_started_at_ms = ?, updated_at_ms = ?
+      WHERE id = ? AND purpose = 'cost_approval' AND status = 'resolving'
+        AND decision IN ('approve', 'revise')`).run(
+      Number(nowMs), Number(nowMs), String(id || ''),
+    );
+    return result.changes === 1 ? this.ownerConsultationById(id) : null;
+  }
+
+  markOwnerConsultationCostExecuted(id, {
+    success = true, error = '', nowMs = Date.now(),
+  } = {}) {
+    return this.db.prepare(`UPDATE owner_consultation
+      SET status = ?, execution_completed_at_ms = ?, updated_at_ms = ?, last_error = ?
+      WHERE id = ? AND status = 'executing'`).run(
+      success ? 'executed' : 'execution_failed', Number(nowMs), Number(nowMs),
+      String(error || '').slice(0, 1_000), String(id || ''),
+    ).changes === 1;
   }
 
   claimDueOwnerConsultationReminder(nowMs = Date.now()) {

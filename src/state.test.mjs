@@ -56,6 +56,44 @@ try {
   assert.equal(state.get('chat', 'paused'), true);
   state.audit('test', { chatId: 'chat', detail: { ok: true } });
 
+  const costConsultation = state.createOwnerConsultation({
+    id: 'cost-approval-1', channel: 'wechat', ownerId: 'wechat:owner',
+    ownerChatId: 'wechat:user:owner', originChatId: 'wechat:group:room@chatroom',
+    originChatType: 'group', requesterId: 'wechat:wxid_alice', requesterLabel: '一尘老师',
+    sourceMessageId: 'source-cost-1', requestText: '生成一份完整行业报告',
+    decisionPrompt: '是否同意生成这份报告', suggestedReply: '已获批准，开始生成。',
+    purpose: 'cost_approval', locationLabel: '微信群「AI流程与组织变革交流一群」',
+    costCategory: 'long_report', requestFingerprint: 'fingerprint-1',
+    taskSnapshot: { kind: 'agent_reply', request: '生成一份完整行业报告' },
+    reminderAtMs: 2_000, expiresAtMs: 4_000, nowMs: 1_000,
+  });
+  assert.equal(costConsultation.created, true);
+  assert.equal(costConsultation.consultation.purpose, 'cost_approval');
+  assert.equal(costConsultation.consultation.locationLabel, '微信群「AI流程与组织变革交流一群」');
+  assert.equal(costConsultation.consultation.costCategory, 'long_report');
+  assert.equal(costConsultation.consultation.requestFingerprint, 'fingerprint-1');
+  assert.deepEqual(costConsultation.consultation.taskSnapshot, {
+    kind: 'agent_reply', request: '生成一份完整行业报告',
+  });
+  assert.equal(state.createOwnerConsultation({
+    ...costConsultation.consultation,
+    id: 'cost-approval-duplicate',
+    taskSnapshot: { kind: 'agent_reply', request: '不应覆盖' },
+    reminderAtMs: 2_000, expiresAtMs: 4_000, nowMs: 1_000,
+  }).created, false, '同一来源消息只能创建一条成本审批');
+  assert.equal(state.claimOwnerConsultationNotification('cost-approval-1', 1_100).status, 'notifying_owner');
+  assert.equal(state.markOwnerConsultationAwaiting('cost-approval-1', 'owner-notify-1', 1_200), true);
+  assert.equal(state.claimOwnerConsultationResolution('cost-approval-1', {
+    decision: 'approve', ownerResponseMessageId: 'owner-response-1', nowMs: 1_300,
+  }).status, 'resolving');
+  assert.equal(state.claimOwnerConsultationCostExecution('cost-approval-1', 1_400).status, 'executing');
+  assert.equal(state.claimOwnerConsultationCostExecution('cost-approval-1', 1_401), null,
+    '同一批准只能领取一次执行权');
+  assert.equal(state.markOwnerConsultationCostExecuted('cost-approval-1', {
+    success: true, nowMs: 1_500,
+  }), true);
+  assert.equal(state.ownerConsultationById('cost-approval-1').status, 'executed');
+
   state.upsertRelationshipPerson({
     personId: 'wechat:wxid_alice', channel: 'wechat', externalId: 'wxid_alice',
     displayName: '同名朋友', firstSeenAt: '2026-08-01T00:00:00.000Z',
