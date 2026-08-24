@@ -1,3 +1,5 @@
+import { costCategoryLabel } from './cost-approval-policy.mjs';
+
 function bounded(value, limit = 1_000) {
   return String(value || '').replace(/\r\n?/g, '\n').trim().slice(0, limit);
 }
@@ -7,6 +9,23 @@ const NEGATED_REQUEST = /(?:不用|不必|别|无需|不要).{0,10}(?:问|找|�
 const QUOTED_REQUEST = /[“"「『][^”"」』]{0,80}(?:问|找|请示|转达).{0,8}詹老师[^”"」』]{0,80}[”"」』]/u;
 const CONTEXT_ACCEPT = /^(?:好|好的|可以|行|那好)[，,。！! ]*(?:你)?(?:去)?(?:问|找|请示)(?:吧|一下|下)?[。！! ]*$/u;
 const ASSISTANT_OFFER = /需要詹老师.{0,12}(?:确认|决定|同意)|(?:要我|我可以).{0,8}(?:问|找).{0,6}詹老师/u;
+
+export function buildSourceLocationLabel({
+  channel = 'wechat', chatType = '', chatId = '', groupName = '',
+} = {}) {
+  const provider = bounded(channel, 50).toLowerCase() || 'wechat';
+  const type = bounded(chatType, 30).toLowerCase();
+  const name = bounded(groupName, 200);
+  const id = bounded(chatId, 500).replace(/^[a-z]+:(?:group|user):/i, '');
+  const providerLabel = ({
+    wechat: '微信', dingtalk: '钉钉', wecom: '企业微信', feishu: '飞书',
+  })[provider] || provider;
+  if (type === 'group') {
+    return name ? `${providerLabel}群「${name}」` : `${providerLabel}群（ID：${id || '未知'}）`;
+  }
+  if (provider === 'wechat') return '与我的微信单聊';
+  return `${providerLabel}单聊${id ? `（ID：${id}）` : ''}`;
+}
 
 export function detectOwnerConsultationRequest({ text, recentAssistantText = '' } = {}) {
   const source = bounded(text, 2_000);
@@ -22,14 +41,32 @@ export function detectOwnerConsultationRequest({ text, recentAssistantText = '' 
 
 export function buildOwnerConsultationMessage({
   requesterLabel = '一位微信联系人',
+  requesterId = '',
+  locationLabel = '',
   requestText = '',
   decisionPrompt = '',
   suggestedReply = '',
+  purpose = '',
+  costCategory = '',
 } = {}) {
   const requester = bounded(requesterLabel, 100) || '一位微信联系人';
+  const wxid = bounded(requesterId, 500).replace(/^wechat:/, '');
+  const location = bounded(locationLabel, 300) || '微信会话中';
   const request = bounded(requestText, 1_200) || '（没有可用摘要）';
   const decision = bounded(decisionPrompt, 500) || '是否同意对方提出的事项';
   const suggestion = bounded(suggestedReply, 800) || '我收到您的意见后再回复对方。';
+  if (purpose === 'cost_approval') {
+    const identity = wxid
+      ? `微信用户「${requester}」（微信 ID：${wxid}）`
+      : `微信用户「${requester}」`;
+    return [
+      `詹老师，${identity}在${location}想让我做：`,
+      request,
+      `这属于${costCategoryLabel(costCategory)}，会消耗较多模型资源。请求您的同意。`,
+      `需要您确认：${decision}`,
+      '请引用这条消息回复“同意”或“不同意”；如需修改，请回复“改成：……”。',
+    ].join('\n\n');
+  }
   return [
     `詹老师，${requester}请我来问您：`,
     request,
@@ -132,10 +169,14 @@ export class OwnerConsultationCoordinator {
 
   async start({
     message, senderId, text, requesterLabel = '', recentAssistantText = '',
-    decisionPrompt = '', suggestedReply = '',
+    decisionPrompt = '', suggestedReply = '', purpose = 'general', locationLabel = '',
+    costCategory = '', requestFingerprint = '', taskSnapshot = {},
   } = {}) {
     const detection = detectOwnerConsultationRequest({ text, recentAssistantText });
-    if (!detection.triggered || this.ownerIds.has(prefixedOwnerId(senderId))) return { handled: false };
+    const costApproval = purpose === 'cost_approval';
+    if ((!costApproval && !detection.triggered) || this.ownerIds.has(prefixedOwnerId(senderId))) {
+      return { handled: false };
+    }
     const ownerId = [...this.ownerIds][0];
     const nowMs = Number(this.now());
     const draft = defaultConsultationDraft(text);
@@ -152,6 +193,11 @@ export class OwnerConsultationCoordinator {
       requestText: bounded(text, 4_000),
       decisionPrompt: bounded(decisionPrompt, 1_000) || draft.decisionPrompt,
       suggestedReply: bounded(suggestedReply, 2_000) || draft.suggestedReply,
+      purpose: costApproval ? 'cost_approval' : 'general',
+      locationLabel: bounded(locationLabel, 300),
+      costCategory: bounded(costCategory, 80),
+      requestFingerprint: bounded(requestFingerprint, 200),
+      taskSnapshot,
       reminderAtMs: nowMs + this.reminderMs,
       expiresAtMs: nowMs + this.ttlMs,
       nowMs,
@@ -170,7 +216,9 @@ export class OwnerConsultationCoordinator {
             chatId: consultation.originChatId,
             chatType: consultation.originChatType,
             mentionSenderId: consultation.originChatType === 'group' ? consultation.requesterId : '',
-            text: '好的，我去问詹老师，有回复后告诉你。',
+            text: costApproval
+              ? '这类生成任务需要詹老师同意。我已经发起请示，批准前不会开始执行。'
+              : '好的，我去问詹老师，有回复后告诉你。',
             idempotencyKey: `owner-consultation-${consultation.id}-ack`,
           }),
         );
@@ -187,9 +235,13 @@ export class OwnerConsultationCoordinator {
     if (!claimed) return { handled: true, action: 'notification_already_claimed', consultation };
     const ownerText = buildOwnerConsultationMessage({
       requesterLabel: consultation.requesterLabel,
+      requesterId: consultation.requesterId,
+      locationLabel: consultation.locationLabel,
       requestText: consultation.requestText,
       decisionPrompt: consultation.decisionPrompt,
       suggestedReply: consultation.suggestedReply,
+      purpose: consultation.purpose,
+      costCategory: consultation.costCategory,
     });
     try {
       const executed = await this.mutate(
