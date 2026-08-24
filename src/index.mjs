@@ -92,6 +92,7 @@ import {
   interactiveInboundRateLimitPolicy,
   isBareMention,
   planPollWindow,
+  resolveBareMentionTask,
   shouldObserveWithoutReply,
   validateInboundPayload,
 } from './reliability.mjs';
@@ -2994,11 +2995,24 @@ async function processIncoming(client, message, sender, metadata = {}) {
   }
 
   const existingHistory = state.chatHistory(message.chat_id, 50);
+  const bareMentionResolution = resolveBareMentionTask(cleanText, {
+    messageType: message.message_type,
+    history: existingHistory,
+    currentSenderId: senderOpenId,
+    nowMs: Number(message.create_time || nowMs),
+  });
+  if (isBareMention(cleanText, message.message_type)) {
+    audit('bare_mention_context_resolved', message, senderOpenId, {
+      recovered: bareMentionResolution.recovered,
+      sourceMessageId: bareMentionResolution.sourceMessageId,
+      historyCount: existingHistory.length,
+    });
+  }
   remember(
     message.chat_id,
     senderOpenId,
     'user',
-    cleanText || `发送了${message.message_type}`,
+    cleanText || '只 @ 了助理',
     {
       sourceMessageId: message.message_id,
       createdAt: new Date(Number(message.create_time) || nowMs).toISOString(),
@@ -3272,17 +3286,6 @@ async function processIncoming(client, message, sender, metadata = {}) {
     await sendText(client, message.chat_id, answer, `xiaozhao-status-${message.message_id}`);
     audit('operator_status_requested', message, senderOpenId, {
       detailed: senderOpenId === OWNER_OPEN_ID,
-    });
-    return;
-  }
-  if (isBareMention(cleanText, message.message_type)) {
-    const answer = '我在，想让我帮你看什么？';
-    remember(message.chat_id, senderOpenId, 'assistant', answer);
-    await sendText(client, message.chat_id, answer, `xiaozhao-${message.message_id}`);
-    audit('message_replied', message, senderOpenId, {
-      artifact: false,
-      answerChars: answer.length,
-      fastPath: 'bare_mention',
     });
     return;
   }
@@ -3673,7 +3676,7 @@ async function processIncoming(client, message, sender, metadata = {}) {
   let task = imageRefs.length || dingTalkImageRefs.length || weChatImagePaths.length
     || inboundMediaKind === 'image'
     ? buildImageUnderstandingTask(cleanText)
-    : cleanText;
+    : bareMentionResolution.task || cleanText;
   if (fileRefs.length || fileRef || metadata.file?.resourceId
     || weChatFileContext.files.length || weChatFileContext.sources.length) {
     const names = (fileRefs.length ? fileRefs : [fileRef]).filter(Boolean)

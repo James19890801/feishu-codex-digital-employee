@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import * as reliability from './reliability.mjs';
 import {
   assertCompleteSearchResult,
@@ -65,6 +67,77 @@ assert.deepEqual(finalInboundFailurePolicy(), {
   assert.equal(isBareMention('', 'post'), true);
   assert.equal(isBareMention('有问题', 'text'), false);
   assert.equal(isBareMention('', 'file'), false);
+}
+
+{
+  assert.equal(
+    typeof reliability.resolveBareMentionTask,
+    'function',
+    'bare mention must be able to recover the latest unanswered context',
+  );
+  if (typeof reliability.resolveBareMentionTask === 'function') {
+    const question = '如何解决智能体幻觉和多个智能体语义不一致？';
+    const recovered = reliability.resolveBareMentionTask('', {
+      messageType: 'text',
+      currentSenderId: 'wechat:zigaoliu',
+      nowMs: Date.parse('2026-08-24T23:10:12.000Z'),
+      history: [
+        {
+          role: 'user',
+          senderId: 'wechat:zigaoliu',
+          content: question,
+          sourceMessageId: 'previous-question',
+          createdAt: '2026-08-24T23:10:04.000Z',
+        },
+      ],
+    });
+    assert.equal(recovered.recovered, true);
+    assert.equal(recovered.sourceMessageId, 'previous-question');
+    assert.match(recovered.task, new RegExp(question.replace(/[?？]/g, '[?？]')));
+    assert.doesNotMatch(recovered.task, /想让我帮你看什么/);
+
+    const interrupted = reliability.resolveBareMentionTask('', {
+      messageType: 'text',
+      currentSenderId: 'member-a',
+      nowMs: Date.parse('2026-08-24T23:10:12.000Z'),
+      history: [
+        { role: 'user', senderId: 'member-a', content: '请评价这个架构', createdAt: '2026-08-24T23:10:04.000Z' },
+        { role: 'user', senderId: 'member-b', content: '我们先讨论另一个问题', createdAt: '2026-08-24T23:10:08.000Z' },
+      ],
+    });
+    assert.equal(interrupted.recovered, false, 'another member must make group context ambiguous');
+    assert.match(interrupted.task, /结合最近会话记录/);
+    assert.doesNotMatch(interrupted.task, /想让我帮你看什么/);
+
+    const answered = reliability.resolveBareMentionTask('', {
+      messageType: 'text',
+      currentSenderId: 'member-a',
+      nowMs: Date.parse('2026-08-24T23:10:12.000Z'),
+      history: [
+        { role: 'user', senderId: 'member-a', content: '请评价这个架构', createdAt: '2026-08-24T23:10:04.000Z' },
+        { role: 'assistant', senderId: 'member-a', content: '结论：这个架构缺少运行时验证。', createdAt: '2026-08-24T23:10:08.000Z' },
+      ],
+    });
+    assert.equal(answered.recovered, false, 'a substantively answered question must not be replayed');
+
+    const stale = reliability.resolveBareMentionTask('', {
+      messageType: 'text',
+      currentSenderId: 'member-a',
+      nowMs: Date.parse('2026-08-24T23:30:12.000Z'),
+      history: [
+        { role: 'user', senderId: 'member-a', content: '二十分钟前的问题', createdAt: '2026-08-24T23:10:04.000Z' },
+      ],
+    });
+    assert.equal(stale.recovered, false, 'stale context must not be guessed as the current target');
+  }
+}
+
+{
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const indexSource = await readFile(`${root}/src/index.mjs`, 'utf8');
+  assert.match(indexSource, /resolveBareMentionTask/);
+  assert.match(indexSource, /bareMentionResolution\.task/);
+  assert.doesNotMatch(indexSource, /const answer = '我在，想让我帮你看什么？'/);
 }
 
 {

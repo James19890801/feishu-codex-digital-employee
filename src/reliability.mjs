@@ -39,6 +39,67 @@ export function isBareMention(cleanText, messageType) {
   return !String(cleanText || '').trim() && ['text', 'post'].includes(messageType);
 }
 
+function isSubstantiveUserContext(content) {
+  const text = String(content || '').trim();
+  if (!text) return false;
+  if (/^发送了(?:text|post)$/i.test(text)) return false;
+  if (/^(?:对方)?只\s*@\s*(?:了)?(?:你|助理)?[。！!？? ]*$/u.test(text)) return false;
+  return true;
+}
+
+function isGenericBareMentionReply(content) {
+  const text = String(content || '').trim();
+  return /^(?:我在|在的|你好)[，,。！! ]*(?:想让我帮你看什么|需要我帮你做什么|有什么可以帮你)[？?。！! ]*$/u.test(text);
+}
+
+export function resolveBareMentionTask(cleanText, {
+  messageType = 'text',
+  history = [],
+  currentSenderId = '',
+  nowMs = Date.now(),
+  maxAgeMs = 10 * 60_000,
+} = {}) {
+  const text = String(cleanText || '').trim();
+  if (!isBareMention(text, messageType)) {
+    return { task: text, recovered: false, sourceMessageId: '' };
+  }
+
+  const recent = Array.isArray(history) ? history.slice(-12) : [];
+  let candidateIndex = -1;
+  for (let index = recent.length - 1; index >= 0; index -= 1) {
+    const item = recent[index];
+    if (item?.role === 'user' && isSubstantiveUserContext(item.content)) {
+      candidateIndex = index;
+      break;
+    }
+  }
+
+  if (candidateIndex >= 0) {
+    const candidate = recent[candidateIndex];
+    const sameSender = !currentSenderId || candidate.senderId === currentSenderId;
+    const createdAtMs = Date.parse(String(candidate.createdAt || ''));
+    const ageMs = Number(nowMs) - createdAtMs;
+    const recentEnough = Number.isFinite(createdAtMs)
+      && ageMs >= -60_000
+      && ageMs <= Math.max(1_000, Number(maxAgeMs) || 10 * 60_000);
+    const substantivelyAnswered = recent.slice(candidateIndex + 1)
+      .some(item => item?.role === 'assistant' && !isGenericBareMentionReply(item.content));
+    if (sameSender && recentEnough && !substantivelyAnswered) {
+      return {
+        task: `请直接回答对方上一条尚未得到有效答复的问题，不要再次询问他需要什么：\n${String(candidate.content).trim()}`,
+        recovered: true,
+        sourceMessageId: String(candidate.sourceMessageId || ''),
+      };
+    }
+  }
+
+  return {
+    task: '对方只 @ 了你。请结合最近会话记录判断其承接的主题并直接回应，不要使用固定在线确认话术。只有上下文确实不足时，才提出一个最小且具体的澄清问题。',
+    recovered: false,
+    sourceMessageId: '',
+  };
+}
+
 export function assertCompleteSearchResult(result, channel) {
   if (result?.data?.has_more === true) {
     throw new Error(`${channel} 消息搜索未完整返回，拒绝推进轮询游标`);
