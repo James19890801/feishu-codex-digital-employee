@@ -4,7 +4,7 @@
 
 **Goal:** Make every normal AI-generated Feishu, DingTalk, and WeChat reply rational, evidence-first, direct about material errors, warm in expression, and never flattering at the expense of correctness.
 
-**Architecture:** Keep `PERSONA.md` and `BIBLE.md` as the single cross-channel source of truth already injected by `runCodex()`. Put stable identity and tone in Persona, put executable correction and evidence rules in Bible, and add a deterministic document contract test that protects both files and the shared prompt assembly.
+**Architecture:** Keep the private `PERSONA.md` and `BIBLE.md` as the installed cross-channel source of truth already injected by `runCodex()`, while keeping the same generic contract in the tracked example templates. Put stable identity and tone in Persona, put executable correction and evidence rules in Bible, and add a deterministic template contract test that protects new installations and the shared prompt assembly without committing private identity data.
 
 **Tech Stack:** Markdown persona/configuration files, Node.js ESM, `node:assert/strict`, existing AIPRO launchd deployment.
 
@@ -15,11 +15,13 @@
 **Files:**
 - Create: `src/persona-contract.test.mjs`
 - Modify: `package.json`
+- Modify: `templates/PERSONA.example.md`
+- Modify: `templates/BIBLE.example.md`
 - Test: `src/persona-contract.test.mjs`
 
 **Step 1: Write the failing test**
 
-Create a test that reads `PERSONA.md`, `BIBLE.md`, and `src/index.mjs`, then asserts:
+Create a test that reads the tracked Persona and Bible templates plus `src/index.mjs`, then asserts:
 
 ```js
 assert.match(persona, /专业判断[^\n]*理性/);
@@ -43,17 +45,18 @@ Expected: FAIL because the new Persona and Bible rules do not exist yet.
 ### Task 2: Implement the professional correction persona
 
 **Files:**
-- Modify: `PERSONA.md`
-- Modify: `BIBLE.md`
+- Modify: `templates/PERSONA.example.md`
+- Modify: `templates/BIBLE.example.md`
+- Apply the same tested rules to ignored local `PERSONA.md` and `BIBLE.md`
 - Test: `src/persona-contract.test.mjs`
 
 **Step 1: Update Persona**
 
-Add a concise global style statement covering professional rationality, evidence priority, non-flattery, warmth, sharpness without personal attack, and pyramid-principle answers for important questions.
+Add a concise global style statement to the tracked template and local private Persona covering professional rationality, evidence priority, non-flattery, warmth, sharpness without personal attack, and pyramid-principle answers for important questions.
 
 **Step 2: Update Bible**
 
-Add `## 1.2 专业纠错与证据标准` with the approved nine rules from the design document.
+Add `## 1.2 专业纠错与证据标准` to the tracked template and local private Bible with the approved nine rules from the design document.
 
 **Step 3: Run focused tests**
 
@@ -109,8 +112,8 @@ Require:
 ### Task 4: Commit the isolated implementation
 
 **Files:**
-- `PERSONA.md`
-- `BIBLE.md`
+- `templates/PERSONA.example.md`
+- `templates/BIBLE.example.md`
 - `src/persona-contract.test.mjs`
 - `package.json` (only the new test invocation hunk)
 - `docs/plans/2026-08-25-cross-channel-professional-correction-persona.md`
