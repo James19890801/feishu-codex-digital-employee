@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "aipros-cloud-failover",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-08-07",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "ai": { "binding": "AI" },
+  "vars": {
+    "HEARTBEAT_MS": "30000",
+    "MISS_THRESHOLD": "3",
+    "RECOVERY_THRESHOLD": "3",
+    "CLOUDFLARE_CONSOLE_USERNAME": "494161546@qq.com"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "FAILOVER_COORDINATOR", "class_name": "FailoverCoordinator" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["FailoverCoordinator", "StandbyContainer"]
+    },
+    {
+      "tag": "v2",
+      "deleted_classes": ["StandbyContainer"]
+    }
+  ]
+}

@@ -9,6 +9,7 @@ import {
 import { normalizeOperatorProfile } from './operator-profile.mjs';
 import { normalizeCommunicationBlocklist } from './communication-blocklist.mjs';
 import { normalizeResponseMentionAliases } from './response-obligation.mjs';
+import { normalizeCloudFailoverConfig } from './cloud-failover-config.mjs';
 import { normalizeAiLabRuntimeConfiguration } from './ai-runtime.mjs';
 
 const srcDir = dirname(fileURLToPath(import.meta.url));
@@ -31,6 +32,7 @@ const operatorProfile = normalizeOperatorProfile({
   aliases: raw.ownerAliases,
   brandName: raw.digitalHumanBrand,
 });
+const cloudFailoverConfig = normalizeCloudFailoverConfig(raw);
 if (!Array.isArray(raw.authorizedChatIds || [])) {
   throw new Error('config.local.json 的 authorizedChatIds 必须是数组');
 }
@@ -115,6 +117,7 @@ export const config = {
   aiLabApiKey: aiLabRuntimeConfiguration.apiKey,
   aiLabWorkNo: aiLabRuntimeConfiguration.workNo,
   aiLabConfigured: Object.values(aiLabRuntimeConfiguration).every(Boolean),
+  ...cloudFailoverConfig,
   dingtalkEnabled: raw.dingtalkEnabled === true,
   dingtalkTransport: String(raw.dingtalkTransport || 'event-stream').trim(),
   dingtalkProfile: raw.dingtalkProfile || '',

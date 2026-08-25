@@ -1,15 +1,18 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../src/config.mjs';
 import { discoverAiRuntimes, selectAiRuntime } from '../src/ai-runtime.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
+const privateRoot = process.env.AIPROS_PRIVATE_ROOT
+  ? resolve(process.env.AIPROS_PRIVATE_ROOT)
+  : root;
 const configuredPath = process.env.DIGITAL_EMPLOYEE_CONFIG || join(root, 'config.local.json');
 if (!existsSync(configuredPath)) throw new Error(`缺少配置文件：${configuredPath}`);
 const requiredFiles = ['PERSONA.md', 'BIBLE.md', 'knowledge-catalog.json'];
 for (const file of requiredFiles) {
-  if (!existsSync(join(root, file))) throw new Error(`缺少 ${file}`);
+  if (!existsSync(join(privateRoot, file))) throw new Error(`缺少 ${file}`);
 }
 if (config.feishuEnabled) {
   for (const key of ['feishuAppId', 'ownerOpenId']) {

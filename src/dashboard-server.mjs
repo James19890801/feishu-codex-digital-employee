@@ -252,6 +252,12 @@ async function collectStatus() {
     lastAiRuntimeError: null,
     aiRuntimeState: null,
     selfChatCircuitLast: null,
+    cloudFailover: {
+      enabled: config.cloudFailoverEnabled,
+      configured: false,
+      state: config.cloudFailoverEnabled ? 'UNKNOWN' : 'DISABLED',
+      generation: 0,
+    },
     dingtalkChannel: {
       enabled: config.dingtalkEnabled,
       installed: existsSync(config.dingtalkBin),
@@ -314,6 +320,10 @@ async function collectStatus() {
         lastAiRuntimeError: parseSetting(db, 'health', 'last_ai_runtime_error', null),
         aiRuntimeState: parseSetting(db, 'health', 'ai_runtime', null),
         selfChatCircuitLast: parseSetting(db, 'health', 'self_chat_circuit_last', null),
+        cloudFailover: {
+          ...defaults.cloudFailover,
+          ...parseSetting(db, 'health', 'cloud_failover', {}),
+        },
         dingtalkChannel: {
           ...defaults.dingtalkChannel,
           ...parseSetting(db, 'channel', 'dingtalk', {}),
@@ -387,6 +397,9 @@ async function collectStatus() {
       pollIntervalMs: config.pollIntervalMs,
       eventTransport: config.eventTransport,
       aiRuntime: config.aiRuntime,
+      cloudFailoverEnabled: config.cloudFailoverEnabled,
+      cloudFailoverNodeId: config.cloudFailoverNodeId,
+      cloudFailoverHeartbeatMs: config.cloudFailoverHeartbeatMs,
       dingtalkEnabled: config.dingtalkEnabled,
       dingtalkProfile: config.dingtalkProfile,
       wecomEnabled: config.wecomEnabled,

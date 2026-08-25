@@ -16,6 +16,7 @@ const ROOT_FILES = new Set([
   'AI_CODING_INSTALL.md',
   'README.md',
   'config.distribution.json',
+  'docs/CLOUD_FAILOVER.md',
   'package.json',
   'pnpm-lock.yaml',
   'pnpm-workspace.yaml',
@@ -25,12 +26,14 @@ const ROOT_FILES = new Set([
 const SCRIPT_FILES = new Set([
   'scripts/check-config.mjs',
   'scripts/check-python.mjs',
+  'scripts/cloud-failover-smoke.mjs',
   'scripts/dws-deployment-policy.mjs',
   'scripts/health-check.mjs',
   'scripts/install-aicoding.mjs',
   'scripts/install-dashboard-service.sh',
   'scripts/install-service.sh',
   'scripts/runtime-smoke.mjs',
+  'scripts/qoder-cloud-provision.mjs',
   'scripts/setup.sh',
   'scripts/wechat-poc-health.mjs',
   'scripts/wechat-poc-ui.jxa',
@@ -42,8 +45,9 @@ const FORBIDDEN_PATH_PATTERNS = [
   /(^|\/)node_modules(\/|$)/u,
   /(^|\/)dist(\/|$)/u,
   /(^|\/)data(\/|$)/u,
-  /(^|\/)docs(\/|$)/u,
+  /(^|\/)docs\/(?!CLOUD_FAILOVER\.md$)/u,
   /(^|\/)config\.local\.json$/u,
+  /(^|\/)\.dev\.vars$/u,
   /(^|\/)PERSONA\.md$/u,
   /(^|\/)BIBLE\.md$/u,
   /(^|\/)knowledge-(?:catalog|source-manifest)\.json$/u,
@@ -58,6 +62,7 @@ const SECRET_PATTERNS = [
   /\b(?:ghp|github_pat)_[A-Za-z0-9_]{20,}\b/u,
   /\bBearer\s+[A-Za-z0-9._~+\/-]{20,}/iu,
   /\bAKID[A-Za-z0-9]{12,}\b/u,
+  /\b(?:QODER_PAT|AIPROS_HMAC_SECRET|DINGTALK_CLIENT_SECRET|CLOUDFLARE_CONSOLE_PASSWORD)[ \t]*=[ \t]*[^\s#]{8,}/u,
 ];
 
 const PUBLIC_DEVELOPER_IDENTIFIERS = new Set([
@@ -77,6 +82,9 @@ function isProductionFile(path) {
   if (path.startsWith('src/')) return !/\.test\.[cm]?[jt]s$/u.test(path);
   if (path.startsWith('dashboard/')) return !/\.test\.[cm]?[jt]s$/u.test(path);
   if (path.startsWith('templates/')) return /\.example\.(?:md|json)$/u.test(path);
+  if (path.startsWith('cloud-failover/')) {
+    return !/\.test\.[cm]?[jt]s$/u.test(path) && !/(^|\/)\.dev\.vars$/u.test(path);
+  }
   return false;
 }
 
