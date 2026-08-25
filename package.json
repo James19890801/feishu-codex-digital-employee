@@ -30,6 +30,7 @@
     "test:alibaba-language": "node src/alibaba-language.test.mjs",
     "test:reply-context": "node src/reply-context.test.mjs",
     "test:online-first": "node src/online-first-runtime-router.test.mjs && node src/ai-runtime.test.mjs && node src/ai-lab-runtime.test.mjs && node scripts/configure-ai-lab-runtime.test.mjs",
+    "test:cloud-blacklist": "node src/cloud-blacklist-projection.test.mjs && node scripts/render-cloud-blacklist-bundle.test.mjs",
     "test:cloud-failover": "node src/cloud-failover-policy.test.mjs && node src/cloud-failover-client.test.mjs && node src/local-first-runtime-router.test.mjs && node src/cloud-failover-config.test.mjs && node src/failover-heartbeat.test.mjs && node scripts/cloud-failover-heartbeat-sidecar.test.mjs && node scripts/qoder-cloud-provision.test.mjs && pnpm --dir cloud-failover/worker test && pnpm --dir cloud-failover/container test && node scripts/cloud-failover-smoke.test.mjs && node scripts/railway-failover-smoke.test.mjs",
     "cloud-failover:dry": "pnpm --dir cloud-failover/worker run deploy:dry",
     "cloud-failover:smoke": "node scripts/cloud-failover-smoke.mjs",
