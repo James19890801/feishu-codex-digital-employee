@@ -1,4 +1,4 @@
-FROM docker.m.daocloud.io/library/node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
+FROM docker.io/library/node:24-bookworm-slim@sha256:a9f5f7c91a432850b2a8a7797adf5eadb6c733ceed61167806cee7ea7fbc29df
 
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends ca-certificates \

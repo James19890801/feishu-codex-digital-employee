@@ -13,9 +13,29 @@ const portableBundle = Buffer.from('dws-1.0.56-portable-auth-tarball').toString(
 const env = {
   DINGTALK_DWS_AUTH_BUNDLE_B64: portableBundle, AIPROS_DWS_HOME: dwsHome,
   AIPROS_CLOUD_DWS_CHANNEL: 'cloud-channel',
+  AIPROS_NODE_ID: 'railway-node-test',
   AIPROS_COORDINATOR_URL: 'https://internal.test',
   AIPROS_CONTAINER_TOKEN: 'token', AIPROS_ACCESS_MODE: 'blacklist',
   AIPROS_BLOCKED_CHAT_IDS: 'blocked-chat', AIPROS_BLOCKED_SENDER_IDS: 'blocked-user',
+};
+const lifecycle = [];
+const bufferedMessages = [];
+const standbyBuffer = {
+  async put(message) {
+    if (bufferedMessages.some(item => item.messageId === message.messageId)) return false;
+    bufferedMessages.push(message);
+    bufferedMessages.sort((left, right) => left.createdAt - right.createdAt);
+    return true;
+  },
+  async drain({ handler }) {
+    let completed = 0;
+    while (bufferedMessages.length) {
+      await handler(bufferedMessages[0]);
+      bufferedMessages.shift();
+      completed += 1;
+    }
+    return { completed, failed: 0, remaining: 0 };
+  },
 };
 let importedPath = '';
 const runner = async (_bin, args, options = {}) => {
@@ -33,6 +53,7 @@ const runner = async (_bin, args, options = {}) => {
     return { stdout: '{"authenticated":true}' };
   }
   if (args[0] === 'chat' && args[1] === 'message' && args[2] === 'send') {
+    lifecycle.push(`send:${args[args.indexOf('--text') + 1]}`);
     return { stdout: '{"result":{"openTaskId":"task-1"}}' };
   }
   if (args[0] === 'chat' && args[1] === 'message' && args[2] === 'list') {
@@ -52,9 +73,10 @@ const runner = async (_bin, args, options = {}) => {
   return { stdout: '{}' };
 };
 const coordinator = {
-  async ready(generation) { coordinatorCalls.push(['ready', generation]); return { ok: true }; },
+  async ready(generation) { lifecycle.push('ready'); coordinatorCalls.push(['ready', generation]); return { ok: true }; },
   async claim(input) { coordinatorCalls.push(['claim', input]); return { accepted: true }; },
   async qoder(input) {
+    lifecycle.push(`qoder:${input.prompt}`);
     coordinatorCalls.push(['qoder', input]);
     return { result: { text: input.prompt.includes('质量闸门测试') ? '好的，随时找我。' : '云端回答' } };
   },
@@ -65,6 +87,7 @@ const eventCalls = [];
 const eventChildren = [];
 const worker = new StandbyDwsWorker({
   env, runner, coordinator, now: () => 1_786_060_800_000,
+  standbyBuffer,
   eventConsumer: async (_bin, args, _onMessage, options = {}) => {
     eventCalls.push(args);
     assert.equal(options.env?.HOME, dwsHome);
@@ -89,11 +112,26 @@ assert.deepEqual(eventCalls[0].slice(0, 5), [
   'user_im_message_receive_o2o_all',
   '--flatten',
 ]);
-assert.deepEqual(await worker.processMessage({ messageId: 'standby' }), { skipped: 'standby' });
+assert.deepEqual(await worker.processMessage({
+  messageId: 'standby-2', chatId: 'chat-1', senderId: 'user-1', text: '第二条',
+  createdAt: 1_786_060_799_000, messageType: 'text', chatType: 'p2p',
+}), { buffered: true });
+assert.deepEqual(await worker.processMessage({
+  messageId: 'standby-1', chatId: 'chat-1', senderId: 'user-1', text: '第一条',
+  createdAt: 1_786_060_798_000, messageType: 'text', chatType: 'p2p',
+}), { buffered: true });
+assert.deepEqual(await worker.processMessage({
+  messageId: 'standby-blocked', chatId: 'chat-1', senderId: 'blocked-user', text: '不应缓冲',
+  createdAt: 1_786_060_800_000, messageType: 'text', chatType: 'p2p',
+}), { skipped: 'blocked_sender' });
+assert.equal(bufferedMessages.length, 2);
 
 assert.deepEqual(await worker.activate(3), { ready: true, generation: 3 });
 assert.deepEqual(await worker.activate(3), { ready: true, generation: 3 });
 assert.equal(coordinatorCalls.filter(call => call[0] === 'ready').length, 1);
+assert.equal(bufferedMessages.length, 0);
+assert.equal(lifecycle.indexOf('qoder:第一条') < lifecycle.indexOf('qoder:第二条'), true);
+assert.equal(lifecycle.indexOf('qoder:第二条') < lifecycle.indexOf('ready'), true);
 const backfillCalls = calls.filter(args => args[0] === 'chat' && args[1] === 'message' && args[2] === 'list-mentions');
 assert.equal(backfillCalls.length, 1);
 assert.equal(backfillCalls[0].includes('--group'), false);
@@ -160,13 +198,32 @@ assert.equal(imageResult.sent, true);
 assert.equal(calls.some(args => args[0] === 'chat' && args[2] === 'download-media'), true);
 const visionCall = coordinatorCalls.find(call => call[0] === 'vision');
 assert.equal(visionCall[1].image.startsWith('data:image/png;base64,'), true);
+
+let failingReadyCalls = 0;
+const failingWorker = new StandbyDwsWorker({
+  env, runner, now: () => 1_786_060_800_000,
+  coordinator: {
+    ...coordinator,
+    async ready() { failingReadyCalls += 1; return { ok: true }; },
+  },
+  standbyBuffer: {
+    async put() { return true; },
+    async drain() { throw new Error('standby decrypt failed'); },
+  },
+  eventConsumer: async () => new EventEmitter(),
+});
+await assert.rejects(() => failingWorker.activate(9), /decrypt/);
+assert.equal(failingReadyCalls, 0);
 const imageQoderCall = coordinatorCalls.filter(call => call[0] === 'qoder').at(-1)[1];
 assert.match(imageQoderCall.prompt, /视觉模型.*识别结果/s);
 assert.match(imageQoderCall.prompt, /测试截图/);
 assert.match(imageQoderCall.prompt, /这是什么/);
 assert.doesNotMatch(imageQoderCall.prompt, /image-resource-1/);
 worker.deactivate();
-assert.deepEqual(await worker.processMessage({ messageId: 'after-drain' }), { skipped: 'standby' });
+assert.deepEqual(await worker.processMessage({
+  messageId: 'after-drain', chatId: 'chat-1', senderId: 'user-1', text: '继续待机',
+  createdAt: 1_786_060_800_000, messageType: 'text', chatType: 'p2p',
+}), { buffered: true });
 eventChildren[0].emit('exit', 1);
 assert.equal(worker.authenticated, false);
 assert.equal(worker.backfilledGeneration, 0);
@@ -207,6 +264,7 @@ const overrideWorker = new StandbyDwsWorker({
     DINGTALK_CLIENT_SECRET: 'cloud-secret',
   },
   coordinator,
+  standbyBuffer: { async put() { return true; }, async drain() { return { completed: 0, failed: 0, remaining: 0 }; } },
   runner: async (_bin, args) => {
     overrideCalls.push(args);
     return { stdout: args[0] === 'auth' && args[1] === 'status' ? '{"authenticated":true}' : '{}' };

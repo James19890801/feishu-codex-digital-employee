@@ -7,6 +7,7 @@ import {
 const env = {
   DINGTALK_DWS_AUTH_BUNDLE_B64: 'bundle', AIPROS_COORDINATOR_URL: 'https://internal.test',
   AIPROS_CLOUD_DWS_CHANNEL: 'cloud-channel',
+  AIPROS_NODE_ID: 'railway-node-test',
   AIPROS_CONTAINER_TOKEN: 'token', AIPROS_ACCESS_MODE: 'blacklist',
   AIPROS_BLOCKED_CHAT_IDS: 'blocked-chat', AIPROS_BLOCKED_SENDER_IDS: 'blocked-user',
 };

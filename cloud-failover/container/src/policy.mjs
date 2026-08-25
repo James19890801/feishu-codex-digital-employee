@@ -21,7 +21,7 @@ export function validateContainerEnvironment(env = {}) {
   }
   const required = [
     'DINGTALK_DWS_AUTH_BUNDLE_B64',
-    'AIPROS_CLOUD_DWS_CHANNEL', 'AIPROS_COORDINATOR_URL', 'AIPROS_CONTAINER_TOKEN',
+    'AIPROS_CLOUD_DWS_CHANNEL', 'AIPROS_COORDINATOR_URL', 'AIPROS_CONTAINER_TOKEN', 'AIPROS_NODE_ID',
   ];
   for (const key of required) if (!String(env[key] || '').trim()) throw new Error(`${key} is required`);
   if (String(env.AIPROS_ACCESS_MODE || '').trim().toLowerCase() !== 'blacklist') {
@@ -87,6 +87,12 @@ export function evaluateCloudMessage(message, {
   blockedChatIds, blockedSenderIds, generation, expectedGeneration, now = Date.now(),
 }) {
   if (Number(generation) !== Number(expectedGeneration)) return { allowed: false, reason: 'stale_generation' };
+  return evaluateCloudStaticMessage(message, { blockedChatIds, blockedSenderIds, now });
+}
+
+export function evaluateCloudStaticMessage(message, {
+  blockedChatIds, blockedSenderIds, now = Date.now(),
+}) {
   if (!message.messageId || !message.chatId || !message.senderId) return { allowed: false, reason: 'invalid_message' };
   if (blockedChatIds?.has(message.chatId)) return { allowed: false, reason: 'blocked_chat' };
   if (blockedSenderIds?.has(message.senderId)) return { allowed: false, reason: 'blocked_sender' };

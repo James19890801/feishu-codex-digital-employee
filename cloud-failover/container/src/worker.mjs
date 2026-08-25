@@ -5,10 +5,11 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  cloudReply, deliveryTarget, evaluateCloudMessage, messageDigest, normalizeDwsMessage,
+  cloudReply, deliveryTarget, evaluateCloudMessage, evaluateCloudStaticMessage, messageDigest, normalizeDwsMessage,
   ownerHandoffReply, stableMessageUuid, validateContainerEnvironment,
 } from './policy.mjs';
 import { RailwayFailoverRuntime } from './runtime.mjs';
+import { StandbyMessageBuffer } from './standby-buffer.mjs';
 
 function isDwsAuthenticated(value) {
   const candidate = value?.data || value;
@@ -121,6 +122,8 @@ export class StandbyDwsWorker {
     env, runner = safeProcess, coordinator, now = () => Date.now(), bin = 'dws',
     eventConsumer = startDwsEventConsumer,
     delay = ms => new Promise(resolve => setTimeout(resolve, ms)),
+    standbyBuffer = null,
+    bufferFactory = options => StandbyMessageBuffer.open(options),
   } = {}) {
     this.env = env;
     this.policy = validateContainerEnvironment(env);
@@ -130,6 +133,8 @@ export class StandbyDwsWorker {
     this.bin = bin;
     this.eventConsumer = eventConsumer;
     this.delay = delay;
+    this.standbyBuffer = standbyBuffer;
+    this.bufferFactory = bufferFactory;
     this.generation = 0;
     this.activeGeneration = 0;
     this.backfilledGeneration = 0;
@@ -216,6 +221,16 @@ export class StandbyDwsWorker {
     if (this.authenticated && this.eventChild) return { authenticated: true };
     if (this.initializationPromise) return this.initializationPromise;
     this.initializationPromise = (async () => {
+      if (!this.standbyBuffer) {
+        this.standbyBuffer = await this.bufferFactory({
+          path: String(this.env.AIPROS_STANDBY_BUFFER_PATH || '/data/standby-messages.sqlite'),
+          secret: this.env.AIPROS_CONTAINER_TOKEN,
+          nodeId: this.env.AIPROS_NODE_ID,
+          now: this.now,
+          ttlMs: 180_000,
+          maxRows: 100,
+        });
+      }
       if (!this.authenticated) await this.authenticate();
       if (!this.eventChild) {
         const child = await this.eventConsumer(this.bin, [
@@ -242,9 +257,18 @@ export class StandbyDwsWorker {
   }
 
   async processMessage(raw) {
-    const generation = this.activeGeneration;
-    if (!generation) return { skipped: 'standby' };
     const message = normalizeDwsMessage(raw);
+    const generation = this.activeGeneration;
+    if (!generation) {
+      const decision = evaluateCloudStaticMessage(message, { ...this.policy, now: this.now() });
+      if (!decision.allowed) return { skipped: decision.reason };
+      const inserted = await this.standbyBuffer.put(message);
+      return inserted ? { buffered: true } : { skipped: 'duplicate_or_expired' };
+    }
+    return this.processActiveMessage(message, generation);
+  }
+
+  async processActiveMessage(message, generation) {
     const decision = evaluateCloudMessage(message, {
       ...this.policy, generation, expectedGeneration: this.activeGeneration, now: this.now(),
     });
@@ -414,11 +438,22 @@ export class StandbyDwsWorker {
     if (!Number.isInteger(nextGeneration) || nextGeneration <= 0) throw new Error('Invalid generation');
     await this.initialize();
     if (this.activeGeneration !== nextGeneration) {
-      if (announceReady) await this.coordinator.ready(nextGeneration);
       this.generation = nextGeneration;
       this.activeGeneration = nextGeneration;
+      try {
+        const drained = await this.standbyBuffer.drain({
+          now: this.now(), handler: message => this.processActiveMessage(message, nextGeneration),
+        });
+        if (drained.failed) throw new Error('Standby buffer drain failed');
+        if (this.backfilledGeneration !== nextGeneration) await this.backfill(nextGeneration);
+        if (announceReady) await this.coordinator.ready(nextGeneration);
+      } catch (error) {
+        this.activeGeneration = 0;
+        throw error;
+      }
+    } else if (this.backfilledGeneration !== nextGeneration) {
+      await this.backfill(nextGeneration);
     }
-    if (this.backfilledGeneration !== nextGeneration) await this.backfill(nextGeneration);
     return { ready: true, generation: nextGeneration };
   }
 

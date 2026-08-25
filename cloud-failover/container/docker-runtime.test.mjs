@@ -15,6 +15,12 @@ const version = spawnSync('docker', [
 assert.equal(version.status, 0, `dws failed to start:\n${version.stderr.slice(-4_000)}`);
 assert.match(version.stdout, /dws version/i);
 
+const sqlite = spawnSync('docker', [
+  'run', '--rm', '--platform', platform, '--entrypoint', 'node', image,
+  '--input-type=module', '-e', "import { DatabaseSync } from 'node:sqlite'; const db = new DatabaseSync(':memory:'); db.exec('select 1'); db.close();",
+], { encoding: 'utf8', timeout: 60_000 });
+assert.equal(sqlite.status, 0, `node:sqlite failed to start:\n${sqlite.stderr.slice(-4_000)}`);
+
 const caBundle = spawnSync('docker', [
   'run', '--rm', '--platform', platform, '--entrypoint', 'sh', image,
   '-c', 'test -s /etc/ssl/certs/ca-certificates.crt',

@@ -13,6 +13,9 @@ await service.heartbeat({ at: 0, serviceStartId: 'start-1', dwsConnected: true, 
 assert.equal((await service.evaluate(89_999)).state, 'LOCAL_PRIMARY');
 assert.equal((await service.evaluate(90_000)).state, 'TAKING_OVER');
 assert.equal((await service.evaluate(90_000)).generation, 1, 'alarm replay must be idempotent');
+assert.equal((await service.claim({ generation: 1, messageDigest: 'd'.repeat(64) })).accepted, true,
+  'Railway must be able to fence and drain its standby journal before declaring ready');
+await service.complete({ generation: 1, messageDigest: 'd'.repeat(64), outcomeCode: 'standby_test' });
 
 const unhealthyRepository = new InMemoryFailoverRepository();
 const unhealthyService = new FailoverCoordinatorService({ repository: unhealthyRepository });

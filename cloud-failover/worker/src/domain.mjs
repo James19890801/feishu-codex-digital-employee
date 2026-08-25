@@ -115,7 +115,7 @@ export class FailoverCoordinatorService {
     if (Number(generation) !== current.generation) {
       throw new DomainError('stale_generation', 'Claim generation is stale');
     }
-    if (current.state !== 'CLOUD_ACTIVE') {
+    if (!['TAKING_OVER', 'CLOUD_ACTIVE'].includes(current.state)) {
       throw new DomainError('claims_closed', 'Cloud claims are not accepted');
     }
     if (!/^[a-f0-9]{64}$/.test(String(messageDigest || ''))) {
