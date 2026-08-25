@@ -361,6 +361,19 @@ contract('stable-response', 'Does an admitted DingTalk group @ create a response
   }).responseRequired, true);
 });
 
+contract('stable-response', 'Does a multi-mention DingTalk broadcast stay silent?', () => {
+  assert.deepEqual(assessResponseObligation({
+    message: { chat_type: 'group', mentions: [{ id: 'dingtalk-current-user' }] },
+    metadata: { channel: 'dingtalk', eventType: 'user_im_message_receive_at' },
+    text: '@登位 @萌七 @阿充James 今晚 7 点集中发布。',
+    aliases: ['阿充James'],
+  }), {
+    explicitAssistantMention: true,
+    responseRequired: false,
+    reasonCode: 'multi_mention_broadcast',
+  });
+});
+
 contract('stable-response', 'Does a repeated explicit mention stop before AI but stay visible?', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'james-acceptance-stable-response-'));
   const state = new AgentState(join(dir, 'state.sqlite'));
@@ -569,6 +582,13 @@ contract('conversation-etiquette', 'Do social closers terminate without another 
 
 contract('stable-response', 'Can a generic acknowledgement pass the final outbound gate?', () => {
   assert.equal(governGeneratedReply('好的，随时找我。'), '');
+});
+
+contract('stable-response', 'Can an owner-facing draft leak to an external conversation?', () => {
+  assert.equal(governGeneratedReply(
+    '草拟回复（需你确认后发送到群聊）：收到，7点见。你看这样回行不行？',
+    { externalAudience: true },
+  ), '');
 });
 
 for (const [chatType, isOwner, history, expected] of [

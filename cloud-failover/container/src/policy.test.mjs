@@ -61,6 +61,14 @@ assert.deepEqual(evaluateCloudMessage(imageMessage, {
 }), { allowed: true, level: 'L0', handoff: false });
 assert.deepEqual(evaluateCloudMessage(message, { ...policy, generation: 2, expectedGeneration: 2, now }),
   { allowed: true, level: 'L0', handoff: false });
+assert.deepEqual(evaluateCloudMessage({
+  ...message,
+  chatType: 'group',
+  text: '@登位 @陈泽炫 @鹏友 @萌七 @迅羽 @阿充James @李福庆 列了个发布计划，今晚 7 点集中发布。',
+}, { ...policy, generation: 2, expectedGeneration: 2, now }), {
+  allowed: false,
+  reason: 'multi_mention_broadcast',
+});
 for (const text of [
   '好的，有需要随时说。', '好的，回头联系。', '谢谢，先这样。', '我整理好稍后发你。',
   '哈哈没事没事，你也去忙吧，咱别循环了～', '👌',
@@ -92,6 +100,10 @@ assert.equal(cloudReply('好的，随时找我。', {
 }), '', 'a generated non-answer must not become outbound merely because the request was actionable');
 assert.equal(cloudReply('哈哈好，收住，不循环了～'), '');
 assert.equal(cloudReply('👌'), '');
+assert.equal(cloudReply(
+  '草拟回复（需你确认后发送到群聊）：收到，7点见。你看这样回行不行，或者改一下？',
+  { externalAudience: true },
+), '', 'cloud takeover must not leak an owner-facing draft either');
 assert.match(ownerHandoffReply(), /本人确认/);
 assert.doesNotMatch(ownerHandoffReply(), /云端兜底/);
 console.log('FAILOVER_CONTAINER_POLICY_TEST_OK');

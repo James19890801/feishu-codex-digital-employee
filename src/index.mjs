@@ -160,7 +160,7 @@ import {
   buildFirstTakeoverGreeting,
   conversationReplyDisposition,
   enforceReplyLength,
-  governGeneratedReply,
+  generatedReplyDisposition,
   replyLengthPolicy,
   shouldIntroduceAssistant,
 } from './conversation-etiquette.mjs';
@@ -2875,10 +2875,13 @@ async function processIncoming(client, message, sender, metadata = {}) {
         reason: commitmentGuard.reason,
       });
     }
-    const answer = governGeneratedReply(commitmentGuard.text);
+    const replyDisposition = generatedReplyDisposition(commitmentGuard.text, {
+      externalAudience: metadata.selfChat !== true && senderOpenId !== OWNER_OPEN_ID,
+    });
+    const answer = replyDisposition.text;
     if (!answer) {
       audit('outbound_quality_suppressed', message, senderOpenId, {
-        reason: 'generic_closing_reply',
+        reason: replyDisposition.reason,
       });
       console.log(`[reply] ${message.message_id}: suppressed (outbound_quality)`);
       return;

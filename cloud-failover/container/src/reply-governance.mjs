@@ -4,6 +4,14 @@ const SOCIAL_CLOSING = /^(?:好|好的|好嘞|行|可以|收到|明白|了解|�
 const GENERIC_CLOSING_REPLY = /^(?:好|好的|好嘞|行|可以|收到|明白)(?:[，,\s]*(?:有需要|需要的话)?(?:随时)?(?:说|找我|联系我|告诉我|发给我|发过来))?[。.!！\s]*$/u;
 const STOP_LOOP_CLOSING = /(?:别|不|停止|收住|收了).{0,6}(?:循环|自动回复)|(?:你|您)(?:也)?(?:先)?去忙/u;
 const EMOJI_ONLY = /^[\p{Extended_Pictographic}\p{Emoji_Component}\u200d\ufe0f\s]+$/u;
+const OWNER_FACING_DRAFT = /(?:草拟回复|需你确认后发送|你看(?:这样)?(?:回|回复).{0,12}(?:行不行|可以吗)|或者改一下)/u;
+
+export function isMultiMentionBroadcast(text, { chatType = '' } = {}) {
+  if (String(chatType || '').trim().toLowerCase() !== 'group') return false;
+  return [...String(text || '').matchAll(
+    /(?:^|[\s，,。！？!?；;、])[@＠]\s*[^\s，,。！？!?；;、]+/gu,
+  )].length > 1;
+}
 
 export function conversationReplyDisposition(text, { responseRequired = false } = {}) {
   const value = String(text || '').normalize('NFKC').replace(/\s+/g, ' ').trim();
@@ -16,9 +24,10 @@ export function conversationReplyDisposition(text, { responseRequired = false } 
   return { reply: true, reason: 'conversation_open' };
 }
 
-export function governGeneratedReply(text) {
+export function governGeneratedReply(text, { externalAudience = false } = {}) {
   const reply = String(text || '').trim();
-  return GENERIC_CLOSING_REPLY.test(reply) || STOP_LOOP_CLOSING.test(reply) || EMOJI_ONLY.test(reply)
+  return (externalAudience && OWNER_FACING_DRAFT.test(reply))
+    || GENERIC_CLOSING_REPLY.test(reply) || STOP_LOOP_CLOSING.test(reply) || EMOJI_ONLY.test(reply)
     ? ''
     : reply;
 }

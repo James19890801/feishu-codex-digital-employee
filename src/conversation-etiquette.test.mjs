@@ -52,5 +52,13 @@ assert.equal(conversationEtiquette.governGeneratedReply?.('好的，随时找我
   'generic acknowledgement must not pass the local outbound gate');
 assert.equal(conversationEtiquette.governGeneratedReply?.('哈哈好，收住，不循环了～'), '');
 assert.equal(conversationEtiquette.governGeneratedReply?.('👌'), '');
+assert.equal(conversationEtiquette.governGeneratedReply?.(
+  '草拟回复（需你确认后发送到群聊）：收到，7点见。你看这样回行不行，或者改一下？',
+  { externalAudience: true },
+), '', 'an owner-facing draft must never leak to the external conversation');
+assert.match(conversationEtiquette.governGeneratedReply?.(
+  '草拟回复：收到，7点见。',
+  { externalAudience: false },
+), /草拟回复/, 'the owner self-chat may still receive a draft');
 
 console.log('CONVERSATION_ETIQUETTE_TEST_OK');

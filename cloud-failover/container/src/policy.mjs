@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   conversationReplyDisposition,
   governGeneratedReply,
+  isMultiMentionBroadcast,
 } from './reply-governance.mjs';
 
 const HIGH_RISK = /(?:付款|转账|支付|签署|代签|录用|辞退|密码|验证码|私钥|删除全部|代表我|替我承诺)/;
@@ -98,6 +99,9 @@ export function evaluateCloudStaticMessage(message, {
   if (blockedSenderIds?.has(message.senderId)) return { allowed: false, reason: 'blocked_sender' };
   if (message.createdAt < now - 3 * 60_000) return { allowed: false, reason: 'outside_backfill_window' };
   if (!['text', 'image'].includes(message.messageType)) return { allowed: false, reason: 'non_text' };
+  if (isMultiMentionBroadcast(message.text, { chatType: message.chatType })) {
+    return { allowed: false, reason: 'multi_mention_broadcast' };
+  }
   if (message.messageType === 'text' && !conversationReplyDisposition(message.text).reply) {
     return { allowed: false, reason: 'conversation_closed' };
   }
@@ -106,8 +110,8 @@ export function evaluateCloudStaticMessage(message, {
   return { allowed: true, level: /(?:方案|报告|总结)/.test(message.text) ? 'L1' : 'L0', handoff: false };
 }
 
-export function cloudReply(text, { requestText = '' } = {}) {
-  return governGeneratedReply(text);
+export function cloudReply(text, { requestText = '', externalAudience = true } = {}) {
+  return governGeneratedReply(text, { externalAudience });
 }
 export function ownerHandoffReply() {
   return cloudReply('这件事需要本人确认，我先不代为操作；已保留请求，等本人在线后处理。');
