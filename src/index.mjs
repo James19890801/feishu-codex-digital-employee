@@ -136,6 +136,7 @@ import {
   runAiRuntimeStartupProbe,
   selectAiRuntime,
 } from './ai-runtime.mjs';
+import { OnlineFirstRuntimeRouter } from './online-first-runtime-router.mjs';
 import { CloudFailoverClient } from './cloud-failover-client.mjs';
 import { FailoverHeartbeat } from './failover-heartbeat.mjs';
 import { LocalFirstRuntimeRouter } from './local-first-runtime-router.mjs';
@@ -273,12 +274,37 @@ try {
     if (symlinkError?.code !== 'EEXIST') throw symlinkError;
   }
 }
-const AI_RUNTIMES = discoverAiRuntimes({ configuredCodexBin: config.codexBin });
-const SELECTED_AI_RUNTIME = selectAiRuntime(AI_RUNTIMES, config.aiRuntime);
-const AI_RUNTIME_CLIENT = new AiRuntimeClient({
-  runtime: SELECTED_AI_RUNTIME,
-  env: aiRuntimeEnv(),
+const AI_RUNTIMES = discoverAiRuntimes({
+  configuredCodexBin: config.codexBin,
+  configuredQoderBin: config.qoderBin,
+  aiLabConfigured: config.aiLabConfigured,
 });
+const SELECTED_AI_RUNTIME = selectAiRuntime(AI_RUNTIMES, config.aiRuntime);
+const LOCAL_FALLBACK_AI_RUNTIME = config.aiRuntime === 'online-first'
+  ? selectAiRuntime(AI_RUNTIMES, 'auto')
+  : null;
+
+function createAiRuntimeClient(runtime) {
+  return new AiRuntimeClient({
+    runtime,
+    env: aiRuntimeEnv(runtime),
+    aiLab: {
+      endpoint: config.aiLabEndpoint,
+      agentId: config.aiLabAgentId,
+      apiKey: config.aiLabApiKey,
+      workNo: config.aiLabWorkNo,
+    },
+  });
+}
+
+const PRIMARY_AI_RUNTIME_CLIENT = createAiRuntimeClient(SELECTED_AI_RUNTIME);
+const AI_RUNTIME_CLIENT = LOCAL_FALLBACK_AI_RUNTIME
+  ? new OnlineFirstRuntimeRouter({
+      onlineClient: PRIMARY_AI_RUNTIME_CLIENT,
+      localClient: createAiRuntimeClient(LOCAL_FALLBACK_AI_RUNTIME),
+      circuitOpenMs: 30_000,
+    })
+  : PRIMARY_AI_RUNTIME_CLIENT;
 let cloudFailoverClient = null;
 let cloudFailoverHeartbeat = null;
 const CLOUD_FAILOVER_SERVICE_START_ID = randomBytes(16).toString('hex');
@@ -563,11 +589,11 @@ function larkCliEnv() {
   };
 }
 
-function aiRuntimeEnv() {
+function aiRuntimeEnv(runtime = SELECTED_AI_RUNTIME) {
   const env = {
     ...process.env,
   };
-  if (SELECTED_AI_RUNTIME?.id === 'codex') env.CODEX_HOME = CODEX_HOME_DIR;
+  if (runtime?.id === 'codex') env.CODEX_HOME = CODEX_HOME_DIR;
   if (config.codexProxyUrl) {
     env.HTTP_PROXY = config.codexProxyUrl;
     env.HTTPS_PROXY = config.codexProxyUrl;

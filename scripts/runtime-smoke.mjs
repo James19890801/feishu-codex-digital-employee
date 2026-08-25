@@ -6,7 +6,11 @@ import {
   selectAiRuntime,
 } from '../src/ai-runtime.mjs';
 
-const runtimes = discoverAiRuntimes({ configuredCodexBin: config.codexBin });
+const runtimes = discoverAiRuntimes({
+  configuredCodexBin: config.codexBin,
+  configuredQoderBin: config.qoderBin,
+  aiLabConfigured: config.aiLabConfigured,
+});
 const runtime = selectAiRuntime(runtimes, config.aiRuntime);
 const runtimeDir = join(config.workdir, 'data', 'codex-runtime');
 const env = { ...process.env };
@@ -18,7 +22,16 @@ if (config.codexProxyUrl) {
   env.HTTPS_PROXY = config.codexProxyUrl;
   env.ALL_PROXY = config.codexProxyUrl;
 }
-const client = new AiRuntimeClient({ runtime, env });
+const client = new AiRuntimeClient({
+  runtime,
+  env,
+  aiLab: {
+    endpoint: config.aiLabEndpoint,
+    agentId: config.aiLabAgentId,
+    apiKey: config.aiLabApiKey,
+    workNo: config.aiLabWorkNo,
+  },
+});
 const startedAt = Date.now();
 const { text } = await client.run('只回复：JAMES_AI_RUNTIME_OK', {
   cwd: runtimeDir,

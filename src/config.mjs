@@ -10,6 +10,7 @@ import { normalizeOperatorProfile } from './operator-profile.mjs';
 import { normalizeCommunicationBlocklist } from './communication-blocklist.mjs';
 import { normalizeResponseMentionAliases } from './response-obligation.mjs';
 import { normalizeCloudFailoverConfig } from './cloud-failover-config.mjs';
+import { normalizeAiLabRuntimeConfiguration } from './ai-runtime.mjs';
 
 const srcDir = dirname(fileURLToPath(import.meta.url));
 const workdir = resolve(srcDir, '..');
@@ -19,6 +20,12 @@ if (!existsSync(configPath)) {
 }
 const raw = JSON.parse(readFileSync(configPath, 'utf8'));
 const home = process.env.HOME || '';
+const aiLabRuntimeConfiguration = {
+  endpoint: String(raw.aiLabEndpoint || 'https://pre-ai-lab-agent.alibaba-inc.com').trim(),
+  agentId: String(raw.aiLabAgentId || '').trim(),
+  apiKey: String(raw.aiLabApiKey || '').trim(),
+  workNo: String(raw.aiLabWorkNo || '').trim(),
+};
 const operatorProfile = normalizeOperatorProfile({
   displayName: raw.ownerDisplayName,
   role: raw.ownerRole,
@@ -105,6 +112,11 @@ export const config = {
     ? raw.audioTranscriptionArgs.map(value => String(value)).slice(0, 20)
     : ['{input}', 'zh-CN'],
   aiRuntime: raw.aiRuntime || 'auto',
+  aiLabEndpoint: aiLabRuntimeConfiguration.endpoint,
+  aiLabAgentId: aiLabRuntimeConfiguration.agentId,
+  aiLabApiKey: aiLabRuntimeConfiguration.apiKey,
+  aiLabWorkNo: aiLabRuntimeConfiguration.workNo,
+  aiLabConfigured: Object.values(aiLabRuntimeConfiguration).every(Boolean),
   ...cloudFailoverConfig,
   dingtalkEnabled: raw.dingtalkEnabled === true,
   dingtalkTransport: String(raw.dingtalkTransport || 'event-stream').trim(),
@@ -163,6 +175,7 @@ export const config = {
   licensingProductId: String(raw.licensingProductId || 'James').trim(),
   workdir,
   codexBin: raw.codexBin || '/Applications/ChatGPT.app/Contents/Resources/codex',
+  qoderBin: raw.qoderBin || '',
   codexModel: raw.codexModel || 'gpt-5.6-terra',
   codexProxyUrl: raw.codexProxyUrl || '',
   larkCli: raw.larkCli || join(home, '.local', 'bin', 'lark-cli'),
@@ -230,8 +243,16 @@ if (config.licensingEnforced) {
 if (!['lark-cli', 'sdk'].includes(config.eventTransport)) {
   throw new Error('eventTransport 只能是 lark-cli 或 sdk');
 }
-if (!['auto', 'codex', 'qoder', 'codebuddy', 'trae'].includes(config.aiRuntime)) {
-  throw new Error('aiRuntime 只能是 auto、codex、qoder、codebuddy 或 trae');
+if (!['auto', 'online-first', 'codex', 'qoder', 'codebuddy', 'trae', 'ai-lab'].includes(config.aiRuntime)) {
+  throw new Error('aiRuntime 只能是 auto、online-first、codex、qoder、codebuddy、trae 或 ai-lab');
+}
+if (['online-first', 'ai-lab'].includes(config.aiRuntime)) {
+  normalizeAiLabRuntimeConfiguration({
+    endpoint: config.aiLabEndpoint,
+    agentId: config.aiLabAgentId,
+    apiKey: config.aiLabApiKey,
+    workNo: config.aiLabWorkNo,
+  });
 }
 validateDingTalkConfiguration(config);
 if (config.wecomEnabled && !config.wecomBotId) {
