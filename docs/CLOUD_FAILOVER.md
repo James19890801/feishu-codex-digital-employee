@@ -64,6 +64,7 @@ DINGTALK_DWS_AUTH_BUNDLE_B64
 AIPROS_CLOUD_DWS_CHANNEL
 AIPROS_DWS_HOME
 AIPROS_NODE_ID
+AIPROS_OWNER_OPEN_DINGTALK_ID
 AIPROS_STANDBY_BUFFER_PATH
 AIPROS_COORDINATOR_URL
 AIPROS_CONTAINER_TOKEN
@@ -73,7 +74,7 @@ AIPROS_BLOCKED_SENDER_IDS
 RAILWAY_RUN_UID
 ```
 
-Set `AIPROS_ACCESS_MODE=blacklist`. Synchronize `AIPROS_BLOCKED_SENDER_IDS` from the active local main configuration's DingTalk `automaticCommunicationBlocklist`; `AIPROS_BLOCKED_CHAT_IDS` is optional for conversation-level blocks. Normal direct messages and @-mentioned group messages are accepted unless a sender or conversation is blocked. Display names are never enforcement identities.
+Set `AIPROS_ACCESS_MODE=blacklist`. Set `AIPROS_OWNER_OPEN_DINGTALK_ID` to the authenticated owner's immutable openDingTalkId; the container fails closed without it and discards all owner-authored events before buffering or generation. Synchronize `AIPROS_BLOCKED_SENDER_IDS` from the active local main configuration's DingTalk `automaticCommunicationBlocklist`; `AIPROS_BLOCKED_CHAT_IDS` is optional for conversation-level blocks. Normal direct messages and @-mentioned group messages are accepted unless a sender or conversation is blocked. Display names are never enforcement identities.
 
 `DINGTALK_CLIENT_ID` and `DINGTALK_CLIENT_SECRET` are optional overrides for a self-created app. Omit both to use DWS built-in device OAuth; supplying only one fails closed.
 

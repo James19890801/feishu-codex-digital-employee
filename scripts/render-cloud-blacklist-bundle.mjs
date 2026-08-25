@@ -7,11 +7,14 @@ import { projectDingTalkCloudBlacklist } from '../src/cloud-blacklist-projection
 export async function renderCloudBlacklistBundle({ configPath, outputPath } = {}) {
   if (!configPath || !outputPath) throw new TypeError('configPath and outputPath are required');
   const raw = JSON.parse(await readFile(resolve(configPath), 'utf8'));
+  const ownerOpenDingTalkId = String(raw.dingtalkOwnerOpenId || '').trim();
+  if (!ownerOpenDingTalkId) throw new TypeError('dingtalkOwnerOpenId is required');
   const projected = projectDingTalkCloudBlacklist(
     normalizeCommunicationBlocklist(raw.automaticCommunicationBlocklist),
   );
   const bundle = {
     AIPROS_ACCESS_MODE: 'blacklist',
+    AIPROS_OWNER_OPEN_DINGTALK_ID: ownerOpenDingTalkId,
     AIPROS_BLOCKED_SENDER_IDS: projected.senderIds.join(','),
     AIPROS_BLOCKED_CHAT_IDS: projected.chatIds.join(','),
     sourceEntryCount: projected.sourceEntryCount,

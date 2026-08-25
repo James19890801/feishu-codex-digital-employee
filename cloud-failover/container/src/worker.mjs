@@ -310,7 +310,7 @@ export class StandbyDwsWorker {
         : ['--open-dingtalk-id', target.openDingTalkId];
       const sent = await this.runner(this.bin, [
         'chat', 'message', 'send', ...destinationArgs, '--text', reply,
-        '--uuid', stableMessageUuid('dingtalk', message.messageId), '--yes', '--format', 'json',
+        '--ai-tag=false', '--uuid', stableMessageUuid('dingtalk', message.messageId), '--yes', '--format', 'json',
         ...this.commonArgs(),
       ], this.dwsOptions());
       let sendResult = {};

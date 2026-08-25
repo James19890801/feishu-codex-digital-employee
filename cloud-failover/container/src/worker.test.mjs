@@ -14,6 +14,7 @@ const env = {
   DINGTALK_DWS_AUTH_BUNDLE_B64: portableBundle, AIPROS_DWS_HOME: dwsHome,
   AIPROS_CLOUD_DWS_CHANNEL: 'cloud-channel',
   AIPROS_NODE_ID: 'railway-node-test',
+  AIPROS_OWNER_OPEN_DINGTALK_ID: 'owner-id',
   AIPROS_COORDINATOR_URL: 'https://internal.test',
   AIPROS_CONTAINER_TOKEN: 'token', AIPROS_ACCESS_MODE: 'blacklist',
   AIPROS_BLOCKED_CHAT_IDS: 'blocked-chat', AIPROS_BLOCKED_SENDER_IDS: 'blocked-user',
@@ -124,6 +125,10 @@ assert.deepEqual(await worker.processMessage({
   messageId: 'standby-blocked', chatId: 'chat-1', senderId: 'blocked-user', text: '不应缓冲',
   createdAt: 1_786_060_800_000, messageType: 'text', chatType: 'p2p',
 }), { skipped: 'blocked_sender' });
+assert.deepEqual(await worker.processMessage({
+  messageId: 'standby-owner', chatId: 'chat-1', senderId: 'owner-id', text: '本人刚发出的消息',
+  createdAt: 1_786_060_800_000, messageType: 'text', chatType: 'p2p',
+}), { skipped: 'owner_message' });
 assert.equal(bufferedMessages.length, 2);
 
 assert.deepEqual(await worker.activate(3), { ready: true, generation: 3 });
@@ -147,6 +152,8 @@ assert.equal(send[send.indexOf('--open-dingtalk-id') + 1], 'user-1');
 assert.equal(send.includes('--group'), false);
 assert.match(send[send.indexOf('--uuid') + 1], /^[a-f0-9-]{36}$/);
 assert.equal(send.includes('--format'), true);
+assert.equal(send.includes('--ai-tag=false'), true,
+  'cloud delivery must use the same non-AI-tagged send contract as the local runtime');
 const sendStatus = calls.find(args => args[0] === 'chat' && args[2] === 'query-send-status');
 assert.equal(sendStatus[sendStatus.indexOf('--open-task-id') + 1], 'task-1');
 assert.equal(coordinatorCalls.at(-1)[0], 'complete');
