@@ -25,6 +25,7 @@ try {
   }), {
     text: '这个需要阿充本人确认，我不能替他约定见面或行程。',
     guarded: true,
+    reason: 'social_invitation_acceptance',
   });
   assert.deepEqual(applyOwnerCommitmentGuard({
     request: '这个方案怎么走？',
@@ -32,6 +33,23 @@ try {
     ownerLabel: '阿充',
   }), {
     text: '建议先做小流量验证。',
+    guarded: false,
+  });
+  assert.deepEqual(applyOwnerCommitmentGuard({
+    request: '请帮我联系一下账号本人。',
+    response: '好的，我会帮你转告给他。',
+    ownerLabel: '阿充',
+  }), {
+    text: '这个需要阿充本人确认，我不能替你转告、联系或承诺后续处理。',
+    guarded: true,
+    reason: 'unsupported_owner_relay',
+  });
+  assert.deepEqual(applyOwnerCommitmentGuard({
+    request: '能直接联系账号本人吗？',
+    response: '我不能帮你联系他，这需要本人确认。',
+    ownerLabel: '阿充',
+  }), {
+    text: '我不能帮你联系他，这需要本人确认。',
     guarded: false,
   });
 

@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { decideWorkflow } from './bible.mjs';
 import {
   enforceReplyLength,
+  conversationReplyDisposition,
+  governGeneratedReply,
   replyLengthPolicy,
   shouldIntroduceAssistant,
 } from './conversation-etiquette.mjs';
@@ -552,6 +554,17 @@ for (const [request, detailed, maxChars] of [
   });
 }
 
+contract('conversation-etiquette', 'Do social closers terminate without another model turn?', () => {
+  assert.deepEqual(conversationReplyDisposition('好的，有需要随时说。'), {
+    reply: false,
+    reason: 'conversation_closed',
+  });
+});
+
+contract('stable-response', 'Can a generic acknowledgement pass the final outbound gate?', () => {
+  assert.equal(governGeneratedReply('好的，随时找我。'), '');
+});
+
 for (const [chatType, isOwner, history, expected] of [
   ['p2p', false, [], true],
   ['p2p', false, [{ role: 'assistant', content: '已介绍' }], false],
@@ -667,21 +680,25 @@ contract('live-reply-context', 'Does a natural reply read live history exactly o
   assert.equal(aiRuns, 1);
 });
 
-contract('live-reply-context', 'Can AI generation run when live history fails?', async () => {
+contract('live-reply-context', 'Can current-message generation continue when live history fails?', async () => {
   let aiRuns = 0;
   const contextService = new ReplyContextService({
     contextClient: { async fetch() { throw new Error('history unavailable'); } },
   });
-  await assert.rejects(
-    executeGroundedReply({
-      contextService,
-      task: '你好',
-      historyRequest: {},
-      generate: async () => { aiRuns += 1; return '不该生成'; },
-    }),
-    /history unavailable/,
-  );
-  assert.equal(aiRuns, 0);
+  const answer = await executeGroundedReply({
+    contextService,
+    task: '你好',
+    historyRequest: {
+      currentMessage: { messageId: 'current-1', senderId: 'other', content: '你好' },
+    },
+    generate: async ({ replyContextInstruction }) => {
+      aiRuns += 1;
+      assert.match(replyContextInstruction, /只依据当前消息/);
+      return '你好呀';
+    },
+  });
+  assert.equal(answer, '你好呀');
+  assert.equal(aiRuns, 1);
 });
 
 for (const [attempt, expected] of [[1, true], [2, true], [3, false], [4, false]]) {

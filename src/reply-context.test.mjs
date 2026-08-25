@@ -4,6 +4,7 @@ import {
   ReplyContextUnavailableError,
   buildDingTalkReplyHistoryRequest,
   buildReplyContextInstruction,
+  executeGroundedReply,
 } from './reply-context.mjs';
 
 const directRequest = buildDingTalkReplyHistoryRequest({
@@ -109,5 +110,22 @@ await assert.rejects(
     && error.code === 'CONVERSATION_HISTORY_UNAVAILABLE'
     && /DWS auth expired/.test(error.message),
 );
+
+const degradedReply = await executeGroundedReply({
+  contextService: failingService,
+  task: '你是在本地跑的对吧？',
+  historyRequest: {
+    kind: 'direct',
+    currentMessage: {
+      messageId: 'current-1',
+      senderId: 'peer-1',
+      content: '你是在本地跑的对吧？',
+    },
+  },
+  generate: async ({ replyContextInstruction }) => replyContextInstruction,
+});
+assert.match(degradedReply, /只依据当前消息/);
+assert.match(degradedReply, /你是在本地跑的对吧/);
+assert.match(degradedReply, /不要假设过去的上下文/);
 
 console.log('REPLY_CONTEXT_TEST_OK');

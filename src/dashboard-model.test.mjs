@@ -219,10 +219,14 @@ const base = {
   const view = buildOperatorView({
     ...base,
     aiRuntime: {
-      configured: 'auto',
-      selected: 'codex',
-      label: 'Codex CLI',
+      configured: 'online-first',
+      selected: 'ai-lab',
+      label: 'AI-Lab Agent（预发）',
       available: true,
+      strategy: 'online-first',
+      active: 'codex',
+      fallback: true,
+      fallbackReason: 'NETWORK_ERROR',
       runtimes: [
         { id: 'codex', label: 'Codex CLI', installed: true, available: true },
         { id: 'qoder', label: 'Qoder CLI', installed: true, available: true },
@@ -230,9 +234,13 @@ const base = {
       ],
     },
   });
-  assert.equal(view.aiRuntime.selected, 'codex');
+  assert.equal(view.aiRuntime.selected, 'ai-lab');
   assert.equal(view.aiRuntime.runtimes.length, 3);
   assert.equal(view.aiRuntime.healthy, true);
+  assert.equal(view.aiRuntime.strategy, 'online-first');
+  assert.equal(view.aiRuntime.active, 'codex');
+  assert.equal(view.aiRuntime.fallback, true);
+  assert.equal(view.aiRuntime.fallbackReason, 'NETWORK_ERROR');
 }
 
 {

@@ -213,6 +213,106 @@ import {
 }
 
 {
+  const submitFailure = new Error('process exited with code 1');
+  submitFailure.code = 'PROCESS_EXIT';
+  let calls = 0;
+  const channel = new DingTalkChannel({
+    bin: '/opt/dws',
+    profile: 'corp:user',
+    transport: 'event-stream',
+    run: async () => { calls += 1; throw submitFailure; },
+  });
+
+  await assert.rejects(
+    channel.send(
+      { channel: 'dingtalk', kind: 'user', id: 'open-colleague' },
+      '脱敏复现消息',
+      'event-stream-process-exit-1',
+    ),
+    error => error.code === 'DINGTALK_SEND_PROCESS_FAILED'
+      && error.retryable === false
+      && error.phase === 'submit',
+  );
+  assert.equal(calls, 1, 'a generic submit exit must not be retried automatically');
+}
+
+{
+  const calls = [];
+  const submitTimeout = new Error('process timed out');
+  submitTimeout.code = 'PROCESS_TIMEOUT';
+  const channel = new DingTalkChannel({
+    bin: '/opt/dws',
+    profile: 'corp:user',
+    transport: 'event-stream',
+    sleep: async () => {},
+    sendProcessAttempts: 2,
+    run: async (bin, args) => {
+      calls.push(args);
+      if (calls.length === 1) throw submitTimeout;
+      return {
+        stdout: JSON.stringify({
+          success: true,
+          result: { messageId: 'message-submit-retry-1' },
+        }),
+        stderr: '',
+      };
+    },
+  });
+
+  await channel.send(
+    { channel: 'dingtalk', kind: 'user', id: 'open-colleague' },
+    '脱敏复现消息',
+    'event-stream-submit-timeout-1',
+  );
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], calls[1], 'submit retry must preserve the exact payload and UUID');
+}
+
+{
+  const calls = [];
+  const statusFailure = new Error('process exited with code 1');
+  statusFailure.code = 'PROCESS_EXIT';
+  const channel = new DingTalkChannel({
+    bin: '/opt/dws',
+    profile: 'corp:user',
+    transport: 'event-stream',
+    sleep: async () => {},
+    sendProcessAttempts: 2,
+    run: async (bin, args) => {
+      calls.push(args);
+      if (!args.includes('query-send-status')) {
+        return {
+          stdout: JSON.stringify({
+            success: true,
+            result: { openTaskId: 'task-status-process-retry-1' },
+          }),
+          stderr: '',
+        };
+      }
+      if (calls.length === 2) throw statusFailure;
+      return {
+        stdout: JSON.stringify({
+          success: true,
+          result: { sendStatus: 'SUCCESS', messageId: 'message-status-retry-1' },
+        }),
+        stderr: '',
+      };
+    },
+  });
+
+  const result = await channel.send(
+    { channel: 'dingtalk', kind: 'user', id: 'open-colleague' },
+    '脱敏复现消息',
+    'event-stream-status-process-retry-1',
+  );
+  assert.equal(result.result.messageId, 'message-status-retry-1');
+  assert.equal(calls.filter(args => !args.includes('query-send-status')).length, 1);
+  const statusCalls = calls.filter(args => args.includes('query-send-status'));
+  assert.equal(statusCalls.length, 2);
+  assert.deepEqual(statusCalls[0], statusCalls[1], 'status retry must query the same task without resubmitting');
+}
+
+{
   const statuses = [];
   const messages = [];
   const sends = [];

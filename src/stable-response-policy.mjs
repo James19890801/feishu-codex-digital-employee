@@ -5,6 +5,7 @@ import { sendUnlessRecentRepeat } from './outbound-repeat-controller.mjs';
 
 const SOCIAL_INVITATION_REQUEST = /(?:走不走|去不去|来不来|要不要(?:一起)?(?:去|来|见)|一起(?:去|走|来|吃|喝)|见面|碰面|楼见)/u;
 const OWNER_ACCEPTANCE_RESPONSE = /(?:走走走|(?:^|[，。！!、\s])(?:走|去|来)(?:啊|吧|呀|哦)?(?:[，。！!、\s]|$)|好啊|可以啊?|没问题|到时(?:候)?见|待会儿见|\d+\s*楼见|马上(?:来|到|去))/u;
+const OWNER_RELAY_COMMITMENT_RESPONSE = /(?:我会|我来|我先|我帮你|我这边(?:会|来|帮你))[^\n。！？!?]{0,24}(?:转告|转达|联系|提醒|同步给|问问)/u;
 
 export function applyOwnerCommitmentGuard({
   request = '',
@@ -12,15 +13,23 @@ export function applyOwnerCommitmentGuard({
   ownerLabel = '账号本人',
 } = {}) {
   const text = String(response || '');
-  if (!SOCIAL_INVITATION_REQUEST.test(String(request || ''))
-    || !OWNER_ACCEPTANCE_RESPONSE.test(text)) {
-    return { text, guarded: false };
-  }
   const owner = String(ownerLabel || '账号本人').trim() || '账号本人';
-  return {
-    text: `这个需要${owner}本人确认，我不能替他约定见面或行程。`,
-    guarded: true,
-  };
+  if (SOCIAL_INVITATION_REQUEST.test(String(request || ''))
+    && OWNER_ACCEPTANCE_RESPONSE.test(text)) {
+    return {
+      text: `这个需要${owner}本人确认，我不能替他约定见面或行程。`,
+      guarded: true,
+      reason: 'social_invitation_acceptance',
+    };
+  }
+  if (OWNER_RELAY_COMMITMENT_RESPONSE.test(text)) {
+    return {
+      text: `这个需要${owner}本人确认，我不能替你转告、联系或承诺后续处理。`,
+      guarded: true,
+      reason: 'unsupported_owner_relay',
+    };
+  }
+  return { text, guarded: false };
 }
 
 export async function evaluateStableResponseInbound({

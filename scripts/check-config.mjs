@@ -37,7 +37,11 @@ for (const [name, path] of [
   if (!existsSync(path)) throw new Error(`${name} 不存在：${path}`);
 }
 const selectedRuntime = selectAiRuntime(
-  discoverAiRuntimes({ configuredCodexBin: config.codexBin }),
+  discoverAiRuntimes({
+    configuredCodexBin: config.codexBin,
+    configuredQoderBin: config.qoderBin,
+    aiLabConfigured: config.aiLabConfigured,
+  }),
   config.aiRuntime,
 );
 if (selectedRuntime.id === 'codex'

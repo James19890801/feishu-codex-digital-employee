@@ -20,7 +20,7 @@ const CONFIG_RULES = {
   rateLimitMaxMessages: { type: 'integer', min: 1, max: 100, risk: 'single' },
   aiRuntime: {
     type: 'enum',
-    values: ['auto', 'codex', 'qoder', 'codebuddy', 'trae'],
+    values: ['auto', 'online-first', 'codex', 'qoder', 'codebuddy', 'trae', 'ai-lab'],
     risk: 'double',
   },
   dingtalkEnabled: { type: 'boolean', risk: 'double' },
@@ -338,6 +338,7 @@ export const assistantSchema = {
     'actionItemDocumentToken',
     'dashboardPort',
     'codexBin',
+    'qoderBin',
     'codexProxyUrl',
     'larkCli',
     'dingtalkBin',

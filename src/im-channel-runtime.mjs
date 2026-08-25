@@ -37,6 +37,34 @@ function nestedMessageId(value, depth = 0) {
   return '';
 }
 
+const RETRYABLE_DINGTALK_SUBMIT_PROCESS_CODES = new Set([
+  'PROCESS_TIMEOUT',
+  'PROCESS_TERMINATED',
+]);
+
+function isDingTalkProcessFailure(error) {
+  return String(error?.code || '').trim().toUpperCase().startsWith('PROCESS_');
+}
+
+function canRetryDingTalkProcess(error, phase) {
+  const causeCode = String(error?.code || '').trim().toUpperCase();
+  if (phase === 'status') return isDingTalkProcessFailure(error);
+  return RETRYABLE_DINGTALK_SUBMIT_PROCESS_CODES.has(causeCode);
+}
+
+function dingTalkSendProcessError(error, phase, { processRetryable = false, localAttempts = 1 } = {}) {
+  const causeCode = String(error?.code || '').trim().toUpperCase();
+  const wrapped = new Error(`DingTalk send ${phase} failed: ${causeCode || 'PROCESS_FAILED'}`, {
+    cause: error,
+  });
+  wrapped.code = 'DINGTALK_SEND_PROCESS_FAILED';
+  wrapped.phase = phase;
+  wrapped.retryable = false;
+  wrapped.processRetryable = processRetryable;
+  wrapped.localAttempts = localAttempts;
+  return wrapped;
+}
+
 export class DingTalkChannel {
   constructor({
     bin,
@@ -47,6 +75,8 @@ export class DingTalkChannel {
     sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
     sendStatusAttempts = 8,
     sendStatusDelayMs = 500,
+    sendProcessAttempts = 2,
+    sendProcessDelayMs = 250,
     ownerIds = [],
   }) {
     this.bin = bin;
@@ -57,7 +87,27 @@ export class DingTalkChannel {
     this.sleep = sleep;
     this.sendStatusAttempts = Math.max(1, Number(sendStatusAttempts) || 1);
     this.sendStatusDelayMs = Math.max(0, Number(sendStatusDelayMs) || 0);
+    this.sendProcessAttempts = Math.max(1, Number(sendProcessAttempts) || 1);
+    this.sendProcessDelayMs = Math.max(0, Number(sendProcessDelayMs) || 0);
     this.ownerIds = Array.isArray(ownerIds) ? ownerIds : [ownerIds];
+  }
+
+  async runSendProcess(args, phase) {
+    for (let attempt = 1; attempt <= this.sendProcessAttempts; attempt += 1) {
+      try {
+        return await this.run(this.bin, args);
+      } catch (error) {
+        const processRetryable = canRetryDingTalkProcess(error, phase);
+        if (!processRetryable || attempt >= this.sendProcessAttempts) {
+          throw dingTalkSendProcessError(error, phase, {
+            processRetryable,
+            localAttempts: attempt,
+          });
+        }
+        await this.sleep(this.sendProcessDelayMs);
+      }
+    }
+    throw new Error('unreachable DingTalk process retry state');
   }
 
   consumerArgs() {
@@ -96,7 +146,7 @@ export class DingTalkChannel {
         transport: this.transport,
       }),
     ];
-    const result = await this.run(this.bin, args);
+    const result = await this.runSendProcess(args, 'submit');
     let payload;
     try {
       payload = JSON.parse(result.stdout || '{}');
@@ -116,12 +166,12 @@ export class DingTalkChannel {
     if (this.transport === 'event-stream' && openTaskId) {
       let lastStatusPayload = null;
       for (let attempt = 0; attempt < this.sendStatusAttempts; attempt += 1) {
-        const statusResult = await this.run(this.bin, [
+        const statusResult = await this.runSendProcess([
           ...(this.profile ? ['--profile', this.profile] : []),
           'chat', 'message', 'query-send-status',
           '--open-task-id', openTaskId,
           '--format', 'json',
-        ]);
+        ], 'status');
         try {
           lastStatusPayload = JSON.parse(statusResult.stdout || '{}');
         } catch {

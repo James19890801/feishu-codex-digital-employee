@@ -30,6 +30,20 @@ export function runtimeStatusLabel(runtime, locale = 'en') {
   return runtimeStatusText(locale, runtime);
 }
 
+export function runtimeRouteText(state, locale = 'en') {
+  if (state?.strategy !== 'online-first') return '';
+  const activeId = String(state.active || state.selected || '');
+  const activeLabel = state.runtimes?.find(runtime => runtime.id === activeId)?.label || activeId;
+  if (locale === 'zh') {
+    return state.fallback
+      ? `线上优先 · 当前 ${activeLabel} · 降级原因：${state.fallbackReason || '未知'}`
+      : `线上优先 · 当前 ${activeLabel}`;
+  }
+  return state.fallback
+    ? `Online first · Active ${activeLabel} · Fallback: ${state.fallbackReason || 'unknown'}`
+    : `Online first · Active ${activeLabel}`;
+}
+
 export function channelRequestHeaders(sessionToken) {
   return assistantRequestHeaders('channel-config', sessionToken);
 }

@@ -136,6 +136,7 @@ import {
   runAiRuntimeStartupProbe,
   selectAiRuntime,
 } from './ai-runtime.mjs';
+import { OnlineFirstRuntimeRouter } from './online-first-runtime-router.mjs';
 import {
   buildDingTalkConversationPollingArgs,
   buildDingTalkProcessEnv,
@@ -154,7 +155,9 @@ import {
 } from './human-takeover.mjs';
 import {
   buildFirstTakeoverGreeting,
+  conversationReplyDisposition,
   enforceReplyLength,
+  governGeneratedReply,
   replyLengthPolicy,
   shouldIntroduceAssistant,
 } from './conversation-etiquette.mjs';
@@ -167,7 +170,11 @@ import {
 import { fetchDingTalkWukongWindow } from './dingtalk-wukong-poller.mjs';
 import { fetchDingTalkReconciliationWindow } from './dingtalk-reconciliation-poller.mjs';
 import {
+  buildFailureAuditDetail,
+  buildInboundAuditRecord,
+  buildOutboundLedgerMetadata,
   enforceInboundReplyGate,
+  finalizeExhaustedInboundFailure,
   takeoverDeferralRetryAt,
 } from './inbound-reply-gate.mjs';
 import {
@@ -204,7 +211,10 @@ import {
   automaticCommunicationDecision,
   canSendBlockedRecipient,
 } from './communication-blocklist.mjs';
-import { assessResponseObligation } from './response-obligation.mjs';
+import {
+  assessResponseObligation,
+  responseObligationSkipAudit,
+} from './response-obligation.mjs';
 import {
   applyOwnerCommitmentGuard,
   evaluateStableResponseInbound,
@@ -251,6 +261,7 @@ const PRIVACY_BOUNDARY_TEXT = buildPrivacyBoundary({
 const STATE_PATH = join(WORKDIR, 'data', 'agent-state.sqlite');
 const CODEX_RUNTIME_DIR = join(WORKDIR, 'data', 'codex-runtime');
 const CODEX_HOME_DIR = join(WORKDIR, 'data', 'codex-home');
+const QODER_HOME_DIR = join(WORKDIR, 'data', 'qoder-home');
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_DOC_CHARS = 40_000;
 const KNOWLEDGE_CATALOG_PATH = join(WORKDIR, 'knowledge-catalog.json');
@@ -259,23 +270,67 @@ const KNOWLEDGE_CATALOG = JSON.parse(await readFile(KNOWLEDGE_CATALOG_PATH, 'utf
 const KNOWLEDGE_SOURCES = normalizeKnowledgeCatalog(KNOWLEDGE_CATALOG).sources;
 await mkdir(CODEX_RUNTIME_DIR, { recursive: true });
 await mkdir(CODEX_HOME_DIR, { recursive: true, mode: 0o700 });
-const isolatedAuthPath = join(CODEX_HOME_DIR, 'auth.json');
-try {
-  await lstat(isolatedAuthPath);
-} catch (error) {
-  if (error?.code !== 'ENOENT') throw error;
+await mkdir(QODER_HOME_DIR, { recursive: true, mode: 0o700 });
+async function linkIsolatedCredential(target, linkPath) {
   try {
-    await symlink(join(process.env.HOME || '', '.codex', 'auth.json'), isolatedAuthPath);
+    await lstat(linkPath);
+    return;
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  try {
+    await symlink(target, linkPath);
   } catch (symlinkError) {
     if (symlinkError?.code !== 'EEXIST') throw symlinkError;
   }
 }
-const AI_RUNTIMES = discoverAiRuntimes({ configuredCodexBin: config.codexBin });
-const SELECTED_AI_RUNTIME = selectAiRuntime(AI_RUNTIMES, config.aiRuntime);
-const AI_RUNTIME_CLIENT = new AiRuntimeClient({
-  runtime: SELECTED_AI_RUNTIME,
-  env: aiRuntimeEnv(),
+const isolatedAuthPath = join(CODEX_HOME_DIR, 'auth.json');
+await linkIsolatedCredential(
+  join(process.env.HOME || '', '.codex', 'auth.json'),
+  isolatedAuthPath,
+);
+// Qoder keeps credentials in a directory rather than a single file, so each
+// entry is linked back to the operator's Qoder home.
+const qoderAuthDir = join(QODER_HOME_DIR, '.auth');
+await mkdir(qoderAuthDir, { recursive: true, mode: 0o700 });
+for (const entry of ['id', 'machine_id', 'user', 'models', 'dynamic-texts.json']) {
+  await linkIsolatedCredential(
+    join(process.env.HOME || '', '.qoder', '.auth', entry),
+    join(qoderAuthDir, entry),
+  );
+}
+const AI_RUNTIMES = discoverAiRuntimes({
+  configuredCodexBin: config.codexBin,
+  configuredQoderBin: config.qoderBin,
+  aiLabConfigured: config.aiLabConfigured,
 });
+const SELECTED_AI_RUNTIME = selectAiRuntime(AI_RUNTIMES, config.aiRuntime);
+const LOCAL_FALLBACK_AI_RUNTIME = config.aiRuntime === 'online-first'
+  ? selectAiRuntime(AI_RUNTIMES, 'auto')
+  : null;
+
+function createAiRuntimeClient(runtime) {
+  return new AiRuntimeClient({
+    runtime,
+    env: aiRuntimeEnv(runtime),
+    configDir: runtime.id === 'qoder' ? QODER_HOME_DIR : '',
+    aiLab: {
+      endpoint: config.aiLabEndpoint,
+      agentId: config.aiLabAgentId,
+      apiKey: config.aiLabApiKey,
+      workNo: config.aiLabWorkNo,
+    },
+  });
+}
+
+const PRIMARY_AI_RUNTIME_CLIENT = createAiRuntimeClient(SELECTED_AI_RUNTIME);
+const AI_RUNTIME_CLIENT = LOCAL_FALLBACK_AI_RUNTIME
+  ? new OnlineFirstRuntimeRouter({
+      onlineClient: PRIMARY_AI_RUNTIME_CLIENT,
+      localClient: createAiRuntimeClient(LOCAL_FALLBACK_AI_RUNTIME),
+      circuitOpenMs: 30_000,
+    })
+  : PRIMARY_AI_RUNTIME_CLIENT;
 const singletonLock = await acquireSingletonLock(join(WORKDIR, 'data', 'service.lock'));
 const state = new AgentState(STATE_PATH);
 const automationPeerGuard = new AutomationPeerGuard({ state });
@@ -543,11 +598,11 @@ function larkCliEnv() {
   };
 }
 
-function aiRuntimeEnv() {
+function aiRuntimeEnv(runtime = SELECTED_AI_RUNTIME) {
   const env = {
     ...process.env,
   };
-  if (SELECTED_AI_RUNTIME?.id === 'codex') env.CODEX_HOME = CODEX_HOME_DIR;
+  if (runtime?.id === 'codex') env.CODEX_HOME = CODEX_HOME_DIR;
   if (config.codexProxyUrl) {
     env.HTTP_PROXY = config.codexProxyUrl;
     env.HTTPS_PROXY = config.codexProxyUrl;
@@ -618,7 +673,7 @@ async function sendWithEchoGuard(chatId, text, operation) {
           mentions: [],
         },
         sender: { sender_type: 'user', sender_id: { open_id: OWNER_OPEN_ID } },
-        metadata: { outbound: true },
+        metadata: buildOutboundLedgerMetadata(inboundReplyContext.getStore()),
       });
     }
     return result;
@@ -1093,6 +1148,15 @@ async function runAiRuntime(prompt, options) {
     const result = await AI_RUNTIME_CLIENT.run(prompt, options);
     state.set('health', 'last_ai_runtime_success_at', new Date().toISOString());
     state.unset('health', 'last_ai_runtime_error');
+    state.set('health', 'ai_runtime', {
+      configured: config.aiRuntime,
+      selected: SELECTED_AI_RUNTIME.id,
+      label: SELECTED_AI_RUNTIME.label,
+      strategy: result.route?.strategy || 'fixed',
+      active: result.route?.active || result.runtime?.id || SELECTED_AI_RUNTIME.id,
+      fallback: result.route?.fallback === true,
+      fallbackReason: result.route?.fallbackReason || '',
+    });
     return result;
   } catch (error) {
     const detail = {
@@ -1101,7 +1165,10 @@ async function runAiRuntime(prompt, options) {
       error: processFailureSummary(error),
     };
     state.set('health', 'last_ai_runtime_error', detail);
-    state.audit('ai_runtime_error', { detail });
+    state.audit('ai_runtime_error', buildInboundAuditRecord(
+      inboundReplyContext.getStore(),
+      detail,
+    ));
     throw error;
   }
 }
@@ -1820,7 +1887,24 @@ async function processIncoming(client, message, sender, metadata = {}) {
     text: cleanText,
     aliases: config.responseMentionAliases,
   });
-  if (message.chat_type === 'group' && !responseObligation.responseRequired) return;
+  const responseSkip = responseObligationSkipAudit({
+    message,
+    obligation: responseObligation,
+    channel: metadata.channel || parseChannelChatId(message.chat_id)?.channel || '',
+  });
+  if (responseSkip) {
+    audit(responseSkip.event, message, senderOpenId, responseSkip.detail);
+    return;
+  }
+  const conversationDisposition = conversationReplyDisposition(cleanText, {
+    responseRequired: responseObligation.responseRequired,
+  });
+  if (!conversationDisposition.reply) {
+    audit('message_skipped_conversation_closed', message, senderOpenId, {
+      reason: conversationDisposition.reason,
+    });
+    return;
+  }
 
   const automationPeerResult = await handleAutomationPeerInbound({
     guard: automationPeerGuard,
@@ -2614,10 +2698,17 @@ async function processIncoming(client, message, sender, metadata = {}) {
     });
     if (commitmentGuard.guarded) {
       audit('owner_commitment_guarded', message, senderOpenId, {
-        reason: 'social_invitation_acceptance',
+        reason: commitmentGuard.reason,
       });
     }
-    const answer = commitmentGuard.text;
+    const answer = governGeneratedReply(commitmentGuard.text);
+    if (!answer) {
+      audit('outbound_quality_suppressed', message, senderOpenId, {
+        reason: 'generic_closing_reply',
+      });
+      console.log(`[reply] ${message.message_id}: suppressed (outbound_quality)`);
+      return;
+    }
     const sendResult = await sendStableGeneratedReply({
       state,
       message,
@@ -2812,7 +2903,8 @@ async function processStoredInbound(item, client = null) {
         return;
       }
       const attemptNumber = item.attempts + 1;
-      if (shouldRetryMessage(attemptNumber)) {
+      const processSendFailure = error?.code === 'DINGTALK_SEND_PROCESS_FAILED';
+      if (!processSendFailure && shouldRetryMessage(attemptNumber)) {
         const retryAt = new Date(Date.now() + retryDelayMs(attemptNumber)).toISOString();
         state.failInbound(message.message_id, error?.stack || error?.message || error, retryAt);
         state.audit('inbound_retry_scheduled', {
@@ -2823,7 +2915,7 @@ async function processStoredInbound(item, client = null) {
             source: item.source,
             attemptNumber,
             retryAt,
-            error: String(error?.message || error).slice(0, 1000),
+            ...buildFailureAuditDetail(error),
           },
         });
         console.error(`[inbound-retry] ${message.message_id} at ${retryAt}:`, error);
@@ -2845,41 +2937,15 @@ async function processStoredInbound(item, client = null) {
         return;
       }
 
-      try {
-        await sendText(client, message.chat_id, '刚刚连续几次没处理成功，你稍后再发我一次哦。', `xiaozhao-error-${message.message_id}`);
-        state.completeInbound(message.message_id);
-        state.audit('inbound_failed_final', {
-          chatId: message.chat_id,
-          senderId: sender?.sender_id?.open_id || '',
-          messageId: message.message_id,
-          detail: { source: item.source, attemptNumber, error: String(error?.message || error).slice(0, 1000) },
-        });
-      } catch (sendError) {
-        if (sendError?.code === 'HUMAN_TAKEOVER_DEFERRED') {
-          const retryAt = takeoverDeferralRetryAt(sendError);
-          state.deferInbound(message.message_id, retryAt, sendError.message);
-          state.audit('inbound_deferred_for_human_takeover', {
-            chatId: message.chat_id,
-            senderId: sender?.sender_id?.open_id || '',
-            messageId: message.message_id,
-            detail: { source: item.source, retryAt, phase: 'final-error-notice' },
-          });
-          return;
-        }
-        state.deadLetterInbound(message.message_id, sendError?.stack || sendError?.message || sendError);
-        state.audit('inbound_dead_lettered', {
-          chatId: message.chat_id,
-          senderId: sender?.sender_id?.open_id || '',
-          messageId: message.message_id,
-          detail: {
-            source: item.source,
-            attemptNumber,
-            processingError: String(error?.message || error).slice(0, 1000),
-            noticeError: String(sendError?.message || sendError).slice(0, 1000),
-          },
-        });
-        console.error(`[inbound-dead-letter] ${message.message_id}:`, sendError);
-      }
+      finalizeExhaustedInboundFailure({
+        state,
+        message,
+        sender,
+        source: item.source,
+        attemptNumber,
+        error,
+      });
+      console.error(`[inbound-dead-letter] ${message.message_id}:`, error);
     }
     });
   });
@@ -3894,6 +3960,10 @@ async function main() {
       configured: config.aiRuntime,
       selected: SELECTED_AI_RUNTIME.id,
       label: SELECTED_AI_RUNTIME.label,
+      strategy: config.aiRuntime === 'online-first' ? 'online-first' : 'fixed',
+      active: SELECTED_AI_RUNTIME.id,
+      fallback: false,
+      fallbackReason: '',
     });
     try {
       await runAiRuntimeStartupProbe(AI_RUNTIME_CLIENT, {
@@ -3988,7 +4058,10 @@ async function main() {
         superviseLarkCliEvents().catch(error => console.error('[websocket-supervisor-fatal]', error));
       }
     }
-    console.log(`[ai-runtime] selected ${SELECTED_AI_RUNTIME.label} (${config.aiRuntime})`);
+    const fallbackLabel = LOCAL_FALLBACK_AI_RUNTIME
+      ? `; fallback=${LOCAL_FALLBACK_AI_RUNTIME.label}`
+      : '';
+    console.log(`[ai-runtime] selected ${SELECTED_AI_RUNTIME.label} (${config.aiRuntime})${fallbackLabel}`);
     if (RUNTIME_MODE.feishuEnabled) {
       console.log(`[poll] user message polling active every ${POLL_INTERVAL_MS}ms; websocket auxiliary active`);
       await runUserPollingLoop();

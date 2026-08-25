@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   assessResponseObligation,
   normalizeResponseMentionAliases,
+  responseObligationSkipAudit,
 } from './response-obligation.mjs';
 
 assert.deepEqual(
@@ -81,8 +82,8 @@ assert.deepEqual(assessResponseObligation({
   aliases: ['詹老师'],
 }), {
   explicitAssistantMention: false,
-  responseRequired: false,
-  reasonCode: 'not_group',
+  responseRequired: true,
+  reasonCode: 'direct_message',
 });
 
 assert.deepEqual(assessResponseObligation({
@@ -95,5 +96,26 @@ assert.deepEqual(assessResponseObligation({
   responseRequired: false,
   reasonCode: 'not_addressed',
 });
+
+assert.deepEqual(responseObligationSkipAudit({
+  message: { ...groupMessage, message_id: 'group-not-addressed', chat_id: 'group-1' },
+  obligation: { responseRequired: false, reasonCode: 'other_mention' },
+  channel: 'dingtalk',
+  senderId: 'member-1',
+}), {
+  event: 'message_skipped_group_no_response_obligation',
+  detail: {
+    channel: 'dingtalk',
+    reasonCode: 'other_mention',
+  },
+});
+assert.equal(responseObligationSkipAudit({
+  message: { ...groupMessage, chat_type: 'p2p' },
+  obligation: { responseRequired: false, reasonCode: 'not_group' },
+}), null);
+assert.equal(responseObligationSkipAudit({
+  message: groupMessage,
+  obligation: { responseRequired: true, reasonCode: 'structured_assistant_mention' },
+}), null);
 
 console.log('RESPONSE_OBLIGATION_TEST_OK');

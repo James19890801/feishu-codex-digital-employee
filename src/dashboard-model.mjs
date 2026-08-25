@@ -224,6 +224,10 @@ export function buildOperatorView(input) {
       configured: input.aiRuntime?.configured || 'auto',
       selected: input.aiRuntime?.selected || '',
       label: input.aiRuntime?.label || '',
+      strategy: input.aiRuntime?.strategy || 'fixed',
+      active: input.aiRuntime?.active || input.aiRuntime?.selected || '',
+      fallback: input.aiRuntime?.fallback === true,
+      fallbackReason: input.aiRuntime?.fallbackReason || '',
       available: input.aiRuntime?.available !== false,
       healthy: input.aiRuntime?.available !== false
         && !issues.includes('codex_proxy_unreachable')

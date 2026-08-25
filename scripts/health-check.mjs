@@ -4,7 +4,11 @@ import { join } from 'node:path';
 import { createConnection } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { evaluateHealth } from '../src/reliability.mjs';
-import { discoverAiRuntimes, selectAiRuntime } from '../src/ai-runtime.mjs';
+import {
+  discoverAiRuntimes,
+  hasAiLabRuntimeConfiguration,
+  selectAiRuntime,
+} from '../src/ai-runtime.mjs';
 import { evaluateLicenseGuard } from '../src/licensing/guard.mjs';
 import { LicensingStore } from '../src/licensing/store.mjs';
 
@@ -80,7 +84,11 @@ const result = evaluateHealth({
 let selectedAiRuntime = null;
 try {
   selectedAiRuntime = selectAiRuntime(
-    discoverAiRuntimes({ configuredCodexBin: config.codexBin }),
+    discoverAiRuntimes({
+      configuredCodexBin: config.codexBin,
+      configuredQoderBin: config.qoderBin,
+      aiLabConfigured: hasAiLabRuntimeConfiguration(config),
+    }),
     config.aiRuntime || 'auto',
   );
 } catch {

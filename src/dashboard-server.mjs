@@ -250,6 +250,7 @@ async function collectStatus() {
     lastBackupError: null,
     lastAiRuntimeSuccessAt: '',
     lastAiRuntimeError: null,
+    aiRuntimeState: null,
     selfChatCircuitLast: null,
     dingtalkChannel: {
       enabled: config.dingtalkEnabled,
@@ -311,6 +312,7 @@ async function collectStatus() {
         lastBackupError: parseSetting(db, 'health', 'last_database_backup_error', null),
         lastAiRuntimeSuccessAt: parseSetting(db, 'health', 'last_ai_runtime_success_at', ''),
         lastAiRuntimeError: parseSetting(db, 'health', 'last_ai_runtime_error', null),
+        aiRuntimeState: parseSetting(db, 'health', 'ai_runtime', null),
         selfChatCircuitLast: parseSetting(db, 'health', 'self_chat_circuit_last', null),
         dingtalkChannel: {
           ...defaults.dingtalkChannel,
@@ -368,7 +370,13 @@ async function collectStatus() {
     audioTranscriberAvailable: Boolean(
       config.audioTranscriptionCommand && existsSync(config.audioTranscriptionCommand)
     ),
-    aiRuntime,
+    aiRuntime: {
+      ...aiRuntime,
+      strategy: database.aiRuntimeState?.strategy || (config.aiRuntime === 'online-first' ? 'online-first' : 'fixed'),
+      active: database.aiRuntimeState?.active || aiRuntime.selected,
+      fallback: database.aiRuntimeState?.fallback === true,
+      fallbackReason: database.aiRuntimeState?.fallbackReason || '',
+    },
     a1Enabled: config.a1Enabled,
     maxA1SyncAgeMs: Math.max(600_000, config.a1SyncIntervalMs * 3),
     backupRequired: true,
@@ -503,7 +511,11 @@ function plannerEnvironment() {
 }
 
 function currentAiRuntimeState() {
-  const runtimes = discoverAiRuntimes({ configuredCodexBin: config.codexBin });
+  const runtimes = discoverAiRuntimes({
+    configuredCodexBin: config.codexBin,
+    configuredQoderBin: config.qoderBin,
+    aiLabConfigured: config.aiLabConfigured,
+  });
   let selected = null;
   let error = '';
   try {
@@ -533,12 +545,23 @@ function currentAiRuntimeState() {
 async function runConfigurationPlanner(prompt, documents) {
   const runtimeState = currentAiRuntimeState();
   const runtime = selectAiRuntime(
-    discoverAiRuntimes({ configuredCodexBin: config.codexBin }),
+    discoverAiRuntimes({
+      configuredCodexBin: config.codexBin,
+      configuredQoderBin: config.qoderBin,
+      aiLabConfigured: config.aiLabConfigured,
+    }),
     runtimeState.selected,
   );
   const client = new AiRuntimeClient({
     runtime,
     env: plannerEnvironment(),
+    configDir: runtime.id === 'qoder' ? join(config.workdir, 'data', 'qoder-home') : '',
+    aiLab: {
+      endpoint: config.aiLabEndpoint,
+      agentId: config.aiLabAgentId,
+      apiKey: config.aiLabApiKey,
+      workNo: config.aiLabWorkNo,
+    },
   });
   return client.run(prompt, {
     cwd: CONFIG_ASSISTANT_RUNTIME_DIR,
@@ -594,12 +617,13 @@ async function createConfigurationAssistantPlan(requestText) {
 
 async function createRuntimeSelectionPlan(runtimeId) {
   const requested = String(runtimeId || '');
-  if (!['auto', 'codex', 'qoder', 'codebuddy', 'trae'].includes(requested)) {
+  if (!['auto', 'online-first', 'codex', 'qoder', 'codebuddy', 'trae', 'ai-lab'].includes(requested)) {
     throw new Error('Unknown AI runtime selection');
   }
   const runtimeState = currentAiRuntimeState();
   if (requested !== 'auto') {
-    const runtime = runtimeState.runtimes.find(item => item.id === requested);
+    const runtimeId = requested === 'online-first' ? 'ai-lab' : requested;
+    const runtime = runtimeState.runtimes.find(item => item.id === runtimeId);
     if (!runtime?.available) {
       throw new Error(runtime?.reason || `${requested} is not available`);
     }
@@ -609,7 +633,9 @@ async function createRuntimeSelectionPlan(runtimeId) {
   const documents = await readEffectiveConfigurationDocuments();
   const selectedLabel = requested === 'auto'
     ? '自动选择（Codex 优先）'
-    : runtimeState.runtimes.find(item => item.id === requested)?.label || requested;
+    : requested === 'online-first'
+      ? '线上优先（AI-Lab 主、本地备用）'
+      : runtimeState.runtimes.find(item => item.id === requested)?.label || requested;
   const plan = createChangePlan({
     summary: `切换 AI 运行时为 ${selectedLabel}`,
     answer: '已生成运行时切换方案。应用前会备份配置，切换后执行真实运行测试和健康检查。',

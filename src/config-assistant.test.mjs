@@ -130,6 +130,15 @@ const runtimePlan = assistant.createChangePlan({
 }, documents);
 assert.equal(runtimePlan.confirmationLevel, 'double');
 assert.equal(runtimePlan.changes[0].after, 'qoder');
+const onlineFirstRuntimePlan = assistant.createChangePlan({
+  summary: 'Prefer the hosted runtime with local fallback',
+  changes: [{
+    target: 'config',
+    key: 'aiRuntime',
+    value: 'online-first',
+  }],
+}, documents);
+assert.equal(onlineFirstRuntimePlan.changes[0].after, 'online-first');
 assert.throws(
   () => assistant.createChangePlan({
     summary: 'Unsupported runtime',

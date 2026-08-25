@@ -12,16 +12,29 @@ const fallback = await resolveRequiredResponse({
     throw new Error('AI unavailable');
   },
 });
-assert.equal(calls, 1);
+assert.equal(calls, 2);
 assert.deepEqual(fallback, {
   text: REQUIRED_RESPONSE_FALLBACK_REPLY,
   fallback: true,
   error: 'AI unavailable',
 });
-assert.equal(
-  fallback.text,
-  '收到，这条我先接住。刚才回复生成失败了，你不用重复发，我恢复后继续处理。',
-);
+assert.match(fallback.text, /(?:没有处理完成|请稍后重试|再发一次)/u);
+assert.doesNotMatch(fallback.text, /(?:不用重复发|恢复后继续处理)/u);
+
+let transientCalls = 0;
+assert.deepEqual(await resolveRequiredResponse({
+  responseRequired: true,
+  generate: async () => {
+    transientCalls += 1;
+    if (transientCalls === 1) throw new Error('transient AI failure');
+    return '第二次生成成功';
+  },
+}), {
+  text: '第二次生成成功',
+  fallback: false,
+  error: '',
+});
+assert.equal(transientCalls, 2);
 
 await assert.rejects(
   () => resolveRequiredResponse({

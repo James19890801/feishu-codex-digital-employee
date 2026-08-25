@@ -162,9 +162,23 @@ async function createDefaultWorker() {
     readFile(join(config.workdir, 'PERSONA.md'), 'utf8'),
     readFile(join(config.workdir, 'BIBLE.md'), 'utf8'),
   ]);
-  const runtimes = discoverAiRuntimes({ configuredCodexBin: config.codexBin });
+  const runtimes = discoverAiRuntimes({
+    configuredCodexBin: config.codexBin,
+    configuredQoderBin: config.qoderBin,
+    aiLabConfigured: config.aiLabConfigured,
+  });
   const runtime = selectAiRuntime(runtimes, config.aiRuntime);
-  const runtimeClient = new AiRuntimeClient({ runtime, env: process.env });
+  const runtimeClient = new AiRuntimeClient({
+    runtime,
+    env: process.env,
+    configDir: runtime.id === 'qoder' ? join(config.workdir, 'data', 'qoder-home') : '',
+    aiLab: {
+      endpoint: config.aiLabEndpoint,
+      agentId: config.aiLabAgentId,
+      apiKey: config.aiLabApiKey,
+      workNo: config.aiLabWorkNo,
+    },
+  });
   const controlStore = new WeChatPocControlStore({ directory: dataDirectory });
   const state = new WeChatPocState(join(dataDirectory, 'state.sqlite'));
   const ui = new MacOsWeChatUiAdapter({

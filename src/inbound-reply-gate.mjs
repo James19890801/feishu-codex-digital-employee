@@ -1,4 +1,78 @@
-import { takeoverReplyDisposition } from './human-takeover.mjs';
+import {
+  takeoverReplyDisposition,
+  takeoverSyncFailurePolicy,
+} from './human-takeover.mjs';
+
+export function buildOutboundLedgerMetadata(context = null) {
+  const replyToMessageId = String(context?.message?.message_id || '').trim();
+  return {
+    outbound: true,
+    ...(replyToMessageId ? { replyToMessageId } : {}),
+  };
+}
+
+export function buildInboundAuditRecord(context = null, detail = {}) {
+  return {
+    chatId: String(context?.message?.chat_id || ''),
+    senderId: String(context?.sender?.sender_id?.open_id || ''),
+    messageId: String(context?.message?.message_id || ''),
+    detail,
+  };
+}
+
+export function buildFailureAuditDetail(error, { prefix = '' } = {}) {
+  const label = String(prefix || '').trim();
+  const key = suffix => label ? `${label}${suffix[0].toUpperCase()}${suffix.slice(1)}` : suffix;
+  return {
+    [key('error')]: String(error?.message || error || '').slice(0, 1000),
+    ...(error?.code ? { [key('errorCode')]: String(error.code).slice(0, 100) } : {}),
+    ...(error?.phase ? { [key('failurePhase')]: String(error.phase).slice(0, 100) } : {}),
+    ...(typeof error?.retryable === 'boolean' ? { [key('retryable')]: error.retryable } : {}),
+    ...(typeof error?.processRetryable === 'boolean'
+      ? { [key('processRetryable')]: error.processRetryable }
+      : {}),
+    ...(Number.isInteger(error?.localAttempts)
+      ? { [key('localAttempts')]: error.localAttempts }
+      : {}),
+  };
+}
+
+export function finalizeExhaustedInboundFailure({
+  state,
+  message,
+  sender,
+  source = '',
+  attemptNumber = 0,
+  error,
+  now = new Date().toISOString(),
+} = {}) {
+  const processingFailure = buildFailureAuditDetail(error, { prefix: 'processing' });
+  if (error?.code === 'CONVERSATION_HISTORY_UNAVAILABLE') {
+    state.completeInbound(message.message_id, now);
+    state.audit('message_skipped_history_unavailable', {
+      ...buildInboundAuditRecord({ message, sender }, {
+        source,
+        attemptNumber,
+        reason: 'conversation_history_unavailable',
+        ...processingFailure,
+        userNoticeSuppressed: true,
+      }),
+      createdAt: now,
+    });
+    return { action: 'skip', userNoticeSent: false };
+  }
+  state.deadLetterInbound(message.message_id, String(error || ''), now);
+  state.audit('inbound_dead_lettered', {
+    ...buildInboundAuditRecord({ message, sender }, {
+      source,
+      attemptNumber,
+      ...processingFailure,
+      userNoticeSuppressed: true,
+    }),
+    createdAt: now,
+  });
+  return { action: 'dead_letter', userNoticeSent: false };
+}
 
 export async function enforceInboundReplyGate({
   context = null,
@@ -14,7 +88,22 @@ export async function enforceInboundReplyGate({
   if (typeof sync !== 'function' || typeof readTakeover !== 'function') {
     throw new Error('Inbound reply gate requires takeover sync and state reader');
   }
-  await sync(context.message, context.metadata || {});
+  try {
+    await sync(context.message, context.metadata || {});
+  } catch (error) {
+    const failurePolicy = takeoverSyncFailurePolicy({
+      current: readTakeover(chatId),
+      attemptNumber: context.metadata?.inboundAttemptNumber,
+    });
+    if (failurePolicy === 'retry') throw error;
+    const disposition = {
+      action: 'resolved',
+      untilMs: 0,
+      reason: 'takeover_control_unavailable',
+    };
+    audit('message_skipped_takeover_control_unavailable', context, disposition);
+    return disposition;
+  }
   const disposition = takeoverReplyDisposition({
     current: readTakeover(chatId),
     messageOccurredAtMs: Number(context.message.create_time || 0),

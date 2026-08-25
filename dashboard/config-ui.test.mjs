@@ -12,6 +12,7 @@ assert.equal(typeof ui.planCanApply, 'function');
 assert.equal(typeof ui.rollbackConfirmation, 'function');
 assert.equal(typeof ui.runtimeCanSelect, 'function');
 assert.equal(typeof ui.runtimeStatusLabel, 'function');
+assert.equal(typeof ui.runtimeRouteText, 'function');
 assert.equal(typeof ui.channelRequestHeaders, 'function');
 assert.equal(typeof ui.channelSubmitLabel, 'function');
 assert.equal(typeof ui.channelNeedsCredential, 'function');
@@ -41,6 +42,20 @@ assert.equal(ui.runtimeStatusLabel({ installed: false, available: false }), 'Not
 assert.equal(ui.runtimeStatusLabel({ installed: true, available: false }), 'Application detected only');
 assert.equal(ui.runtimeStatusLabel({ installed: true, available: true }), 'Online');
 assert.equal(ui.runtimeStatusLabel({ installed: false, available: false }, 'zh'), '未安装');
+assert.equal(ui.runtimeRouteText({
+  strategy: 'online-first',
+  active: 'ai-lab',
+  fallback: false,
+  runtimes: [{ id: 'ai-lab', label: 'AI-Lab Agent（预发）' }],
+}, 'zh'), '线上优先 · 当前 AI-Lab Agent（预发）');
+assert.equal(ui.runtimeRouteText({
+  strategy: 'online-first',
+  active: 'codex',
+  fallback: true,
+  fallbackReason: 'NETWORK_ERROR',
+  runtimes: [{ id: 'codex', label: 'Codex CLI' }],
+}), 'Online first · Active Codex CLI · Fallback: NETWORK_ERROR');
+assert.equal(ui.runtimeRouteText({ strategy: 'fixed' }, 'zh'), '');
 assert.deepEqual(ui.channelRequestHeaders('session-token'), {
   'Content-Type': 'application/json',
   'X-Dashboard-Action': 'channel-config',

@@ -119,7 +119,24 @@ export async function executeGroundedReply({
   if (typeof generate !== 'function') {
     throw new Error('Grounded reply requires an AI generation function');
   }
-  const prepared = await contextService.prepare({ task, historyRequest });
+  let prepared;
+  try {
+    prepared = await contextService.prepare({ task, historyRequest });
+  } catch (error) {
+    const currentMessage = historyRequest?.currentMessage || {};
+    const currentContent = String(currentMessage.content || task || '').trim();
+    if (error?.code !== 'CONVERSATION_HISTORY_UNAVAILABLE' || !currentContent) throw error;
+    return generate({
+      task,
+      prepared: null,
+      replyContextInstruction: [
+        '本轮会话历史暂时不可读。',
+        '只依据当前消息回复，不要假设过去的上下文，不要引用未读取的历史事实、隐私或承诺。',
+        '如果当前消息无法独立回答，只追问一项必要背景。',
+        `当前消息：${currentContent}`,
+      ].join('\n'),
+    });
+  }
   return generate({
     task,
     prepared,

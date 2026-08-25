@@ -25,7 +25,7 @@ const runtimes = discoverAiRuntimes({
   isExecutable: path => executablePaths.has(path),
 });
 
-assert.deepEqual(runtimes.map(item => item.id), ['codex', 'qoder', 'codebuddy', 'trae']);
+assert.deepEqual(runtimes.map(item => item.id), ['codex', 'qoder', 'codebuddy', 'trae', 'ai-lab']);
 assert.equal(runtimes.find(item => item.id === 'codex').available, true);
 assert.equal(runtimes.find(item => item.id === 'qoder').available, true);
 assert.equal(runtimes.find(item => item.id === 'codebuddy').installed, false);
@@ -36,6 +36,35 @@ assert.match(runtimes.find(item => item.id === 'trae').reason, /headless/i);
 assert.equal(selectAiRuntime(runtimes, 'auto').id, 'codex');
 assert.equal(selectAiRuntime(runtimes, 'qoder').id, 'qoder');
 assert.throws(() => selectAiRuntime(runtimes, 'trae'), /not available/i);
+
+const onlineFirstRuntimes = discoverAiRuntimes({
+  candidates: {
+    codex: ['/Applications/Codex.app/Contents/Resources/codex'],
+    qoder: [],
+    codebuddy: [],
+    trae: [],
+  },
+  installedCandidates: { trae: [] },
+  isExecutable: path => path === '/Applications/Codex.app/Contents/Resources/codex',
+  aiLabConfigured: true,
+});
+assert.equal(
+  selectAiRuntime(onlineFirstRuntimes, 'online-first').id,
+  'ai-lab',
+  'online-first must select the configured AI-Lab runtime as its primary',
+);
+assert.equal(aiRuntime.hasAiLabRuntimeConfiguration({
+  aiLabEndpoint: 'https://pre-ai-lab-agent.alibaba-inc.com',
+  aiLabAgentId: 'agt_test123',
+  aiLabApiKey: 'ak-test-secret',
+  aiLabWorkNo: '384351',
+}), true);
+assert.equal(aiRuntime.hasAiLabRuntimeConfiguration({
+  aiLabEndpoint: 'https://pre-ai-lab-agent.alibaba-inc.com',
+  aiLabAgentId: 'agt_test123',
+  aiLabApiKey: 'ak-test-secret',
+  aiLabWorkNo: '',
+}), false, 'the health path must not advertise AI-Lab without its user work number');
 
 const qoderInvocation = buildAiRuntimeInvocation(
   runtimes.find(item => item.id === 'qoder'),
@@ -53,6 +82,39 @@ assert.equal(
   qoderInvocation.args.includes('--max-output-tokens'),
   false,
   'Qoder versions accept different token-size syntaxes, so James must use the provider default',
+);
+assert.deepEqual(
+  qoderInvocation.args.slice(
+    qoderInvocation.args.indexOf('--tools'),
+    qoderInvocation.args.indexOf('--tools') + 4,
+  ),
+  ['--tools', 'Read', 'Grep', 'Glob'],
+  'Qoder must mirror the Codex read-only sandbox: no shell and no write tools',
+);
+for (const forbidden of ['Bash', 'Write', 'Edit']) {
+  assert.equal(
+    qoderInvocation.args.includes(forbidden),
+    false,
+    `Qoder must not receive the ${forbidden} tool`,
+  );
+}
+assert.equal(
+  qoderInvocation.args.includes('--config-dir'),
+  false,
+  'Qoder falls back to its default home when no isolated config directory is given',
+);
+
+const isolatedQoderInvocation = buildAiRuntimeInvocation(
+  runtimes.find(item => item.id === 'qoder'),
+  {
+    cwd: '/tmp/james-runtime',
+    configDir: '/tmp/james-qoder-home',
+  },
+);
+assert.deepEqual(
+  isolatedQoderInvocation.args.slice(0, 4),
+  ['-p', '--config-dir', '/tmp/james-qoder-home', '--strict-mcp-config'],
+  'The isolated config directory must be declared before the session flags',
 );
 
 const codexInvocation = buildAiRuntimeInvocation(

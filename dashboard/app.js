@@ -7,6 +7,7 @@ import {
   planCanApply,
   rollbackConfirmation,
   runtimeCanSelect,
+  runtimeRouteText,
   runtimeStatusLabel,
   wechatPocRequestHeaders,
 } from './config-ui.js';
@@ -78,6 +79,7 @@ const runtimeDescriptionKeys = {
   qoder: 'runtimeQoderDescription',
   codebuddy: 'runtimeCodebuddyDescription',
   trae: 'runtimeTraeDescription',
+  'ai-lab': 'runtimeAiLabDescription',
 };
 
 const channelCheckLabelKeys = {
@@ -406,7 +408,7 @@ function render(data) {
   tick();
 }
 
-function runtimeCard(runtime, selectedId, configured) {
+function runtimeCard(runtime, selectedId, configured, routeState) {
   const card = document.createElement('article');
   const selected = runtime.id === selectedId;
   card.className = `runtime-card ${runtime.available ? 'available' : 'unavailable'}${selected ? ' selected' : ''}`;
@@ -429,7 +431,8 @@ function runtimeCard(runtime, selectedId, configured) {
       ? tr('notInstalled')
       : runtime.id === 'trae' ? tr('runtimeTraeReason') : runtime.reason
     : '';
-  description.textContent = localizedReason || localizedDescription;
+  const routeDescription = selected ? runtimeRouteText(routeState, locale) : '';
+  description.textContent = routeDescription || localizedReason || localizedDescription;
   card.append(header, status, description);
   if (!selected) {
     const button = document.createElement('button');
@@ -449,7 +452,7 @@ function renderRuntimeState(state) {
   grid.replaceChildren();
   const selectedId = String(state.selected || '').toLowerCase();
   for (const runtime of state.runtimes || []) {
-    grid.append(runtimeCard(runtime, selectedId, state.configured));
+    grid.append(runtimeCard(runtime, selectedId, state.configured, state));
   }
 }
 

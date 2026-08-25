@@ -34,8 +34,8 @@ export function assessResponseObligation({
   if (String(message.chat_type || '') !== 'group') {
     return {
       explicitAssistantMention: false,
-      responseRequired: false,
-      reasonCode: 'not_group',
+      responseRequired: true,
+      reasonCode: 'direct_message',
     };
   }
 
@@ -69,5 +69,16 @@ export function assessResponseObligation({
     explicitAssistantMention: false,
     responseRequired: false,
     reasonCode: /[@＠]/u.test(content) ? 'other_mention' : 'not_addressed',
+  };
+}
+
+export function responseObligationSkipAudit({ message = {}, obligation = {}, channel = '' } = {}) {
+  if (String(message.chat_type || '') !== 'group' || obligation.responseRequired === true) return null;
+  return {
+    event: 'message_skipped_group_no_response_obligation',
+    detail: {
+      channel: String(channel || ''),
+      reasonCode: String(obligation.reasonCode || 'not_addressed'),
+    },
   };
 }
