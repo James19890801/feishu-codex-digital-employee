@@ -6,13 +6,6 @@ const STOP_LOOP_CLOSING = /(?:别|不|停止|收住|收了).{0,6}(?:循环|自�
 const EMOJI_ONLY = /^[\p{Extended_Pictographic}\p{Emoji_Component}\u200d\ufe0f\s]+$/u;
 const OWNER_FACING_DRAFT = /(?:草拟回复|需你确认后发送|你看(?:这样)?(?:回|回复).{0,12}(?:行不行|可以吗)|或者改一下)/u;
 
-export function isMultiMentionBroadcast(text, { chatType = '' } = {}) {
-  if (String(chatType || '').trim().toLowerCase() !== 'group') return false;
-  return [...String(text || '').matchAll(
-    /(?:^|[\s，,。！？!?；;、])[@＠]\s*[^\s，,。！？!?；;、]+/gu,
-  )].length > 1;
-}
-
 export function conversationReplyDisposition(text, { responseRequired = false } = {}) {
   const value = String(text || '').normalize('NFKC').replace(/\s+/g, ' ').trim();
   if (responseRequired || !value) return { reply: true, reason: responseRequired ? 'response_required' : 'actionable' };
@@ -24,10 +17,15 @@ export function conversationReplyDisposition(text, { responseRequired = false } 
   return { reply: true, reason: 'conversation_open' };
 }
 
-export function governGeneratedReply(text, { externalAudience = false } = {}) {
+export function governGeneratedReply(text, {
+  externalAudience = false,
+  responseRequired = false,
+} = {}) {
   const reply = String(text || '').trim();
-  return (externalAudience && OWNER_FACING_DRAFT.test(reply))
-    || GENERIC_CLOSING_REPLY.test(reply) || STOP_LOOP_CLOSING.test(reply) || EMOJI_ONLY.test(reply)
+  if (externalAudience && OWNER_FACING_DRAFT.test(reply)) {
+    return responseRequired ? '收到。' : '';
+  }
+  return GENERIC_CLOSING_REPLY.test(reply) || STOP_LOOP_CLOSING.test(reply) || EMOJI_ONLY.test(reply)
     ? ''
     : reply;
 }

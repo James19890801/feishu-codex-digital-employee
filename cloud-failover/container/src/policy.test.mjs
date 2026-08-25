@@ -64,10 +64,11 @@ assert.deepEqual(evaluateCloudMessage(message, { ...policy, generation: 2, expec
 assert.deepEqual(evaluateCloudMessage({
   ...message,
   chatType: 'group',
-  text: '@登位 @陈泽炫 @鹏友 @萌七 @迅羽 @阿充James @李福庆 列了个发布计划，今晚 7 点集中发布。',
+  text: '这个配置页面改好了 @阿充James @黑撒',
 }, { ...policy, generation: 2, expectedGeneration: 2, now }), {
-  allowed: false,
-  reason: 'multi_mention_broadcast',
+  allowed: true,
+  level: 'L0',
+  handoff: false,
 });
 for (const text of [
   '好的，有需要随时说。', '好的，回头联系。', '谢谢，先这样。', '我整理好稍后发你。',
@@ -103,7 +104,7 @@ assert.equal(cloudReply('👌'), '');
 assert.equal(cloudReply(
   '草拟回复（需你确认后发送到群聊）：收到，7点见。你看这样回行不行，或者改一下？',
   { externalAudience: true },
-), '', 'cloud takeover must not leak an owner-facing draft either');
+), '收到。', 'cloud takeover must replace an owner-facing draft with a safe acknowledgement');
 assert.match(ownerHandoffReply(), /本人确认/);
 assert.doesNotMatch(ownerHandoffReply(), /云端兜底/);
 console.log('FAILOVER_CONTAINER_POLICY_TEST_OK');

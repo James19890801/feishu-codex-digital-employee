@@ -390,6 +390,24 @@ assert.throws(
 
 {
   const payload = normalizeDingTalkEvent({
+    type: 'user_im_message_receive_at',
+    event_id: 'event-image-caption',
+    message_id: 'msg-image-caption',
+    conversation_id: 'cid-group',
+    sender_open_dingtalk_id: 'sender-1',
+    content: '[图片消息](mediaId=@image_456)这个配置页面改好了@冯周充(阿充James) @周荣康(黑撒)',
+    create_time: '2026-08-25T16:51:34+08:00',
+  });
+  assert.equal(payload.message.message_type, 'image');
+  assert.equal(
+    JSON.parse(payload.message.content).text,
+    '这个配置页面改好了@冯周充(阿充James) @周荣康(黑撒)',
+    'the text accompanying a DingTalk image mention must reach the reply pipeline',
+  );
+}
+
+{
+  const payload = normalizeDingTalkEvent({
     type: 'user_im_message_receive_o2o_all',
     event_id: 'calendar-receipt-event-1',
     message_id: 'calendar-receipt-message-1',

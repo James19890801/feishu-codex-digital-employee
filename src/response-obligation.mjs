@@ -14,12 +14,6 @@ function explicitlyMentionsAlias(content, alias) {
   return new RegExp(`[@＠]\\s*${target}(?=$|[\\s，,。！？!?::：;；])`, 'iu').test(content);
 }
 
-function mentionTokenCount(content) {
-  return [...String(content || '').matchAll(
-    /(?:^|[\s，,。！？!?；;、])[@＠]\s*[^\s，,。！？!?；;、]+/gu,
-  )].length;
-}
-
 export function normalizeResponseMentionAliases(values = [], defaults = []) {
   const inputs = [
     ...(Array.isArray(values) ? values : []),
@@ -46,16 +40,6 @@ export function assessResponseObligation({
   }
 
   const channel = String(metadata.channel || '').trim();
-  const content = normalizedText(text);
-  if (channel === 'dingtalk'
-    && String(metadata.eventType || '') === 'user_im_message_receive_at'
-    && mentionTokenCount(content) > 1) {
-    return {
-      explicitAssistantMention: true,
-      responseRequired: false,
-      reasonCode: 'multi_mention_broadcast',
-    };
-  }
   const structuredMention = metadata.explicitAssistantMention === true
     || (channel === 'dingtalk'
       && String(metadata.eventType || '') === 'user_im_message_receive_at')
@@ -70,6 +54,7 @@ export function assessResponseObligation({
     };
   }
 
+  const content = normalizedText(text);
   const assistantMention = normalizeResponseMentionAliases(aliases)
     .some(alias => explicitlyMentionsAlias(content, alias));
   if (assistantMention) {

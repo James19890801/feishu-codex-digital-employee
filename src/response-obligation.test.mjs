@@ -34,12 +34,12 @@ assert.deepEqual(assessResponseObligation({
 assert.deepEqual(assessResponseObligation({
   message: { ...groupMessage, mentions: [{ id: 'dingtalk-current-user' }] },
   metadata: { channel: 'dingtalk', eventType: 'user_im_message_receive_at' },
-  text: '@登位 @陈泽炫 @鹏友 @萌七 @迅羽 @阿充James @李福庆 列了个发布计划，今晚 7 点集中发布。',
+  text: '这个配置页面改好了 @阿充James @黑撒',
   aliases: ['阿充James'],
 }), {
   explicitAssistantMention: true,
-  responseRequired: false,
-  reasonCode: 'multi_mention_broadcast',
+  responseRequired: true,
+  reasonCode: 'structured_assistant_mention',
 });
 
 assert.deepEqual(assessResponseObligation({

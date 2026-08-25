@@ -196,6 +196,12 @@ export function normalizeDingTalkEvent(event, { ownerIds = [] } = {}) {
     || isPassiveDingTalkSystemNotice(rawContent)
   )) return null;
   const media = parseDingTalkMediaPlaceholder(rawContent);
+  const mediaCaption = media
+    ? rawContent
+      .replace(/^\[?(?:图片|语音|音频|视频)消息\]?\s*\(?\s*mediaId\s*(?:=|:)\s*[^\s)]+\s*\)?/iu, '')
+      .replace(/注意：如需下载使用\s*dws chat message download-media\s*命令下载/giu, '')
+      .trim()
+    : rawContent;
   return {
     message: {
       message_id: `dingtalk:${messageId}`,
@@ -206,7 +212,7 @@ export function normalizeDingTalkEvent(event, { ownerIds = [] } = {}) {
         event?.create_time || event?.event_time || event?.timestamp,
       ),
       content: JSON.stringify(media
-        ? { text: '', resource_id: media.resourceId, display_name: media.displayName }
+        ? { text: mediaCaption, resource_id: media.resourceId, display_name: media.displayName }
         : { text: rawContent }),
       mentions: group ? [{ id: 'dingtalk-current-user' }] : [],
     },

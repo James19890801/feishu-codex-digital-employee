@@ -361,16 +361,16 @@ contract('stable-response', 'Does an admitted DingTalk group @ create a response
   }).responseRequired, true);
 });
 
-contract('stable-response', 'Does a multi-mention DingTalk broadcast stay silent?', () => {
+contract('stable-response', 'Does a multi-mention DingTalk message addressed to James remain replyable?', () => {
   assert.deepEqual(assessResponseObligation({
     message: { chat_type: 'group', mentions: [{ id: 'dingtalk-current-user' }] },
     metadata: { channel: 'dingtalk', eventType: 'user_im_message_receive_at' },
-    text: '@登位 @萌七 @阿充James 今晚 7 点集中发布。',
+    text: '这个配置页面改好了 @阿充James @黑撒',
     aliases: ['阿充James'],
   }), {
     explicitAssistantMention: true,
-    responseRequired: false,
-    reasonCode: 'multi_mention_broadcast',
+    responseRequired: true,
+    reasonCode: 'structured_assistant_mention',
   });
 });
 
@@ -587,8 +587,8 @@ contract('stable-response', 'Can a generic acknowledgement pass the final outbou
 contract('stable-response', 'Can an owner-facing draft leak to an external conversation?', () => {
   assert.equal(governGeneratedReply(
     '草拟回复（需你确认后发送到群聊）：收到，7点见。你看这样回行不行？',
-    { externalAudience: true },
-  ), '');
+    { externalAudience: true, responseRequired: true },
+  ), '收到。');
 });
 
 for (const [chatType, isOwner, history, expected] of [

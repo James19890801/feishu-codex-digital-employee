@@ -56,6 +56,10 @@ assert.equal(conversationEtiquette.governGeneratedReply?.(
   '草拟回复（需你确认后发送到群聊）：收到，7点见。你看这样回行不行，或者改一下？',
   { externalAudience: true },
 ), '', 'an owner-facing draft must never leak to the external conversation');
+assert.equal(conversationEtiquette.governGeneratedReply?.(
+  '草拟回复（需你确认后发送到群聊）：收到，7点见。你看这样回行不行，或者改一下？',
+  { externalAudience: true, responseRequired: true },
+), '收到。', 'a required external reply must use a safe acknowledgement instead of going silent');
 assert.match(conversationEtiquette.governGeneratedReply?.(
   '草拟回复：收到，7点见。',
   { externalAudience: false },

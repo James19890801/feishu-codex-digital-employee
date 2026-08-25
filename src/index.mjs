@@ -2877,8 +2877,14 @@ async function processIncoming(client, message, sender, metadata = {}) {
     }
     const replyDisposition = generatedReplyDisposition(commitmentGuard.text, {
       externalAudience: metadata.selfChat !== true && senderOpenId !== OWNER_OPEN_ID,
+      responseRequired,
     });
     const answer = replyDisposition.text;
+    if (replyDisposition.reason === 'owner_facing_draft_fallback') {
+      audit('outbound_quality_replaced', message, senderOpenId, {
+        reason: replyDisposition.reason,
+      });
+    }
     if (!answer) {
       audit('outbound_quality_suppressed', message, senderOpenId, {
         reason: replyDisposition.reason,

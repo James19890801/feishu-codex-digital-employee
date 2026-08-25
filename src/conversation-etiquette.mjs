@@ -19,10 +19,15 @@ export function conversationReplyDisposition(text, { responseRequired = false } 
   return { reply: true, reason: 'conversation_open' };
 }
 
-export function generatedReplyDisposition(text, { externalAudience = false } = {}) {
+export function generatedReplyDisposition(text, {
+  externalAudience = false,
+  responseRequired = false,
+} = {}) {
   const reply = String(text || '').trim();
   if (externalAudience && OWNER_FACING_DRAFT.test(reply)) {
-    return { text: '', reason: 'owner_facing_draft' };
+    return responseRequired
+      ? { text: '收到。', reason: 'owner_facing_draft_fallback' }
+      : { text: '', reason: 'owner_facing_draft' };
   }
   if (GENERIC_CLOSING_REPLY.test(reply) || STOP_LOOP_CLOSING.test(reply) || EMOJI_ONLY.test(reply)) {
     return { text: '', reason: 'generic_closing_reply' };
