@@ -41,6 +41,17 @@ export function stableMessageUuid(channel, messageId) {
   return `${value.slice(0, 8).join('')}-${value.slice(8, 12).join('')}-${value.slice(12, 16).join('')}-${value.slice(16, 20).join('')}-${value.slice(20).join('')}`;
 }
 
+export function deliveryTarget(message = {}) {
+  if (String(message.chatType || '').trim().toLowerCase() === 'group') {
+    const openConversationId = String(message.chatId || '').trim();
+    if (!openConversationId) throw new Error('Group conversation ID is required');
+    return { kind: 'group', openConversationId };
+  }
+  const openDingTalkId = String(message.senderId || '').trim();
+  if (!openDingTalkId) throw new Error('Direct sender ID is required');
+  return { kind: 'direct', openDingTalkId };
+}
+
 export function normalizeDwsMessage(input = {}) {
   const eventType = String(input.type || '');
   const messageId = String(input.messageId || input.openMessageId || input.message_id || input.msgId || input.id || '').trim();

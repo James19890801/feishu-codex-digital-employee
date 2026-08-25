@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  cloudReply, evaluateCloudMessage, messageDigest, normalizeDwsMessage,
+  cloudReply, deliveryTarget, evaluateCloudMessage, messageDigest, normalizeDwsMessage,
   ownerHandoffReply, stableMessageUuid, validateContainerEnvironment,
 } from './policy.mjs';
 import { RailwayFailoverRuntime } from './runtime.mjs';
@@ -280,8 +280,12 @@ export class StandbyDwsWorker {
         outcomeCode = 'reply_suppressed_human_takeover';
         return { sent: false, skipped: 'human_takeover' };
       }
+      const target = deliveryTarget(message);
+      const destinationArgs = target.kind === 'group'
+        ? ['--group', target.openConversationId]
+        : ['--open-dingtalk-id', target.openDingTalkId];
       const sent = await this.runner(this.bin, [
-        'chat', 'message', 'send', '--group', message.chatId, '--text', reply,
+        'chat', 'message', 'send', ...destinationArgs, '--text', reply,
         '--uuid', stableMessageUuid('dingtalk', message.messageId), '--yes', '--format', 'json',
         ...this.commonArgs(),
       ], this.dwsOptions());

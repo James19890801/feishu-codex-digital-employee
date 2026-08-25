@@ -105,12 +105,24 @@ const result = await worker.processMessage({
 assert.deepEqual(result, { sent: true, outcomeCode: 'reply_sent', messageId: 'sent-message-1' });
 const send = calls.find(args => args[0] === 'chat' && args[2] === 'send');
 assert.equal(send[send.indexOf('--text') + 1], '云端回答');
+assert.equal(send[send.indexOf('--open-dingtalk-id') + 1], 'user-1');
+assert.equal(send.includes('--group'), false);
 assert.match(send[send.indexOf('--uuid') + 1], /^[a-f0-9-]{36}$/);
 assert.equal(send.includes('--format'), true);
 const sendStatus = calls.find(args => args[0] === 'chat' && args[2] === 'query-send-status');
 assert.equal(sendStatus[sendStatus.indexOf('--open-task-id') + 1], 'task-1');
 assert.equal(coordinatorCalls.at(-1)[0], 'complete');
 assert.equal(coordinatorCalls.at(-1)[1].messageId, 'sent-message-1');
+
+const sendsBeforeGroup = calls.filter(args => args[0] === 'chat' && args[2] === 'send').length;
+const groupResult = await worker.processMessage({
+  type: 'user_im_message_receive_at', message_id: 'm-group', conversation_id: 'group-1',
+  sender_open_dingtalk_id: 'user-2', content: '@数字人 请分析这个问题', create_time: 1_786_060_800_000,
+});
+assert.equal(groupResult.sent, true);
+const groupSend = calls.filter(args => args[0] === 'chat' && args[2] === 'send').at(sendsBeforeGroup);
+assert.equal(groupSend[groupSend.indexOf('--group') + 1], 'group-1');
+assert.equal(groupSend.includes('--open-dingtalk-id'), false);
 
 const sendCountBeforeClosing = calls.filter(args => args[0] === 'chat' && args[2] === 'send').length;
 const qoderCountBeforeClosing = coordinatorCalls.filter(call => call[0] === 'qoder').length;

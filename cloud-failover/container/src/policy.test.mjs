@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  cloudReply, evaluateCloudMessage, messageDigest, normalizeDwsMessage,
+  cloudReply, deliveryTarget, evaluateCloudMessage, messageDigest, normalizeDwsMessage,
   ownerHandoffReply, stableMessageUuid, validateContainerEnvironment,
 } from './policy.mjs';
 
@@ -24,6 +24,13 @@ assert.throws(() => validateContainerEnvironment({ ...env, AIPROS_ACCESS_MODE: '
   /AIPROS_ACCESS_MODE must be blacklist/);
 const now = 1_786_060_800_000;
 const message = normalizeDwsMessage({ messageId: 'm1', chatId: 'chat-1', senderId: 'user-1', text: '你好', createdAt: now });
+assert.deepEqual(deliveryTarget({ chatType: 'p2p', senderId: 'user-1', chatId: 'chat-1' }), {
+  kind: 'direct', openDingTalkId: 'user-1',
+});
+assert.deepEqual(deliveryTarget({ chatType: 'group', senderId: 'user-1', chatId: 'chat-1' }), {
+  kind: 'group', openConversationId: 'chat-1',
+});
+assert.throws(() => deliveryTarget({ chatType: 'p2p', senderId: '', chatId: 'chat-1' }), /sender/i);
 assert.deepEqual(normalizeDwsMessage({
   openMessageId: 'm-mention', openConversationId: 'chat-1',
   senderOpenDingTalkId: 'user-1', content: '@我 你好', createTime: now,
