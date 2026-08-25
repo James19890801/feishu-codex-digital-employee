@@ -5,9 +5,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOURS="${1:-3}"
 [[ "$HOURS" == <-> ]] && (( HOURS >= 1 && HOURS <= 24 ))
 
-CONFIG_TARGET="$(readlink "$ROOT/config.local.json")"
-test -n "$CONFIG_TARGET"
-ACTIVE_ROOT="$(cd "$(dirname "$CONFIG_TARGET")" && pwd)"
+CONFIG_TARGET="$(readlink "$ROOT/config.local.json" || true)"
+if [[ -n "$CONFIG_TARGET" ]]; then
+  ACTIVE_ROOT="$(cd "$(dirname "$CONFIG_TARGET")" && pwd)"
+else
+  ACTIVE_ROOT="$ROOT"
+fi
 test -x "$ACTIVE_ROOT/scripts/install-service.sh"
 
 UID_VALUE="$(id -u)"

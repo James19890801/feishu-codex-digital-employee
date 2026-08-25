@@ -10,8 +10,8 @@ RESTORE_LABEL="com.local.aipros-cloud-runtime-restore"
 
 launchctl enable "gui/$UID_VALUE/com.local.feishu-codex-digital-employee"
 "$ACTIVE_ROOT/scripts/install-service.sh"
-launchctl enable "gui/$UID_VALUE/com.local.aipros-cloud-failover-heartbeat"
-"$SIDECAR_ROOT/scripts/install-cloud-failover-heartbeat-sidecar.sh"
+launchctl disable "gui/$UID_VALUE/com.local.aipros-cloud-failover-heartbeat"
+launchctl bootout "gui/$UID_VALUE/com.local.aipros-cloud-failover-heartbeat" 2>/dev/null || true
 
 /usr/bin/python3 - "$STATE_FILE" <<'PY'
 import json, sys
