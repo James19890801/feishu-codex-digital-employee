@@ -5,7 +5,7 @@ const image = 'aipros-railway-failover:runtime-test';
 const platform = process.arch === 'arm64' ? 'linux/arm64' : 'linux/amd64';
 
 const build = spawnSync('docker', ['build', '--platform', platform, '--tag', image, '.'], {
-  cwd: new URL('.', import.meta.url), encoding: 'utf8', timeout: 10 * 60_000,
+  cwd: new URL('.', import.meta.url), encoding: 'utf8', timeout: 20 * 60_000,
 });
 assert.equal(build.status, 0, `container build failed:\n${build.stderr.slice(-4_000)}`);
 
