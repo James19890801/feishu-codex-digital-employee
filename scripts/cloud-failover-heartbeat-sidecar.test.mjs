@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   buildHeartbeatSnapshot,
+  hasFreshIntegratedHeartbeat,
   runHeartbeatOnce,
 } from './cloud-failover-heartbeat-sidecar.mjs';
 
@@ -42,6 +43,13 @@ assert.equal(historicalDeadLetter.dwsConnected, true);
 assert.equal(historicalDeadLetter.runtimeHealthy, true,
   'historical dead letters must not transfer live outbound ownership to cloud');
 
+assert.equal(hasFreshIntegratedHeartbeat({
+  cloudFailover: { enabled: true, configured: true, lastHeartbeatAt: '2026-08-12T00:00:00.000Z' },
+}, { now: () => new Date('2026-08-12T00:00:59.000Z'), maxAgeMs: 60_000 }), true);
+assert.equal(hasFreshIntegratedHeartbeat({
+  cloudFailover: { enabled: true, configured: true, lastHeartbeatAt: '2026-08-12T00:00:00.000Z' },
+}, { now: () => new Date('2026-08-12T00:01:01.000Z'), maxAgeMs: 60_000 }), false);
+
 const calls = [];
 const result = await runHeartbeatOnce({
   client: { async heartbeat(payload) { calls.push(payload); return { state: 'LOCAL_PRIMARY', generation: 4 }; } },
@@ -55,6 +63,21 @@ const result = await runHeartbeatOnce({
 });
 assert.equal(calls.length, 1);
 assert.equal(result.state, 'LOCAL_PRIMARY');
+let concurrentCalls = 0;
+const concurrent = await runHeartbeatOnce({
+  client: { async heartbeat() { concurrentCalls += 1; throw new Error('must not send'); } },
+  fetchImpl: async () => new Response(JSON.stringify({
+    ...healthyStatus,
+    cloudFailover: {
+      enabled: true, configured: true, lastHeartbeatAt: '2026-08-12T00:00:00.000Z',
+    },
+  }), { status: 200, headers: { 'content-type': 'application/json' } }),
+  sequence: 2,
+  serviceStartId: 'sidecar-1',
+  now: () => new Date('2026-08-12T00:00:30.000Z'),
+});
+assert.deepEqual(concurrent, { skipped: 'integrated_heartbeat_active' });
+assert.equal(concurrentCalls, 0);
 await assert.rejects(
   () => runHeartbeatOnce({
     client: { async heartbeat() { throw new Error('must not send'); } },

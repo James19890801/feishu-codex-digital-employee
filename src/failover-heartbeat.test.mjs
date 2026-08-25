@@ -67,6 +67,8 @@ assert.equal(timers.length, 3, 'a failed heartbeat must keep the local loop aliv
 
 heartbeat.stop();
 assert.equal(cleared.at(-1), timers[2]);
+heartbeat.stop();
+assert.equal(cleared.length, 1, 'shutdown must stop the integrated heartbeat exactly once');
 await timers[2].callback();
 assert.equal(calls, 2, 'stopped heartbeat must not call the gateway');
 

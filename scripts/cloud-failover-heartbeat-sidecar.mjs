@@ -6,6 +6,19 @@ import { config } from '../src/config.mjs';
 
 const DEFAULT_STATUS_URL = 'http://127.0.0.1:17655/api/status';
 
+export function hasFreshIntegratedHeartbeat(status, {
+  now = () => new Date(),
+  maxAgeMs = 60_000,
+} = {}) {
+  const heartbeat = status?.cloudFailover || {};
+  if (heartbeat.enabled !== true || heartbeat.configured !== true) return false;
+  const lastHeartbeatAt = Date.parse(String(heartbeat.lastHeartbeatAt || ''));
+  const current = now().getTime();
+  return Number.isFinite(lastHeartbeatAt)
+    && lastHeartbeatAt <= current + 5_000
+    && current - lastHeartbeatAt <= maxAgeMs;
+}
+
 export function buildHeartbeatSnapshot(status, {
   sequence,
   at,
@@ -39,9 +52,16 @@ export async function runHeartbeatOnce({
   });
   if (!response.ok) throw new Error(`Local health endpoint failed with HTTP ${response.status}`);
   const status = await response.json();
+  const instant = now();
+  if (hasFreshIntegratedHeartbeat(status, {
+    now: () => instant,
+    maxAgeMs: Math.max(60_000, Number(config.cloudFailoverHeartbeatMs || 30_000) * 2),
+  })) {
+    return { skipped: 'integrated_heartbeat_active' };
+  }
   return client.heartbeat(buildHeartbeatSnapshot(status, {
     sequence,
-    at: now().toISOString(),
+    at: instant.toISOString(),
     serviceStartId,
   }));
 }
@@ -85,7 +105,12 @@ export async function runSidecar({ signal } = {}) {
       const result = await runHeartbeatOnce({
         client, statusUrl, sequence, serviceStartId,
       });
-      if (result.state !== lastState) {
+      if (result.skipped === 'integrated_heartbeat_active') {
+        if (lastState !== 'INTEGRATED') {
+          console.log('cloud_failover_sidecar_paused', { reason: result.skipped });
+          lastState = 'INTEGRATED';
+        }
+      } else if (result.state !== lastState) {
         console.log('cloud_failover_sidecar_state', {
           state: result.state,
           generation: Number(result.generation || 0),

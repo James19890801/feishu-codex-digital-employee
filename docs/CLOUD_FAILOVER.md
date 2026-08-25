@@ -22,7 +22,7 @@ Two failover paths are intentionally separate:
 
 If the per-message cloud gateway is unavailable, the local durable inbox leaves the message retryable rather than marking it complete. DingTalk sends use a stable message UUID, while the Cloudflare `handoffId` prevents duplicate Qoder generation across process and network retries.
 
-When the active local service cannot yet be switched to this isolated branch, install the independent macOS heartbeat sidecar with `./scripts/install-cloud-failover-heartbeat-sidecar.sh`. It reads only the metadata-only local `/api/status`, stores no local content, and signs a healthy heartbeat only when the process, AI runtime and DWS channel are all healthy. An unhealthy heartbeat does not move the coordinator's last-healthy boundary, so three intervals still trigger Railway. Remove the sidecar after the integrated heartbeat is deployed to the active local service; never run both as separate authorities long term.
+When the active local service cannot yet be switched to this isolated branch, install the independent macOS heartbeat sidecar with `./scripts/install-cloud-failover-heartbeat-sidecar.sh`. It reads only the metadata-only local `/api/status`, stores no local content, and signs a healthy heartbeat only when the process, AI runtime and DWS channel are all healthy. An unhealthy heartbeat does not move the coordinator's last-healthy boundary, so three intervals still trigger Railway. The integrated service heartbeat is authoritative: the installer refuses to add a sidecar while it is fresh, and an already-installed rollback sidecar pauses itself while the integrated heartbeat remains fresh. Remove the sidecar after the integrated heartbeat is deployed to the active local service; never run both as separate authorities long term.
 
 For a bounded cloud-only acceptance window, run `./scripts/start-cloud-runtime-window.sh 3`. It schedules a one-shot macOS restore job before disabling both the active local message service and heartbeat sidecar. After the window, the existing local checkout is restarted unchanged, the sidecar resumes, and the normal three-heartbeat drain returns ownership to local. The Dashboard remains available during the window.
 
@@ -63,6 +63,8 @@ Provision these as sealed Railway service variables. Read back names only, never
 DINGTALK_DWS_AUTH_BUNDLE_B64
 AIPROS_CLOUD_DWS_CHANNEL
 AIPROS_DWS_HOME
+AIPROS_NODE_ID
+AIPROS_STANDBY_BUFFER_PATH
 AIPROS_COORDINATOR_URL
 AIPROS_CONTAINER_TOKEN
 AIPROS_ACCESS_MODE
@@ -94,7 +96,7 @@ dws auth status --format json
 dws auth export --base64 > dws-auth.b64
 ```
 
-Run these commands with DWS 1.0.56, `DWS_DISABLE_KEYCHAIN=1`, the registered digital-human `DWS_CHANNEL`, and an isolated `HOME`; the user completes one device authorization in DingTalk. Before export, verify that this state contains only the dedicated cloud authorization and is not the local production Profile. Store the base64 output as `DINGTALK_DWS_AUTH_BUNDLE_B64`, and place the same public routing code in `AIPROS_CLOUD_DWS_CHANNEL`, then securely delete the export file. The Railway runtime imports the bundle once with mode `0600` into the persistent `AIPROS_DWS_HOME`, injects that Channel only into DWS subprocesses, verifies a real `dws auth status`, and records a bootstrap marker. Later restarts use the persisted, rotated credential state and fail closed instead of re-importing the original bundle. Mount a Railway Volume at `/data` and set `RAILWAY_RUN_UID=0`, because Railway mounts volumes as root.
+Run these commands with DWS 1.0.56, `DWS_DISABLE_KEYCHAIN=1`, the registered digital-human `DWS_CHANNEL`, and an isolated `HOME`; the user completes one device authorization in DingTalk. Before export, verify that this state contains only the dedicated cloud authorization and is not the local production Profile. Store the base64 output as `DINGTALK_DWS_AUTH_BUNDLE_B64`, and place the same public routing code in `AIPROS_CLOUD_DWS_CHANNEL`, then securely delete the export file. The Railway runtime imports the bundle once with mode `0600` into the persistent `AIPROS_DWS_HOME`, injects that Channel only into DWS subprocesses, verifies a real `dws auth status`, and records a bootstrap marker. Later restarts use the persisted, rotated credential state and fail closed instead of re-importing the original bundle. Mount a Railway Volume at `/data`, set `AIPROS_STANDBY_BUFFER_PATH=/data/standby-messages.sqlite`, and set `RAILWAY_RUN_UID=0`, because Railway mounts volumes as root. The always-warm consumer stores only static-policy-eligible events in an AES-256-GCM encrypted SQLite journal derived from the container token and `AIPROS_NODE_ID`; it keeps at most 100 events for three minutes, drains oldest-first under generation claims, and refuses to announce ready if the journal cannot be authenticated.
 
 ## Configure the Mac
 
