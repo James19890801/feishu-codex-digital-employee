@@ -34,6 +34,18 @@ assert.deepEqual(defaults.authorizedChatIds, ['__SETUP_REQUIRED__']);
 assert.equal(defaults.ownerOpenId, '');
 assert.equal(defaults.dingtalkOwnerOpenId, '');
 assert.equal(defaults.aiRuntime, 'auto');
+for (const candidate of [defaults, example]) {
+  assert.equal(candidate.cloudFailoverEnabled, false);
+  assert.equal(candidate.cloudFailoverBaseUrl, '');
+  assert.equal(candidate.cloudFailoverNodeId, '');
+  assert.equal(candidate.cloudFailoverHeartbeatMs, 30_000);
+  assert.equal(candidate.cloudFailoverMissThreshold, 3);
+  assert.equal(candidate.cloudFailoverRecoveryThreshold, 3);
+  assert.equal(candidate.cloudFailoverLocalAttempts, 3);
+  assert.equal(candidate.cloudFailoverMaxPromptChars, 24_000);
+  assert.equal(candidate.cloudFailoverKeychainService, 'james-cloud-failover');
+  assert.equal(candidate.cloudFailoverKeychainAccount, 'hmac-secret');
+}
 assert.deepEqual(defaults.automaticCommunicationBlocklist, []);
 assert.equal(defaults.webReaderEnabled, true);
 assert.equal(defaults.webReaderMaxUrls, 2);

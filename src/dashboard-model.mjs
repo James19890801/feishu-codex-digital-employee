@@ -19,6 +19,7 @@ const ISSUE_LABELS = {
   wecom_channel_unavailable: '企业微信通道已启用但未连接',
   wechat_channel_unavailable: '个人微信通道已启用但未连接',
   self_chat_circuit_open: '自聊防循环熔断器已开启，当前正在静默冷却',
+  cloud_failover_degraded: '云端兜底处于降级状态',
 };
 
 export function isCredentialAccessBlocked(lastPollError) {
@@ -44,6 +45,7 @@ export function buildOperatorView(input) {
     : null;
   const webReaderAvailable = input.webReaderEnabled === true;
   const audioTranscriberAvailable = input.audioTranscriberAvailable === true;
+  const cloudFailover = input.cloudFailover || {};
   if (!input.processAlive) issues.push('process_not_running');
   if (feishuEnabled && (pollAgeMs === null || pollAgeMs > input.maxPollAgeMs)) {
     issues.push('poll_cursor_stale');
@@ -92,6 +94,9 @@ export function buildOperatorView(input) {
   }
   if (geweChannel.enabled && !geweChannel.connected) {
     issues.push('wechat_channel_unavailable');
+  }
+  if (cloudFailover.enabled && cloudFailover.state === 'DEGRADED') {
+    issues.push('cloud_failover_degraded');
   }
 
   const state = !input.processAlive ? 'offline' : issues.length ? 'degraded' : 'online';
@@ -234,6 +239,16 @@ export function buildOperatorView(input) {
       runtimes: Array.isArray(input.aiRuntime?.runtimes)
         ? structuredClone(input.aiRuntime.runtimes)
         : [],
+    },
+    cloudFailover: {
+      enabled: Boolean(cloudFailover.enabled),
+      configured: Boolean(cloudFailover.configured),
+      healthy: !cloudFailover.enabled || cloudFailover.state !== 'DEGRADED',
+      state: String(cloudFailover.state || (cloudFailover.enabled ? 'UNKNOWN' : 'DISABLED')),
+      generation: Number(cloudFailover.generation || 0),
+      lastHeartbeatAt: String(cloudFailover.lastHeartbeatAt || ''),
+      lastCloudSuccessAt: String(cloudFailover.lastCloudSuccessAt || ''),
+      lastError: cloudFailover.lastError || null,
     },
     a1: {
       enabled: Boolean(input.a1Enabled),

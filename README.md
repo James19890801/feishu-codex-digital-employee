@@ -33,6 +33,7 @@ James 试图解决的是另一个问题：
 | 自动通信黑名单 | 有些联系人拒绝数字人 | 入站和发送前双层硬拦截；只有本人明确授权的手动发送允许越过 |
 | 长期运行可靠性 | 漏消息、重复回复、无限重试 | 持久化收件箱、跨源去重、会话串行、幂等、租约、退避、死信、备份和单实例锁 |
 | 不说谎的控制台 | “装好了”不等于“能用” | 分开展示安装、配置、认证、连接、真实 Runtime 调用、队列、数据库和备份状态 |
+| 本地优先云端兜底 | 本地运行时或整机离线导致失联 | 本地每次优先；3 次可重试故障后 Qoder 兜底；整机 90 秒失联后 Cloudflare 接管 |
 
 ## 系统架构
 
@@ -78,6 +79,14 @@ James 把模型调用封装为受控的本地子进程，而不是让业务代�
 - Dashboard 区分“已检测到应用”和“最近一次真实调用成功”。
 
 本机文件不会因为 Runtime 存在就自动开放。可读取范围仍由当前工作目录、系统权限、Persona/Bible、知识目录和具体任务授权共同决定。
+
+## Cloudflare + Qoder 云端兜底（可选）
+
+云端兜底默认关闭，启用后仍保持 Local-first：每个模型请求先在本地运行，只有超时、进程故障、网络传输失败或空响应连续 3 次，才把经过脱敏的文本 L0/L1 请求交给 Qoder Cloud Agent。权限拒绝、待本人确认、业务校验失败、文件、图片、邮件、文档、代码仓和本地记忆不会进入云端。
+
+整机离线由 Cloudflare Durable Object 的 30 秒签名心跳判断。连续漏 3 次（约 90 秒）后启动独立 DWS Container，补拉最多 3 分钟并持续消费实时事件；Mac 恢复后连续 3 个健康心跳才排空交还。云端消息固定显示 `【云端兜底】`，L2/L3 只提示等待本人确认。
+
+代码已包含 Worker、SQLite-backed Durable Object、Qoder SSE 适配和独立 DWS Container，但默认没有创建任何外部资源，也不携带凭据。部署、独立 OAuth、停机接管与无重复恢复验收见 [docs/CLOUD_FAILOVER.md](docs/CLOUD_FAILOVER.md)。未完成该验收前，不应宣称 7x24 已生效。
 
 ## 钉钉：只走 DWS Channel，不走悟空
 
@@ -233,7 +242,7 @@ Dashboard 默认只绑定 `127.0.0.1`，用于观察和配置当前机器：
 ### 1. 安装独立 DWS
 
 ```zsh
-npm install -g dingtalk-workspace-cli@1.0.55
+npm install -g dingtalk-workspace-cli@1.0.56
 dws auth login
 dws auth status --format json
 ```
@@ -307,6 +316,7 @@ scripts/        安装、服务、健康、备份、打包与隐私扫描
 templates/      不含个人数据的 Persona / Bible / 知识模板
 macos/James/    macOS 原生入口与应用资源
 licensing/      可选的激活与许可边界
+cloud-failover/ 可选的 Cloudflare 控制面与独立 DWS 待机容器
 docs/           产品设计、实施计划、机制矩阵与回归证据
 ```
 

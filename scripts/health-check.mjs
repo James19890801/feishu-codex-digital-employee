@@ -105,6 +105,11 @@ const lastDingTalkReconciliationSuccessAt = setting(
 const lastDingTalkReconciliationError = setting(
   'health', 'last_dingtalk_reconciliation_error', null,
 );
+const cloudFailover = setting('health', 'cloud_failover', {
+  enabled: config.cloudFailoverEnabled === true,
+  configured: false,
+  state: config.cloudFailoverEnabled === true ? 'UNKNOWN' : 'DISABLED',
+});
 const dingtalkChannel = setting('channel', 'dingtalk', {});
 const wecomChannel = setting('channel', 'wecom', {});
 const geweChannel = setting('channel', 'wechat', {});
@@ -124,6 +129,9 @@ if (config.feishuEnabled !== false
 }
 const selfChatCircuitOpen = Number(selfChatCircuitLast?.openUntilMs || 0) > nowMs;
 if (selfChatCircuitOpen) result.issues.push('self_chat_circuit_open');
+if (cloudFailover.enabled === true && cloudFailover.state === 'DEGRADED') {
+  result.issues.push('cloud_failover_degraded');
+}
 if (config.dingtalkEnabled === true && !dingtalkChannel.connected) {
   result.issues.push('dingtalk_channel_unavailable');
 }
@@ -200,6 +208,7 @@ result.metrics = {
   selfChatCircuitLast,
   lastDingTalkReconciliationSuccessAt,
   dingtalkReconciliationAgeMs,
+  cloudFailover,
   channels: {
     feishu: {
       enabled: config.feishuEnabled !== false,

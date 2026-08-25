@@ -1,7 +1,7 @@
 import * as lark from '@larksuiteoapi/node-sdk';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { spawn } from 'node:child_process';
-import { randomBytes, randomInt } from 'node:crypto';
+import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import {
   lstat,
@@ -136,6 +136,9 @@ import {
   runAiRuntimeStartupProbe,
   selectAiRuntime,
 } from './ai-runtime.mjs';
+import { CloudFailoverClient } from './cloud-failover-client.mjs';
+import { FailoverHeartbeat } from './failover-heartbeat.mjs';
+import { LocalFirstRuntimeRouter } from './local-first-runtime-router.mjs';
 import {
   buildDingTalkConversationPollingArgs,
   buildDingTalkProcessEnv,
@@ -275,6 +278,23 @@ const SELECTED_AI_RUNTIME = selectAiRuntime(AI_RUNTIMES, config.aiRuntime);
 const AI_RUNTIME_CLIENT = new AiRuntimeClient({
   runtime: SELECTED_AI_RUNTIME,
   env: aiRuntimeEnv(),
+});
+let cloudFailoverClient = null;
+let cloudFailoverHeartbeat = null;
+const CLOUD_FAILOVER_SERVICE_START_ID = randomBytes(16).toString('hex');
+const AI_RUNTIME_ROUTER = new LocalFirstRuntimeRouter({
+  localClient: AI_RUNTIME_CLIENT,
+  cloudClient: {
+    execute(input) {
+      if (!cloudFailoverClient) {
+        const error = new Error('Cloud failover client is not configured');
+        error.code = 'cloud_failover_unavailable';
+        throw error;
+      }
+      return cloudFailoverClient.execute(input);
+    },
+  },
+  attempts: config.cloudFailoverEnabled ? config.cloudFailoverLocalAttempts : 1,
 });
 const singletonLock = await acquireSingletonLock(join(WORKDIR, 'data', 'service.lock'));
 const state = new AgentState(STATE_PATH);
@@ -662,6 +682,110 @@ async function ensureKeychainSecret(service, account) {
     maxStderrBytes: 64 * 1024,
   });
   return secret;
+}
+
+function cloudFailoverHealthSnapshot() {
+  const lastSuccessAt = state.get('health', 'last_ai_runtime_success_at', '');
+  const lastError = state.get('health', 'last_ai_runtime_error', null);
+  const lastMessageId = state.latestCompletedInboundMessageId();
+  return {
+    dwsConnected: state.get('channel', 'dingtalk', {}).connected === true,
+    runtimeHealthy: !lastError?.at || Boolean(lastSuccessAt && lastSuccessAt >= lastError.at),
+    lastMessageDigest: lastMessageId
+      ? createHash('sha256').update(lastMessageId).digest('hex')
+      : '',
+  };
+}
+
+async function initializeCloudFailoverClient() {
+  if (!config.cloudFailoverEnabled) {
+    state.set('health', 'cloud_failover', {
+      enabled: false,
+      configured: false,
+      state: 'DISABLED',
+      generation: 0,
+    });
+    return;
+  }
+  try {
+    const secret = await getKeychainSecret(
+      config.cloudFailoverKeychainService,
+      config.cloudFailoverKeychainAccount,
+    );
+    cloudFailoverClient = new CloudFailoverClient({
+      baseUrl: config.cloudFailoverBaseUrl,
+      nodeId: config.cloudFailoverNodeId,
+      secret,
+      timeoutMs: config.codexTimeoutMs,
+    });
+    state.set('health', 'cloud_failover', {
+      enabled: true,
+      configured: true,
+      state: 'UNKNOWN',
+      generation: 0,
+      lastHeartbeatAt: '',
+      lastCloudSuccessAt: '',
+      lastError: null,
+    });
+  } catch (error) {
+    const detail = {
+      at: new Date().toISOString(),
+      error: processFailureSummary(error),
+    };
+    state.set('health', 'cloud_failover', {
+      enabled: true,
+      configured: false,
+      state: 'UNKNOWN',
+      generation: 0,
+      lastError: detail,
+    });
+    state.audit('cloud_failover_configuration_error', { detail });
+    console.error('[cloud-failover-configuration]', error);
+  }
+}
+
+function startCloudFailoverHeartbeat() {
+  if (!cloudFailoverClient || cloudFailoverHeartbeat) return;
+  cloudFailoverHeartbeat = new FailoverHeartbeat({
+    client: cloudFailoverClient,
+    intervalMs: config.cloudFailoverHeartbeatMs,
+    snapshot: sequence => ({
+      sequence,
+      at: new Date().toISOString(),
+      serviceStartId: CLOUD_FAILOVER_SERVICE_START_ID,
+      ...cloudFailoverHealthSnapshot(),
+      appVersion: '1.0.0',
+      protocolVersion: '1',
+    }),
+    onSuccess: result => {
+      const current = state.get('health', 'cloud_failover', {});
+      state.set('health', 'cloud_failover', {
+        ...current,
+        enabled: true,
+        configured: true,
+        state: result.state || 'UNKNOWN',
+        generation: Number(result.generation || 0),
+        lastHeartbeatAt: new Date().toISOString(),
+        lastError: null,
+      });
+    },
+    onError: error => {
+      const current = state.get('health', 'cloud_failover', {});
+      const detail = {
+        at: new Date().toISOString(),
+        error: processFailureSummary(error),
+      };
+      state.set('health', 'cloud_failover', {
+        ...current,
+        enabled: true,
+        configured: true,
+        lastError: detail,
+      });
+      state.audit('cloud_failover_heartbeat_error', { detail });
+    },
+  });
+  cloudFailoverHeartbeat.start();
+  console.log(`[cloud-failover] heartbeat active every ${config.cloudFailoverHeartbeatMs}ms`);
 }
 
 function cleanTask(text) {
@@ -1088,11 +1212,30 @@ async function createConfirmedCalendarEvent(client, draft) {
   return response.data.event;
 }
 
-async function runAiRuntime(prompt, options) {
+async function runAiRuntime(prompt, options, cloudContext = {}) {
   try {
-    const result = await AI_RUNTIME_CLIENT.run(prompt, options);
+    const result = await AI_RUNTIME_ROUTER.run(prompt, options, cloudContext);
+    const runtimeId = result.runtime?.id || SELECTED_AI_RUNTIME.id;
+    const succeededAt = new Date().toISOString();
     state.set('health', 'last_ai_runtime_success_at', new Date().toISOString());
     state.unset('health', 'last_ai_runtime_error');
+    if (runtimeId === 'qoder-cloud') {
+      const current = state.get('health', 'cloud_failover', {});
+      state.set('health', 'cloud_failover', {
+        ...current,
+        enabled: true,
+        configured: true,
+        lastCloudSuccessAt: succeededAt,
+      });
+      state.audit('cloud_failover_runtime_succeeded', {
+        detail: {
+          sessionId: result.cloud?.sessionId || '',
+          latencyMs: Number(result.cloud?.latencyMs || 0),
+          handoffStatus: result.cloud?.handoff?.status || '',
+          replayed: result.cloud?.handoff?.replayed === true,
+        },
+      });
+    }
     return result;
   } catch (error) {
     const detail = {
@@ -1106,7 +1249,14 @@ async function runAiRuntime(prompt, options) {
   }
 }
 
-async function runCodex(task, history, imagePaths = [], decision = null, liveReplyContext = '') {
+async function runCodex(
+  task,
+  history,
+  imagePaths = [],
+  decision = null,
+  liveReplyContext = '',
+  handoffKey = '',
+) {
   const lengthPolicy = replyLengthPolicy(task);
   const prompt = `
 ${buildIdentityInstruction(OPERATOR_PROFILE)}
@@ -1146,14 +1296,35 @@ ${liveReplyContext
 ${task}
 `.trim();
 
-  const { text } = await runAiRuntime(prompt, {
+  const result = await runAiRuntime(prompt, {
     cwd: CODEX_RUNTIME_DIR,
     model: SELECTED_AI_RUNTIME.id === 'codex' ? config.codexModel : '',
     images: imagePaths,
     timeoutMs: config.codexTimeoutMs,
     maxStdoutBytes: 512 * 1024,
     maxStderrBytes: 1024 * 1024,
+  }, {
+    level: decision?.level || 'L0',
+    purpose: 'conversation_reply',
+    cloudPrompt: [
+      '你是个人数字人的云端只读兜底。使用简体中文自然、简洁回复。',
+      '只能回答、整理、总结或起草；不得执行工具、发送消息、读取文件或声称已完成外部操作。',
+      '遇到真实写入、承诺、支付、合同、招聘、验证码、删除或需要本人判断的事项，只说明需要本人确认。',
+      `当前用户消息：${task}`,
+    ].join('\n'),
+    pendingConfirmation: decision?.action === 'preview_confirm',
+    mutationIntent: ['L2', 'L3'].includes(decision?.level),
+    sourceKind: decision?.intent === 'file_understanding'
+      ? 'file'
+      : decision?.intent === 'knowledge' ? 'document' : '',
+    ownerPhone: config.ownerContactPhone,
+    forbiddenValues: [config.dingtalkProfile, config.dingtalkChannel],
+    maxPromptChars: config.cloudFailoverMaxPromptChars,
+    handoffKey,
   });
+  const text = result.runtime?.id === 'qoder-cloud'
+    ? `【云端兜底】${result.text}`
+    : result.text;
   return enforceReplyLength(text, task);
 }
 
@@ -1558,6 +1729,8 @@ async function handleMulticaWorkRequest(message, senderOpenId, request, decision
       history,
       [],
       decision,
+      '',
+      message.message_id,
     ),
     deliver: async answer => {
       remember(message.chat_id, senderOpenId, 'user', `处理 ${request.issue}：${request.task}`);
@@ -2602,9 +2775,10 @@ async function processIncoming(client, message, sender, metadata = {}) {
               imagePaths,
               decision,
               replyContextInstruction,
+              message.message_id,
             ),
           })
-        : runCodex(task, history, imagePaths, decision),
+        : runCodex(task, history, imagePaths, decision, '', message.message_id),
       audit: (event, detail) => audit(event, message, senderOpenId, detail),
     });
     const commitmentGuard = applyOwnerCommitmentGuard({
@@ -3863,6 +4037,8 @@ function stopGracefully(signal) {
   stopping = true;
   inboundDrainController.stop();
   shutdownDelay.stop();
+  cloudFailoverHeartbeat?.stop();
+  cloudFailoverHeartbeat = null;
   console.log(`[bridge] stopping on ${signal}`);
   if (activeEventChild && !activeEventChild.killed) activeEventChild.kill('SIGTERM');
   if (activeDingTalkChild && !activeDingTalkChild.killed) activeDingTalkChild.kill('SIGTERM');
@@ -3895,6 +4071,7 @@ async function main() {
       selected: SELECTED_AI_RUNTIME.id,
       label: SELECTED_AI_RUNTIME.label,
     });
+    await initializeCloudFailoverClient();
     try {
       await runAiRuntimeStartupProbe(AI_RUNTIME_CLIENT, {
         cwd: CODEX_RUNTIME_DIR,
@@ -3932,6 +4109,7 @@ async function main() {
     }
     triggerDrain();
     await initializeAdditionalImChannels();
+    startCloudFailoverHeartbeat();
     const dingTalkSelfPolling = await initializeOptionalPoller(
       config.dingtalkTransport === 'wukong-polling'
         ? initializeDingTalkWukongPolling

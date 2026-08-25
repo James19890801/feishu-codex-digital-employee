@@ -1,5 +1,7 @@
 packages:
   - 'licensing/worker'
+  - 'cloud-failover/worker'
+  - 'cloud-failover/container'
 
 allowBuilds:
   esbuild: true
