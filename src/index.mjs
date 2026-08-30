@@ -5651,6 +5651,7 @@ async function initializeAdditionalImChannels() {
           maxRepliesPerDay: config.geweMomentsMaxRepliesPerDay,
           maxThreadDepth: config.geweMomentsMaxThreadDepth,
           postMaxAgeHours: config.geweMomentsPostMaxAgeHours,
+          blockedWxids: config.geweMomentsInteractionBlocklist,
           generate: async prompt => {
             const result = await runAiRuntime(prompt, {
               cwd: WORKDIR,

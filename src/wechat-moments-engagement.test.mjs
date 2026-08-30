@@ -976,4 +976,98 @@ if (typeof moments.WeChatMomentsEngagement === 'function') {
   }
 }
 
+{
+  const database = temporaryState('aipro-moments-blocklist-preflight-');
+  try {
+    let generated = 0;
+    const likes = [];
+    const comments = [];
+    const worker = new moments.WeChatMomentsEngagement({
+      state: database.state,
+      blockedWxids: ['wxid_blocked'],
+      channel: {
+        checkOnline: async () => true,
+        likeMoment: async input => { likes.push(input); return { ret: 200 }; },
+        commentMoment: async input => { comments.push(input); return { ret: 200 }; },
+      },
+      generate: async () => {
+        generated += 1;
+        return '{"action":"reply","text":"这个变化很具体，后续可以继续观察。","reason":"specific"}';
+      },
+    });
+    const current = worker.readState();
+    const blockedMoment = {
+      id: '81001', userName: 'wxid_blocked', nickName: '黑名单联系人',
+      content: '今天把流程从十二个节点压缩到了七个。', comments: [], likes: [],
+    };
+    assert.deepEqual(await worker.writeLike({ current, moment: blockedMoment }), {
+      liked: false, handled: true, reason: 'blocked',
+    });
+    assert.deepEqual(await worker.writeComment({
+      current, moment: blockedMoment, mode: 'proactive',
+    }), { sent: false, reason: 'blocked' });
+    assert.deepEqual(await worker.writeComment({
+      current,
+      moment: { ...blockedMoment, id: '81002', userName: 'wxid_allowed' },
+      comment: {
+        commentId: 31, replyCommentId: 0, userName: 'wxid_blocked',
+        nickName: '黑名单联系人', content: '那下一步怎么做？',
+      },
+      mode: 'thread_reply',
+    }), { sent: false, reason: 'blocked' });
+    assert.equal(generated, 0, '黑名单互动不得进入生成器');
+    assert.deepEqual(likes, []);
+    assert.deepEqual(comments, []);
+    assert.equal(current.likeCount, 0);
+    assert.equal(current.proactiveCount, 0);
+    assert.equal(current.replyCount, 0);
+  } finally {
+    database.close();
+  }
+}
+
+{
+  const database = temporaryState('aipro-moments-blocklist-queued-');
+  try {
+    const nowMs = Date.parse('2026-08-30T16:00:00+08:00');
+    const likes = [];
+    const comments = [];
+    const worker = new productionMoments.WeChatMomentsEngagement({
+      state: database.state,
+      blockedWxids: ['wxid_blocked'],
+      now: () => nowMs,
+      channel: {
+        checkOnline: async () => true,
+        likeMoment: async input => { likes.push(input); return { ret: 200 }; },
+        commentMoment: async input => { comments.push(input); return { ret: 200 }; },
+      },
+      generate: async () => '{"action":"skip","text":"","reason":"unused"}',
+    });
+    worker.writeState({
+      pendingInteractions: [{
+        key: 'd'.repeat(24), kind: 'like', mode: 'like', momentId: '82001',
+        targetWxid: 'wxid_blocked', momentAuthorWxid: 'wxid_blocked', commentId: 0,
+        content: '', createdAtMs: nowMs - 2_000, dueAtMs: nowMs - 1_000, attempts: 0,
+      }, {
+        key: 'e'.repeat(24), kind: 'comment', mode: 'thread_reply', momentId: '82002',
+        targetWxid: 'wxid_allowed', momentAuthorWxid: 'wxid_blocked', commentId: 41,
+        content: '这个问题很具体，我接着把判断依据讲清楚。',
+        createdAtMs: nowMs - 2_000, dueAtMs: nowMs - 500, attempts: 0,
+      }],
+    });
+    assert.deepEqual(await worker.runDueInteractions(), { executed: false, reason: 'blocked' });
+    assert.deepEqual(await worker.runDueInteractions(), { executed: false, reason: 'blocked' });
+    assert.deepEqual(likes, []);
+    assert.deepEqual(comments, []);
+    assert.equal(worker.readState().pendingInteractions.length, 0);
+    const blockedAudits = database.state.db.prepare(
+      "SELECT detail FROM audit WHERE event = 'wechat_moments_interaction_blocked' ORDER BY id",
+    ).all();
+    assert.equal(blockedAudits.length, 2);
+    assert.equal(blockedAudits.every(row => !row.detail.includes('wxid_blocked')), true);
+  } finally {
+    database.close();
+  }
+}
+
 console.log('WECHAT_MOMENTS_ENGAGEMENT_POLICY_TEST_OK');

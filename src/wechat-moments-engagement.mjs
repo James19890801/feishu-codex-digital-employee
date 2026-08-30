@@ -235,6 +235,7 @@ function normalizedPendingInteraction(value, nowMs) {
   const mode = String(source.mode || '');
   const momentId = normalizedId(source.momentId, 30);
   const targetWxid = normalizedWxid(source.targetWxid);
+  const momentAuthorWxid = normalizedWxid(source.momentAuthorWxid);
   const commentId = Number(source.commentId || 0);
   const createdAtMs = Math.max(0, Number(source.createdAtMs) || 0);
   const dueAtMs = Math.max(0, Number(source.dueAtMs) || 0);
@@ -261,6 +262,7 @@ function normalizedPendingInteraction(value, nowMs) {
     mode,
     momentId,
     targetWxid,
+    momentAuthorWxid,
     commentId,
     content,
     createdAtMs,
@@ -372,6 +374,7 @@ export class WeChatMomentsEngagement {
     clearTimeoutImpl = clearTimeout,
     random = Math.random,
     interactionDelayEnabled = true,
+    blockedWxids = [],
   } = {}) {
     if (!state || !channel || typeof generate !== 'function') {
       throw new Error('WeChat Moments engagement requires state, channel, and generate');
@@ -396,6 +399,10 @@ export class WeChatMomentsEngagement {
     this.clearTimeoutImpl = clearTimeoutImpl;
     this.random = random;
     this.interactionDelayEnabled = interactionDelayEnabled !== false;
+    this.blockedWxids = new Set((Array.isArray(blockedWxids) ? blockedWxids : [])
+      .map(normalizedWxid)
+      .filter(Boolean)
+      .map(wxid => wxid.toLocaleLowerCase()));
     this.timer = null;
     this.wakeTimer = null;
     this.tail = Promise.resolve();
@@ -419,6 +426,21 @@ export class WeChatMomentsEngagement {
     this.state.audit(event, { detail });
   }
 
+  isBlockedWxid(value) {
+    const wxid = normalizedWxid(value);
+    return Boolean(wxid) && this.blockedWxids.has(wxid.toLocaleLowerCase());
+  }
+
+  blockedInteraction({ mode, momentId, targetWxid, momentAuthorWxid }) {
+    this.audit('wechat_moments_interaction_blocked', {
+      mode: cleanText(mode, 30),
+      snsHash: auditHash(momentId),
+      targetHash: targetWxid ? auditHash(targetWxid) : '',
+      authorHash: momentAuthorWxid ? auditHash(momentAuthorWxid) : '',
+      reason: 'configured_blocklist',
+    });
+  }
+
   scheduleInteraction({
     current,
     kind,
@@ -440,6 +462,7 @@ export class WeChatMomentsEngagement {
       mode,
       momentId: moment.id,
       targetWxid,
+      momentAuthorWxid: moment.userName,
       commentId,
       content,
       createdAtMs: this.now(),
@@ -492,6 +515,20 @@ export class WeChatMomentsEngagement {
     if (!action) {
       this.scheduleWake();
       return { executed: false, reason: 'not_due' };
+    }
+    if (this.isBlockedWxid(action.targetWxid)
+      || this.isBlockedWxid(action.momentAuthorWxid)) {
+      current.pendingInteractions = current.pendingInteractions
+        .filter(item => item.key !== action.key);
+      this.writeState(current);
+      this.blockedInteraction({
+        mode: action.mode,
+        momentId: action.momentId,
+        targetWxid: action.targetWxid,
+        momentAuthorWxid: action.momentAuthorWxid,
+      });
+      this.scheduleWake();
+      return { executed: false, reason: 'blocked' };
     }
     if (typeof this.channel.checkOnline === 'function' && !await this.channel.checkOnline()) {
       action.attempts += 1;
@@ -648,6 +685,16 @@ export class WeChatMomentsEngagement {
     const isReply = mode === 'thread_reply';
     const threadHash = auditHash(moment.id);
     const replyThreadHash = isReply ? commentThreadHash(moment, comment) : threadHash;
+    const targetWxid = isReply ? comment?.userName : moment?.userName;
+    if (this.isBlockedWxid(moment?.userName) || this.isBlockedWxid(targetWxid)) {
+      this.blockedInteraction({
+        mode,
+        momentId: moment?.id,
+        targetWxid,
+        momentAuthorWxid: moment?.userName,
+      });
+      return { sent: false, reason: 'blocked' };
+    }
     if (isReply) {
       if (current.replyCount >= this.maxRepliesPerDay) return { sent: false, reason: 'reply_budget' };
       if ((current.threadCounts[replyThreadHash] || 0) >= this.maxThreadDepth) {
@@ -677,7 +724,6 @@ export class WeChatMomentsEngagement {
       return { sent: false, reason: decision.reason };
     }
 
-    const targetWxid = isReply ? comment.userName : moment.userName;
     const targetCommentId = isReply ? comment.commentId : 0;
     const mutationMaterial = `${mode}\0${moment.id}\0${targetCommentId}`;
     const executionKey = `wechat-moments:${auditHash(mutationMaterial)}`;
@@ -762,6 +808,15 @@ export class WeChatMomentsEngagement {
   }
 
   async writeLike({ current, moment }) {
+    if (this.isBlockedWxid(moment?.userName)) {
+      this.blockedInteraction({
+        mode: 'like',
+        momentId: moment?.id,
+        targetWxid: moment?.userName,
+        momentAuthorWxid: moment?.userName,
+      });
+      return { liked: false, handled: true, reason: 'blocked' };
+    }
     if (current.likeCount >= this.maxLikesPerDay) {
       return { liked: false, handled: false, reason: 'like_budget' };
     }

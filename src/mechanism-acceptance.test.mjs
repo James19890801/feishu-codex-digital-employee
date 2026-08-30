@@ -273,6 +273,7 @@ contract('wechat-moments-engagement', 'Does the live GeWe lifecycle run selectiv
   assert.match(runtimeSource, /import \{ WeChatMomentsEngagement \} from '\.\/wechat-moments-engagement\.mjs'/);
   assert.match(runtimeSource, /config\.geweMomentsEngagementEnabled/);
   assert.match(runtimeSource, /new WeChatMomentsEngagement\(\{/);
+  assert.match(runtimeSource, /blockedWxids: config\.geweMomentsInteractionBlocklist/);
   assert.match(runtimeSource, /AI_RUNTIME_CLIENT|runAiRuntime/);
   assert.match(runtimeSource, /LOCAL_WIKI_RETRIEVER\.contextFor\(\{/);
   assert.match(runtimeSource, /await wechatMomentsEngagement\.start\(\)/);
