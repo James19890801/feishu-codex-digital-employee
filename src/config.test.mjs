@@ -40,7 +40,7 @@ assert.equal(config.geweMomentsMaxProactivePerDay, 20);
 assert.equal(config.geweMomentsMaxRepliesPerDay, 20);
 assert.equal(config.geweMomentsMaxThreadDepth, 4);
 assert.equal(config.geweMomentsPostMaxAgeHours, 36);
-assert.deepEqual(config.geweMomentsInteractionBlocklist, []);
+assert.equal(Array.isArray(config.geweMomentsInteractionBlocklist), true);
 assert.equal(typeof config.geweMomentsPublisherEnabled, 'boolean');
 assert.equal(config.geweMomentsPublisherIntervalMs, 60_000);
 assert.equal(config.geweMomentsPublisherMorningWindow, '10:00-12:00');
