@@ -40,6 +40,7 @@ assert.equal(config.geweMomentsMaxProactivePerDay, 20);
 assert.equal(config.geweMomentsMaxRepliesPerDay, 20);
 assert.equal(config.geweMomentsMaxThreadDepth, 4);
 assert.equal(config.geweMomentsPostMaxAgeHours, 36);
+assert.deepEqual(config.geweMomentsInteractionBlocklist, []);
 assert.equal(typeof config.geweMomentsPublisherEnabled, 'boolean');
 assert.equal(config.geweMomentsPublisherIntervalMs, 60_000);
 assert.equal(config.geweMomentsPublisherMorningWindow, '10:00-12:00');
@@ -124,6 +125,47 @@ try {
     ],
     ownerArticleWechatIds: ['fung5115'],
   });
+  const momentsBlocklistPath = join(directory, 'gewe-moments-interaction-blocklist.json');
+  writeFileSync(momentsBlocklistPath, JSON.stringify({
+    ...example,
+    feishuEnabled: false,
+    allowAllChats: true,
+    geweMomentsInteractionBlocklist: [' blocked_contact ', 'blocked_contact', 'blocked_second'],
+  }));
+  const momentsBlocklist = spawnSync(process.execPath, [
+    '--input-type=module',
+    '--eval',
+    "const {config}=await import('./src/config.mjs'); console.log(JSON.stringify(config.geweMomentsInteractionBlocklist))",
+  ], {
+    cwd: new URL('..', import.meta.url),
+    env: { ...process.env, DIGITAL_EMPLOYEE_CONFIG: momentsBlocklistPath },
+    encoding: 'utf8',
+  });
+  assert.equal(momentsBlocklist.status, 0, momentsBlocklist.stderr);
+  assert.deepEqual(JSON.parse(momentsBlocklist.stdout), ['blocked_contact', 'blocked_second']);
+  for (const [name, value] of [
+    ['not-array', 'blocked_contact'],
+    ['empty-id', ['']],
+    ['whitespace-id', ['blocked contact']],
+    ['too-many', Array.from({ length: 101 }, (_, index) => `blocked_${index}`)],
+  ]) {
+    const invalidPath = join(directory, `gewe-moments-blocklist-${name}.json`);
+    writeFileSync(invalidPath, JSON.stringify({
+      ...example,
+      feishuEnabled: false,
+      allowAllChats: true,
+      geweMomentsInteractionBlocklist: value,
+    }));
+    const result = spawnSync(process.execPath, [
+      '--input-type=module', '--eval', "await import('./src/config.mjs')",
+    ], {
+      cwd: new URL('..', import.meta.url),
+      env: { ...process.env, DIGITAL_EMPLOYEE_CONFIG: invalidPath },
+      encoding: 'utf8',
+    });
+    assert.notEqual(result.status, 0, name);
+    assert.match(result.stderr, /geweMomentsInteractionBlocklist/);
+  }
   for (const [field, value] of [
     ['semanticRepeatMaxReplies', 1],
     ['adaptiveDiscussionMaxReplies', 101],

@@ -78,6 +78,7 @@
   "geweMomentsMaxRepliesPerDay": 20,
   "geweMomentsMaxThreadDepth": 4,
   "geweMomentsPostMaxAgeHours": 36,
+  "geweMomentsInteractionBlocklist": [],
   "geweMomentsPublisherEnabled": false,
   "geweMomentsPublisherIntervalMs": 60000,
   "geweMomentsPublisherMorningWindow": "10:00-12:00",

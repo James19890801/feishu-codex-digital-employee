@@ -57,6 +57,16 @@ function boundedStringArray(value, { name, maxItems = 20, maxLength = 500 } = {}
   return [...new Set(effective.map(item => item.trim()))];
 }
 
+function wechatIdBlocklist(value) {
+  const effective = value === undefined ? [] : value;
+  if (!Array.isArray(effective) || effective.length > 100
+    || effective.some(item => typeof item !== 'string'
+      || !item.trim() || item.trim().length > 256 || /\s/u.test(item.trim()))) {
+    throw new Error('geweMomentsInteractionBlocklist must contain at most 100 valid WeChat IDs');
+  }
+  return [...new Set(effective.map(item => item.trim()))];
+}
+
 function dailyWindow(value, { name, fallback }) {
   const normalized = String(value === undefined ? fallback : value).trim();
   const match = normalized.match(/^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]\d)$/);
@@ -226,6 +236,7 @@ export const config = {
   geweMomentsPostMaxAgeHours: boundedInteger(raw.geweMomentsPostMaxAgeHours, {
     name: 'geweMomentsPostMaxAgeHours', fallback: 36, min: 1, max: 168,
   }),
+  geweMomentsInteractionBlocklist: wechatIdBlocklist(raw.geweMomentsInteractionBlocklist),
   geweMomentsPublisherEnabled: raw.geweMomentsPublisherEnabled === true,
   geweMomentsPublisherIntervalMs: boundedInteger(raw.geweMomentsPublisherIntervalMs, {
     name: 'geweMomentsPublisherIntervalMs', fallback: 60_000, min: 60_000, max: 900_000,
