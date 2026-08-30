@@ -870,7 +870,8 @@ assert.equal(normalizeGeWeWebhook({
     },
   });
   assert.equal(JSON.parse(payload.message.content).text.includes('https://github.com/'), true);
-  assert.equal(payload.message.mentions.length, 1);
+  assert.equal(payload.message.mentions.length, 0, '未 @ 的群链接不得伪装成 bot mention');
+  assert.equal(payload.metadata.contextOnly, true);
   assert.deepEqual(payload.metadata.linkCandidate, {
     url: 'https://github.com/deepseek-ai/deepseek-harness',
     title: '项目链接',
@@ -917,13 +918,13 @@ assert.equal(normalizeGeWeWebhook({
       MsgSource: '<msgsource></msgsource>',
     },
   });
-  assert.equal(payload.message.mentions.length, 1, '群里的普通 URL 也必须主动读取并回复');
+  assert.equal(payload.message.mentions.length, 0, '群里的普通 URL 只作为上下文');
   assert.deepEqual(payload.metadata.linkCandidate, {
     url: 'https://example.com/research?q=agent',
     title: '',
     description: '',
   });
-  assert.equal(payload.metadata.contextOnly, undefined);
+  assert.equal(payload.metadata.contextOnly, true);
 }
 
 {

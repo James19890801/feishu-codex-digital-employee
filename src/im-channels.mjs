@@ -814,8 +814,7 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
       : geWeV2Mentioned(data, selfWxid, mentionNames));
   const namedInText = group && geWeTextMentionsAssistant(appMessage?.text || messageContent, mentionNames);
   const explicitBotMention = Boolean(explicitlyMentioned || namedInText);
-  const mentioned = isSelf || !group || isImage || Boolean(linkCandidate) || explicitlyMentioned || namedInText;
-  const contextOnly = group && !isSelf && (!mentioned || isImage);
+  const contextOnly = group && !isSelf && !explicitBotMention;
   const text = isImage || isAudio ? '' : appMessage?.text || messageContent;
   if (!isImage && !isAudio && !String(text).trim()) return null;
   const targetId = group ? groupId : isSelf ? toUser : senderId;
@@ -844,7 +843,7 @@ export function normalizeGeWeWebhook(event, { mentionNames = [] } = {}) {
           ? { file_name: appMessage.wechatFile.fileName }
           : {}),
       }),
-      mentions: group && !contextOnly ? [{ id: 'wechat-current-user' }] : [],
+      mentions: group && explicitBotMention ? [{ id: 'wechat-current-user' }] : [],
     },
     sender: {
       sender_type: 'user',

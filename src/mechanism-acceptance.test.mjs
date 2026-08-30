@@ -280,6 +280,17 @@ contract('wechat-moments-engagement', 'Does the live GeWe lifecycle run selectiv
   assert.match(runtimeSource, /wechatMomentsEngagement\.stop\(\)/);
 });
 
+contract('inbound-normalization', 'Does the WeChat group reply gate run before passive context exits?', () => {
+  const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
+  assert.match(runtimeSource, /from '\.\/wechat-group-reply-policy\.mjs'/);
+  const gateAt = runtimeSource.indexOf('const wechatGroupReply = decideWeChatGroupReplyPolicy({');
+  const passiveExitAt = runtimeSource.indexOf('if (shouldObserveWithoutReply(metadata)');
+  assert.equal(gateAt >= 0, true);
+  assert.equal(passiveExitAt > gateAt, true, 'WeChat gate must run before contextOnly exits');
+  assert.match(runtimeSource, /metadata\.wechatDirectRequest === true/);
+  assert.match(runtimeSource, /responseRequired = wechatGroupReply\.responseRequired === true/);
+});
+
 contract('wechat-relationship-memory', 'Does every personal WeChat reply use audience-safe relationship memory?', () => {
   const runtimeSource = readFileSync(new URL('./index.mjs', import.meta.url), 'utf8');
   assert.match(runtimeSource, /import \{ WeChatRelationshipMemory \} from '\.\/wechat-relationship-memory\.mjs'/);

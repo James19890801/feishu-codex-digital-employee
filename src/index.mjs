@@ -276,6 +276,7 @@ import { WeChatMomentsPublisher } from './wechat-moments-publisher.mjs';
 import { readOwnerArticlePage } from './wechat-owner-article-reader.mjs';
 import { WeChatOwnerArticleSyndication } from './wechat-owner-article-syndication.mjs';
 import { WeChatRelationshipMemory } from './wechat-relationship-memory.mjs';
+import { decideWeChatGroupReplyPolicy } from './wechat-group-reply-policy.mjs';
 import {
   OwnerConsultationCoordinator,
   parseOwnerConsultationDecision,
@@ -2767,6 +2768,28 @@ async function processIncoming(client, message, sender, metadata = {}) {
   }
   audit('message_received', message, senderOpenId, { type: message.message_type, text: cleanText.slice(0, 300) });
 
+  const wechatGroupReply = decideWeChatGroupReplyPolicy({
+    channel: metadata.channel,
+    chatType: message.chat_type,
+    text: cleanText,
+    explicitMention: metadata.explicitBotMention === true,
+    aliases: [
+      ...(Array.isArray(config.geweMentionNames) ? config.geweMentionNames : []),
+      ...(Array.isArray(config.semanticGroupAliases) ? config.semanticGroupAliases : []),
+    ],
+  });
+  if (wechatGroupReply.applies) {
+    metadata = {
+      ...metadata,
+      contextOnly: !wechatGroupReply.shouldReply,
+      ...(wechatGroupReply.shouldReply ? { wechatDirectRequest: true } : {}),
+    };
+    audit('wechat_group_reply_gate_decided', message, senderOpenId, {
+      action: wechatGroupReply.shouldReply ? 'reply' : 'observe',
+      reasonCode: wechatGroupReply.reasonCode,
+    });
+  }
+
   if (metadata.channel === 'wechat' && metadata.linkCandidate && wechatOwnerArticleSyndication) {
     const syndication = await wechatOwnerArticleSyndication.observe({
       senderOpenId,
@@ -3034,9 +3057,12 @@ async function processIncoming(client, message, sender, metadata = {}) {
 
   const hasGroupMention = message.chat_type === 'group'
     && metadata.semanticCandidate !== true
-    && Array.isArray(message.mentions)
-    && message.mentions.length > 0;
+    && (metadata.wechatDirectRequest === true
+      || (Array.isArray(message.mentions) && message.mentions.length > 0));
   let responseRequired = hasGroupMention;
+  if (metadata.wechatDirectRequest === true) {
+    responseRequired = wechatGroupReply.responseRequired === true;
+  }
   if (message.chat_type === 'group' && !hasGroupMention) {
     const discussionChannel = metadata.channel
       || parseChannelChatId(message.chat_id)?.channel
