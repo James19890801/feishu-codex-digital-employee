@@ -12,7 +12,6 @@ A WeChat group message may enter the reply pipeline only when one of these condi
 
 1. The message contains a real mention of the assistant.
 2. The message directly asks the assistant by an approved alias to reply, review, analyze, comment, or perform another task.
-3. The message is a continuation of an immediately preceding assistant exchange and still clearly requests a response.
 
 An unaddressed URL, shared article, image, file, or ordinary group discussion remains observation-only. It is still stored in conversation history so a later addressed request can use it. Merely containing a question or a topic relevant to the assistant is not enough to trigger a reply.
 
@@ -35,7 +34,7 @@ The blocklist is enforced twice:
 1. During scanning and eligibility evaluation, blocked authors and blocked commenters are skipped before generation or scheduling.
 2. Immediately before executing any pending like or comment, the target ID is checked again. This cancels previously queued work after a configuration change or service restart.
 
-Blocked interactions are removed from the pending queue and audited with a non-identifying hash and a block reason. They do not consume daily interaction budgets.
+Blocked interactions are removed from the pending queue and audited with a non-identifying hash and a block reason. Newly observed blocked interactions do not consume daily interaction budgets.
 
 ## Testing
 
