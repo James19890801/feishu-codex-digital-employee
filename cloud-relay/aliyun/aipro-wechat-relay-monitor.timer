@@ -1,0 +1,10 @@
+[Unit]
+Description=Check AIPRO WeChat relay every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=aipro-wechat-relay-monitor.service
+
+[Install]
+WantedBy=timers.target

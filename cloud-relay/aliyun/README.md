@@ -10,4 +10,6 @@
 
 证书：先用 `nginx.bootstrap.conf` 创建仅处理 ACME challenge 的 HTTP vhost，`nginx -t` 后 reload；DNS 生效后使用 certbot webroot 签发，再切换为 `nginx.conf.example` 的独立 HTTPS vhost，重新 `nginx -t` 与 reload。确认 `certbot-renew.timer` 已启用，并用 `certbot renew --dry-run` 验证续签。不可覆盖已有站点证书。
 
+监控：运行 `systemctl enable --now aipro-wechat-relay-monitor.timer`。每 5 分钟检查服务、Nginx、待处理队列（500 条阈值）、数据盘剩余（3 GiB 阈值）、证书剩余有效期（14 天阈值）和备份新鲜度（48 小时）。异常使 `aipro-wechat-relay-monitor.service` 失败并记入 systemd journal；需由值班/主机监控对失败单元配置外部告警，否则这只是本机巡检而非推送通知。
+
 回滚：保留旧 Railway/Cloudflare 配置与凭据。若新入口故障，先恢复 GeWe 登记回调和 Mac relay origin 到旧地址，再核对两边队列与本地消息 ID；不可清空未 ACK 消息。确认新入口持续稳定后，才停用旧微信流量，不影响独立许可服务。

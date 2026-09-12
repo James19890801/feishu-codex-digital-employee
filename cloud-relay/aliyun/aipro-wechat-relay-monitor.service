@@ -1,0 +1,6 @@
+[Unit]
+Description=Check AIPRO WeChat relay queue, disk, backup and certificate
+
+[Service]
+Type=oneshot
+ExecStart=/opt/aipro-wechat-relay/aliyun/monitor.sh
