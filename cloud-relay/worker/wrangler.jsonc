@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aipro-wechat-relay",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-09-12",
+  "workers_dev": true,
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 },
+  "durable_objects": {
+    "bindings": [
+      { "name": "RELAY_COORDINATOR", "class_name": "RelayCoordinator" }
+    ]
+  },
+  "r2_buckets": [
+    { "binding": "ARTIFACTS", "bucket_name": "aipro-wechat-relay-artifacts" }
+  ],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RelayCoordinator"] }
+  ]
+}
