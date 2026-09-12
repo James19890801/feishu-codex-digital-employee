@@ -19,7 +19,7 @@ Cloudflare 账户当前没有 DNS Zone，但有固定的 `494161546.workers.dev`
 1. `aipro-wechat-relay.494161546.workers.dev` 作为唯一稳定公网入口。
 2. Worker 接收 `/webhooks/gewe/<callback-secret>`，在 Durable Object 中按载荷摘要去重并持久化，然后立即返回 `202`。
 3. 本地 relay agent 仅发起出站 HTTPS 长轮询，以租约方式取得消息；成功投递到 `127.0.0.1` 的现有 GeWe webhook 后再 ACK。租约超时会重新可见，形成至少一次交付，本地状态库继续按消息 ID 去重。
-4. 发送附件时，启动导入模块覆盖现有 `registerArtifact`：将文件上传至 Worker 的受保护接口并存入 R2，返回与原结构兼容的固定公网 URL。对象到期后由 Worker 拒绝访问并延迟删除。
+4. 发送附件时，启动导入模块覆盖现有 `registerArtifact`：将不超过 25MB 的文件上传至 Worker 的受保护接口并存入 Workers KV，返回与原结构兼容的固定公网 URL。对象由 KV TTL 自动过期。
 5. Worker 实现现有签名 canary，因此原有五层健康检查仍能验证公网入口；本地队列健康由 relay agent 单独写入状态快照。
 6. Named Tunnel 切换为 token 管理的固定 tunnel、强制 HTTP/2、四路连接，只作为备用诊断通道。Quick Tunnel 从 LaunchAgent 和自动恢复路径移除。
 
@@ -45,4 +45,3 @@ Cloudflare 账户当前没有 DNS Zone，但有固定的 `494161546.workers.dev`
 - 重启 tunnel 或切换网络不改配置、不重启主服务。
 - canary、本地 webhook、provider 在线、callback registration 和 relay backlog 均健康。
 - 附件上传后可通过固定 URL 下载，过期后不可访问。
-

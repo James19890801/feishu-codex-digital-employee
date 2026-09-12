@@ -4,7 +4,7 @@
 
 **Goal:** Replace the rotating Quick Tunnel callback with a fixed Cloudflare Worker endpoint that durably buffers inbound WeChat events and serves short-lived outbound artifacts.
 
-**Architecture:** A Worker backed by one Durable Object namespace owns the inbound lease/ACK queue and an R2 bucket stores expiring artifacts. A macOS LaunchAgent polls the Worker over outbound HTTPS and replays each event into the existing loopback webhook; a Node import bootstrap uploads registered artifacts to R2. The existing Named Tunnel runs independently over HTTP/2 and can reconnect without changing configuration or restarting the main service.
+**Architecture:** A Worker backed by one Durable Object namespace owns the inbound lease/ACK queue and Workers KV stores expiring artifacts up to 25MB. A macOS LaunchAgent polls the Worker over outbound HTTPS and replays each event into the existing loopback webhook; a Node import bootstrap uploads registered artifacts to KV. The existing Named Tunnel runs independently over HTTP/2 and can reconnect without changing configuration or restarting the main service.
 
 **Tech Stack:** Node.js ESM, built-in `node:test`, Cloudflare Workers, Durable Objects, R2, Wrangler, macOS launchd, SQLite production state.
 
@@ -24,7 +24,7 @@
 
 **Step 4:** Run the focused tests; expect all to pass.
 
-### Task 2: Durable Worker and R2 artifact service
+### Task 2: Durable Worker and KV artifact service
 
 **Files:**
 - Create: `cloud-relay/worker/src/index.mjs`
@@ -34,7 +34,7 @@
 
 **Step 1:** Write failing route tests with stubbed Durable Object and R2 bindings.
 
-**Step 2:** Implement callback enqueue, authenticated lease/ACK/status, artifact PUT/GET, health and signed canary routes.
+**Step 2:** Implement callback enqueue, authenticated lease/ACK/status, bounded artifact PUT/GET, health and signed canary routes.
 
 **Step 3:** Implement Durable Object storage records with digest deduplication, lease expiry and bounded retention.
 
@@ -69,7 +69,7 @@
 **Files:**
 - Modify: `cloud-relay/worker/wrangler.jsonc`
 
-**Step 1:** Create the Durable Object namespace/migration and R2 bucket through Wrangler.
+**Step 1:** Create the Durable Object namespace/migration and Workers KV namespace through Wrangler.
 
 **Step 2:** Generate separate relay and artifact tokens, store local copies in macOS Keychain and remote copies as Worker Secrets.
 
@@ -109,4 +109,3 @@
 **Step 5:** Reconcile WeChat and DingTalk inbound ledgers over the recovery overlap window, explicitly retaining known history-coverage gaps.
 
 **Step 6:** Commit only the relay source, tests and documentation; do not stage unrelated dirty-worktree changes.
-

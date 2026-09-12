@@ -7,7 +7,7 @@ import {
 } from './contract.mjs';
 
 const MAX_WEBHOOK_BYTES = 1024 * 1024;
-const MAX_ARTIFACT_BYTES = 100 * 1024 * 1024;
+const MAX_ARTIFACT_BYTES = 25 * 1024 * 1024;
 const encoder = new TextEncoder();
 
 function json(payload, status = 200, extra = {}) {
@@ -153,12 +153,20 @@ export function createRelayWorker({ now = Date.now } = {}) {
           if (!match) return json({ ok: false }, 404);
           const declared = Number(request.headers.get('content-length') || 0);
           if (declared > MAX_ARTIFACT_BYTES) return json({ ok: false, error: 'body_too_large' }, 413);
+          const artifactBody = await request.arrayBuffer();
+          if (!artifactBody.byteLength || artifactBody.byteLength > MAX_ARTIFACT_BYTES) {
+            return json({ ok: false, error: 'body_too_large' }, 413);
+          }
           const ttl = safeInteger(url.searchParams.get('ttl'), 300, 30, 900);
           const expiresAt = now() + ttl * 1_000;
           const key = `artifact/${match[1]}`;
-          await env.ARTIFACTS.put(key, request.body, {
-            httpMetadata: { contentType: request.headers.get('content-type') || 'application/octet-stream' },
-            customMetadata: { expiresAt: String(expiresAt), fileName: decodeURIComponent(match[2]).slice(0, 180) },
+          await env.ARTIFACTS_KV.put(key, artifactBody, {
+            expirationTtl: ttl,
+            metadata: {
+              expiresAt,
+              fileName: decodeURIComponent(match[2]).slice(0, 180),
+              contentType: request.headers.get('content-type') || 'application/octet-stream',
+            },
           });
           return json({
             ok: true,
@@ -169,19 +177,19 @@ export function createRelayWorker({ now = Date.now } = {}) {
         const artifactKey = artifactKeyFromPath(url.pathname, env.CALLBACK_SECRET);
         if (artifactKey && ['GET', 'HEAD'].includes(request.method)) {
           const key = `artifact/${artifactKey}`;
-          const object = await env.ARTIFACTS.get(key);
+          const object = await env.ARTIFACTS_KV.getWithMetadata(key, 'arrayBuffer');
           if (!object) return json({ ok: false }, 404);
-          if (Number(object.customMetadata?.expiresAt || 0) <= now()) {
-            ctx.waitUntil?.(env.ARTIFACTS.delete(key));
+          if (Number(object.metadata?.expiresAt || 0) <= now()) {
+            ctx.waitUntil?.(env.ARTIFACTS_KV.delete(key));
             return json({ ok: false }, 404);
           }
           const headers = new Headers({
-            'content-type': object.httpMetadata?.contentType || 'application/octet-stream',
-            'content-disposition': `attachment; filename="artifact"; filename*=UTF-8''${encodeURIComponent(object.customMetadata?.fileName || 'artifact')}`,
+            'content-type': object.metadata?.contentType || 'application/octet-stream',
+            'content-disposition': `attachment; filename="artifact"; filename*=UTF-8''${encodeURIComponent(object.metadata?.fileName || 'artifact')}`,
             'cache-control': 'no-store',
             'x-content-type-options': 'nosniff',
           });
-          return new Response(request.method === 'HEAD' ? null : object.body, { status: 200, headers });
+          return new Response(request.method === 'HEAD' ? null : object.value, { status: 200, headers });
         }
         return json({ ok: false }, 404);
       } catch (error) {

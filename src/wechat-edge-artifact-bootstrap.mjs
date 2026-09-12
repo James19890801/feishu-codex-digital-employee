@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { randomBytes } from 'node:crypto';
 
 const execFileAsync = promisify(execFile);
-const MAX_ARTIFACT_BYTES = 100 * 1024 * 1024;
+const MAX_ARTIFACT_BYTES = 25 * 1024 * 1024;
 const PATCHED = Symbol.for('aipro.wechatEdgeArtifactRelay.patched');
 
 function contentType(fileName) {

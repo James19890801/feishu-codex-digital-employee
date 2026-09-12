@@ -22,12 +22,12 @@ function fixture() {
     ARTIFACT_TOKEN: artifactToken,
     CANARY_SECRET: 'c'.repeat(48),
     RELAY_COORDINATOR: { getByName: () => stub },
-    ARTIFACTS: {
+    ARTIFACTS_KV: {
       async put(key, body, options) { objects.set(key, { body: new Uint8Array(await new Response(body).arrayBuffer()), ...options }); },
-      async get(key) {
+      async getWithMetadata(key) {
         const object = objects.get(key);
         if (!object) return null;
-        return { body: object.body, customMetadata: object.customMetadata, httpMetadata: object.httpMetadata };
+        return { value: object.body, metadata: object.metadata };
       },
       async delete(key) { objects.delete(key); },
     },
