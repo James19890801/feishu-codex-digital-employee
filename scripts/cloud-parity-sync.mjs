@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { collectParityManifest } from '../src/cloud-parity-collector.mjs';
 import { CloudParitySync } from '../src/cloud-parity-sync.mjs';
+import { syncQoderAgentPersona } from '../src/qoder-agent-persona-sync.mjs';
 
 function argumentsFrom(argv) {
   const options = { dryRun: false,
@@ -16,12 +17,12 @@ function argumentsFrom(argv) {
   return options;
 }
 
-function keychainToken() {
+function keychainSecret(service, account) {
   try {
     return execFileSync('/usr/bin/security', ['find-generic-password',
-      '-s', 'ai.aipro.cloud-parity', '-a', 'token', '-w'],
+      '-s', service, '-a', account, '-w'],
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  } catch { throw new Error('cloud parity token unavailable in Keychain'); }
+  } catch { throw new Error(`cloud parity credential unavailable in Keychain: ${account}`); }
 }
 
 try {
@@ -36,10 +37,14 @@ try {
   } else {
     const sync = new CloudParitySync({
       baseUrl: process.env.AIPRO_PARITY_BASE_URL || 'https://wxrelay.e2eskill.cn',
-      token: keychainToken(), workerId: 'mac', manifestSource: async () => manifest,
+      token: keychainSecret('ai.aipro.cloud-parity', 'token'),
+      workerId: 'mac', manifestSource: async () => manifest,
     });
     const result = await sync.reconcile();
-    process.stdout.write(`${JSON.stringify(result)}\n`);
+    const qoder = await syncQoderAgentPersona({ manifest,
+      pat: keychainSecret('ai.aipro.qoder-cloud', 'pat'),
+      agentId: keychainSecret('ai.aipro.qoder-cloud', 'agent-id') });
+    process.stdout.write(`${JSON.stringify({ ...result, qoder })}\n`);
   }
 } catch (error) {
   process.stderr.write(`${String(error?.message || 'cloud parity sync failed').slice(0, 160)}\n`);
