@@ -8,7 +8,7 @@
 
 备份：服务启动后执行 `systemctl enable --now aipro-wechat-relay-backup.timer`，每日运行 `backup.sh`，用 SQLite `.backup` 在线备份到 root-only 的 `/var/backups/aipro-wechat-relay`，并执行 `PRAGMA quick_check`。首次应手动 `systemctl start aipro-wechat-relay-backup.service`，将最新备份复制到独立临时路径，再次运行 `PRAGMA quick_check` 和事件数查询。附件 TTL 最长 900 秒，不进入长期备份。备份目录需要纳入磁盘容量巡检与离机备份策略，避免与源数据同机单点故障。
 
-证书：先用 `nginx.bootstrap.conf` 创建仅处理 ACME challenge 的 HTTP vhost，`nginx -t` 后 reload；DNS 生效后使用 certbot webroot 签发，再切换为 `nginx.conf.example` 的独立 HTTPS vhost，重新 `nginx -t` 与 reload。确认 `certbot-renew.timer` 已启用，并用 `certbot renew --dry-run` 验证续签。不可覆盖已有站点证书。
+证书：先用 `nginx.bootstrap.conf` 创建仅处理 ACME challenge 的 HTTP vhost，`nginx -t` 后 reload；DNS 生效后使用 certbot webroot 签发，再切换为 `nginx.conf.example` 的独立 HTTPS vhost，重新 `nginx -t` 与 reload。确认 `certbot-renew.timer` 已启用，将 `reload-nginx-after-renewal.sh` 安装到 `/etc/letsencrypt/renewal-hooks/deploy/`，并用 `certbot renew --dry-run` 验证续签。不可覆盖已有站点证书。
 
 监控：运行 `systemctl enable --now aipro-wechat-relay-monitor.timer`。每 5 分钟检查服务、Nginx、待处理队列（500 条阈值）、数据盘剩余（3 GiB 阈值）、证书剩余有效期（14 天阈值）和备份新鲜度（48 小时）。异常使 `aipro-wechat-relay-monitor.service` 失败并记入 systemd journal；需由值班/主机监控对失败单元配置外部告警，否则这只是本机巡检而非推送通知。
 
