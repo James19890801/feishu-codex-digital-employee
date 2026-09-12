@@ -92,6 +92,21 @@ export class SqliteRelayStore {
       CREATE TABLE IF NOT EXISTS policy_cursor (
         worker_id TEXT PRIMARY KEY, sequence INTEGER NOT NULL, digest TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS failover_leadership (
+        id INTEGER PRIMARY KEY CHECK (id = 1), state TEXT NOT NULL, owner TEXT NOT NULL,
+        generation INTEGER NOT NULL, heartbeat_at INTEGER NOT NULL,
+        recovery_count INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS failover_claims (
+        claim_key TEXT PRIMARY KEY, channel TEXT NOT NULL, source_event_id TEXT NOT NULL,
+        worker TEXT NOT NULL, generation INTEGER NOT NULL, status TEXT NOT NULL,
+        outcome TEXT, claimed_at INTEGER NOT NULL, completed_at INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS failover_outbox (
+        intent_key TEXT PRIMARY KEY, claim_key TEXT NOT NULL, generation INTEGER NOT NULL,
+        status TEXT NOT NULL, provider_receipt_id TEXT, created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
     `);
   }
 
@@ -168,6 +183,196 @@ export class SqliteRelayStore {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(workerId))) return null;
     const row = this.db.prepare('SELECT sequence, digest FROM policy_cursor WHERE worker_id = ?').get(workerId);
     return row ? { sequence: row.sequence, digest: row.digest } : null;
+  }
+
+  leadershipStatus() {
+    const row = this.db.prepare(`SELECT state, owner, generation, heartbeat_at
+      FROM failover_leadership WHERE id = 1`).get();
+    return row ? { state: row.state, owner: row.owner, generation: row.generation,
+      heartbeatAt: row.heartbeat_at } : null;
+  }
+
+  startLocalLeadership({ now = Date.now() } = {}) {
+    if (!Number.isFinite(now)) throw new Error('invalid_leadership_time');
+    return this.transaction(() => {
+      this.db.prepare(`INSERT OR IGNORE INTO failover_leadership
+        (id, state, owner, generation, heartbeat_at, updated_at) VALUES (1, 'LOCAL_PRIMARY', 'mac', 1, ?, ?)`)
+        .run(Math.floor(now), Math.floor(now));
+      return this.leadershipStatus();
+    });
+  }
+
+  heartbeatLocal({ generation, now = Date.now() } = {}) {
+    if (!Number.isFinite(now)) throw new Error('invalid_leadership_time');
+    return this.transaction(() => {
+      const current = this.leadershipStatus();
+      if (!current || current.state !== 'LOCAL_PRIMARY' || current.owner !== 'mac'
+        || current.generation !== generation || now < current.heartbeatAt) {
+        return { accepted: false, ...current };
+      }
+      this.db.prepare(`UPDATE failover_leadership SET heartbeat_at = ?, updated_at = ? WHERE id = 1`)
+        .run(Math.floor(now), Math.floor(now));
+      return { accepted: true, ...this.leadershipStatus() };
+    });
+  }
+
+  tryCloudTakeover({ now = Date.now(), cloudReady = false, missThresholdMs = 90_000 } = {}) {
+    if (!Number.isFinite(now) || !Number.isInteger(missThresholdMs)
+      || missThresholdMs < 30_000 || missThresholdMs > 600_000) {
+      throw new Error('invalid_leadership_time');
+    }
+    return this.transaction(() => {
+      const current = this.leadershipStatus();
+      if (!current || current.state !== 'LOCAL_PRIMARY' || !cloudReady
+        || now - current.heartbeatAt < missThresholdMs) {
+        return { takenOver: false, ...(current || { state: 'DISABLED' }) };
+      }
+      this.db.prepare(`UPDATE failover_leadership SET state = 'CLOUD_ACTIVE', owner = 'cloud',
+        generation = generation + 1, recovery_count = 0, updated_at = ? WHERE id = 1`)
+        .run(Math.floor(now));
+      const next = this.leadershipStatus();
+      return { takenOver: true, state: next.state, owner: next.owner,
+        generation: next.generation };
+    });
+  }
+
+  recoveryHeartbeat({ now = Date.now(), healthy = false } = {}) {
+    if (!Number.isFinite(now)) throw new Error('invalid_leadership_time');
+    return this.transaction(() => {
+      const current = this.leadershipStatus();
+      if (!current || current.state !== 'CLOUD_ACTIVE') return current || { state: 'DISABLED' };
+      const row = this.db.prepare('SELECT recovery_count, updated_at FROM failover_leadership WHERE id = 1').get();
+      if (now <= row.updated_at) return current;
+      const count = healthy ? row.recovery_count + 1 : 0;
+      const state = count >= 3 ? 'DRAINING' : 'CLOUD_ACTIVE';
+      this.db.prepare(`UPDATE failover_leadership SET recovery_count = ?, state = ?, updated_at = ? WHERE id = 1`)
+        .run(count, state, Math.floor(now));
+      return this.leadershipStatus();
+    });
+  }
+
+  finishCloudDrain({ now = Date.now() } = {}) {
+    if (!Number.isFinite(now)) throw new Error('invalid_leadership_time');
+    return this.transaction(() => {
+      const current = this.leadershipStatus();
+      if (!current || current.state !== 'DRAINING') {
+        return { handedBack: false, ...(current || { state: 'DISABLED' }) };
+      }
+      const inFlight = this.db.prepare(`SELECT count(*) AS count FROM failover_claims
+        WHERE worker = 'cloud' AND generation = ? AND status = 'claimed'`).get(current.generation);
+      const unsettled = this.db.prepare(`SELECT count(*) AS count FROM failover_outbox
+        WHERE generation = ? AND status IN ('prepared', 'ambiguous')`).get(current.generation);
+      if (inFlight.count || unsettled.count) return { handedBack: false, ...current };
+      this.db.prepare(`UPDATE failover_leadership SET state = 'LOCAL_PRIMARY', owner = 'mac',
+        generation = generation + 1, heartbeat_at = ?, recovery_count = 0, updated_at = ? WHERE id = 1`)
+        .run(Math.floor(now), Math.floor(now));
+      const next = this.leadershipStatus();
+      return { handedBack: true, state: next.state, owner: next.owner,
+        generation: next.generation };
+    });
+  }
+
+  claimEvent({ worker, generation, channel, sourceEventId, now = Date.now() } = {}) {
+    if (!['mac', 'cloud'].includes(worker) || !['wechat', 'dingtalk'].includes(channel)
+      || typeof sourceEventId !== 'string' || !sourceEventId || sourceEventId.length > 300
+      || !Number.isSafeInteger(generation) || !Number.isFinite(now)) {
+      throw new Error('invalid_failover_claim');
+    }
+    const claimKey = sha256(`${channel}\0${sourceEventId}`);
+    return this.transaction(() => {
+      const current = this.leadershipStatus();
+      if (!current || current.owner !== worker || current.generation !== generation
+        || !['LOCAL_PRIMARY', 'CLOUD_ACTIVE'].includes(current.state)) {
+        return { claimed: false, reason: 'stale_generation', claimKey };
+      }
+      const previous = this.db.prepare(`SELECT worker, generation, status FROM failover_claims
+        WHERE claim_key = ?`).get(claimKey);
+      if (previous) {
+        const hasIntent = this.db.prepare(`SELECT 1 FROM failover_outbox
+          WHERE claim_key = ? LIMIT 1`).get(claimKey);
+        if (previous.status !== 'claimed' || previous.generation >= generation || hasIntent) {
+          return { claimed: false, reason: 'duplicate', claimKey };
+        }
+        this.db.prepare(`UPDATE failover_claims SET worker = ?, generation = ?, claimed_at = ?
+          WHERE claim_key = ?`).run(worker, generation, Math.floor(now), claimKey);
+        return { claimed: true, reason: 'transferred', claimKey };
+      }
+      const result = this.db.prepare(`INSERT OR IGNORE INTO failover_claims
+        (claim_key, channel, source_event_id, worker, generation, status, claimed_at)
+        VALUES (?, ?, ?, ?, ?, 'claimed', ?)`).run(claimKey, channel, sourceEventId,
+        worker, generation, Math.floor(now));
+      return { claimed: result.changes === 1, reason: result.changes === 1 ? '' : 'duplicate', claimKey };
+    });
+  }
+
+  prepareSend({ worker, generation, claimKey, actionKind, now = Date.now() } = {}) {
+    if (!['mac', 'cloud'].includes(worker) || !Number.isSafeInteger(generation)
+      || !EVENT_ID.test(String(claimKey)) || !/^[a-z0-9_-]{1,64}$/.test(String(actionKind))
+      || !Number.isFinite(now)) throw new Error('invalid_failover_intent');
+    const intentKey = sha256(`${claimKey}\0${actionKind}`);
+    return this.transaction(() => {
+      const existing = this.db.prepare('SELECT status FROM failover_outbox WHERE intent_key = ?').get(intentKey);
+      if (existing) return { intentKey, shouldSend: false, status: existing.status };
+      const current = this.leadershipStatus();
+      const claim = this.db.prepare(`SELECT worker, generation, status FROM failover_claims
+        WHERE claim_key = ?`).get(claimKey);
+      if (!current || current.owner !== worker || current.generation !== generation
+        || !['LOCAL_PRIMARY', 'CLOUD_ACTIVE'].includes(current.state)
+        || !claim || claim.worker !== worker || claim.generation !== generation
+        || claim.status !== 'claimed') {
+        return { intentKey, shouldSend: false, status: 'fenced' };
+      }
+      this.db.prepare(`INSERT INTO failover_outbox
+        (intent_key, claim_key, generation, status, created_at, updated_at)
+        VALUES (?, ?, ?, 'prepared', ?, ?)`).run(intentKey, claimKey, generation,
+        Math.floor(now), Math.floor(now));
+      return { intentKey, shouldSend: true, status: 'prepared' };
+    });
+  }
+
+  recordSendReceipt({ intentKey, generation, status, providerReceiptId = '', now = Date.now() } = {}) {
+    if (!EVENT_ID.test(String(intentKey)) || !Number.isSafeInteger(generation)
+      || !['sent', 'ambiguous'].includes(status) || !Number.isFinite(now)
+      || (status === 'sent' && !providerReceiptId)) throw new Error('invalid_failover_receipt');
+    return this.transaction(() => {
+      const current = this.db.prepare(`SELECT status, generation, provider_receipt_id
+        FROM failover_outbox WHERE intent_key = ?`).get(intentKey);
+      if (!current || current.generation !== generation) throw new Error('stale_failover_receipt');
+      if (current.status === status && (status !== 'sent'
+        || current.provider_receipt_id === providerReceiptId)) {
+        return { status, duplicate: true };
+      }
+      if (current.status === 'sent') throw new Error('conflicting_failover_receipt');
+      this.db.prepare(`UPDATE failover_outbox SET status = ?, provider_receipt_id = ?,
+        updated_at = ? WHERE intent_key = ?`).run(status, providerReceiptId || null,
+        Math.floor(now), intentKey);
+      return { status, duplicate: false };
+    });
+  }
+
+  completeClaim({ claimKey, worker, generation, outcome, now = Date.now() } = {}) {
+    if (!EVENT_ID.test(String(claimKey)) || !['mac', 'cloud'].includes(worker)
+      || !Number.isSafeInteger(generation) || !/^[a-z0-9_-]{1,64}$/.test(String(outcome))
+      || !Number.isFinite(now)) throw new Error('invalid_failover_completion');
+    return this.transaction(() => {
+      const claim = this.db.prepare(`SELECT worker, generation, status FROM failover_claims
+        WHERE claim_key = ?`).get(claimKey);
+      if (!claim || claim.worker !== worker || claim.generation !== generation) {
+        return { completed: false, reason: 'stale_generation' };
+      }
+      if (claim.status === 'completed') return { completed: false, reason: 'duplicate' };
+      const pending = this.db.prepare(`SELECT count(*) AS count FROM failover_outbox
+        WHERE claim_key = ? AND status != 'sent'`).get(claimKey);
+      if (pending.count) return { completed: false, reason: 'unsettled_send' };
+      if (outcome === 'replied') {
+        const receipt = this.db.prepare(`SELECT 1 FROM failover_outbox
+          WHERE claim_key = ? AND status = 'sent' LIMIT 1`).get(claimKey);
+        if (!receipt) return { completed: false, reason: 'missing_send_receipt' };
+      }
+      this.db.prepare(`UPDATE failover_claims SET status = 'completed', outcome = ?,
+        completed_at = ? WHERE claim_key = ?`).run(outcome, Math.floor(now), claimKey);
+      return { completed: true };
+    });
   }
 
   async enqueue({ digest, body, createdAt }) {

@@ -170,3 +170,43 @@ test('parity snapshot saves validated data and status discloses metadata only', 
   assert.deepEqual(JSON.parse(status), { ok: true, revision: 1, digest: manifest.digest,
     workerSequence: 1 });
 });
+
+test('control plane is opt-in, rejects relay token, and can claim under local generation', async () => {
+  const disabled = await start();
+  assert.equal((await fetch(`${disabled.origin}/control/status`)).status, 404);
+  const calls = [];
+  const store = {
+    leadershipStatus() { return { state: 'LOCAL_PRIMARY', owner: 'mac', generation: 3, heartbeatAt: 1 }; },
+    heartbeatLocal(input) { calls.push(['heartbeat', input]); return { accepted: true, generation: 3 }; },
+    claimEvent(input) { calls.push(['claim', input]); return { claimed: true, claimKey: 'a'.repeat(64) }; },
+    prepareSend(input) { calls.push(['intent', input]); return { shouldSend: true, intentKey: 'b'.repeat(64) }; },
+    recordSendReceipt(input) { calls.push(['receipt', input]); return { status: 'sent', duplicate: false }; },
+    completeClaim(input) { calls.push(['complete', input]); return { completed: true }; },
+  };
+  const { origin } = await start({ store, controlToken: 'control-token-12345678901234567890' });
+  assert.equal((await fetch(`${origin}/control/status`, { headers: {
+    authorization: 'Bearer relay-token-123456789012345678',
+  } })).status, 401);
+  const headers = { authorization: 'Bearer control-token-12345678901234567890',
+    'content-type': 'application/json' };
+  const status = await (await fetch(`${origin}/control/status`, { headers })).json();
+  assert.deepEqual(status, { ok: true, state: 'LOCAL_PRIMARY', owner: 'mac', generation: 3,
+    heartbeatAgeMs: 1_799_999_999_999 });
+  assert.equal((await fetch(`${origin}/control/heartbeat`, { method: 'POST', headers,
+    body: JSON.stringify({ generation: 3 }) })).status, 200);
+  const claim = await (await fetch(`${origin}/control/claim`, { method: 'POST', headers,
+    body: JSON.stringify({ generation: 3, channel: 'wechat', sourceEventId: 'wx-1' }) })).json();
+  assert.equal(claim.claimed, true);
+  assert.equal(calls[1][1].worker, 'mac');
+  assert.equal((await fetch(`${origin}/control/intent`, { method: 'POST', headers,
+    body: JSON.stringify({ generation: 3, claimKey: claim.claimKey, actionKind: 'reply' }) })).status, 200);
+  assert.equal((await fetch(`${origin}/control/receipt`, { method: 'POST', headers,
+    body: JSON.stringify({ generation: 3, intentKey: 'b'.repeat(64), status: 'sent',
+      providerReceiptId: 'provider-1' }) })).status, 200);
+  assert.equal((await fetch(`${origin}/control/complete`, { method: 'POST', headers,
+    body: JSON.stringify({ generation: 3, claimKey: claim.claimKey, outcome: 'replied' }) })).status, 200);
+  assert.equal(calls[2][1].worker, 'mac');
+  assert.equal(calls[4][1].worker, 'mac');
+  assert.equal((await fetch(`${origin}/control/takeover`, { method: 'POST', headers,
+    body: '{}' })).status, 404);
+});

@@ -39,7 +39,7 @@ async function readJson(request, maximum = MAX_WEBHOOK_BYTES) {
 }
 
 export function createRelayServer({ store, callbackSecret, relayToken, artifactToken, canarySecret,
-  parityToken, now = Date.now }) {
+  parityToken, controlToken, now = Date.now }) {
   if (!store || !callbackSecret || !relayToken || !artifactToken || !canarySecret) {
     throw new Error('Relay configuration is incomplete');
   }
@@ -48,6 +48,43 @@ export function createRelayServer({ store, callbackSecret, relayToken, artifactT
     try {
       if (request.method === 'GET' && url.pathname === '/healthz') {
         return reply(response, 200, { ok: true, service: 'aipro-wechat-relay' });
+      }
+      if (url.pathname.startsWith('/control/')) {
+        if (!controlToken) return reply(response, 404, { ok: false });
+        if (!authorizeBearer(request.headers.authorization, controlToken)) {
+          return reply(response, 401, { ok: false });
+        }
+        if (request.method === 'GET' && url.pathname === '/control/status') {
+          const current = store.leadershipStatus();
+          return reply(response, 200, { ok: true, state: current?.state || 'DISABLED',
+            owner: current?.owner || null, generation: current?.generation || 0,
+            heartbeatAgeMs: current ? Math.max(0, now() - current.heartbeatAt) : null });
+        }
+        const action = new Map([
+          ['/control/heartbeat', 'heartbeatLocal'],
+          ['/control/claim', 'claimEvent'],
+          ['/control/intent', 'prepareSend'],
+          ['/control/receipt', 'recordSendReceipt'],
+          ['/control/complete', 'completeClaim'],
+        ]).get(url.pathname);
+        if (request.method !== 'POST' || !action) return reply(response, 404, { ok: false });
+        if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] || '')) {
+          return reply(response, 415, { ok: false, error: 'unsupported_media_type' });
+        }
+        let input;
+        try { input = await readJson(request, 4096); } catch (error) {
+          return reply(response, error?.status || 400, { ok: false, error: error?.status === 413
+            ? 'body_too_large' : 'invalid_json' });
+        }
+        if (!input || typeof input !== 'object' || Array.isArray(input)) {
+          return reply(response, 400, { ok: false, error: 'invalid_control' });
+        }
+        try {
+          const result = store[action]({ ...input, worker: 'mac', now: now() });
+          return reply(response, 200, { ok: true, ...result });
+        } catch {
+          return reply(response, 400, { ok: false, error: 'invalid_control' });
+        }
       }
       if (url.pathname.startsWith('/parity/')) {
         if (!parityToken) return reply(response, 404, { ok: false });
