@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -12,8 +12,55 @@ function boundedInteger(value, fallback, minimum, maximum) {
   return Number.isInteger(numeric) && numeric >= minimum && numeric <= maximum ? numeric : fallback;
 }
 
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
+
+function verifyPolicyManifest(manifest) {
+  if (manifest?.version !== 1 || !manifest.sections || typeof manifest.sections !== 'object') {
+    throw new Error('invalid_policy_manifest');
+  }
+  const sectionDigests = {};
+  let totalBytes = 0;
+  for (const name of ['persona', 'bible', 'instructions', 'config', 'state']) {
+    const part = manifest.sections[name];
+    if (!part || !Object.hasOwn(part, 'data')) throw new Error('invalid_policy_manifest');
+    const encoded = canonicalJson(part.data);
+    const bytes = Buffer.byteLength(encoded);
+    if (bytes > 8 * 1024 * 1024 || bytes !== part.bytes || sha256(encoded) !== part.digest) {
+      throw new Error('policy_section_digest_mismatch');
+    }
+    sectionDigests[name] = part.digest;
+    totalBytes += bytes;
+  }
+  if (totalBytes > 24 * 1024 * 1024 || manifest.totalBytes !== totalBytes
+    || manifest.digest !== sha256(canonicalJson(sectionDigests))) {
+    throw new Error('policy_manifest_digest_mismatch');
+  }
+}
+
+function encryptPolicy(key, data) {
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, nonce);
+  const encrypted = Buffer.concat([cipher.update(data, 'utf8'), cipher.final()]);
+  return Buffer.concat([nonce, cipher.getAuthTag(), encrypted]);
+}
+
+function decryptPolicy(key, bytes) {
+  const decoder = createDecipheriv('aes-256-gcm', key, bytes.subarray(0, 12));
+  decoder.setAuthTag(bytes.subarray(12, 28));
+  return Buffer.concat([decoder.update(bytes.subarray(28)), decoder.final()]).toString('utf8');
+}
+
 export class SqliteRelayStore {
-  constructor({ databasePath, artifactDirectory, maxQueueCount = 10_000, maxQueueBytes = 256 * 1024 * 1024 }) {
+  constructor({ databasePath, artifactDirectory, maxQueueCount = 10_000, maxQueueBytes = 256 * 1024 * 1024,
+    parityEncryptionKey }) {
     if (!path.isAbsolute(databasePath) || !path.isAbsolute(artifactDirectory)) {
       throw new Error('Relay storage paths must be absolute');
     }
@@ -22,6 +69,9 @@ export class SqliteRelayStore {
     this.artifactDirectory = artifactDirectory;
     this.maxQueueCount = maxQueueCount;
     this.maxQueueBytes = maxQueueBytes;
+    if (parityEncryptionKey !== undefined && (!Buffer.isBuffer(parityEncryptionKey)
+      || parityEncryptionKey.length !== 32)) throw new Error('invalid_parity_encryption_key');
+    this.parityEncryptionKey = parityEncryptionKey;
     this.db = new DatabaseSync(databasePath);
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');
     this.db.exec(`
@@ -35,6 +85,13 @@ export class SqliteRelayStore {
         expires_at INTEGER NOT NULL, size INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS artifacts_expiry ON artifacts (expires_at);
+      CREATE TABLE IF NOT EXISTS policy_versions (
+        revision INTEGER PRIMARY KEY AUTOINCREMENT, digest TEXT NOT NULL,
+        ciphertext BLOB NOT NULL, applied_at INTEGER NOT NULL, source TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS policy_cursor (
+        worker_id TEXT PRIMARY KEY, sequence INTEGER NOT NULL, digest TEXT NOT NULL
+      );
     `);
   }
 
@@ -50,6 +107,60 @@ export class SqliteRelayStore {
       this.db.exec('ROLLBACK');
       throw error;
     }
+  }
+
+  requireParityKey() {
+    if (!this.parityEncryptionKey) throw new Error('parity_unconfigured');
+  }
+
+  savePolicySnapshot({ workerId, sequence, manifest, now = Date.now() }) {
+    this.requireParityKey();
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(workerId))
+      || !Number.isSafeInteger(sequence) || sequence < 1 || !Number.isFinite(now)) {
+      throw new Error('invalid_policy_sequence');
+    }
+    verifyPolicyManifest(manifest);
+    return this.transaction(() => {
+      const cursor = this.db.prepare('SELECT sequence, digest FROM policy_cursor WHERE worker_id = ?').get(workerId);
+      const current = this.db.prepare('SELECT revision, digest FROM policy_versions ORDER BY revision DESC LIMIT 1').get();
+      if (cursor && sequence <= cursor.sequence) {
+        if (sequence === cursor.sequence && manifest.digest === cursor.digest) {
+          return { revision: current?.revision || 0, duplicate: true, digest: manifest.digest };
+        }
+        throw new Error('stale_policy_sequence');
+      }
+      if (current?.digest === manifest.digest) {
+        this.db.prepare(`INSERT INTO policy_cursor (worker_id, sequence, digest) VALUES (?, ?, ?)
+          ON CONFLICT(worker_id) DO UPDATE SET sequence=excluded.sequence, digest=excluded.digest`)
+          .run(workerId, sequence, manifest.digest);
+        return { revision: current.revision, duplicate: true, digest: manifest.digest };
+      }
+      const ciphertext = encryptPolicy(this.parityEncryptionKey, canonicalJson(manifest));
+      const saved = this.db.prepare(`INSERT INTO policy_versions (digest, ciphertext, applied_at, source)
+        VALUES (?, ?, ?, ?)`).run(manifest.digest, ciphertext, Math.floor(now), workerId);
+      this.db.prepare(`INSERT INTO policy_cursor (worker_id, sequence, digest) VALUES (?, ?, ?)
+        ON CONFLICT(worker_id) DO UPDATE SET sequence=excluded.sequence, digest=excluded.digest`)
+        .run(workerId, sequence, manifest.digest);
+      return { revision: Number(saved.lastInsertRowid), duplicate: false, digest: manifest.digest };
+    });
+  }
+
+  getPolicyRevision(revision) {
+    this.requireParityKey();
+    const row = this.db.prepare('SELECT revision, digest, ciphertext, applied_at, source FROM policy_versions WHERE revision = ?')
+      .get(revision);
+    if (!row) return null;
+    const manifest = JSON.parse(decryptPolicy(this.parityEncryptionKey, row.ciphertext));
+    verifyPolicyManifest(manifest);
+    if (manifest.digest !== row.digest) throw new Error('policy_manifest_digest_mismatch');
+    return { revision: row.revision, digest: row.digest, appliedAt: row.applied_at,
+      source: row.source, manifest };
+  }
+
+  getCurrentPolicy() {
+    this.requireParityKey();
+    const row = this.db.prepare('SELECT revision FROM policy_versions ORDER BY revision DESC LIMIT 1').get();
+    return row ? this.getPolicyRevision(row.revision) : null;
   }
 
   async enqueue({ digest, body, createdAt }) {
