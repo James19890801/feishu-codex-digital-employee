@@ -4,7 +4,7 @@
 
 **Goal:** Replace the rotating Quick Tunnel callback with a fixed Cloudflare Worker endpoint that durably buffers inbound WeChat events and serves short-lived outbound artifacts.
 
-**Architecture:** A Worker backed by one Durable Object namespace owns the inbound lease/ACK queue and Workers KV stores expiring artifacts up to 25MB. A macOS LaunchAgent polls the Worker over outbound HTTPS and replays each event into the existing loopback webhook; a Node import bootstrap uploads registered artifacts to KV. The existing Named Tunnel runs independently over HTTP/2 and can reconnect without changing configuration or restarting the main service.
+**Architecture:** A stateless Railway service provides the GeWe-reachable fixed hostname and streams requests to a Cloudflare Worker. One Durable Object namespace owns the inbound lease/ACK queue and Workers KV stores expiring artifacts up to 25MB. A macOS LaunchAgent polls through the stable Railway origin and replays each event into the existing loopback webhook; the existing Named Tunnel runs independently over HTTP/2 and can reconnect without changing configuration or restarting the main service.
 
 **Tech Stack:** Node.js ESM, built-in `node:test`, Cloudflare Workers, Durable Objects, R2, Wrangler, macOS launchd, SQLite production state.
 
@@ -76,6 +76,8 @@
 **Step 3:** Deploy the Worker and record the generated `workers.dev` origin without storing secrets.
 
 **Step 4:** Probe health, authentication rejection and signed canary behavior.
+
+**Step 5:** Deploy a stateless Railway streaming proxy, generate its fixed service domain, and verify GeWe's real callback validation reaches the Durable Object. Keep the tested Pages proxy as a non-production fallback because GeWe cannot reach `pages.dev` from its validation nodes.
 
 ### Task 6: Production cutover
 
