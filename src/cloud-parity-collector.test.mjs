@@ -22,15 +22,26 @@ test('collects configured documents and selected SQLite state without secrets', 
       CREATE TABLE relationship_profile (person_id TEXT, summary TEXT, secret_token TEXT);
       CREATE TABLE relationship_fact (fact_id TEXT);
       CREATE TABLE relationship_episode (event_id TEXT);
-      CREATE TABLE owner_consultation (id TEXT, status TEXT);`);
+      CREATE TABLE owner_consultation (id TEXT, status TEXT);
+      CREATE TABLE settings (scope TEXT, key TEXT, value TEXT, updated_at TEXT);
+      CREATE TABLE rate_limit (subject TEXT, count INTEGER, window_start_ms INTEGER, updated_at TEXT);
+      CREATE TABLE semantic_repeat_guard (channel TEXT, chat_id TEXT, sender_id TEXT);
+      CREATE TABLE discussion_session (channel TEXT, chat_id TEXT);
+      CREATE TABLE outbound_reply_guard (chat_id TEXT, reply_signature TEXT);
+      CREATE TABLE outbound_echo (chat_id TEXT, content_hash TEXT);`);
     db.prepare('INSERT INTO relationship_profile VALUES (?, ?, ?)').run('person-1', 'knows me', 'do-not-export');
+    db.prepare('INSERT INTO settings VALUES (?, ?, ?, ?)').run('chat-1', 'human_takeover',
+      '{"pausedUntilMs":1800000000000}', 'today');
+    db.prepare('INSERT INTO settings VALUES (?, ?, ?, ?)').run('auth', 'token', 'secret-setting', 'today');
     db.close();
     const manifest = await collectParityManifest({ root });
     assert.equal(manifest.sections.persona.data, 'Persona test');
     assert.equal(manifest.sections.instructions.data, 'Instructions test');
     assert.equal(manifest.sections.state.data.relationship_profile[0].summary, 'knows me');
+    assert.equal(manifest.sections.state.data.settings[0].key, 'human_takeover');
     assert.equal(JSON.stringify(manifest).includes('secret-profile'), false);
     assert.equal(JSON.stringify(manifest).includes('do-not-export'), false);
+    assert.equal(JSON.stringify(manifest).includes('secret-setting'), false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

@@ -36,7 +36,22 @@ export const CLOUD_PARITY_STATE_COLUMNS = Object.freeze({
     'expires_at_ms', 'reminded_at_ms', 'resolved_at_ms', 'created_at_ms', 'updated_at_ms',
     'purpose', 'location_label', 'cost_category', 'request_fingerprint', 'task_snapshot',
     'execution_started_at_ms', 'execution_completed_at_ms'],
+  settings: ['scope', 'key', 'value', 'updated_at'],
+  rate_limit: ['subject', 'window_start_ms', 'count', 'updated_at'],
+  semantic_repeat_guard: ['channel', 'chat_id', 'sender_id', 'topic', 'reply_count',
+    'suppressed_count', 'first_seen_ms', 'last_seen_ms', 'expires_at_ms', 'last_action',
+    'last_similarity', 'last_message_id'],
+  discussion_session: ['channel', 'chat_id', 'session_no', 'reply_count', 'low_value_streak',
+    'recent_topics', 'last_checkpoint', 'status', 'cooldown_until_ms', 'last_message_id',
+    'last_action', 'last_score', 'closure_reason', 'started_at_ms', 'last_seen_ms', 'closed_count'],
+  outbound_reply_guard: ['chat_id', 'audience_key', 'reply_signature', 'topic',
+    'created_at_ms', 'expires_at_ms'],
+  outbound_echo: ['chat_id', 'content_hash', 'message_id', 'created_at', 'expires_at'],
 });
+
+export const CLOUD_PARITY_SETTINGS_KEYS = Object.freeze([
+  'human_takeover', 'assistant_paused', 'semantic_group_reply', 'group_host_reply',
+]);
 
 const SECRET_PATTERN = /\bBearer\s+\S+|-----BEGIN [^-]*PRIVATE KEY-----|\b(?:sk|pt)-[A-Za-z0-9_-]{10,}\b/i;
 const MAX_SECTION_BYTES = 16 * 1024 * 1024;
@@ -79,13 +94,15 @@ export function buildParityManifest({ config = {}, persona = '', bible = '', ins
     if (!Array.isArray(state[table]) || state[table].length > 50_000) {
       throw new Error(`invalid parity state table: ${table}`);
     }
-    selectedState[table] = state[table].map(row => {
+    selectedState[table] = state[table]
+      .filter(row => table !== 'settings' || CLOUD_PARITY_SETTINGS_KEYS.includes(row?.key))
+      .map(row => {
       if (!row || typeof row !== 'object' || Array.isArray(row)) {
         throw new Error(`invalid parity state row: ${table}`);
       }
       return Object.fromEntries(columns.filter(column => Object.hasOwn(row, column))
         .map(column => [column, row[column]]));
-    });
+      });
   }
   const sections = {
     persona: section(persona), bible: section(bible), instructions: section(instructions),

@@ -21,7 +21,10 @@ const input = {
     relationship_profile: [{ person_id: 'person-1', summary: '喜欢讨论流程', tone: '轻松', secret_token: 'never-copy' }],
     relationship_fact: [{ fact_id: 'fact-1', person_id: 'person-1', content: '上次讨论流程', status: 'active' }],
     owner_consultation: [{ id: 'approval-1', decision: 'pending', status: 'pending', source_message_id: 'msg-1' }],
-    settings: [{ scope: 'auth', key: 'token', value: 'never-copy' }],
+    settings: [{ scope: 'auth', key: 'token', value: 'never-copy' },
+      { scope: 'chat-1', key: 'human_takeover', value: '{"pausedUntilMs":1800000000000}', updated_at: 'today' },
+      { scope: 'chat-2', key: 'semantic_group_reply', value: '{"lastReplyAt":10}' }],
+    rate_limit: [{ subject: 'chat-1', count: 2, window_start_ms: 100, updated_at: 'today' }],
     inbound_message: [{ message_id: 'old', payload: 'do-not-copy-whole-queue' }],
   },
 };
@@ -36,6 +39,9 @@ test('exports persona, rules, allow and deny lists, and selected continuity stat
   assert.deepEqual(manifest.sections.config.data.geweMomentsInteractionBlocklist, ['blocked-user']);
   assert.equal(manifest.sections.state.data.relationship_profile[0].summary, '喜欢讨论流程');
   assert.equal(manifest.sections.state.data.owner_consultation[0].status, 'pending');
+  assert.deepEqual(manifest.sections.state.data.settings.map(row => row.key),
+    ['human_takeover', 'semantic_group_reply']);
+  assert.equal(manifest.sections.state.data.rate_limit[0].count, 2);
   assert.match(manifest.digest, /^[a-f0-9]{64}$/);
   assert.match(manifest.sections.config.digest, /^[a-f0-9]{64}$/);
 });

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { buildParityManifest, CLOUD_PARITY_STATE_COLUMNS } from './cloud-parity-manifest.mjs';
+import { buildParityManifest, CLOUD_PARITY_SETTINGS_KEYS, CLOUD_PARITY_STATE_COLUMNS } from './cloud-parity-manifest.mjs';
 
 export async function collectParityManifest({ root }) {
   if (!root) throw new Error('parity root is required');
@@ -19,7 +19,11 @@ export async function collectParityManifest({ root }) {
     db.exec('BEGIN');
     for (const table of Object.keys(CLOUD_PARITY_STATE_COLUMNS)) {
       try {
-        state[table] = db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all().map(row => ({ ...row }));
+        const query = table === 'settings'
+          ? `SELECT * FROM settings WHERE key IN (${CLOUD_PARITY_SETTINGS_KEYS.map(() => '?').join(',')}) ORDER BY rowid`
+          : `SELECT * FROM ${table} ORDER BY rowid`;
+        state[table] = db.prepare(query).all(...(table === 'settings' ? CLOUD_PARITY_SETTINGS_KEYS : []))
+          .map(row => ({ ...row }));
       } catch (error) {
         throw new Error(`parity state table unavailable: ${table}`, { cause: error });
       }
