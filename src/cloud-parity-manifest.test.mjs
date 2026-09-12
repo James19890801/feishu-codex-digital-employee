@@ -61,3 +61,10 @@ test('digests are deterministic across input object key order', () => {
 test('rejects apparent credentials inside freeform policy documents', () => {
   assert.throws(() => buildParityManifest({ ...input, persona: 'Bearer test-secret' }), /secret/i);
 });
+
+test('a real-sized relationship history fits within the bounded manifest', () => {
+  const manifest = buildParityManifest({ state: {
+    relationship_episode: [{ event_id: 'long-history', content: 'x'.repeat(9 * 1024 * 1024) }],
+  } });
+  assert.ok(manifest.sections.state.bytes > 8 * 1024 * 1024);
+});

@@ -33,7 +33,7 @@ function verifyPolicyManifest(manifest) {
     if (!part || !Object.hasOwn(part, 'data')) throw new Error('invalid_policy_manifest');
     const encoded = canonicalJson(part.data);
     const bytes = Buffer.byteLength(encoded);
-    if (bytes > 8 * 1024 * 1024 || bytes !== part.bytes || sha256(encoded) !== part.digest) {
+    if (bytes > 16 * 1024 * 1024 || bytes !== part.bytes || sha256(encoded) !== part.digest) {
       throw new Error('policy_section_digest_mismatch');
     }
     sectionDigests[name] = part.digest;
@@ -161,6 +161,13 @@ export class SqliteRelayStore {
     this.requireParityKey();
     const row = this.db.prepare('SELECT revision FROM policy_versions ORDER BY revision DESC LIMIT 1').get();
     return row ? this.getPolicyRevision(row.revision) : null;
+  }
+
+  getPolicyCursor(workerId) {
+    this.requireParityKey();
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(workerId))) return null;
+    const row = this.db.prepare('SELECT sequence, digest FROM policy_cursor WHERE worker_id = ?').get(workerId);
+    return row ? { sequence: row.sequence, digest: row.digest } : null;
   }
 
   async enqueue({ digest, body, createdAt }) {

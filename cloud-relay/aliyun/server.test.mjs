@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { afterEach, test } from 'node:test';
 import { createRelayServer } from './server.mjs';
+import { buildParityManifest } from '../../src/cloud-parity-manifest.mjs';
 
 const servers = [];
 afterEach(async () => {
@@ -130,4 +131,42 @@ test('callback refuses a body exceeding one MiB', async () => {
   });
   assert.equal(response.status, 413);
   assert.equal(calls.length, 0);
+});
+
+test('parity API is disabled by default and uses a distinct token when enabled', async () => {
+  const disabled = await start();
+  assert.equal((await fetch(`${disabled.origin}/parity/status`)).status, 404);
+  const store = {
+    getCurrentPolicy() { return null; },
+    getPolicyCursor() { return null; },
+    savePolicySnapshot() { return { revision: 1, duplicate: false, digest: 'a'.repeat(64) }; },
+  };
+  const { origin } = await start({ store, parityToken: 'parity-token-12345678901234567890' });
+  assert.equal((await fetch(`${origin}/parity/status`, { headers: {
+    authorization: 'Bearer relay-token-123456789012345678',
+  } })).status, 401);
+  assert.equal((await fetch(`${origin}/parity/status`, { headers: {
+    authorization: 'Bearer parity-token-12345678901234567890',
+  } })).status, 200);
+});
+
+test('parity snapshot saves validated data and status discloses metadata only', async () => {
+  const manifest = buildParityManifest({ persona: 'PRIVATE POLICY', config: { allowAllChats: false } });
+  let saved;
+  const store = {
+    savePolicySnapshot(input) { saved = input; return { revision: 1, duplicate: false, digest: input.manifest.digest }; },
+    getCurrentPolicy() { return saved && { revision: 1, digest: saved.manifest.digest, manifest: saved.manifest }; },
+    getPolicyCursor() { return saved && { sequence: saved.sequence, digest: saved.manifest.digest }; },
+  };
+  const { origin } = await start({ store, parityToken: 'parity-token-12345678901234567890' });
+  const headers = { authorization: 'Bearer parity-token-12345678901234567890',
+    'content-type': 'application/json' };
+  const response = await fetch(`${origin}/parity/snapshot`, { method: 'PUT', headers,
+    body: JSON.stringify({ workerId: 'mac', sequence: 1, manifest }) });
+  assert.equal(response.status, 200);
+  assert.equal(saved.manifest.digest, manifest.digest);
+  const status = await (await fetch(`${origin}/parity/status?workerId=mac`, { headers })).text();
+  assert.equal(status.includes('PRIVATE POLICY'), false);
+  assert.deepEqual(JSON.parse(status), { ok: true, revision: 1, digest: manifest.digest,
+    workerSequence: 1 });
 });

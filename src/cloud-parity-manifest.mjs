@@ -39,7 +39,7 @@ export const CLOUD_PARITY_STATE_COLUMNS = Object.freeze({
 });
 
 const SECRET_PATTERN = /\bBearer\s+\S+|-----BEGIN [^-]*PRIVATE KEY-----|\b(?:sk|pt)-[A-Za-z0-9_-]{10,}\b/i;
-const MAX_SECTION_BYTES = 8 * 1024 * 1024;
+const MAX_SECTION_BYTES = 16 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 24 * 1024 * 1024;
 
 function stableJson(value) {

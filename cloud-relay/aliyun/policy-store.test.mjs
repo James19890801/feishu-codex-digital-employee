@@ -52,6 +52,7 @@ test('identical resend is idempotent and a newer policy remains in version histo
     const first = buildParityManifest({ persona: 'first' });
     const second = buildParityManifest({ persona: 'second' });
     store.savePolicySnapshot({ workerId: 'mac', sequence: 1, manifest: first });
+    assert.deepEqual(store.getPolicyCursor('mac'), { sequence: 1, digest: first.digest });
     assert.equal(store.savePolicySnapshot({ workerId: 'mac', sequence: 1, manifest: first }).duplicate, true);
     assert.equal(store.savePolicySnapshot({ workerId: 'mac', sequence: 2, manifest: second }).revision, 2);
     assert.equal(store.getCurrentPolicy().manifest.digest, second.digest);

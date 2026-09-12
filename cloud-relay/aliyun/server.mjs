@@ -9,6 +9,7 @@ import {
 
 const MAX_WEBHOOK_BYTES = 1024 * 1024;
 const MAX_ARTIFACT_BYTES = 25 * 1024 * 1024;
+const MAX_PARITY_BYTES = 24 * 1024 * 1024 + 4096;
 
 function reply(response, status, payload) {
   response.writeHead(status, {
@@ -37,7 +38,8 @@ async function readJson(request, maximum = MAX_WEBHOOK_BYTES) {
   return JSON.parse(bytes.toString('utf8'));
 }
 
-export function createRelayServer({ store, callbackSecret, relayToken, artifactToken, canarySecret, now = Date.now }) {
+export function createRelayServer({ store, callbackSecret, relayToken, artifactToken, canarySecret,
+  parityToken, now = Date.now }) {
   if (!store || !callbackSecret || !relayToken || !artifactToken || !canarySecret) {
     throw new Error('Relay configuration is incomplete');
   }
@@ -46,6 +48,38 @@ export function createRelayServer({ store, callbackSecret, relayToken, artifactT
     try {
       if (request.method === 'GET' && url.pathname === '/healthz') {
         return reply(response, 200, { ok: true, service: 'aipro-wechat-relay' });
+      }
+      if (url.pathname.startsWith('/parity/')) {
+        if (!parityToken) return reply(response, 404, { ok: false });
+        if (!authorizeBearer(request.headers.authorization, parityToken)) {
+          return reply(response, 401, { ok: false });
+        }
+        if (request.method === 'GET' && url.pathname === '/parity/status') {
+          const current = store.getCurrentPolicy();
+          const cursor = store.getPolicyCursor(url.searchParams.get('workerId') || 'mac');
+          return reply(response, 200, { ok: true, revision: current?.revision || 0,
+            digest: current?.digest || null, workerSequence: cursor?.sequence || 0 });
+        }
+        if (request.method === 'PUT' && url.pathname === '/parity/snapshot') {
+          if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] || '')) {
+            return reply(response, 415, { ok: false, error: 'unsupported_media_type' });
+          }
+          let input;
+          try { input = await readJson(request, MAX_PARITY_BYTES); } catch (error) {
+            return reply(response, error?.status || 400, { ok: false, error: error?.status === 413
+              ? 'body_too_large' : 'invalid_json' });
+          }
+          try {
+            const result = store.savePolicySnapshot({ workerId: input.workerId,
+              sequence: input.sequence, manifest: input.manifest, now: now() });
+            return reply(response, 200, { ok: true, ...result });
+          } catch (error) {
+            const conflict = /stale|digest_mismatch/.test(error?.message || '');
+            return reply(response, conflict ? 409 : 400, { ok: false,
+              error: conflict ? 'policy_conflict' : 'invalid_policy' });
+          }
+        }
+        return reply(response, 404, { ok: false });
       }
       if (request.method === 'GET' && url.pathname === '/internal/reliability/canary') {
         const result = await verifyCanaryRequest(Object.fromEntries(url.searchParams), {
