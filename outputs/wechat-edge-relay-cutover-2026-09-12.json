@@ -1,0 +1,55 @@
+{
+  "cutoverDate": "2026-09-12",
+  "timezone": "Asia/Shanghai",
+  "status": "production_healthy",
+  "stableOrigin": "https://aipro-wechat-ingress-production.up.railway.app",
+  "relayOrigin": "https://aipro-wechat-relay.494161546.workers.dev",
+  "architecture": {
+    "publicIngress": "Railway stable HTTPS origin",
+    "durableQueue": "Cloudflare Worker Durable Object",
+    "artifactStore": "Cloudflare Workers KV",
+    "localDelivery": "Outbound HTTPS polling relay with lease and acknowledgement",
+    "namedTunnel": "Token-managed Cloudflare Tunnel over HTTP/2 with four connections"
+  },
+  "verification": {
+    "providerCallbackRegistered": true,
+    "edgeBacklogDrill": {
+      "before": 0,
+      "whileLocalRelayPaused": 1,
+      "afterRecovery": 0,
+      "drainSeconds": 2
+    },
+    "tunnelRestartDrill": {
+      "mainProcessUnchanged": true,
+      "callbackUnchanged": true,
+      "activeConnectionsAfterRecovery": 4
+    },
+    "artifactSmokeTest": {
+      "uploadSucceeded": true,
+      "downloadHashMatched": true,
+      "maxBytes": 26214400
+    },
+    "health": {
+      "consecutiveSamples": 4,
+      "allHealthy": true
+    },
+    "automatedTests": {
+      "focusedPassed": 22,
+      "focusedFailed": 0,
+      "fullSuitePassed": true
+    }
+  },
+  "recoveryCoverage": {
+    "wechat": {
+      "cutoverWindowLocalLedgerKnownInbound": 0,
+      "coverage": "incomplete_before_cutover",
+      "note": "GeWe currently has no implemented historical backfill. The local ledger found no known inbound messages during the cutover window, but this is not proof that provider history was empty. Events accepted by the stable ingress after cutover are durably queued and the queue was empty at verification."
+    },
+    "dingtalk": {
+      "cutoverWindowLocalLedgerKnownInbound": 0,
+      "coverage": "incomplete",
+      "note": "The local ledger found no known inbound messages during the cutover window. Full conversation-history verification remains unavailable because the account lacks message-search rights."
+    }
+  },
+  "secretsIncluded": false
+}
