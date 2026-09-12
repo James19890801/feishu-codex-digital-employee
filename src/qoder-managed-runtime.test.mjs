@@ -98,6 +98,21 @@ test('resumes interrupted SSE with Last-Event-ID and deduplicates replayed event
   assert.ok(calls.some(call => call.url.endsWith('/archive')));
 });
 
+test('returns on session.status_idle even when the SSE connection stays open', async () => {
+  const openStream = new ReadableStream({ start(value) {
+    value.enqueue(new TextEncoder().encode('id: 1\nevent: agent.message\ndata: {"text":"OK"}\n\n'
+      + 'id: 2\nevent: session.status_idle\ndata: {}\n\n'));
+    setTimeout(() => { try { value.close(); } catch {} }, 200);
+  } });
+  const { fetchImpl } = mockFetch({ stream: new Response(openStream) });
+  const startedAt = Date.now();
+  const answer = await runtime(fetchImpl, { timeoutMs: 100 }).execute({
+    message: 'x', policyDigest: 'a'.repeat(64),
+  });
+  assert.equal(answer.text, 'OK');
+  assert.ok(Date.now() - startedAt < 100, 'idle event should complete before stream closes');
+});
+
 test('retries 429 and 5xx but fails closed on 4xx', async () => {
   const retry = mockFetch({ statuses: [429, 503] });
   assert.equal((await runtime(retry.fetchImpl).execute({ message: 'x', policyDigest: 'a'.repeat(64) })).text, '你好');

@@ -50,6 +50,33 @@ function parseEvents(body) {
   return events;
 }
 
+async function* readEvents(response, maxBytes) {
+  if (!response.body) {
+    const body = await response.text();
+    if (Buffer.byteLength(body) > maxBytes) throw failure('qoder_response_too_large');
+    yield* parseEvents(body);
+    return;
+  }
+  const decoder = new TextDecoder();
+  let pending = '';
+  let bytes = 0;
+  for await (const chunk of response.body) {
+    bytes += chunk.byteLength;
+    if (bytes > maxBytes) throw failure('qoder_response_too_large');
+    pending += decoder.decode(chunk, { stream: true });
+    let separator = pending.search(/\r?\n\r?\n/);
+    while (separator >= 0) {
+      const block = pending.slice(0, separator);
+      const match = pending.slice(separator).match(/^\r?\n\r?\n/);
+      pending = pending.slice(separator + match[0].length);
+      yield* parseEvents(`${block}\n\n`);
+      separator = pending.search(/\r?\n\r?\n/);
+    }
+  }
+  pending += decoder.decode();
+  if (pending.trim()) yield* parseEvents(`${pending}\n\n`);
+}
+
 export class QoderManagedRuntime {
   constructor({ agentId, environmentId, agentVersion, patSupplier, fetchImpl = fetch,
     delay = ms => new Promise(resolve => setTimeout(resolve, ms)), baseUrl = BASE_URL,
@@ -124,9 +151,7 @@ export class QoderManagedRuntime {
         const response = await this.request(`/sessions/${sessionId}/events/stream`, {
           method: 'GET', accept: 'text/event-stream', lastEventId,
         });
-        const body = await response.text();
-        if (Buffer.byteLength(body) > this.maxSseBytes) throw failure('qoder_response_too_large');
-        for (const event of parseEvents(body)) {
+        for await (const event of readEvents(response, this.maxSseBytes)) {
           if (!event.id) throw failure('qoder_event_id_missing');
           if (seen.has(event.id)) continue;
           seen.add(event.id);
