@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createRelayWorker, RelayCoordinator } from './index.mjs';
+import { createRelayWorker, RelayCoordinatorCore } from './core.mjs';
 
 const callbackSecret = 'callback-secret-abcdefghijkl';
 const relayToken = 'relay-token-abcdefghijklmnop';
@@ -103,7 +103,7 @@ test('coordinator deduplicates, leases, redelivers after expiry and acknowledges
     async list({ prefix } = {}) { return new Map([...records].filter(([key]) => !prefix || key.startsWith(prefix))); },
     async transaction(operation) { return operation(this); },
   };
-  const coordinator = new RelayCoordinator({ storage }, {});
+  const coordinator = new RelayCoordinatorCore({ storage }, {});
   const event = { digest: 'a'.repeat(64), body: '{"x":1}', createdAt: 1_000 };
   assert.deepEqual(await coordinator.enqueue(event), { accepted: true, duplicate: false });
   assert.deepEqual(await coordinator.enqueue(event), { accepted: true, duplicate: true });
