@@ -1,0 +1,8 @@
+{
+  "name": "aipro-wechat-aliyun-relay",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.5.0" },
+  "scripts": { "start": "node main.mjs", "test": "node --test *.test.mjs" }
+}

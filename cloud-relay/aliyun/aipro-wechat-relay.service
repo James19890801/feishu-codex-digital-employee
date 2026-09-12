@@ -1,0 +1,25 @@
+[Unit]
+Description=AIPRO WeChat persistent relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aipro-wechat-relay
+Group=aipro-wechat-relay
+WorkingDirectory=/opt/aipro-wechat-relay
+Environment=RELAY_CONFIG_PATH=/etc/aipro-wechat-relay/config.json
+ExecStart=/usr/bin/node /opt/aipro-wechat-relay/aliyun/main.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aipro-wechat-relay
+UMask=0077
+LimitNOFILE=4096
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target
