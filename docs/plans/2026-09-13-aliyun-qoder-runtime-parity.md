@@ -32,7 +32,7 @@
 
 ### Task 3: Authenticated sync API and daily full reconciliation
 
-**Files:** Modify `cloud-relay/aliyun/server.mjs`, `cloud-relay/aliyun/server.test.mjs`; create `src/cloud-parity-sync.mjs`, `src/cloud-parity-sync.test.mjs`, `scripts/cloud-parity-sync.mjs`, `deploy/local/ai.aipro.cloud-parity-sync.plist` (use existing LaunchAgent convention).
+**Files:** Modify `cloud-relay/aliyun/server.mjs`, `cloud-relay/aliyun/server.test.mjs`; create `src/cloud-parity-sync.mjs`, `src/cloud-parity-sync.test.mjs`, `src/cloud-parity-collector.mjs`, `src/cloud-parity-collector.test.mjs`, `scripts/cloud-parity-sync.mjs`, `scripts/install-cloud-parity-sync.sh` and their tests (use the existing LaunchAgent convention).
 
 1. Test bearer/HMAC auth, request body limit, missing-key fail-closed, hash mismatch, duplicate sequence, and metadata-only status. Test a daily full comparison that uploads only changed sections and independently flags cloud drift; test immediate delta propagation for deny/human-takeover/approval changes.
 2. Run the two focused tests; expect failure.
