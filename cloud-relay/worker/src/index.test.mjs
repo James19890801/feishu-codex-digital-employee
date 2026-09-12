@@ -41,7 +41,7 @@ test('durably enqueues an exact callback and acknowledges only after storage acc
     `https://relay.example/webhooks/gewe/${callbackSecret}`,
     { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"type":"test"}' },
   ), env);
-  assert.equal(response.status, 202);
+  assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { ok: true, accepted: true, duplicate: false });
   assert.equal(calls[0][0], 'enqueue');
   assert.equal(calls[0][1].body, '{"type":"test"}');

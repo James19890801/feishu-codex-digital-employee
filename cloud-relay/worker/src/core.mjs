@@ -132,7 +132,7 @@ export function createRelayWorker({ now = Date.now } = {}) {
             body: body.text,
             createdAt: now(),
           });
-          return json({ ok: true, ...result }, 202);
+          return json({ ok: true, ...result }, 200);
         }
         if (url.pathname === '/relay/lease' && request.method === 'POST') {
           if (!authorizeBearer(request.headers.get('authorization'), env.RELAY_TOKEN)) return json({ ok: false }, 401);
