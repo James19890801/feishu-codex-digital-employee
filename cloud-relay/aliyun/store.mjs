@@ -102,6 +102,12 @@ export class SqliteRelayStore {
         state TEXT NOT NULL, owner TEXT NOT NULL, generation INTEGER NOT NULL,
         observed_at INTEGER NOT NULL, last_local_heartbeat_at INTEGER
       );
+      CREATE TABLE IF NOT EXISTS failover_main_heartbeat (
+        id INTEGER PRIMARY KEY CHECK (id = 1), generation INTEGER NOT NULL,
+        boot_id TEXT NOT NULL, policy_digest TEXT NOT NULL,
+        critical_state_sequence INTEGER NOT NULL, wechat_ready INTEGER NOT NULL,
+        dingtalk_ready INTEGER NOT NULL, received_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS failover_claims (
         claim_key TEXT PRIMARY KEY, channel TEXT NOT NULL, source_event_id TEXT NOT NULL,
         worker TEXT NOT NULL, generation INTEGER NOT NULL, status TEXT NOT NULL,
@@ -235,6 +241,49 @@ export class SqliteRelayStore {
       }
       this.db.prepare(`UPDATE failover_leadership SET heartbeat_at = ?, updated_at = ? WHERE id = 1`)
         .run(Math.floor(now), Math.floor(now));
+      return { accepted: true, ...this.leadershipStatus() };
+    });
+  }
+
+  lastMainHeartbeat() {
+    const row = this.db.prepare(`SELECT generation, boot_id, policy_digest,
+      critical_state_sequence, wechat_ready, dingtalk_ready, received_at
+      FROM failover_main_heartbeat WHERE id = 1`).get();
+    return row ? { generation: row.generation, bootId: row.boot_id,
+      policyDigest: row.policy_digest, criticalStateSequence: row.critical_state_sequence,
+      channels: { wechat: row.wechat_ready === 1, dingtalk: row.dingtalk_ready === 1 },
+      receivedAt: row.received_at } : null;
+  }
+
+  recordMainHeartbeat({ generation, bootId, policyDigest, criticalStateSequence,
+    channels, now = Date.now() } = {}) {
+    if (!Number.isSafeInteger(generation) || generation < 1
+      || !/^[A-Za-z0-9_-]{1,128}$/.test(String(bootId || ''))
+      || !EVENT_ID.test(String(policyDigest || ''))
+      || !Number.isSafeInteger(criticalStateSequence) || criticalStateSequence < 0
+      || typeof channels?.wechat !== 'boolean' || typeof channels?.dingtalk !== 'boolean'
+      || !Number.isFinite(now) || now <= 0) throw new Error('invalid_main_heartbeat');
+    return this.transaction(() => {
+      const current = this.leadershipStatus();
+      const previous = this.lastMainHeartbeat();
+      if (!current || current.state !== 'LOCAL_PRIMARY' || current.owner !== 'mac'
+        || current.generation !== generation || now <= current.heartbeatAt
+        || (previous?.generation === generation
+          && criticalStateSequence < previous.criticalStateSequence)) {
+        return { accepted: false, ...(current || { state: 'DISABLED' }) };
+      }
+      this.db.prepare(`UPDATE failover_leadership SET heartbeat_at = ?, updated_at = ? WHERE id = 1`)
+        .run(Math.floor(now), Math.floor(now));
+      this.db.prepare(`INSERT INTO failover_main_heartbeat
+        (id, generation, boot_id, policy_digest, critical_state_sequence,
+         wechat_ready, dingtalk_ready, received_at)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET generation=excluded.generation,
+          boot_id=excluded.boot_id, policy_digest=excluded.policy_digest,
+          critical_state_sequence=excluded.critical_state_sequence,
+          wechat_ready=excluded.wechat_ready, dingtalk_ready=excluded.dingtalk_ready,
+          received_at=excluded.received_at`).run(generation, bootId, policyDigest,
+          criticalStateSequence, Number(channels.wechat), Number(channels.dingtalk), Math.floor(now));
       return { accepted: true, ...this.leadershipStatus() };
     });
   }

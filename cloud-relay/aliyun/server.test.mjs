@@ -210,3 +210,21 @@ test('control plane is opt-in, rejects relay token, and can claim under local ge
   assert.equal((await fetch(`${origin}/control/takeover`, { method: 'POST', headers,
     body: '{}' })).status, 404);
 });
+
+test('main-process heartbeat is control-authenticated and stamped by coordinator time', async () => {
+  let received;
+  const { origin } = await start({ controlToken: 'control-token-12345678901234567890', store: {
+    recordMainHeartbeat(input) { received = input; return { accepted: true, generation: 2 }; },
+  } });
+  const body = JSON.stringify({ generation: 2, bootId: 'boot-test', policyDigest: 'a'.repeat(64),
+    criticalStateSequence: 4, channels: { wechat: true, dingtalk: true }, now: 1 });
+  assert.equal((await fetch(`${origin}/control/main-heartbeat`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body })).status, 401);
+  const response = await fetch(`${origin}/control/main-heartbeat`, { method: 'POST',
+    headers: { authorization: 'Bearer control-token-12345678901234567890',
+      'content-type': 'application/json' }, body });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).accepted, true);
+  assert.equal(received.now, 1_800_000_000_000);
+  assert.equal(received.worker, 'mac');
+});

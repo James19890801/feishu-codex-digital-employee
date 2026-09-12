@@ -62,6 +62,7 @@ export function createRelayServer({ store, callbackSecret, relayToken, artifactT
         }
         const action = new Map([
           ['/control/heartbeat', 'heartbeatLocal'],
+          ['/control/main-heartbeat', 'recordMainHeartbeat'],
           ['/control/claim', 'claimEvent'],
           ['/control/intent', 'prepareSend'],
           ['/control/receipt', 'recordSendReceipt'],
