@@ -97,6 +97,11 @@ export class SqliteRelayStore {
         generation INTEGER NOT NULL, heartbeat_at INTEGER NOT NULL,
         recovery_count INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS failover_transitions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, event TEXT NOT NULL,
+        state TEXT NOT NULL, owner TEXT NOT NULL, generation INTEGER NOT NULL,
+        observed_at INTEGER NOT NULL, last_local_heartbeat_at INTEGER
+      );
       CREATE TABLE IF NOT EXISTS failover_claims (
         claim_key TEXT PRIMARY KEY, channel TEXT NOT NULL, source_event_id TEXT NOT NULL,
         worker TEXT NOT NULL, generation INTEGER NOT NULL, status TEXT NOT NULL,
@@ -192,13 +197,31 @@ export class SqliteRelayStore {
       heartbeatAt: row.heartbeat_at } : null;
   }
 
+  leadershipTimeline({ limit = 100 } = {}) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw new Error('invalid_timeline_limit');
+    return this.db.prepare(`SELECT event, state, owner, generation, observed_at,
+      last_local_heartbeat_at FROM failover_transitions ORDER BY id DESC LIMIT ?`)
+      .all(limit).reverse().map(row => ({ event: row.event, state: row.state,
+        owner: row.owner, generation: row.generation, observedAt: row.observed_at,
+        lastLocalHeartbeatAt: row.last_local_heartbeat_at }));
+  }
+
+  recordLeadershipTransition(event, current, now, lastLocalHeartbeatAt = current.heartbeatAt) {
+    this.db.prepare(`INSERT INTO failover_transitions
+      (event, state, owner, generation, observed_at, last_local_heartbeat_at)
+      VALUES (?, ?, ?, ?, ?, ?)`).run(event, current.state, current.owner,
+      current.generation, Math.floor(now), lastLocalHeartbeatAt);
+  }
+
   startLocalLeadership({ now = Date.now() } = {}) {
     if (!Number.isFinite(now)) throw new Error('invalid_leadership_time');
     return this.transaction(() => {
-      this.db.prepare(`INSERT OR IGNORE INTO failover_leadership
+      const inserted = this.db.prepare(`INSERT OR IGNORE INTO failover_leadership
         (id, state, owner, generation, heartbeat_at, updated_at) VALUES (1, 'LOCAL_PRIMARY', 'mac', 1, ?, ?)`)
         .run(Math.floor(now), Math.floor(now));
-      return this.leadershipStatus();
+      const current = this.leadershipStatus();
+      if (inserted.changes) this.recordLeadershipTransition('local_started', current, now, null);
+      return current;
     });
   }
 
@@ -231,6 +254,7 @@ export class SqliteRelayStore {
         generation = generation + 1, recovery_count = 0, updated_at = ? WHERE id = 1`)
         .run(Math.floor(now));
       const next = this.leadershipStatus();
+      this.recordLeadershipTransition('cloud_promoted', next, now, current.heartbeatAt);
       return { takenOver: true, state: next.state, owner: next.owner,
         generation: next.generation };
     });
@@ -243,11 +267,15 @@ export class SqliteRelayStore {
       if (!current || current.state !== 'CLOUD_ACTIVE') return current || { state: 'DISABLED' };
       const row = this.db.prepare('SELECT recovery_count, updated_at FROM failover_leadership WHERE id = 1').get();
       if (now <= row.updated_at) return current;
+      if (healthy && row.recovery_count > 0 && now - row.updated_at < 15_000) return current;
       const count = healthy ? row.recovery_count + 1 : 0;
       const state = count >= 3 ? 'DRAINING' : 'CLOUD_ACTIVE';
       this.db.prepare(`UPDATE failover_leadership SET recovery_count = ?, state = ?, updated_at = ? WHERE id = 1`)
         .run(count, state, Math.floor(now));
-      return this.leadershipStatus();
+      const next = this.leadershipStatus();
+      if (healthy && count === 1) this.recordLeadershipTransition('local_recovery_seen', next, now);
+      if (state === 'DRAINING') this.recordLeadershipTransition('cloud_draining', next, now);
+      return next;
     });
   }
 
@@ -267,6 +295,7 @@ export class SqliteRelayStore {
         generation = generation + 1, heartbeat_at = ?, recovery_count = 0, updated_at = ? WHERE id = 1`)
         .run(Math.floor(now), Math.floor(now));
       const next = this.leadershipStatus();
+      this.recordLeadershipTransition('local_restored', next, now, current.heartbeatAt);
       return { handedBack: true, state: next.state, owner: next.owner,
         generation: next.generation };
     });

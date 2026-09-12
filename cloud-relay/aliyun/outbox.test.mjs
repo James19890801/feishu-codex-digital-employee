@@ -64,15 +64,15 @@ test('cloud handback waits for in-flight claim and records provider receipt once
       channel: 'wechat', sourceEventId: 'wx-3', now: 90_001 });
     const intent = store.prepareSend({ worker: 'cloud', generation: 2,
       claimKey: claim.claimKey, actionKind: 'reply', now: 90_002 });
-    for (const now of [91_000, 92_000, 93_000]) store.recoveryHeartbeat({ now, healthy: true });
-    assert.equal(store.finishCloudDrain({ now: 94_000 }).handedBack, false);
+    for (const now of [91_000, 106_000, 121_000]) store.recoveryHeartbeat({ now, healthy: true });
+    assert.equal(store.finishCloudDrain({ now: 122_000 }).handedBack, false);
     assert.equal(store.recordSendReceipt({ intentKey: intent.intentKey, generation: 2,
-      status: 'sent', providerReceiptId: 'receipt-1', now: 94_001 }).status, 'sent');
+      status: 'sent', providerReceiptId: 'receipt-1', now: 122_001 }).status, 'sent');
     assert.equal(store.completeClaim({ claimKey: claim.claimKey, worker: 'cloud',
-      generation: 2, outcome: 'replied', now: 94_002 }).completed, true);
-    assert.equal(store.finishCloudDrain({ now: 94_003 }).generation, 3);
+      generation: 2, outcome: 'replied', now: 122_002 }).completed, true);
+    assert.equal(store.finishCloudDrain({ now: 122_003 }).generation, 3);
     assert.equal(store.recordSendReceipt({ intentKey: intent.intentKey, generation: 2,
-      status: 'sent', providerReceiptId: 'receipt-1', now: 94_004 }).duplicate, true);
+      status: 'sent', providerReceiptId: 'receipt-1', now: 122_004 }).duplicate, true);
     store.close();
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
