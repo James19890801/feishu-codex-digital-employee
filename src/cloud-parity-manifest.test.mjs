@@ -8,6 +8,10 @@ const input = {
     authorizedChatIds: ['chat-b', 'chat-a'],
     geweMentionNames: ['小詹'],
     geweMomentsInteractionBlocklist: ['blocked-user'],
+    geweDailyBriefingGroupId: 'briefing-group',
+    geweNewcomerWelcomeGroupId: 'welcome-group',
+    geweMomentsPublisherMorningWindow: '09:00-10:00',
+    geweMomentsPublisherEveningWindow: '18:00-19:00',
     groupHostChatIds: ['group-1'],
     dingtalkProfile: 'private-local-profile',
     geweKeychainService: 'private-keychain-name',
@@ -37,6 +41,9 @@ test('exports persona, rules, allow and deny lists, and selected continuity stat
   assert.equal(manifest.sections.instructions.data, input.instructions);
   assert.deepEqual(manifest.sections.config.data.authorizedChatIds, ['chat-b', 'chat-a']);
   assert.deepEqual(manifest.sections.config.data.geweMomentsInteractionBlocklist, ['blocked-user']);
+  assert.equal(manifest.sections.config.data.geweDailyBriefingGroupId, 'briefing-group');
+  assert.equal(manifest.sections.config.data.geweNewcomerWelcomeGroupId, 'welcome-group');
+  assert.equal(manifest.sections.config.data.geweMomentsPublisherMorningWindow, '09:00-10:00');
   assert.equal(manifest.sections.state.data.relationship_profile[0].summary, '喜欢讨论流程');
   assert.equal(manifest.sections.state.data.owner_consultation[0].status, 'pending');
   assert.deepEqual(manifest.sections.state.data.settings.map(row => row.key),
