@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily AIPRO WeChat relay database backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+Unit=aipro-wechat-relay-backup.service
+
+[Install]
+WantedBy=timers.target

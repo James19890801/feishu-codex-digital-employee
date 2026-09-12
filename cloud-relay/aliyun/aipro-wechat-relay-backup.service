@@ -1,0 +1,7 @@
+[Unit]
+Description=Back up AIPRO WeChat relay SQLite database
+After=aipro-wechat-relay.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/aipro-wechat-relay/aliyun/backup.sh

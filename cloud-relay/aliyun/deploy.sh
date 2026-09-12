@@ -18,5 +18,8 @@ install -m 0644 "$source_dir/main.mjs" "$source_dir/server.mjs" "$source_dir/sto
 install -d -m 0755 /opt/aipro-wechat-relay/worker/src
 install -m 0644 "$source_dir/../worker/src/contract.mjs" /opt/aipro-wechat-relay/worker/src/contract.mjs
 install -m 0644 "$source_dir/aipro-wechat-relay.service" /etc/systemd/system/aipro-wechat-relay.service
+install -m 0750 "$source_dir/backup.sh" /opt/aipro-wechat-relay/aliyun/backup.sh
+install -m 0644 "$source_dir/aipro-wechat-relay-backup.service" /etc/systemd/system/aipro-wechat-relay-backup.service
+install -m 0644 "$source_dir/aipro-wechat-relay-backup.timer" /etc/systemd/system/aipro-wechat-relay-backup.timer
 systemctl daemon-reload
-echo 'Staged. Add private config.json, then start service. DNS and Nginx are not changed.'
+echo 'Staged. Add private config.json, then start service and enable backup timer. DNS and Nginx are not changed.'
