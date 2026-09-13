@@ -29,3 +29,21 @@ test('reconciles policy before emitting a fenced local heartbeat', async () => {
     policyDigest: 'a'.repeat(64), criticalStateSequence: 4,
     channels: { wechat: true, dingtalk: false } }]);
 });
+
+test('prioritizes healthy recovery over parity sync while cloud owns the channel', async () => {
+  const calls = [];
+  const outcome = await runWechatHeartbeatOnce({
+    paritySync: { async reconcile() { throw new Error('must_not_sync_during_recovery'); } },
+    controlClient: {
+      async status() { return { state: 'CLOUD_ACTIVE', owner: 'cloud', generation: 2 }; },
+      async recoveryHeartbeat(value) { calls.push(value); return { generation: 2, state: 'CLOUD_ACTIVE' }; },
+    },
+    fetchImpl: async () => ({ ok: true, async json() { return { healthy: true,
+      process: { alive: true }, aiRuntime: { healthy: true }, channels: { wechat: {
+        enabled: true, authenticated: true, connected: true, callbackListening: true,
+        callbackRegistered: true } } }; } }),
+    bootId: 'sidecar_test', statusUrl: 'http://127.0.0.1/status',
+  });
+  assert.deepEqual(outcome, { accepted: true, generation: 2, state: 'CLOUD_ACTIVE' });
+  assert.deepEqual(calls, [{ healthy: true }]);
+});

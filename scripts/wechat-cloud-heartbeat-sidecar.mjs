@@ -30,14 +30,11 @@ export async function runWechatHeartbeatOnce({ paritySync, controlClient, fetchI
     'cache-control': 'no-store' }, signal: AbortSignal.timeout(8_000) });
   if (!response.ok) throw new Error(`main_status_http_${response.status}`);
   const status = await response.json();
-  const parity = await paritySync.reconcile();
-  if (!/^[a-f0-9]{64}$/.test(String(parity?.digest || ''))
-    || !Number.isSafeInteger(parity?.workerSequence) || parity.workerSequence < 1) {
-    throw new Error('cloud_parity_unacknowledged');
-  }
   const healthy = evaluateMainWechatReadiness(status);
-  // Keep the one-shot function usable with the lightweight test/control doubles
-  // used by the local supervisor; the production client always exposes status().
+  // Recovery must not depend on the parity endpoint: during a cloud takeover the
+  // coordinator is deliberately still reachable even if the optional snapshot
+  // sync is delayed. Requiring a fresh snapshot here could strand ownership in
+  // CLOUD_ACTIVE after the Mac has become healthy again.
   const leadership = typeof controlClient.status === 'function'
     ? await controlClient.status()
     : { state: 'LOCAL_PRIMARY', owner: 'mac' };
@@ -46,6 +43,11 @@ export async function runWechatHeartbeatOnce({ paritySync, controlClient, fetchI
       ? await controlClient.finishCloudDrain()
       : await controlClient.recoveryHeartbeat({ healthy });
     return { accepted: true, generation: recovery.generation, state: recovery.state };
+  }
+  const parity = await paritySync.reconcile();
+  if (!/^[a-f0-9]{64}$/.test(String(parity?.digest || ''))
+    || !Number.isSafeInteger(parity?.workerSequence) || parity.workerSequence < 1) {
+    throw new Error('cloud_parity_unacknowledged');
   }
   const generation = await controlClient.localGeneration();
   return controlClient.heartbeat({ generation, bootId, policyDigest: parity.digest,
@@ -74,7 +76,7 @@ export async function runSidecar({ signal, root = process.env.AIPRO_HOME || DEFA
   while (!signal?.aborted) {
     try {
       const result = await runWechatHeartbeatOnce({ paritySync, controlClient, statusUrl, bootId });
-      const state = `ok:g${result.generation}`;
+      const state = `ok:${result.state || 'LOCAL_PRIMARY'}:g${result.generation}`;
       if (state !== previous) process.stdout.write(`wechat_cloud_heartbeat ${state}\n`);
       previous = state;
     } catch (error) {
