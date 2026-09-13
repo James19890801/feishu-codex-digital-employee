@@ -23,6 +23,16 @@ test('WeChat sender requires an actual provider message ID', async () => {
   assert.deepEqual(await missing.wechat.send({ event: wechatEvent, text: '你好', intentKey }), {});
 });
 
+test('WeChat-only provider construction does not require DingTalk credentials', async () => {
+  const senders = createChannelSenders({ gewe: {
+    send: async () => ({ ret: 200, data: { newMsgId: 'wechat-real-id' } }),
+  }, channels: ['wechat'] });
+  const receipt = await senders.wechat.send({ event: wechatEvent, text: '你好',
+    intentKey: 'a'.repeat(64) });
+  assert.equal(receipt.receiptId, 'wechat-real-id');
+  assert.equal(Object.hasOwn(senders, 'dingtalk'), false);
+});
+
 test('DingTalk sender passes stable UUID and does not mistake openTaskId for sent receipt', async () => {
   const calls = [];
   const senders = createChannelSenders({

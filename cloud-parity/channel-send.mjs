@@ -23,11 +23,17 @@ function targetFor(event, channel, text, intentKey) {
   return target;
 }
 
-export function createChannelSenders({ gewe, dws } = {}) {
-  if (typeof gewe?.send !== 'function' || typeof dws?.send !== 'function') {
-    throw new TypeError('both channel providers are required');
+export function createChannelSenders({ gewe, dws, channels = ['wechat', 'dingtalk'] } = {}) {
+  if (!Array.isArray(channels) || channels.length === 0
+    || new Set(channels).size !== channels.length
+    || channels.some(channel => !['wechat', 'dingtalk'].includes(channel))) {
+    throw new TypeError('invalid channel selection');
   }
-  return {
+  if (channels.includes('wechat') && typeof gewe?.send !== 'function'
+    || channels.includes('dingtalk') && typeof dws?.send !== 'function') {
+    throw new TypeError('selected channel providers are required');
+  }
+  const senders = {
     wechat: { async send({ event, text, intentKey }) {
       const target = targetFor(event, 'wechat', text, intentKey);
       let content = text;
@@ -67,4 +73,5 @@ export function createChannelSenders({ gewe, dws } = {}) {
       return receiptId ? { receiptId } : {};
     } },
   };
+  return Object.fromEntries(channels.map(channel => [channel, senders[channel]]));
 }
