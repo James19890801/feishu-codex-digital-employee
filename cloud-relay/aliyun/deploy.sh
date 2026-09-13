@@ -15,6 +15,7 @@ install -d -m 0755 -o root -g root /opt/aipro-wechat-relay
 install -d -m 0755 -o root -g root /opt/aipro-wechat-relay/aliyun
 install -d -m 0750 -o root -g aipro-wechat-relay /etc/aipro-wechat-relay
 install -m 0644 "$source_dir/main.mjs" "$source_dir/server.mjs" "$source_dir/store.mjs" "$source_dir/parity-config.mjs" /opt/aipro-wechat-relay/aliyun/
+install -m 0644 "$source_dir/../../src/qoder-managed-runtime.mjs" /opt/aipro-wechat-relay/aliyun/qoder-runtime.mjs
 install -d -m 0755 /opt/aipro-wechat-relay/worker/src
 install -m 0644 "$source_dir/../worker/src/contract.mjs" /opt/aipro-wechat-relay/worker/src/contract.mjs
 install -m 0644 "$source_dir/aipro-wechat-relay.service" /etc/systemd/system/aipro-wechat-relay.service
