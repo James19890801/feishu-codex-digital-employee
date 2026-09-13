@@ -5,19 +5,25 @@ function invariant(condition, code) {
 }
 
 export class CloudStandby {
-  constructor({ store, runtime, policyEngine, senders, readinessProbe, now = Date.now } = {}) {
+  constructor({ store, runtime, policyEngine, senders, readinessProbe,
+    channels = ['wechat', 'dingtalk'], now = Date.now } = {}) {
     invariant(store && typeof store.getCurrentPolicy === 'function'
       && typeof store.tryCloudTakeover === 'function', 'cloud_store_required');
     invariant(runtime && typeof runtime.execute === 'function', 'cloud_runtime_required');
     invariant(policyEngine && typeof policyEngine.decide === 'function'
       && typeof policyEngine.authorizeSend === 'function', 'shared_policy_engine_required');
-    invariant(senders?.wechat?.send && senders?.dingtalk?.send, 'both_channel_senders_required');
+    invariant(Array.isArray(channels) && channels.length > 0
+      && new Set(channels).size === channels.length
+      && channels.every(channel => ['wechat', 'dingtalk'].includes(channel)), 'invalid_cloud_channels');
+    invariant(channels.every(channel => typeof senders?.[channel]?.send === 'function'),
+      'channel_sender_required');
     invariant(typeof readinessProbe === 'function', 'readiness_probe_required');
     this.store = store;
     this.runtime = runtime;
     this.policyEngine = policyEngine;
     this.senders = senders;
     this.readinessProbe = readinessProbe;
+    this.channels = Object.freeze([...channels]);
     this.now = now;
   }
 
@@ -25,7 +31,7 @@ export class CloudStandby {
     const policy = this.store.getCurrentPolicy();
     const capabilities = await this.readinessProbe();
     const assessment = evaluateCloudReadiness({ now: this.now(), policy,
-      lastLocalHeartbeat, criticalStateAckSequence, capabilities });
+      lastLocalHeartbeat, criticalStateAckSequence, capabilities }, { channels: this.channels });
     if (!assessment.ready) return { takenOver: false, reasons: assessment.reasons };
     return this.store.tryCloudTakeover({ now: this.now(), cloudReady: true });
   }
@@ -36,6 +42,7 @@ export class CloudStandby {
     invariant(['wechat', 'dingtalk'].includes(channel)
       && typeof sourceEventId === 'string' && sourceEventId.startsWith(`${channel}:`),
     'invalid_cloud_event');
+    invariant(this.channels.includes(channel), 'disabled_cloud_channel');
     const leadership = this.store.leadershipStatus();
     invariant(leadership?.state === 'CLOUD_ACTIVE' && leadership?.owner === 'cloud',
       'cloud_not_leader');

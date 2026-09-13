@@ -42,3 +42,24 @@ test('rejects invalid last heartbeat and cannot be made ready by missing capabil
   const partial = readyInput(); delete partial.capabilities.dingtalkIngress;
   assert.ok(evaluateCloudReadiness(partial).reasons.includes('missing_dingtalkIngress'));
 });
+
+test('WeChat can become ready without DingTalk while retaining common safety gates', () => {
+  const input = readyInput();
+  input.capabilities.dingtalkIngress = false;
+  input.capabilities.dingtalkSend = false;
+  assert.deepEqual(evaluateCloudReadiness(input, { channels: ['wechat'] }),
+    { ready: true, reasons: [] });
+  for (const name of ['qoder', 'wechatIngress', 'wechatSend', 'policyParity',
+    'outboundFencing', 'providerReceipts']) {
+    const missing = structuredClone(input);
+    missing.capabilities[name] = false;
+    assert.ok(evaluateCloudReadiness(missing, { channels: ['wechat'] })
+      .reasons.includes(`missing_${name}`));
+  }
+});
+
+test('WeChat readiness rejects invalid channel selection', () => {
+  assert.ok(evaluateCloudReadiness(readyInput(), { channels: [] }).reasons.includes('invalid_channels'));
+  assert.ok(evaluateCloudReadiness(readyInput(), { channels: ['wechat', 'wechat'] })
+    .reasons.includes('invalid_channels'));
+});

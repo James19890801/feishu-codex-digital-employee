@@ -1,14 +1,24 @@
 const DIGEST = /^[a-f0-9]{64}$/;
 
+const COMMON_CAPABILITIES = Object.freeze([
+  'qoder', 'policyParity', 'outboundFencing', 'providerReceipts',
+]);
+const CHANNEL_CAPABILITIES = Object.freeze({
+  wechat: Object.freeze(['wechatIngress', 'wechatSend']),
+  dingtalk: Object.freeze(['dingtalkIngress', 'dingtalkSend']),
+});
 export const REQUIRED_CLOUD_CAPABILITIES = Object.freeze([
-  'qoder', 'wechatIngress', 'dingtalkIngress', 'wechatSend', 'dingtalkSend',
-  'policyParity', 'outboundFencing', 'providerReceipts',
+  ...COMMON_CAPABILITIES, ...CHANNEL_CAPABILITIES.wechat, ...CHANNEL_CAPABILITIES.dingtalk,
 ]);
 
 // Readiness is evaluated by the coordinator before promotion, never inferred
 // from a local process PID, a successful health GET, or a daily sync schedule.
-export function evaluateCloudReadiness(input = {}) {
+export function evaluateCloudReadiness(input = {}, { channels = ['wechat', 'dingtalk'] } = {}) {
   const reasons = [];
+  const validChannels = Array.isArray(channels) && channels.length > 0
+    && new Set(channels).size === channels.length
+    && channels.every(channel => Object.hasOwn(CHANNEL_CAPABILITIES, channel));
+  if (!validChannels) reasons.push('invalid_channels');
   const now = Number(input.now);
   const policy = input.policy;
   const heartbeat = input.lastLocalHeartbeat;
@@ -27,7 +37,10 @@ export function evaluateCloudReadiness(input = {}) {
     || input.criticalStateAckSequence !== heartbeat.criticalStateSequence) {
     reasons.push('critical_state_unacknowledged');
   }
-  for (const name of REQUIRED_CLOUD_CAPABILITIES) {
+  const required = validChannels ? [
+    ...COMMON_CAPABILITIES, ...channels.flatMap(channel => CHANNEL_CAPABILITIES[channel]),
+  ] : COMMON_CAPABILITIES;
+  for (const name of required) {
     if (input.capabilities?.[name] !== true) reasons.push(`missing_${name}`);
   }
   return { ready: reasons.length === 0, reasons };

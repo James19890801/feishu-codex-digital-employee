@@ -98,3 +98,20 @@ test('a changed policy or denied send fences the outbound before provider contac
   assert.equal(result.outcome, 'skipped');
   assert.ok(!denied.calls.some(item => item[0] === 'prepare' || item[0] === 'send'));
 });
+
+test('WeChat-only standby does not wait for DingTalk and cannot claim DingTalk events', async () => {
+  const { standby, calls } = fixture({ channels: ['wechat'],
+    senders: { wechat: { send: async () => ({ receiptId: 'wechat-provider-id' }) } },
+    readinessProbe: async () => ({ ...capabilities, dingtalkIngress: false, dingtalkSend: false }) });
+  const promoted = await standby.promote({ lastLocalHeartbeat: {
+    at: now - 90_000, policyDigest: digest, criticalStateSequence: 4,
+  }, criticalStateAckSequence: 4 });
+  assert.equal(promoted.takenOver, true);
+  await assert.rejects(standby.process(event), /disabled_cloud_channel/);
+  assert.equal(calls.some(item => item[0] === 'claim'), false);
+  const wechatEvent = { message: { message_id: 'wechat:m2', chat_id: 'wechat:user:u2' },
+    metadata: { channel: 'wechat' } };
+  const result = await standby.process(wechatEvent);
+  assert.equal(result.outcome, 'replied');
+  assert.equal(result.receiptId, 'wechat-provider-id');
+});
