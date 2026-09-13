@@ -1,0 +1,24 @@
+[Unit]
+Description=AIPRO WeChat cloud shadow consumer
+After=aipro-wechat-relay.service aipro-wechat-cloud-watchdog.service
+Requires=aipro-wechat-relay.service
+
+[Service]
+Type=simple
+User=aipro-wechat-relay
+Group=aipro-wechat-relay
+WorkingDirectory=/opt/aipro-wechat-relay
+Environment=RELAY_CONFIG_PATH=/etc/aipro-wechat-relay/config.json
+ExecStart=/usr/bin/node /opt/aipro-wechat-relay/aliyun/cloud-consumer.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aipro-wechat-relay
+UMask=0077
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target
