@@ -6,6 +6,30 @@ import { parseParityConfig } from './parity-config.mjs';
 const DIGEST = /^[a-f0-9]{64}$/;
 const HEARTBEAT_MISS_MS = 90_000;
 
+export async function probeCloudRuntime({ config, fetchImpl = fetch } = {}) {
+  const agentId = String(config?.cloudQoderAgentId || '');
+  const pat = String(config?.cloudQoderPat || '');
+  const appId = String(config?.cloudGeweAppId || '');
+  const token = String(config?.cloudGeweToken || '');
+  if (!/^agent_[A-Za-z0-9_-]{1,80}$/.test(agentId) || pat.length < 24 || !appId || token.length < 24) return false;
+  try {
+    const [agent, gewe] = await Promise.all([
+      fetchImpl(`https://api.qoder.com.cn/api/v1/cloud/agents/${encodeURIComponent(agentId)}`, {
+        headers: { authorization: `Bearer ${pat}`, accept: 'application/json' }, signal: AbortSignal.timeout(15_000),
+      }),
+      fetchImpl('https://api.geweapi.com/gewe/v2/api/login/checkOnline', {
+        method: 'POST', headers: { 'content-type': 'application/json', 'X-GEWE-TOKEN': token },
+        body: JSON.stringify({ appId }), signal: AbortSignal.timeout(15_000),
+      }),
+    ]);
+    if (!agent.ok || !gewe.ok) return false;
+    const [agentData, geweData] = await Promise.all([agent.json(), gewe.json()]);
+    return Number.isSafeInteger(agentData?.version) && agentData.version > 0
+      && Array.isArray(agentData?.tools) && agentData.tools.length === 0
+      && Number(geweData?.ret) === 200 && geweData?.data === true;
+  } catch { return false; }
+}
+
 export async function assessCloudPromotion({ store, now = Date.now(), cloudReady = false } = {}) {
   const leader = store?.leadershipStatus?.();
   const heartbeat = store?.lastMainHeartbeat?.();
@@ -43,10 +67,7 @@ async function main() {
     artifactDirectory: config.artifactDirectory || '/var/lib/aipro-wechat-relay/artifacts',
     parityEncryptionKey: parity.parityEncryptionKey });
   const enabled = config.cloudWatchdogEnabled === true;
-  // The worker is intentionally not capable until a concrete runtime probe is
-  // provided. This keeps an installed watchdog from promoting a cloud that
-  // cannot safely process a WeChat event.
-  const readinessProbe = async () => config.cloudRuntimeReady === true;
+  const readinessProbe = () => probeCloudRuntime({ config });
   const interval = setInterval(async () => {
     const result = await runCloudWatchdogOnce({ store, enabled, readinessProbe });
     if (result.promoted) process.stdout.write(`cloud_watchdog_promoted g${result.generation}\n`);

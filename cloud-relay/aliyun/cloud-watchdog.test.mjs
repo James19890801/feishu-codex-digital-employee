@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assessCloudPromotion, runCloudWatchdogOnce } from './cloud-watchdog.mjs';
+import { assessCloudPromotion, probeCloudRuntime, runCloudWatchdogOnce } from './cloud-watchdog.mjs';
 
 const digest = 'a'.repeat(64);
 const healthyStore = () => ({
@@ -32,4 +32,19 @@ test('watchdog never promotes when disabled and promotes only after its real pro
     readinessProbe: async () => { calls += 1; return true; } }),
   { promoted: true, state: 'CLOUD_ACTIVE', generation: 5 });
   assert.equal(calls, 1);
+});
+
+test('runtime probe requires both the restricted Qoder agent and the GeWe account online', async () => {
+  const requests = [];
+  const config = { cloudQoderAgentId: 'agent_cloud', cloudQoderPat: 'p'.repeat(24),
+    cloudGeweAppId: 'app_cloud', cloudGeweToken: 'g'.repeat(24) };
+  const ready = await probeCloudRuntime({ config, fetchImpl: async (url, options) => {
+    requests.push({ url: String(url), options });
+    return String(url).includes('/agents/')
+      ? Response.json({ version: 2, tools: [] }) : Response.json({ ret: 200, data: true });
+  } });
+  assert.equal(ready, true);
+  assert.equal(requests.length, 2);
+  assert.equal(await probeCloudRuntime({ config, fetchImpl: async url => String(url).includes('/agents/')
+    ? Response.json({ version: 2, tools: ['forbidden'] }) : Response.json({ ret: 200, data: true }) }), false);
 });
