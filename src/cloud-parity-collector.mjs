@@ -3,6 +3,19 @@ import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { buildParityManifest, CLOUD_PARITY_SETTINGS_KEYS, CLOUD_PARITY_STATE_COLUMNS } from './cloud-parity-manifest.mjs';
 
+// Profiles are retained in full. High-churn history is bounded so a single
+// backlog cannot make the operational cloud mirror too large to refresh.
+const CLOUD_PARITY_RECENT_ROW_LIMITS = Object.freeze({
+  relationship_fact: 1_000,
+  relationship_episode: 200,
+  owner_consultation: 500,
+  rate_limit: 1_000,
+  semantic_repeat_guard: 1_000,
+  discussion_session: 1_000,
+  outbound_reply_guard: 1_000,
+  outbound_echo: 1_000,
+});
+
 export async function collectParityManifest({ root }) {
   if (!root) throw new Error('parity root is required');
   const directory = resolve(root);
@@ -19,9 +32,14 @@ export async function collectParityManifest({ root }) {
     db.exec('BEGIN');
     for (const table of Object.keys(CLOUD_PARITY_STATE_COLUMNS)) {
       try {
+        const limit = CLOUD_PARITY_RECENT_ROW_LIMITS[table];
+        const tableColumns = db.prepare(`PRAGMA table_info(${table})`).all().map(column => column.name);
+        const currentFactFilter = table === 'relationship_fact' && tableColumns.includes('status')
+          ? " WHERE status = 'current'" : '';
         const query = table === 'settings'
           ? `SELECT * FROM settings WHERE key IN (${CLOUD_PARITY_SETTINGS_KEYS.map(() => '?').join(',')}) ORDER BY rowid`
-          : `SELECT * FROM ${table} ORDER BY rowid`;
+          : limit ? `SELECT * FROM (SELECT rowid AS _parity_rowid, * FROM ${table}${currentFactFilter} ORDER BY rowid DESC LIMIT ${limit}) ORDER BY _parity_rowid`
+            : `SELECT * FROM ${table} ORDER BY rowid`;
         state[table] = db.prepare(query).all(...(table === 'settings' ? CLOUD_PARITY_SETTINGS_KEYS : []))
           .map(row => ({ ...row }));
       } catch (error) {
