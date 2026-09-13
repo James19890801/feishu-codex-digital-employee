@@ -31,11 +31,14 @@ test('deployment documentation requires a rollback and renewal gate', async () =
 });
 
 test('staged package preserves relative contract import path', async () => {
-  const [unit, script, server] = await Promise.all([
-    asset('aipro-wechat-relay.service'), asset('deploy.sh'), asset('server.mjs'),
+  const [unit, watchdog, script, server] = await Promise.all([
+    asset('aipro-wechat-relay.service'), asset('aipro-wechat-cloud-watchdog.service'), asset('deploy.sh'), asset('server.mjs'),
   ]);
   assert.match(server, /from '\.\.\/worker\/src\/contract\.mjs'/);
   assert.match(unit, /ExecStart=\/usr\/bin\/node \/opt\/aipro-wechat-relay\/aliyun\/main\.mjs/);
   assert.match(script, /\/opt\/aipro-wechat-relay\/aliyun\//);
   assert.match(script, /\/opt\/aipro-wechat-relay\/worker\/src\/contract\.mjs/);
+  assert.match(script, /cloud-watchdog\.mjs/);
+  assert.match(watchdog, /Requires=aipro-wechat-relay\.service/);
+  assert.match(watchdog, /ExecStart=\/usr\/bin\/node \/opt\/aipro-wechat-relay\/aliyun\/cloud-watchdog\.mjs/);
 });
