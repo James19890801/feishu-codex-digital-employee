@@ -54,6 +54,8 @@
   "geweKeychainService": "aipro-gewe",
   "geweApiBaseUrl": "https://api.geweapi.com",
   "gewePublicCallbackBaseUrl": "",
+  "wechatCloudTakeoverEnabled": false,
+  "wechatCloudTakeoverBaseUrl": "",
   "geweSilkDecoderCommand": "",
   "geweCallbackPort": 17656,
   "geweMentionNames": [],

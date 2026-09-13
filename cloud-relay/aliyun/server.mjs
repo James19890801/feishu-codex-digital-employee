@@ -61,6 +61,7 @@ export function createRelayServer({ store, callbackSecret, relayToken, artifactT
             heartbeatAgeMs: current ? Math.max(0, now() - current.heartbeatAt) : null });
         }
         const action = new Map([
+          ['/control/start', 'startLocalLeadership'],
           ['/control/heartbeat', 'heartbeatLocal'],
           ['/control/main-heartbeat', 'recordMainHeartbeat'],
           ['/control/claim', 'claimEvent'],

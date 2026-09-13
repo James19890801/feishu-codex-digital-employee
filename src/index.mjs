@@ -18,6 +18,10 @@ import {
 } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative } from 'node:path';
 import { config, validateCoreConfiguration } from './config.mjs';
+import { AliyunControlClient } from './aliyun-control-client.mjs';
+import { collectParityManifest } from './cloud-parity-collector.mjs';
+import { CloudParitySync } from './cloud-parity-sync.mjs';
+import { WeChatCloudMainHeartbeat } from './wechat-cloud-main-heartbeat.mjs';
 import { evaluateLicenseGuard, waitForTerminationSignals } from './licensing/guard.mjs';
 import { LicensingStore } from './licensing/store.mjs';
 import { runtimeMode } from './runtime-mode.mjs';
@@ -478,6 +482,7 @@ let dingTalkSemanticPollingPromise = null;
 let dingTalkGroupHostRecoveryPromise = null;
 let geWeMonitorPromise = null;
 let ownerConsultationLoopPromise = null;
+let wechatCloudHeartbeatTimer = null;
 let dailyLearningPromise = null;
 let groupHostPromise = null;
 let localWikiRefreshPromise = null;
@@ -5179,6 +5184,49 @@ function updateImChannelStatus(channel, patch) {
   }
 }
 
+async function startWeChatCloudHeartbeat() {
+  if (!config.wechatCloudTakeoverEnabled) return;
+  const [parityToken, controlToken] = await Promise.all([
+    getKeychainSecret('ai.aipro.cloud-parity', 'token'),
+    getKeychainSecret('ai.aipro.cloud-control', 'token'),
+  ]);
+  if (!parityToken || !controlToken) throw new Error('wechat_cloud_control_unconfigured');
+  const baseUrl = config.wechatCloudTakeoverBaseUrl;
+  const root = process.env.AIPRO_HOME || join(homedir(), 'Library', 'Application Support', 'AIPRO');
+  const paritySync = new CloudParitySync({ baseUrl, token: parityToken,
+    workerId: 'mac', manifestSource: () => collectParityManifest({ root }) });
+  const controlClient = new AliyunControlClient({ baseUrl,
+    tokenSupplier: async () => controlToken });
+  const heartbeat = new WeChatCloudMainHeartbeat({ paritySync, controlClient,
+    bootId: randomBytes(16).toString('hex'),
+    channelReady: () => {
+      const channel = state.get('channel', 'wechat', {});
+      return Boolean(geWeChannel && geWeWebhookServer && channel.enabled
+        && channel.authenticated && channel.connected && channel.callbackRegistered);
+    } });
+  let running = false;
+  let lastErrorCode = '';
+  const tick = async () => {
+    if (running || stopping) return;
+    running = true;
+    try {
+      const result = await heartbeat.tick();
+      state.set('health', 'wechat_cloud_heartbeat', { ok: true,
+        generation: result.generation, at: new Date().toISOString() });
+      lastErrorCode = '';
+    } catch (error) {
+      const code = String(error?.code || error?.name || 'heartbeat_failed').slice(0, 80);
+      state.set('health', 'wechat_cloud_heartbeat', { ok: false,
+        code, at: new Date().toISOString() });
+      if (code !== lastErrorCode) console.error('[wechat-cloud-heartbeat]', code);
+      lastErrorCode = code;
+    } finally { running = false; }
+  };
+  wechatCloudHeartbeatTimer = setInterval(tick, 15_000);
+  wechatCloudHeartbeatTimer.unref();
+  void tick();
+}
+
 function dingtalkProcessEnv() {
   return buildDingTalkProcessEnv({
     dingtalkBin: config.dingtalkBin,
@@ -5923,6 +5971,7 @@ async function refreshLocalWiki() {
 function stopGracefully(signal) {
   if (stopping) return;
   stopping = true;
+  if (wechatCloudHeartbeatTimer) clearInterval(wechatCloudHeartbeatTimer);
   shutdownGuard.start(signal);
   shutdownDelay.stop();
   console.log(`[bridge] stopping on ${signal}`);
@@ -6000,6 +6049,12 @@ async function main() {
       await initializeUserPolling();
     }
     await initializeAdditionalImChannels();
+    await startWeChatCloudHeartbeat().catch(error => {
+      const code = String(error?.code || error?.name || 'heartbeat_unconfigured').slice(0, 80);
+      state.set('health', 'wechat_cloud_heartbeat', { ok: false,
+        code, at: new Date().toISOString() });
+      console.error('[wechat-cloud-heartbeat-start]', code);
+    });
     if (ownerConsultationCoordinator) {
       ownerConsultationLoopPromise = runOwnerConsultationLoop()
         .catch(error => console.error('[wechat-owner-consultation-fatal]', error));

@@ -168,6 +168,8 @@ export const config = {
   geweKeychainService: raw.geweKeychainService || 'aipro-gewe',
   geweApiBaseUrl: raw.geweApiBaseUrl || 'https://api.geweapi.com',
   gewePublicCallbackBaseUrl: raw.gewePublicCallbackBaseUrl || '',
+  wechatCloudTakeoverEnabled: raw.wechatCloudTakeoverEnabled === true,
+  wechatCloudTakeoverBaseUrl: String(raw.wechatCloudTakeoverBaseUrl || '').trim(),
   geweCallbackPort: boundedInteger(raw.geweCallbackPort, {
     name: 'geweCallbackPort', fallback: 17656, min: 1024, max: 65535,
   }),
@@ -290,6 +292,10 @@ export function validateCoreConfiguration(value = config) {
 }
 
 if (!config.licensingEnforced) validateCoreConfiguration(config);
+if (config.wechatCloudTakeoverEnabled
+  && !/^https:\/\/[^/?#]+\/?$/.test(config.wechatCloudTakeoverBaseUrl)) {
+  throw new Error('wechatCloudTakeoverBaseUrl must be an HTTPS origin when takeover is enabled');
+}
 if (config.ownerContactPhone
   && !/^\+?[0-9][0-9 ()-]{5,28}[0-9]$/.test(config.ownerContactPhone)) {
   throw new Error('ownerContactPhone 格式无效');

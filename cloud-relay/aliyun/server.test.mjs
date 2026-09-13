@@ -228,3 +228,20 @@ test('main-process heartbeat is control-authenticated and stamped by coordinator
   assert.equal(received.now, 1_800_000_000_000);
   assert.equal(received.worker, 'mac');
 });
+
+test('only control credential can initialize local leadership without stealing cloud leadership', async () => {
+  let received;
+  const { origin } = await start({ controlToken: 'control-token-12345678901234567890', store: {
+    startLocalLeadership(input) { received = input; return { state: 'LOCAL_PRIMARY',
+      owner: 'mac', generation: 1 }; },
+  } });
+  const body = '{}';
+  assert.equal((await fetch(`${origin}/control/start`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body })).status, 401);
+  const response = await fetch(`${origin}/control/start`, { method: 'POST',
+    headers: { authorization: 'Bearer control-token-12345678901234567890',
+      'content-type': 'application/json' }, body });
+  assert.deepEqual(await response.json(), { ok: true, state: 'LOCAL_PRIMARY',
+    owner: 'mac', generation: 1 });
+  assert.equal(received.now, 1_800_000_000_000);
+});

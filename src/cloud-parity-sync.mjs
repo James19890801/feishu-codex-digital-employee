@@ -33,13 +33,19 @@ export class CloudParitySync {
   async reconcile() {
     const manifest = await this.manifestSource();
     const status = await this.request(`/parity/status?workerId=${encodeURIComponent(this.workerId)}`);
-    if (status.digest === manifest.digest) {
-      return { changed: false, revision: status.revision, digest: manifest.digest };
+    if (!Number.isSafeInteger(status.workerSequence) || status.workerSequence < 0) {
+      throw new Error('cloud_parity_invalid_sequence');
     }
+    if (status.digest === manifest.digest) {
+      return { changed: false, revision: status.revision, digest: manifest.digest,
+        workerSequence: status.workerSequence };
+    }
+    const workerSequence = status.workerSequence + 1;
     const updated = await this.request('/parity/snapshot', { method: 'PUT',
       body: JSON.stringify({ workerId: this.workerId,
-        sequence: Number(status.workerSequence || 0) + 1, manifest }) });
+        sequence: workerSequence, manifest }) });
     if (updated.digest !== manifest.digest) throw new Error('cloud_parity_digest_mismatch');
-    return { changed: true, revision: updated.revision, digest: manifest.digest };
+    return { changed: true, revision: updated.revision, digest: manifest.digest,
+      workerSequence };
   }
 }

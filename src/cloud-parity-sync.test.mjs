@@ -15,7 +15,8 @@ test('daily reconciliation uploads changed manifest with the next server sequenc
       }), { status: 200 });
       return new Response(JSON.stringify({ ok: true, revision: 8, digest: manifest.digest }), { status: 200 });
     } });
-  assert.deepEqual(await client.reconcile(), { changed: true, revision: 8, digest: manifest.digest });
+  assert.deepEqual(await client.reconcile(), { changed: true, revision: 8,
+    digest: manifest.digest, workerSequence: 8 });
   assert.equal(calls.length, 2);
   assert.equal(JSON.parse(calls[1][1].body).sequence, 8);
   assert.equal(calls[1][1].headers.authorization, 'Bearer test-token');
@@ -31,7 +32,8 @@ test('matching digest performs no upload', async () => {
       return new Response(JSON.stringify({ ok: true, revision: 4,
         digest: manifest.digest, workerSequence: 4 }), { status: 200 });
     } });
-  assert.deepEqual(await client.reconcile(), { changed: false, revision: 4, digest: manifest.digest });
+  assert.deepEqual(await client.reconcile(), { changed: false, revision: 4,
+    digest: manifest.digest, workerSequence: 4 });
   assert.equal(calls, 1);
 });
 
