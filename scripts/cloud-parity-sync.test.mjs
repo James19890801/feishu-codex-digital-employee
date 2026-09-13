@@ -17,7 +17,10 @@ test('dry run reports only digest and size without sending or printing private p
     writeFileSync(join(root, 'AGENTS.md'), 'PRIVATE INSTRUCTIONS');
     const db = new DatabaseSync(join(root, 'data', 'agent-state.sqlite'));
     for (const table of ['relationship_person', 'relationship_profile', 'relationship_fact',
-      'relationship_episode', 'owner_consultation']) db.exec(`CREATE TABLE ${table} (id TEXT)`);
+      'relationship_episode', 'owner_consultation', 'rate_limit',
+      'semantic_repeat_guard', 'discussion_session', 'outbound_reply_guard',
+      'outbound_echo']) db.exec(`CREATE TABLE ${table} (id TEXT)`);
+    db.exec('CREATE TABLE settings (scope TEXT, key TEXT, value TEXT, updated_at TEXT)');
     db.close();
     const run = spawnSync(process.execPath, ['scripts/cloud-parity-sync.mjs', '--dry-run', '--root', root],
       { cwd: new URL('..', import.meta.url), encoding: 'utf8' });
