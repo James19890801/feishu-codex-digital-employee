@@ -16,6 +16,10 @@ function fixture(overrides = {}) {
   const store = {
     getCurrentPolicy: () => ({ revision: 1, digest, appliedAt: now - 10_000,
       manifest: { sections: { persona: { data: '小詹' } } } }),
+    lastMainHeartbeat: () => ({ generation: 1, receivedAt: now - 90_000,
+      policyDigest: digest, criticalStateSequence: 4,
+      channels: { wechat: true, dingtalk: true } }),
+    getPolicyCursor: () => ({ sequence: 4, digest }),
     tryCloudTakeover: ({ cloudReady }) => {
       calls.push(['takeover', cloudReady]);
       if (cloudReady) leader = { state: 'CLOUD_ACTIVE', owner: 'cloud', generation: 2 };
@@ -114,4 +118,25 @@ test('WeChat-only standby does not wait for DingTalk and cannot claim DingTalk e
   const result = await standby.process(wechatEvent);
   assert.equal(result.outcome, 'replied');
   assert.equal(result.receiptId, 'wechat-provider-id');
+});
+
+test('promotion uses persisted server heartbeat and policy cursor, not caller assertions', async () => {
+  const stale = fixture({ channels: ['wechat'] });
+  stale.store.lastMainHeartbeat = () => ({ generation: 1, receivedAt: now - 90_000,
+    policyDigest: 'b'.repeat(64), criticalStateSequence: 4,
+    channels: { wechat: true, dingtalk: false } });
+  const forged = await stale.standby.promote({ lastLocalHeartbeat: {
+    at: now - 90_000, policyDigest: digest, criticalStateSequence: 4,
+  }, criticalStateAckSequence: 4 });
+  assert.equal(forged.takenOver, false);
+  assert.ok(forged.reasons.includes('policy_digest_mismatch'));
+  assert.equal(stale.calls.length, 0);
+
+  const unready = fixture({ channels: ['wechat'] });
+  unready.store.lastMainHeartbeat = () => ({ generation: 1, receivedAt: now - 90_000,
+    policyDigest: digest, criticalStateSequence: 4,
+    channels: { wechat: false, dingtalk: true } });
+  const denied = await unready.standby.promote();
+  assert.equal(denied.takenOver, false);
+  assert.ok(denied.reasons.includes('last_local_wechat_unready'));
 });

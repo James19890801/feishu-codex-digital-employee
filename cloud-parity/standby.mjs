@@ -8,7 +8,10 @@ export class CloudStandby {
   constructor({ store, runtime, policyEngine, senders, readinessProbe,
     channels = ['wechat', 'dingtalk'], now = Date.now } = {}) {
     invariant(store && typeof store.getCurrentPolicy === 'function'
-      && typeof store.tryCloudTakeover === 'function', 'cloud_store_required');
+      && typeof store.tryCloudTakeover === 'function'
+      && typeof store.lastMainHeartbeat === 'function'
+      && typeof store.getPolicyCursor === 'function'
+      && typeof store.leadershipStatus === 'function', 'cloud_store_required');
     invariant(runtime && typeof runtime.execute === 'function', 'cloud_runtime_required');
     invariant(policyEngine && typeof policyEngine.decide === 'function'
       && typeof policyEngine.authorizeSend === 'function', 'shared_policy_engine_required');
@@ -27,12 +30,30 @@ export class CloudStandby {
     this.now = now;
   }
 
-  async promote({ lastLocalHeartbeat, criticalStateAckSequence } = {}) {
+  async promote() {
     const policy = this.store.getCurrentPolicy();
+    const persisted = this.store.lastMainHeartbeat();
+    const cursor = this.store.getPolicyCursor('mac');
+    const leader = this.store.leadershipStatus();
     const capabilities = await this.readinessProbe();
+    const lastLocalHeartbeat = persisted && {
+      at: persisted.receivedAt, policyDigest: persisted.policyDigest,
+      criticalStateSequence: persisted.criticalStateSequence,
+    };
     const assessment = evaluateCloudReadiness({ now: this.now(), policy,
-      lastLocalHeartbeat, criticalStateAckSequence, capabilities }, { channels: this.channels });
-    if (!assessment.ready) return { takenOver: false, reasons: assessment.reasons };
+      lastLocalHeartbeat, criticalStateAckSequence: cursor?.sequence,
+      capabilities }, { channels: this.channels });
+    if (cursor?.digest !== policy?.digest) assessment.reasons.push('policy_cursor_mismatch');
+    if (persisted?.generation !== leader?.generation
+      || leader?.state !== 'LOCAL_PRIMARY' || leader?.owner !== 'mac') {
+      assessment.reasons.push('heartbeat_generation_mismatch');
+    }
+    for (const channel of this.channels) {
+      if (persisted?.channels?.[channel] !== true) {
+        assessment.reasons.push(`last_local_${channel}_unready`);
+      }
+    }
+    if (assessment.reasons.length) return { takenOver: false, reasons: assessment.reasons };
     return this.store.tryCloudTakeover({ now: this.now(), cloudReady: true });
   }
 
