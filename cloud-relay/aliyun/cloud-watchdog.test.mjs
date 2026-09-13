@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { assessCloudPromotion, probeCloudRuntime, runCloudWatchdogOnce } from './cloud-watchdog.mjs';
 
 const digest = 'a'.repeat(64);
@@ -47,4 +48,9 @@ test('runtime probe requires both the restricted Qoder agent and the GeWe accoun
   assert.equal(requests.length, 2);
   assert.equal(await probeCloudRuntime({ config, fetchImpl: async url => String(url).includes('/agents/')
     ? Response.json({ version: 2, tools: ['forbidden'] }) : Response.json({ ret: 200, data: true }) }), false);
+});
+
+test('watchdog daemon retains a referenced timer so systemd keeps it alive', async () => {
+  const source = await readFile(new URL('./cloud-watchdog.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /interval\.unref\(\)/);
 });

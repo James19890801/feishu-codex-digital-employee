@@ -72,7 +72,6 @@ async function main() {
     const result = await runCloudWatchdogOnce({ store, enabled, readinessProbe });
     if (result.promoted) process.stdout.write(`cloud_watchdog_promoted g${result.generation}\n`);
   }, 5_000);
-  interval.unref();
   await runCloudWatchdogOnce({ store, enabled, readinessProbe });
   await new Promise(resolve => process.once('SIGTERM', resolve));
   clearInterval(interval);
