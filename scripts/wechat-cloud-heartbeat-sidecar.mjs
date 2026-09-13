@@ -44,7 +44,26 @@ export async function runWechatHeartbeatOnce({ paritySync, controlClient, fetchI
       : await controlClient.recoveryHeartbeat({ healthy });
     return { accepted: true, generation: recovery.generation, state: recovery.state };
   }
-  const parity = await paritySync.reconcile();
+  let parity;
+  let takeoverSafe = healthy;
+  if (typeof paritySync.status === 'function' && typeof paritySync.manifestSource === 'function') {
+    const [remote, local] = await Promise.all([paritySync.status(), paritySync.manifestSource()]);
+    if (remote.digest === local.digest && Number.isSafeInteger(remote.workerSequence)
+      && remote.workerSequence >= 1) {
+      parity = { digest: remote.digest, workerSequence: remote.workerSequence };
+    } else {
+      // A policy upload may be slow when the local state store is busy. Keep the
+      // local owner alive with the last cloud-confirmed policy, but explicitly
+      // veto takeover until the newest local policy has been acknowledged.
+      try { parity = await paritySync.reconcile(); }
+      catch {
+        parity = { digest: remote.digest, workerSequence: remote.workerSequence };
+        takeoverSafe = false;
+      }
+    }
+  } else {
+    parity = await paritySync.reconcile();
+  }
   if (!/^[a-f0-9]{64}$/.test(String(parity?.digest || ''))
     || !Number.isSafeInteger(parity?.workerSequence) || parity.workerSequence < 1) {
     throw new Error('cloud_parity_unacknowledged');
@@ -52,7 +71,7 @@ export async function runWechatHeartbeatOnce({ paritySync, controlClient, fetchI
   const generation = await controlClient.localGeneration();
   return controlClient.heartbeat({ generation, bootId, policyDigest: parity.digest,
     criticalStateSequence: parity.workerSequence,
-    channels: { wechat: healthy, dingtalk: false } });
+    channels: { wechat: takeoverSafe, dingtalk: false } });
 }
 
 async function delay(ms, signal) {
@@ -68,7 +87,7 @@ export async function runSidecar({ signal, root = process.env.AIPRO_HOME || DEFA
   const [parityToken, controlToken] = [keychainSecret('ai.aipro.cloud-parity', 'token'),
     keychainSecret('ai.aipro.cloud-control', 'token')];
   const paritySync = new CloudParitySync({ baseUrl: origin, token: parityToken, workerId: 'mac',
-    manifestSource: () => collectParityManifest({ root }) });
+    manifestSource: () => collectParityManifest({ root }), timeoutMs: 5_000 });
   const controlClient = new AliyunControlClient({ baseUrl: origin,
     tokenSupplier: async () => controlToken });
   const bootId = `sidecar_${randomBytes(12).toString('hex')}`;

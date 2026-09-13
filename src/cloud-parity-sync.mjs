@@ -1,11 +1,12 @@
 export class CloudParitySync {
-  constructor({ baseUrl, token, workerId = 'mac', manifestSource, fetchImpl = fetch }) {
+  constructor({ baseUrl, token, workerId = 'mac', manifestSource, fetchImpl = fetch, timeoutMs = 30_000 }) {
     const url = new URL(String(baseUrl));
     if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
       throw new Error('cloud parity requires an HTTPS origin without credentials');
     }
     if (!token || !/^[A-Za-z0-9_-]{1,64}$/.test(workerId)
-      || typeof manifestSource !== 'function' || typeof fetchImpl !== 'function') {
+      || typeof manifestSource !== 'function' || typeof fetchImpl !== 'function'
+      || !Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 30_000) {
       throw new Error('invalid cloud parity client configuration');
     }
     this.baseUrl = url.origin;
@@ -13,6 +14,7 @@ export class CloudParitySync {
     this.workerId = workerId;
     this.manifestSource = manifestSource;
     this.fetchImpl = fetchImpl;
+    this.timeoutMs = timeoutMs;
   }
 
   async request(path, options = {}) {
@@ -20,7 +22,7 @@ export class CloudParitySync {
       ...options,
       headers: { authorization: `Bearer ${this.token}`,
         ...(options.body ? { 'content-type': 'application/json' } : {}) },
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(this.timeoutMs),
     });
     let result;
     try { result = await response.json(); } catch { throw new Error('cloud_parity_invalid_response'); }
@@ -32,7 +34,7 @@ export class CloudParitySync {
 
   async reconcile() {
     const manifest = await this.manifestSource();
-    const status = await this.request(`/parity/status?workerId=${encodeURIComponent(this.workerId)}`);
+    const status = await this.status();
     if (!Number.isSafeInteger(status.workerSequence) || status.workerSequence < 0) {
       throw new Error('cloud_parity_invalid_sequence');
     }
@@ -47,5 +49,9 @@ export class CloudParitySync {
     if (updated.digest !== manifest.digest) throw new Error('cloud_parity_digest_mismatch');
     return { changed: true, revision: updated.revision, digest: manifest.digest,
       workerSequence };
+  }
+
+  async status() {
+    return this.request(`/parity/status?workerId=${encodeURIComponent(this.workerId)}`);
   }
 }
