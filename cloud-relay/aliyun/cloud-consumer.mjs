@@ -150,18 +150,23 @@ export async function consumeActiveOnce({ store, worker, enabled = false, now = 
 }
 
 export async function consumeShadowOnce({ store, enabled = false, now = Date.now() } = {}) {
-  if (enabled !== true) return { leased: 0, parsed: 0, malformed: 0, acknowledged: 0, skipped: 'disabled' };
+  if (enabled !== true) return { leased: 0, parsed: 0, normalized: 0, malformed: 0, acknowledged: 0, skipped: 'disabled' };
   const leader = store?.leadershipStatus?.();
   if (leader?.state !== 'CLOUD_ACTIVE' || leader?.owner !== 'cloud') {
-    return { leased: 0, parsed: 0, malformed: 0, acknowledged: 0, skipped: 'not_cloud_leader' };
+    return { leased: 0, parsed: 0, normalized: 0, malformed: 0, acknowledged: 0, skipped: 'not_cloud_leader' };
   }
   const lease = await store.lease({ now, leaseMs: 30_000, limit: 10 });
   let parsed = 0;
+  let normalized = 0;
   let malformed = 0;
   for (const event of lease.events || []) {
-    try { JSON.parse(String(event.body || '')); parsed += 1; } catch { malformed += 1; }
+    try {
+      const callback = JSON.parse(String(event.body || ''));
+      parsed += 1;
+      if (normalizeCloudGeWeText(callback)) normalized += 1;
+    } catch { malformed += 1; }
   }
-  return { leased: (lease.events || []).length, parsed, malformed, acknowledged: 0, generation: leader.generation };
+  return { leased: (lease.events || []).length, parsed, normalized, malformed, acknowledged: 0, generation: leader.generation };
 }
 
 async function main() {
