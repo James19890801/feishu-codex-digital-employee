@@ -16,6 +16,9 @@ install -d -m 0755 -o root -g root /opt/aipro-wechat-relay/aliyun
 install -d -m 0750 -o root -g aipro-wechat-relay /etc/aipro-wechat-relay
 install -m 0644 "$source_dir/main.mjs" "$source_dir/server.mjs" "$source_dir/store.mjs" "$source_dir/parity-config.mjs" /opt/aipro-wechat-relay/aliyun/
 install -m 0644 "$source_dir/../../src/qoder-managed-runtime.mjs" /opt/aipro-wechat-relay/aliyun/qoder-runtime.mjs
+install -m 0644 "$source_dir/../../src/im-channels.mjs" /opt/aipro-wechat-relay/aliyun/im-channels.mjs
+install -m 0644 "$source_dir/../../src/human-takeover.mjs" /opt/aipro-wechat-relay/aliyun/human-takeover.mjs
+install -m 0644 "$source_dir/../../src/multimodal-content.mjs" /opt/aipro-wechat-relay/aliyun/multimodal-content.mjs
 install -m 0644 "$source_dir/cloud-watchdog.mjs" /opt/aipro-wechat-relay/aliyun/cloud-watchdog.mjs
 install -m 0644 "$source_dir/cloud-consumer.mjs" /opt/aipro-wechat-relay/aliyun/cloud-consumer.mjs
 install -d -m 0755 /opt/aipro-wechat-relay/worker/src

@@ -1,6 +1,66 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { consumeShadowOnce, createCloudWechatWorker, createCloudGeWeClient } from './cloud-consumer.mjs';
+import { consumeShadowOnce, createCloudWechatWorker, createCloudGeWeClient, normalizeCloudGeWeText } from './cloud-consumer.mjs';
+
+test('cloud normalizer retains a directly mentioned V1 group message and its actual sender', () => {
+  const event = normalizeCloudGeWeText({
+    TypeName: 'AddMsg', Appid: 'wx-app', Wxid: 'self-wxid',
+    Data: {
+      MsgType: 1, NewMsgId: 'group-1',
+      FromUserName: { string: 'room-1@chatroom' }, ToUserName: { string: 'self-wxid' },
+      Content: { string: 'member-wxid:\n@小詹 帮我看看' },
+      MsgSource: '<msgsource><atuserlist><![CDATA[self-wxid]]></atuserlist></msgsource>',
+    },
+  }, { mentionNames: ['小詹'] });
+  assert.equal(event.message.chat_id, 'wechat:group:room-1@chatroom');
+  assert.equal(event.sender.sender_id.open_id, 'wechat:member-wxid');
+  assert.equal(JSON.parse(event.message.content).text, '@小詹 帮我看看');
+  assert.equal(event.metadata.explicitBotMention, true);
+});
+
+test('cloud worker never responds to an unmentioned group message even when chat policy allows it', async () => {
+  const store = {
+    leadershipStatus: () => ({ state: 'CLOUD_ACTIVE', owner: 'cloud', generation: 8 }),
+    getCurrentPolicy: () => ({ digest: 'a'.repeat(64), manifest: { sections: {
+      config: { data: { allowAllChats: true } }, state: { data: {} }, persona: { data: '' }, instructions: { data: '' },
+    } } }),
+  };
+  const worker = createCloudWechatWorker({ store,
+    runtime: { execute: async () => { throw new Error('must not invoke runtime'); } },
+    gewe: { sendText: async () => { throw new Error('must not send'); } },
+  });
+  const result = await worker.process({ body: JSON.stringify({
+    TypeName: 'AddMsg', Appid: 'wx-app', Wxid: 'self-wxid',
+    Data: { MsgType: 1, NewMsgId: 'group-2', FromUserName: { string: 'room-1@chatroom' },
+      ToUserName: { string: 'self-wxid' }, Content: { string: 'member-wxid:\n普通群消息' }, MsgSource: '<msgsource></msgsource>' },
+  }) });
+  assert.deepEqual(result, { outcome: 'skipped', reason: 'unsupported_callback' });
+});
+
+test('cloud worker requires and forwards a resolved group mention before sending', async () => {
+  const calls = [];
+  const store = {
+    leadershipStatus: () => ({ state: 'CLOUD_ACTIVE', owner: 'cloud', generation: 8 }),
+    getCurrentPolicy: () => ({ digest: 'a'.repeat(64), manifest: { sections: {
+      config: { data: { allowAllChats: true, geweMentionNames: ['小詹'] } }, state: { data: {} }, persona: { data: '' }, instructions: { data: '' },
+    } } }),
+    claimEvent: () => ({ claimed: true, claimKey: 'c'.repeat(64) }),
+    prepareSend: () => ({ shouldSend: true, intentKey: 'i'.repeat(64) }),
+    recordSendReceipt: input => calls.push(['receipt', input]), completeClaim: () => {},
+  };
+  const worker = createCloudWechatWorker({ store, runtime: { execute: async () => ({ text: '收到' }) },
+    gewe: { prepareGroupMention: async input => { calls.push(['mention', input]); return { content: '@成员\n收到', ats: 'member-wxid' }; },
+      sendText: async input => { calls.push(['send', input]); return { ret: 200, data: { newMsgId: 'reply-1' } }; } },
+  });
+  const result = await worker.process({ body: JSON.stringify({
+    TypeName: 'AddMsg', Appid: 'wx-app', Wxid: 'self-wxid',
+    Data: { MsgType: 1, NewMsgId: 'group-3', FromUserName: { string: 'room-1@chatroom' }, ToUserName: { string: 'self-wxid' },
+      Content: { string: 'member-wxid:\n@小詹 帮我看看' }, MsgSource: '<msgsource><atuserlist><![CDATA[self-wxid]]></atuserlist></msgsource>' },
+  }) });
+  assert.equal(result.outcome, 'replied');
+  assert.deepEqual(calls.find(([kind]) => kind === 'mention')[1], { chatroomId: 'room-1@chatroom', atWxids: ['member-wxid'], text: '收到' });
+  assert.deepEqual(calls.find(([kind]) => kind === 'send')[1], { toWxid: 'room-1@chatroom', content: '@成员\n收到', ats: 'member-wxid', intentKey: 'i'.repeat(64) });
+});
 
 test('shadow consumer leases only when cloud owns the generation and never acknowledges', async () => {
   const calls = [];

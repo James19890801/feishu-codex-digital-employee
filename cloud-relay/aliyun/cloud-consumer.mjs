@@ -3,40 +3,15 @@ import { pathToFileURL } from 'node:url';
 import { SqliteRelayStore } from './store.mjs';
 import { parseParityConfig } from './parity-config.mjs';
 import { QoderManagedRuntime } from './qoder-runtime.mjs';
+import { normalizeGeWeWebhook } from './im-channels.mjs';
 
-const EVENT_ID = /^[A-Za-z0-9_-]{1,256}$/;
-
-function text(value) {
-  if (typeof value === 'string') return value;
-  if (value && typeof value === 'object' && typeof value.string === 'string') return value.string;
-  return '';
-}
-
-// The relay stores the original callback.  Keep the cloud normalizer narrow:
-// only ordinary text callbacks are eligible for autonomous replies.  Media,
-// system, malformed and self-originated callbacks remain unacknowledged.
-export function normalizeCloudGeWeText(callback) {
-  const v1 = Boolean(callback?.Data);
-  const data = v1 ? callback.Data : callback;
-  const appId = String(v1 ? callback?.Appid : callback?.appid || '').trim();
-  const selfWxid = String(v1 ? callback?.Wxid : callback?.wxid || '').trim();
-  const type = v1 ? Number(data?.MsgType) : String(data?.msgType || '').toUpperCase();
-  const isText = v1 ? String(callback?.TypeName || '') === 'AddMsg' && type === 1 : type === 'TEXT';
-  if (!isText || !appId || !selfWxid) return null;
-  const from = text(v1 ? data?.FromUserName : data?.fromUser).trim();
-  const to = text(v1 ? data?.ToUserName : data?.toUser).trim();
-  const content = text(v1 ? data?.Content : data?.content).trim();
-  const messageId = text(v1 ? data?.NewMsgId : data?.newMsgId).trim();
-  if (!from || !content || !EVENT_ID.test(messageId) || from === selfWxid) return null;
-  const group = from.endsWith('@chatroom') || to.endsWith('@chatroom');
-  const target = group ? (from.endsWith('@chatroom') ? from : to) : from;
-  const sender = group ? String(v1 ? '' : data?.senderWxid || data?.sender || '').trim() : from;
-  if (!target || (group && !sender)) return null;
-  return { message: { message_id: `wechat:${appId}:${messageId}`,
-    chat_id: `wechat:${group ? 'group' : 'user'}:${target}`, chat_type: group ? 'group' : 'p2p',
-    message_type: 'text', content: JSON.stringify({ text: content }) },
-  sender: { sender_type: 'user', sender_id: { open_id: `wechat:${sender}` } },
-  metadata: { channel: 'wechat', appId, callbackVersion: v1 ? 'v1' : 'v2' } };
+// Use the same parser as the primary runtime.  Cloud autonomous replies are
+// intentionally narrower than ingestion: only normal text events can reach
+// the model, while full metadata preserves sender and @-mention semantics.
+export function normalizeCloudGeWeText(callback, { mentionNames = [] } = {}) {
+  const event = normalizeGeWeWebhook(callback, { mentionNames });
+  if (!event || event.message?.message_type !== 'text' || event.metadata?.contextOnly || event.metadata?.ownerActivity) return null;
+  return event;
 }
 
 function policyAllows(event, manifest) {
@@ -45,6 +20,7 @@ function policyAllows(event, manifest) {
   const paused = Array.isArray(state.settings) && state.settings.some(row => row?.key === 'assistant_paused'
     && ['1', 'true', 'yes', true].includes(row?.value));
   if (paused) return false;
+  if (event?.message?.chat_type === 'group' && event?.metadata?.explicitBotMention !== true) return false;
   const allowed = Array.isArray(config.authorizedChatIds) ? config.authorizedChatIds : [];
   return config.allowAllChats === true || allowed.includes(event.message.chat_id);
 }
@@ -67,18 +43,34 @@ export function createCloudGeWeClient({ appId, token, fetchImpl = fetch } = {}) 
   if (!configuredAppId || configuredToken.length < 24 || typeof fetchImpl !== 'function') {
     throw new TypeError('cloud_gewe_configuration_required');
   }
-  return { async sendText({ toWxid, content } = {}) {
-    const target = String(toWxid || '').trim();
-    const text = String(content || '').trim();
-    if (!target || !text || text.length > 16_000) throw new Error('invalid_cloud_gewe_send');
-    const response = await fetchImpl('https://api.geweapi.com/gewe/v2/api/message/postText', {
+  async function request(path, body) {
+    const response = await fetchImpl(`https://api.geweapi.com${path}`, {
       method: 'POST', headers: { 'content-type': 'application/json', 'X-GEWE-TOKEN': configuredToken },
-      body: JSON.stringify({ appId: configuredAppId, toWxid: target, content: text }), signal: AbortSignal.timeout(30_000),
+      body: JSON.stringify({ appId: configuredAppId, ...body }), signal: AbortSignal.timeout(30_000),
     });
     let payload;
     try { payload = await response.json(); } catch { throw new Error('wechat_send_unconfirmed'); }
     if (!response.ok || Number(payload?.ret) !== 200) throw new Error('wechat_send_unconfirmed');
     return payload;
+  }
+  return { async prepareGroupMention({ chatroomId, atWxids = [], text: replyText } = {}) {
+    const target = String(chatroomId || '').trim();
+    const wxids = [...new Set((Array.isArray(atWxids) ? atWxids : [atWxids])
+      .map(value => String(value || '').replace(/^wechat:/, '').trim()).filter(Boolean))].slice(0, 20);
+    if (!target.endsWith('@chatroom') || !wxids.length) throw new Error('invalid_cloud_gewe_group_mention');
+    const membersPayload = await request('/gewe/v2/api/group/getChatroomMemberList', { chatroomId: target });
+    const members = Array.isArray(membersPayload?.data?.memberList) ? membersPayload.data.memberList : [];
+    const memberById = new Map(members.map(member => [String(member?.wxid || '').trim(), String(member?.displayName || member?.nickName || '').trim()]));
+    const missing = wxids.find(wxid => !memberById.get(wxid));
+    if (missing) throw new Error('required_cloud_gewe_group_member_missing');
+    const labels = wxids.map(wxid => `@${memberById.get(wxid).replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 100)}`);
+    return { content: `${labels.join(' ')}\n${String(replyText || '').trim()}`, ats: wxids.join(',') };
+  }, async sendText({ toWxid, content, ats = '' } = {}) {
+    const target = String(toWxid || '').trim();
+    const message = String(content || '').trim();
+    const normalizedAts = [...new Set(String(ats || '').split(',').map(value => value.replace(/^wechat:/, '').trim()).filter(Boolean))].slice(0, 20).join(',');
+    if (!target || !message || message.length > 16_000 || (normalizedAts && !target.endsWith('@chatroom'))) throw new Error('invalid_cloud_gewe_send');
+    return request('/gewe/v2/api/message/postText', { toWxid: target, content: message, ...(normalizedAts ? { ats: normalizedAts } : {}) });
   } };
 }
 
@@ -89,11 +81,12 @@ export function createCloudWechatWorker({ store, runtime, gewe, now = Date.now }
   return { async process(item) {
     let callback;
     try { callback = JSON.parse(String(item?.body || '')); } catch { return { outcome: 'skipped', reason: 'malformed_callback' }; }
-    const event = normalizeCloudGeWeText(callback);
+    const policy = store.getCurrentPolicy();
+    const mentionNames = policy?.manifest?.sections?.config?.data?.geweMentionNames || [];
+    const event = normalizeCloudGeWeText(callback, { mentionNames });
     if (!event) return { outcome: 'skipped', reason: 'unsupported_callback' };
     const leader = store.leadershipStatus();
     if (leader?.state !== 'CLOUD_ACTIVE' || leader?.owner !== 'cloud') return { outcome: 'fenced', reason: 'not_cloud_leader' };
-    const policy = store.getCurrentPolicy();
     if (!policy?.digest || !policyAllows(event, policy.manifest)) return { outcome: 'skipped', reason: 'policy_denied' };
     const claim = store.claimEvent({ worker: 'cloud', generation: leader.generation, channel: 'wechat',
       sourceEventId: event.message.message_id, now: now() });
@@ -113,7 +106,11 @@ export function createCloudWechatWorker({ store, runtime, gewe, now = Date.now }
     let provider;
     try {
       const target = event.message.chat_id.replace(/^wechat:(?:user|group):/, '');
-      provider = await gewe.sendText({ toWxid: target, content: response.text.trim(), intentKey: intent.intentKey });
+      const group = event.message.chat_type === 'group';
+      const prepared = group ? await gewe.prepareGroupMention({ chatroomId: target,
+        atWxids: [String(event.sender?.sender_id?.open_id || '').replace(/^wechat:/, '')], text: response.text.trim() }) : null;
+      provider = await gewe.sendText({ toWxid: target, content: prepared?.content || response.text.trim(),
+        ...(prepared?.ats ? { ats: prepared.ats } : {}), intentKey: intent.intentKey });
     } catch {
       store.recordSendReceipt({ intentKey: intent.intentKey, generation: leader.generation, status: 'ambiguous', now: now() });
       throw new Error('ambiguous_cloud_send');
