@@ -81,4 +81,33 @@ export class AliyunControlClient {
     }
     return { accepted: true, generation: data.generation };
   }
+
+  async recoveryHeartbeat({ healthy } = {}) {
+    if (typeof healthy !== 'boolean') throw new TypeError('recovery_health_required');
+    return this.#controlAction('/control/recovery', { healthy });
+  }
+
+  async finishCloudDrain() {
+    return this.#controlAction('/control/drain-complete', {});
+  }
+
+  async #controlAction(path, body) {
+    const token = await this.tokenSupplier();
+    if (!token) throw fail('control_token_unavailable');
+    let response;
+    try {
+      response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        method: 'POST', body: JSON.stringify(body),
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json',
+          accept: 'application/json' },
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch { throw fail('coordinator_unavailable'); }
+    if (!response.ok) throw fail('coordinator_unavailable');
+    let data;
+    try { data = await response.json(); } catch { throw fail('invalid_coordinator_response'); }
+    if (data?.ok !== true || !['LOCAL_PRIMARY', 'CLOUD_ACTIVE', 'DRAINING'].includes(data?.state)
+      || !Number.isSafeInteger(data?.generation)) throw fail('invalid_coordinator_response');
+    return data;
+  }
 }

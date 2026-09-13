@@ -64,6 +64,8 @@ export function createRelayServer({ store, callbackSecret, relayToken, artifactT
           ['/control/start', 'startLocalLeadership'],
           ['/control/heartbeat', 'heartbeatLocal'],
           ['/control/main-heartbeat', 'recordMainHeartbeat'],
+          ['/control/recovery', 'recoveryHeartbeat'],
+          ['/control/drain-complete', 'finishCloudDrain'],
           ['/control/claim', 'claimEvent'],
           ['/control/intent', 'prepareSend'],
           ['/control/receipt', 'recordSendReceipt'],

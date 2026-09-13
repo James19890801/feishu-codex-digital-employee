@@ -35,10 +35,22 @@ export async function runWechatHeartbeatOnce({ paritySync, controlClient, fetchI
     || !Number.isSafeInteger(parity?.workerSequence) || parity.workerSequence < 1) {
     throw new Error('cloud_parity_unacknowledged');
   }
+  const healthy = evaluateMainWechatReadiness(status);
+  // Keep the one-shot function usable with the lightweight test/control doubles
+  // used by the local supervisor; the production client always exposes status().
+  const leadership = typeof controlClient.status === 'function'
+    ? await controlClient.status()
+    : { state: 'LOCAL_PRIMARY', owner: 'mac' };
+  if (leadership.state === 'CLOUD_ACTIVE' || leadership.state === 'DRAINING') {
+    const recovery = leadership.state === 'DRAINING'
+      ? await controlClient.finishCloudDrain()
+      : await controlClient.recoveryHeartbeat({ healthy });
+    return { accepted: true, generation: recovery.generation, state: recovery.state };
+  }
   const generation = await controlClient.localGeneration();
   return controlClient.heartbeat({ generation, bootId, policyDigest: parity.digest,
     criticalStateSequence: parity.workerSequence,
-    channels: { wechat: evaluateMainWechatReadiness(status), dingtalk: false } });
+    channels: { wechat: healthy, dingtalk: false } });
 }
 
 async function delay(ms, signal) {
