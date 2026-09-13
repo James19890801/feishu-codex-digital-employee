@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 
-const BASE_URL = 'https://api.qoder.com/api/v1/cloud';
+// The production Qoder Cloud tenant for this runtime is the China endpoint.
+// Keeping provisioning aligned with runtime/persona sync avoids creating an
+// unusable fallback with a token that is valid only on api.qoder.com.cn.
+const BASE_URL = 'https://api.qoder.com.cn/api/v1/cloud';
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 
 function emptyList(value) { return Array.isArray(value) && value.length === 0; }
