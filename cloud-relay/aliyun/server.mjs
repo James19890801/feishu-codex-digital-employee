@@ -148,7 +148,16 @@ export function createRelayServer({ store, callbackSecret, relayToken, artifactT
       }
       if (url.pathname === '/relay/status' && request.method === 'GET') {
         if (!authorizeBearer(request.headers.authorization, relayToken)) return reply(response, 401, { ok: false });
-        return reply(response, 200, await store.status({ now: now() }));
+        const [queue, leader] = await Promise.all([
+          store.status({ now: now() }),
+          Promise.resolve(typeof store.leadershipStatus === 'function' ? store.leadershipStatus() : null),
+        ]);
+        // The relay token may observe leadership but never change it.  Both
+        // consumers use this before leasing so a recovered Mac cannot race a
+        // still-active cloud generation.
+        return reply(response, 200, { ...queue, leadership: leader ? {
+          state: leader.state, owner: leader.owner, generation: leader.generation,
+        } : null });
       }
       if (url.pathname.startsWith('/relay/artifacts/') && request.method === 'PUT') {
         if (!authorizeBearer(request.headers.authorization, artifactToken)) return reply(response, 401, { ok: false });

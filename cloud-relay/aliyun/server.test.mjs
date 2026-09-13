@@ -16,6 +16,7 @@ async function start(options = {}) {
     async lease(input) { calls.push(['lease', input]); return { events: [] }; },
     async ack(input) { calls.push(['ack', input]); return { acked: input.ids.length }; },
     async status() { return { pending: 0, leased: 0, total: 0 }; },
+    leadershipStatus() { return null; },
     async putArtifact() { return undefined; },
     async getArtifact() { return null; },
   };

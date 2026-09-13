@@ -11,6 +11,7 @@ test('delivers leased webhook locally and acknowledges only accepted events', as
   const requests = [];
   const fetchImpl = async (url, options = {}) => {
     requests.push({ url: String(url), options });
+    if (String(url).endsWith('/relay/status')) return Response.json({ leadership: { state: 'LOCAL_PRIMARY', owner: 'mac', generation: 1 } });
     if (String(url).endsWith('/relay/lease')) {
       return Response.json({ events: [
         { id: 'a'.repeat(64), body: '{"ok":1}' },
@@ -32,6 +33,23 @@ test('delivers leased webhook locally and acknowledges only accepted events', as
   assert.deepEqual(result, { leased: 2, delivered: 1, failed: 1, acked: 1 });
   const ack = requests.find(item => item.url.endsWith('/relay/ack'));
   assert.deepEqual(JSON.parse(ack.options.body), { ids: ['a'.repeat(64)] });
+});
+
+test('does not lease events while a cloud generation owns the relay', async () => {
+  const requests = [];
+  const result = await pollRelayOnce({
+    relayOrigin: 'https://relay.example', relayToken: 'r'.repeat(32),
+    localWebhookUrl: 'http://127.0.0.1:17656/webhooks/gewe/local-secret-abcdefghijkl',
+    fetchImpl: async (url, options = {}) => {
+      requests.push({ url: String(url), options });
+      if (String(url).endsWith('/relay/status')) {
+        return Response.json({ leadership: { state: 'CLOUD_ACTIVE', owner: 'cloud', generation: 2 } });
+      }
+      throw new Error('the Mac must not lease while cloud is active');
+    },
+  });
+  assert.deepEqual(result, { leased: 0, delivered: 0, failed: 0, acked: 0, skipped: 'not_local_leader' });
+  assert.equal(requests.some(request => request.url.endsWith('/relay/lease')), false);
 });
 
 test('does not acknowledge when local webhook is unavailable', async () => {

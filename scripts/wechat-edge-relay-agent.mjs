@@ -74,6 +74,17 @@ export async function pollRelayOnce({
   const token = String(relayToken || '');
   if (token.length < 24) throw new Error('Relay token is invalid');
   const authorization = `Bearer ${token}`;
+  const statusResponse = await fetchImpl(`${origin}/relay/status`, {
+    headers: { authorization }, signal: AbortSignal.timeout(10_000),
+  });
+  if (!statusResponse.ok) throw new Error(`Relay status failed with HTTP ${statusResponse.status}`);
+  const status = await statusResponse.json();
+  // Legacy coordinators omit leadership. New coordinators fail closed while
+  // cloud owns the generation, preventing dual delivery after recovery.
+  if (status?.leadership && (status.leadership.state !== 'LOCAL_PRIMARY'
+    || status.leadership.owner !== 'mac')) {
+    return { leased: 0, delivered: 0, failed: 0, acked: 0, skipped: 'not_local_leader' };
+  }
   const leaseResponse = await fetchImpl(`${origin}/relay/lease`, {
     method: 'POST',
     headers: { authorization, 'content-type': 'application/json' },
