@@ -66,7 +66,8 @@ export async function runSidecar({ signal, root = process.env.AIPRO_HOME || DEFA
       if (state !== previous) process.stdout.write(`wechat_cloud_heartbeat ${state}\n`);
       previous = state;
     } catch (error) {
-      const state = `error:${String(error?.code || error?.message || error).slice(0, 120)}`;
+      const cause = String(error?.code || error?.name || error?.message || error).slice(0, 120);
+      const state = `error:${cause}`;
       if (state !== previous) process.stderr.write(`wechat_cloud_heartbeat ${state}\n`);
       previous = state;
     }
